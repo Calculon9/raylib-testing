@@ -3,12 +3,11 @@
 CIRCLOID MODULE
 *
 **********************************************************************************************/
-#ifndef CIRCLOID_H
-#define CIRCLOID_H
+#ifndef CONTAINER_RECT_H
+#define CONTAINER_RECT_H
 #include <stddef.h>
 #include "math/cvectors.h"
-#include "colour/colour.h"
-#include "physics/newton_object.h"
+#include "physics/rectangloid.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
@@ -19,11 +18,10 @@ CIRCLOID MODULE
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
-typedef struct {
-    NewtonObject2d object;
-    ColourRgba colourRgba;
-    float radius;
-} Circloid;
+typedef struct Container_Rect {
+    Rectangloid rect;
+    void *items;
+} Container_Rect;
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
@@ -32,7 +30,7 @@ typedef struct {
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-Circloid CreateCircloid(float radius, ColourRgba colour, size_t mass, Vector2d position, Velocity2d velocity, Acceleration2d acceleration);
-Circloid CreateCircloid_FromObject(NewtonObject2d newtOb, float radius, ColourRgba colour);
-void Circloid_GetCollisionObjects(Circloid circ);
+Container_Rect CreateContainer_Rect(Rectangloid object, void *items);
+//Rectangloid CreateRectangloid_FromObject(NewtonObject2d newtOb, float height, float width, ColourRgba colour);
+void Container_Rect_GetCollisionObjects(Rectangloid rect);
 #endif

@@ -33,10 +33,11 @@ void InitUtilities();
 void UpdateUtilities();
 void UpdateFps();
 void InitFps();
-void CalculateFps();
+//void CalculateFps();
 FPS GetFps();
 double GetPreciseTime();
-float GetCurrentMemoryAllocated();
+float GetFrameDeltaTime();
+size_t GetCurrentMemoryAllocated();
 
 //Vector3 vector3_sum_array (Vector3 *array, size_t count);
 //Vector3* vector3_sum_array_dynamic(Vector3 *array, size_t count);

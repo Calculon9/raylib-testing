@@ -1,133 +1,121 @@
-// #include <stdio.h>
-// #include <stdlib.h>
-// #include <string.h>
-// #include "collections/dynamic_array.h"
-// #include "memory/cmemory.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+#include "collections/collection.h"
+#include "memory/cmemory.h"
 
-// // Create a new queue with specified element size and count
-// DynamicArray *NewDynamicArray(int elemCount, size_t elemSize)
-// {
-//     DynamicArray da;
-//     da.elemSize = elemSize;
-//     da.capacity = elemCount;
-//     da.count = 0;
-//     da.front = 0; // Front points to the next item to be popped
-//     da.rear = 0;  // Rear points to the next empty slot where data will be written
-//     da.enumeratorIndex = 0;
-//     da.items = allocate_collection(elemCount, elemSize);
+//----------------------------------------------------------------------------------
+// Global Variables Definition (local to this module)
+//void AdjustFrontRear(Collection *c);
 
-//     // Simple safety check
-//     if (da.items == NULL)
-//     {
-//         fprintf(stderr, "Failed to allocate memory for Dynamic Array!\n");
-//         da.capacity = 0; // Ensure nothing can be pushed
-//     }
-//     return &da;
-// }
 
-// DynamicArray *push(DynamicArray *da, void *item)
-// {
-//     if (da == NULL || da->count >= da->capacity)
-//     {
-//         fprintf(stderr, "Array is full! Cannot push new item.\n");
-//         return da; // Keep the return consistent with the signature
-//     }
 
-//     // 1. Calculate the address using the CURRENT rear (e.g., 0)
-//     // We cast it to a char * because the size of a char is guaranteed to be exactly 1 byte.
-//     // Otherwise pointer arithmetic would be scaled by the size of the type pointed to, which is not what we want here since we're treating it as a raw byte array.
-//     void *target = (char *)da->items + (da->rear * da->elemSize);
+// Create a new queue with specified element size and count
+Collection *NewCollection(int elemCount, size_t elemSize)
+{
+    Collection *c = AllocateBytes(sizeof(Collection));
+    c->elemSize = elemSize;
+    c->capacity = elemCount;
+    c->count = 0;
+    c->front = 0; // Front points to the next item to be popped
+    c->rear = 0;  // Rear points to the next empty slot where data will be written
+    c->enumeratorIndex = 0;
+    c->enumerationCount = 0;
+    c->items = AllocateCollection(elemCount, elemSize);
 
-//     // 2. Put the data there
-//     memcpy(target, item, da->elemSize);
+    // Simple safety check
+    if (c->items == NULL)
+    {
+        fprintf(stderr, "Failed to allocate memory for Dynamic Array!\n");
+        c->capacity = 0; // Ensure nothing can be pushed
+    }
+    return c;
+}
 
-//     // 3. Now move the rear for the NEXT push
-//     // This correctly wraps around to 0 only AFTER the last slot is filled
-//     da->rear = (da->rear + 1) % da->capacity;
+// Enumerate through the collection, returning a pointer to each item until we hit rear (the next empty slot), at which point we reset the enumerator and return NULL to signal the end of enumeration.
+void *Enumerate(Collection *c)
+{
+    // Rear points to the next empty slot where data will be written, so we want to stop enumerating once we hit rear, not capacity
+    if (c == NULL || c->count == 0) return NULL;
 
-//     da->count++;
+    // Reset if we've enumerated all items (safety check using enumerationCount to prevent infinite loops in case of bugs)
+    if (c->enumerationCount == c->count)
+    {
+        ResetEnumerator(c); // Reset enumerator for the next time we want to enumerate
+        return NULL;
+    }
 
-//     return da;
-// }
+    // Calculate the address of the current enumerator index
+    void *item = (char *)c->items + (c->enumeratorIndex * c->elemSize);
 
-// DynamicArray *pop(DynamicArray *da, void *outItem)
-// {
-//     if (da == NULL || da->count <= 0)
-//     {
-//         fprintf(stderr, "Dynamic Array is empty! Cannot pop item.\n");
-//         return da;
-//     }
+    // Move the enumerator index to the next item for the next call and increment the enumeration count
+    c->enumeratorIndex = (c->enumeratorIndex + 1) % c->capacity;
+    c->enumerationCount++;
 
-//     // Calculate the address using the current FRONT index
-//     void *source = (char *)da->items + (da->front * da->elemSize);
+    return item;
+}
 
-//     // Copy the data out for the user
-//     if (outItem != NULL)
-//     {
-//         memcpy(outItem, source, da->elemSize);
-//     }
+void *ResetEnumerator(Collection *c) {
+    // Reset enumerator to the front
+    if (c != NULL) {
+        c->enumeratorIndex = c->front;
+        c->enumerationCount = 0; // Reset the progress tracker!
+    } 
+}
 
-//     // Update the front index (Wrap around if it hits capacity)
-//     da->front = (da->front + 1) % da->capacity;
+// Expand the collection's capacity by doubling it, and copying existing items to the new memory block. This is a common strategy for dynamic arrays to maintain amortized O(1) time complexity for push operations.
+bool GrowCollection(Collection *c)
+{
+    if (c == NULL) return false;
 
-//     da->enumeratorIndex = da->front; // Reset enumerator to the new front after a pop
+    int newCapacity = (c->capacity == 0) ? 4 : c->capacity * 2;
+    // Note: We use malloc here because we are manually re-ordering, 
+    // so we don't need realloc to copy the "old" scrambled order.
+    void *newItems = AllocateCollection(newCapacity, c->elemSize);
 
-//     da->count--;
+    if (newItems == NULL) return false;
 
-//     return da;
-// }
+    if (c->count > 0) 
+    {
+        // 1. Copy from 'front' to the physical end of the old buffer
+        int firstPartCount = c->capacity - c->front;
+        memcpy(newItems, (char *)c->items + (c->front * c->elemSize), firstPartCount * c->elemSize);
 
-// // Queue *pop(Queue *q, void *outItem)
-// // {
-// //     if (q == NULL || q->count <= 0)
-// //     {
-// //         fprintf(stderr, "Queue is empty! Cannot pop item.\n");
-// //         return q;
-// //     }
-// //     // Calculate the address of the front item
-// //     void *source = (char *)q->items; // Front item is always at the start of the block
-// //     memcpy(outItem, source, q->elemSize);
+        // 2. Copy the wrapped part (from 0 to rear) to immediately after the first part
+        if (c->front > 0) // Only need this if we actually wrapped
+        {
+            memcpy((char *)newItems + (firstPartCount * c->elemSize), c->items, c->rear * c->elemSize);
+        }
+    }
 
-// //     // Shift remaining items forward to fill the gap left by the popped item
-// //     //--void *memmove(void *dest, const void *src, size_t n)--
-// //     // dest: Where you want the data to go.
-// //     // src: Where the data is currently.
-// //     // n: How many bytes to move
-// //     //memmove(q->items, (char *)q->items + q->elemSize, (q->count - 1) * q->elemSize);
+    free(c->items); // Get rid of the old, scrambled buffer
+    
+    c->items = newItems;
+    c->capacity = newCapacity;
+    c->front = 0;        // Start is now at the beginning
+    c->rear = c->count;  // Next empty slot is at the end of the data
+    
+    return true;
+}
 
-// //     q->front = (q->front + 1) % q->capacity; // Update front index for circular buffer
-// //     q->count--;
 
-// //     return q;
-// // }
+// Get the current number of elements in the collection
+size_t GetElementCount(Collection *c)
+{   
+    if (c == NULL) return 0;
+    return c->count;
+}
 
-// //
-// void *Enumerate(DynamicArray *da)
-// {
-//     // Rear points to the next empty slot where data will be written, so we want to stop enumerating once we hit rear, not capacity
-//     if (da == NULL || da->enumeratorIndex == da->rear)
-//     {
-//         da->enumeratorIndex = da->front; // Reset enumerator for the next time we want to enumerate
-//         return NULL;
-//     }
-
-//     // Calculate the address of the current enumerator index
-//     void *item = (char *)da->items + (da->enumeratorIndex * da->elemSize);
-
-//     // Move the enumerator index to the next item for the next call
-//     da->enumeratorIndex = (da->enumeratorIndex + 1) % da->capacity;
-
-//     return item;
-// }
-
-// // Dispose of the array and free its memory
-// void dispose_array(DynamicArray *da)
-// {
-//     if (da->items != NULL)
-//     {
-//         deallocate_shallow(&da->items, da->capacity * da->elemSize);
-//         da->items = NULL;
-//     }
-//     da->count = 0;
-//     da->capacity = 0;
-// }
+// Dispose of the collection and free its memory
+void DisposeCollection(Collection *c)
+{
+    if(c == NULL) return;
+    if (c->items != NULL)
+    {
+        DeallocateShallow(&c->items, c->capacity * c->elemSize);
+        c->items = NULL;
+    }
+    c->count = 0;
+    c->capacity = 0;
+}

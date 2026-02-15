@@ -1,38 +1,32 @@
 /**********************************************************************************************
 *
-CIRCLOID MODULE
+WORLD MODULE
 *
 **********************************************************************************************/
-#ifndef CIRCLOID_H
-#define CIRCLOID_H
+#ifndef WORLD_H
+#define WORLD_H
 #include <stddef.h>
-#include "math/cvectors.h"
-#include "colour/colour.h"
-#include "physics/newton_object.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
-//#define NEW_CIRCLOID() AllocateBytes(sizeof(Circloid))
-//#define NEW_CIRCLOID() allocate_block(sizeof(Circloid))
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
-typedef struct {
-    NewtonObject2d object;
-    ColourRgba colourRgba;
-    float radius;
-} Circloid;
+typedef struct World {
+    float gravity;
+} World;
+
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
 //----------------------------------------------------------------------------------
+extern World world_1; 
 
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-Circloid CreateCircloid(float radius, ColourRgba colour, size_t mass, Vector2d position, Velocity2d velocity, Acceleration2d acceleration);
-Circloid CreateCircloid_FromObject(NewtonObject2d newtOb, float radius, ColourRgba colour);
-void Circloid_GetCollisionObjects(Circloid circ);
+
+
 #endif

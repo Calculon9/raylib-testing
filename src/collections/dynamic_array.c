@@ -1,80 +1,128 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 #include "collections/dynamic_array.h"
 #include "memory/cmemory.h"
+
+//----------------------------------------------------------------------------------
+// Global Variables Definition (local to this module)
+bool GrowDynamicArray(DynamicArray *da);
+
 
 // Create a new queue with specified element size and count
 DynamicArray *NewDynamicArray(int elemCount, size_t elemSize)
 {
-    DynamicArray *da = allocate_bytes(sizeof(DynamicArray));
-    da->elemSize = elemSize;
-    da->capacity = elemCount;
-    da->count = 0;
-    da->front = 0; // Front points to the next item to be popped
-    da->rear = 0;  // Rear points to the next empty slot where data will be written
-    da->enumeratorIndex = 0;
-    da->items = allocate_collection(elemCount, elemSize);
+    // Allocate memory for the DynamicArray struct itself
+    DynamicArray *da = AllocateBytes(sizeof(DynamicArray));
 
+    // Allocate memory for the internal Collection struct 
+    da->coll = NewCollection(elemCount, elemSize);
+    
     // Simple safety check
-    if (da->items == NULL)
+    if (da == NULL || da->coll == NULL)
     {
         fprintf(stderr, "Failed to allocate memory for Dynamic Array!\n");
-        da->capacity = 0; // Ensure nothing can be pushed
+        da->coll = NULL; // Ensure nothing can done on the collection if allocation failed
     }
     return da;
 }
 
-DynamicArray *pushArray(DynamicArray *da, void *item)
-{
-    if (da == NULL || da->count >= da->capacity)
+DynamicArray *Array_Push(DynamicArray *da, void *item)
+{  
+    if (da == NULL || da->coll == NULL)
     {
-        fprintf(stderr, "Array is full! Cannot push new item.\n");
+        fprintf(stderr, "The provided collection is NULL. Cannot push new item.\n");
         return da; // Keep the return consistent with the signature
+    }
+    // Check if we need to grow the array before pushing
+    if (da->coll->count >= da->coll->capacity)
+    {
+        if (!GrowDynamicArray(da))
+        {
+            fprintf(stderr, "Failed to grow array! Cannot push new item.\n");
+            return da; // Return without pushing if we failed to grow
+        }
     }
 
     // 1. Calculate the address using the CURRENT rear (e.g., 0)
     // We cast it to a char * because the size of a char is guaranteed to be exactly 1 byte.
     // Otherwise pointer arithmetic would be scaled by the size of the type pointed to, which is not what we want here since we're treating it as a raw byte array.
-    void *target = (char *)da->items + (da->rear * da->elemSize);
+    // We want pointer arithmetic to move in increments of elemSize, not sizeof(void*) or something else.
+    void *target = (char *)da->coll->items + (da->coll->rear * da->coll->elemSize);
 
     // 2. Put the data there
-    memcpy(target, item, da->elemSize);
+    memcpy(target, item, da->coll->elemSize);
 
     // 3. Now move the rear for the NEXT push
     // This correctly wraps around to 0 only AFTER the last slot is filled
-    da->rear = (da->rear + 1) % da->capacity;
+    da->coll->rear = (da->coll->rear + 1) % da->coll->capacity;
 
-    da->count++;
+    da->coll->count++;
 
     return da;
 }
 
-DynamicArray *popArray(DynamicArray *da, void *outItem)
+DynamicArray *Array_Pop(DynamicArray *da, void *outItem)
 {
-    if (da == NULL || da->count <= 0)
+    if (da == NULL || da->coll == NULL)
+    {
+        fprintf(stderr, "The provided collection is NULL. Cannot pop item.\n");
+        return da; // Keep the return consistent with the signature
+    }
+    if (da->coll->count <= 0)
     {
         fprintf(stderr, "Dynamic Array is empty! Cannot pop item.\n");
         return da;
     }
 
     // Calculate the address using the current FRONT index
-    void *source = (char *)da->items + (da->front * da->elemSize);
+    void *source = (char *)da->coll->items + (da->coll->front * da->coll->elemSize);
 
     // Copy the data out for the user
     if (outItem != NULL)
     {
-        memcpy(outItem, source, da->elemSize);
+        memcpy(outItem, source, da->coll->elemSize);
     }
 
     // Update the front index (Wrap around if it hits capacity)
-    da->front = (da->front + 1) % da->capacity;
+    da->coll->front = (da->coll->front + 1) % da->coll->capacity;
 
-    da->enumeratorIndex = da->front; // Reset enumerator to the new front after a pop
+    da->coll->enumeratorIndex = da->coll->front; // Reset enumerator to the new front after a pop
 
-    da->count--;
+    da->coll->count--;
 
     return da;
+}
+
+// Increase the capacity of the array by a specified factor (e.g., double the capacity)
+bool GrowDynamicArray(DynamicArray *da) 
+{
+    return GrowCollection(da->coll);
+    // // 1. Calculate new capacity (Double it)
+    // int newCapacity = (da->coll->capacity == 0) ? 4 : da->coll->capacity * 2;
+    
+    // // 2. Use a TEMPORARY pointer for safety
+    // void *newItems = realloc(da->coll->items, newCapacity * da->coll->elemSize);
+
+    // if (newItems == NULL) 
+    // {
+    //     fprintf(stderr, "Critical: Failed to grow array!\n");
+    //     return false; // Old data is still safe in da->items
+    // }
+
+    // // 3. Success! Update the metadata
+    // printf("Array capacity increased from %d to %d.\n", da->coll->capacity, newCapacity);
+    // da->coll->items = newItems;
+    // da->coll->capacity = newCapacity;
+    // return true;
+}
+
+// Dispose of the array and free its memory
+void DisposeArray(DynamicArray *da)
+{
+    if(da == NULL) return;
+    DisposeCollection(da->coll);
 }
 
 // Queue *pop(Queue *q, void *outItem)
@@ -102,40 +150,35 @@ DynamicArray *popArray(DynamicArray *da, void *outItem)
 // }
 
 //
-void *Enumerate(DynamicArray *da)
-{
-    // Rear points to the next empty slot where data will be written, so we want to stop enumerating once we hit rear, not capacity
-    if (da == NULL) return NULL;
-    if (da->enumeratorIndex == da->rear)
-    {
-        ResetEnumerator(da); // Reset enumerator for the next time we want to enumerate
-        return NULL;
-    }
+// void *Enumerate(DynamicArray *da)
+// {
+//     // Rear points to the next empty slot where data will be written, so we want to stop enumerating once we hit rear, not capacity
+//     if (da == NULL) return NULL;
+//     if (da->enumeratorIndex == da->rear)
+//     {
+//         ResetEnumerator(da); // Reset enumerator for the next time we want to enumerate
+//         return NULL;
+//     }
 
-    // Calculate the address of the current enumerator index
-    void *item = (char *)da->items + (da->enumeratorIndex * da->elemSize);
+//     // Calculate the address of the current enumerator index
+//     void *item = (char *)da->items + (da->enumeratorIndex * da->elemSize);
 
-    // Move the enumerator index to the next item for the next call
-    da->enumeratorIndex = (da->enumeratorIndex + 1) % da->capacity;
+//     // Move the enumerator index to the next item for the next call
+//     da->enumeratorIndex = (da->enumeratorIndex + 1) % da->capacity;
 
-    return item;
-}
+//     return item;
+// }
 
-void* ResetEnumerator(DynamicArray *da) {
-    // Reset enumerator to the front
-    if (da != NULL) {
-        da->enumeratorIndex = da->front;
-    } 
-}
+// void *ResetEnumerator(DynamicArray *da) {
+//     // Reset enumerator to the front
+//     if (da != NULL) {
+//         da->enumeratorIndex = da->front;
+//     } 
+// }
 
-// Dispose of the array and free its memory
-void dispose_array(DynamicArray *da)
-{
-    if (da->items != NULL)
-    {
-        deallocate_shallow(&da->items, da->capacity * da->elemSize);
-        da->items = NULL;
-    }
-    da->count = 0;
-    da->capacity = 0;
-}
+// // Get the current number of elements in the array
+// size_t GetElementCount(DynamicArray *da)
+// {   
+//     if (da == NULL) return 0;
+//     return da->count;
+// }

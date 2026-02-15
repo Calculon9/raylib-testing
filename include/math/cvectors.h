@@ -33,9 +33,9 @@ typedef struct Vector3d {
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 
-Vector2d vector2_sum_array(Vector2d *array, size_t count);
-Vector2d* vector2_sum_array_dynamic(Vector2d *array, size_t count);
-Vector3d vector3_sum_array (Vector3d *array, size_t count);
-Vector3d* vector3_sum_array_dynamic(Vector3d *array, size_t count);
+Vector2d Vector2dSumArray(Vector2d *array, size_t count);
+Vector2d* Vector2dSumArrayDynamic(Vector2d *array, size_t count);
+Vector3d Vector3dSumArray (Vector3d *array, size_t count);
+Vector3d* Vector3dSumArrayDynamic(Vector3d *array, size_t count);
 
 #endif

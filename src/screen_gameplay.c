@@ -28,36 +28,52 @@
 #include <stdio.h>
 #include "utility/utility.h"
 #include "physics/circloid.h"
+#include "physics/rectangloid.h"
 #include "collections/dynamic_array.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
-//static int framesCounter = 0;
-static int finishScreen = 0;
-static int maxObjects = 128;
-//static Font fontSidePanel = {0};
-//static Font fontStage = {0};
-static DynamicArray *circloids = NULL;// = {0};
 
+// Dimensions of each Window component (calculated as necessary in InitGameplayScreen)
+int panelWidth = 250;
+int panelHeight = 0;
+int stageWidth = 0;
+int stageHeight = 0;
+
+// static int framesCounter = 0;
+static int finishScreen = 0;
+static int initObjectCount = 8;
+static DynamicArray *circloids = NULL; // = {0};
+static Rectangloid container = {0};
 
 //----------------------------------------------------------------------------------
 // Gameplay Screen Functions Definition
 //----------------------------------------------------------------------------------
 void DrawCircloids();
 int GetCircloidCount(void);
+void UpdateObjectVectors();
+void AddStockCircloid_Moving(int posX, int posY);
 
 // Gameplay Screen Initialization logic
 void InitGameplayScreen(void)
 {
-    // Initialise state variables
-    circloids = NEW_DYNAMIC_ARRAY(maxObjects, Circloid);
+    // Initialise Window dimensins based on current screen size
+    panelHeight = GetScreenHeight();
+    stageWidth = GetScreenWidth() - panelWidth;
+    stageHeight = panelHeight;
+
+    // Initialise Objects
+    circloids = NEW_DYNAMIC_ARRAY(initObjectCount, Circloid);
+    container = CreateRectangloid(stageHeight, stageWidth, (ColourRgba){0, 0, 0, 0}, 0, (Vector2d){stageWidth / 2, stageHeight / 2}, (Velocity2d){0.0f, 0.0f}, (Acceleration2d){0.0f, 0.0f});
+
+    // Add 1 Circloid in the middle of container to start with
+    AddStockCircloid_Moving(stageWidth / 2, stageHeight / 2);
 
     // Initialise utilities (FPS tracking, etc.)
     InitUtilities();
 
-    // TODO: Initialize GAMEPLAY screen variables here!
-    //framesCounter = 0;
+    // framesCounter = 0;
     finishScreen = 0;
 }
 
@@ -68,16 +84,15 @@ void UpdateGameplayScreen(void)
 {
     // TODO: Update GAMEPLAY screen variables here!
     UpdateGameplayScreenPanel();
-    
+
     UpdateGameplayScreenStage();
-    
+
     // Press enter or tap to change to ENDING screen
     // if (IsKeyPressed(KEY_ENTER) || IsGestureDetected(GESTURE_TAP))
     // {
     //     finishScreen = 1;
     //     PlaySound(fxCoin);
     // }
-
 
     // Press enter or tap to change to ENDING screen
     // if (IsKeyPressed(KEY_ENTER) || IsGestureDetected(GESTURE_TAP))
@@ -88,44 +103,94 @@ void UpdateGameplayScreen(void)
 }
 
 // Gameplay Screen Stage Update logic
-void UpdateGameplayScreenPanel(void) {
+void UpdateGameplayScreenPanel(void)
+{
 
     UpdateUtilities();
 }
 
-// Gameplay Screen Stage Update logic
-void UpdateGameplayScreenStage(void) {
+void UpdateObjectVectors()
+{
+    // Update Circloids
+    if (circloids == NULL || circloids->coll == NULL || circloids->coll->count <= 0)
+    {
+        return; // No circloids to update
+    }
+    Circloid *circloid = Enumerate(circloids->coll);
+    if (circloid == NULL)
+    {
+        fprintf(stderr, "Failed to retrieve enumerated Circloid\n"); // Enumerator failed to retrieve the first item
+    }
+    while (circloid != NULL)
+    {
+        if (&circloid->object != NULL)
+        {
+            CalculateVectors(&circloid->object, GetFrameDeltaTime());
+        }
+        circloid = Enumerate(circloids->coll);
+    }
+    ResetEnumerator(circloids->coll); // Reset enumerator after drawing
 
-    //Draw a circle where the mouse clicks and add it to the state
+    // Update Container
+}
+
+// Gameplay Screen Stage Update logic
+void UpdateGameplayScreenStage(void)
+{
+
+    // Update vectors of all objects
+    UpdateObjectVectors();
+
+    // Draw a circle where the mouse clicks and add it to the state
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
-        //Add a new circloid to the state with the position of the mouse click
-        Circloid newCircloid = {0};
-        newCircloid.object.pos.x = GetMouseX();
-        newCircloid.object.pos.y = GetMouseY();
-        newCircloid.radius = 32;
+        // Add a new circloid to the state with the position of the mouse click - give an initial velocity
+        AddStockCircloid_Moving(GetMouseX(), GetMouseY());
+        // float radius = 24.0f;
+        // float mass = 1.0f;
+        // ColourRgba colour = {76, 63, 47, 200};
+        // Vector2d pos = {GetMouseX(), GetMouseY()};
+        // Velocity2d velocity = {(Vector2d){0.0f, 5.0f}, 0.0f, 0.0f};
+        // Acceleration2d acceleration = {(Vector2d){0.0f, 5.0f}, 0.0f, 0.0f};
+        // Circloid newCircloid = CreateCircloid(radius, colour, mass, pos, velocity, acceleration);
+        // newCircloid.object.pos.x = GetMouseX();
+        // newCircloid.object.pos.y = GetMouseY();
+        // newCircloid.radius = 24;
 
-        //Add a new circloid to the state with the position of the mouse click
-        pushArray(circloids, &newCircloid);
+        // Add a new circloid to the state with the position of the mouse click
+        //Array_Push(circloids, &newCircloid);
 
-        //finishScreen = 1;
-        //PlaySound(fxCoin);
+        // finishScreen = 1;
+        // PlaySound(fxCoin);
     }
+}
+
+void AddStockCircloid_Moving(int posX, int posY)
+{
+    float radius = 24.0f;
+    float mass = 1.0f;
+    ColourRgba colour = {76, 63, 47, 200};
+    Vector2d pos = {posX, posY};
+    Velocity2d velocity = {(Vector2d){0.0f, 20.0f}, 0.0f, 0.0f};
+    Acceleration2d acceleration = {(Vector2d){0.0f, 0.0f}, 0.0f, 0.0f};
+    Circloid newCircloid = CreateCircloid(radius, colour, mass, pos, velocity, acceleration);
+   
+    Array_Push(circloids, &newCircloid);
 }
 
 // Gameplay Screen Draw logic
 void DrawGameplayScreen(void)
 {
-    int panel_width = 250;
-    int panel_height = GetScreenHeight();
-    int stage_width = GetScreenWidth() - panel_width;
-    int stage_height = GetScreenHeight();
+    // int panel_width = 250;
+    // int panel_height = GetScreenHeight();
+    // int stage_width = GetScreenWidth() - panel_width;
+    // int stage_height = GetScreenHeight();
 
     // Draw the side panel
-    DrawGameplayScreenPanel(0, 0, panel_width, panel_height, (Color)BROWN);
+    DrawGameplayScreenPanel(0, 0, panelWidth, panelHeight, (Color)BROWN);
 
     // Draw the stage
-    DrawGameplayScreenStage(panel_width, 0, stage_width, stage_height, (Color)DARKGREEN);
+    DrawGameplayScreenStage(panelWidth, 0, stageWidth, stageHeight, (Color)DARKGREEN);
     // Vector2 pos = { 20, 100 };
     // DrawTextEx(font, "GAMEPLAY SCREEN", pos, font.baseSize*3.0f, 4, MAROON);
 
@@ -141,20 +206,21 @@ void DrawGameplayScreenPanel(int startX, int startY, int width, int height, Colo
     Vector2 lineSpacing = {0, 40};
 
     // Circloid count display
-    char text[32]; // Buffer to hold the text
+    char text[32];                                                     // Buffer to hold the text
     snprintf(text, sizeof(text), "Circloids: %d", GetCircloidCount()); // Format the FPS value into the buffer
     DrawTextEx(font, text, pos, font.baseSize * 2.0f, 2, (Color)BEIGE);
 
-    // FPS display 
+    // FPS display
     snprintf(text, sizeof(text), "FPS: %.1f", GetFps().fps); // Format the FPS value into the buffer
     DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + lineSpacing.y}, font.baseSize * 2.0f, 2, (Color)BEIGE);
 
-    // Memory display
-    snprintf(text, sizeof(text), "Memory (bytes): %i", GetCurrentMemoryAllocated()); // Format the FPS value into the buffer
-    DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + lineSpacing.y}, font.baseSize * 2.0f, 2, (Color)BEIGE);
+    // Memory display - Total allocated memory in bytes
+    snprintf(text, sizeof(text), "Memory (bytes): %zu", GetCurrentMemoryAllocated()); // Format the FPS value into the buffer
+    DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + 2 * lineSpacing.y}, font.baseSize * 2.0f, 2, (Color)BEIGE);
 
-    // Update FPS
-    // DrawTextEx(font, fpsText, (Vector2){pos.x + lineSpacing.x, pos.y + lineSpacing.y}, font.baseSize*2.0f, 2, GREEN);
+    // Memory display - Consumed memory in bytes out of the total allocated bytes
+    // snprintf(text, sizeof(text), "Memory Consumed (bytes): %zu", GetCurrentMemoryAllocated()); // Format the FPS value into the buffer
+    // DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + 2 * lineSpacing.y}, font.baseSize * 2.0f, 2, (Color)BEIGE);
 }
 
 // Gameplay Screen - Main stage Draw
@@ -167,23 +233,33 @@ void DrawGameplayScreenStage(int startX, int startY, int width, int height, Colo
     DrawCircloids();
 }
 
-void DrawCircloids(void) 
+void DrawCircloids(void)
 {
-    Circloid *circloid = Enumerate(circloids);
-    while (circloid != NULL) 
+    if (circloids == NULL || circloids->coll == NULL || circloids->coll->count <= 0)
     {
-        DrawCircle(circloid->object.pos.x, circloid->object.pos.y, circloid->radius, DARKBROWN);
+        return; // No circloids to draw
+    }
+    Circloid *circloid = Enumerate(circloids->coll);
+    if (circloid == NULL)
+    {
+        fprintf(stderr, "Failed to retrieve enumerated Circloid\n"); // Enumerator failed to retrieve the first item
+    }
+    while (circloid != NULL)
+    {
+        DrawCircle(circloid->object.pos.x, circloid->object.pos.y, circloid->radius, (Color){76, 63, 47, 200});
+        // DrawCircleLines(circloid->object.pos.x, circloid->object.pos.y, circloid->radius, MAROON);
 
-        circloid = Enumerate(circloids);
-    }   
-    ResetEnumerator(circloids); // Reset enumerator after drawing
+        circloid = Enumerate(circloids->coll);
+    }
+    ResetEnumerator(circloids->coll); // Reset enumerator after drawing
 }
 
-int GetCircloidCount(void) 
+
+
+int GetCircloidCount(void)
 {
-    return 0;
+    return circloids->coll->count;
 }
-
 
 // Gameplay Screen Unload logic
 void UnloadGameplayScreen(void)

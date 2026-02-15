@@ -3,8 +3,8 @@
 CIRCLOID MODULE
 *
 **********************************************************************************************/
-#ifndef CIRCLOID_H
-#define CIRCLOID_H
+#ifndef RECTANGLOID_H
+#define RECTANGLOID_H
 #include <stddef.h>
 #include "math/cvectors.h"
 #include "colour/colour.h"
@@ -19,11 +19,11 @@ CIRCLOID MODULE
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
-typedef struct {
+typedef struct Rectangloid {
     NewtonObject2d object;
     ColourRgba colourRgba;
-    float radius;
-} Circloid;
+    float height, width;
+} Rectangloid;
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
@@ -32,7 +32,7 @@ typedef struct {
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-Circloid CreateCircloid(float radius, ColourRgba colour, size_t mass, Vector2d position, Velocity2d velocity, Acceleration2d acceleration);
-Circloid CreateCircloid_FromObject(NewtonObject2d newtOb, float radius, ColourRgba colour);
-void Circloid_GetCollisionObjects(Circloid circ);
+Rectangloid CreateRectangloid(float height, float width, ColourRgba colour, size_t mass, Vector2d position, Velocity2d velocity, Acceleration2d acceleration);
+Rectangloid CreateRectangloid_FromObject(NewtonObject2d newtOb, float height, float width, ColourRgba colour);
+void Rectangloid_GetCollisionObjects(Rectangloid rect);
 #endif

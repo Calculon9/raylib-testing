@@ -19,33 +19,34 @@ CIRCLOID MODULE
 //----------------------------------------------------------------------------------
 
 // 2D velocity state 
-typedef struct {
+typedef struct Velocity2d {
     Vector2d velocityXy;
     float radians;
     float magnitude;
 } Velocity2d;
 
 // 2D acceleration state 
-typedef struct {
+typedef struct Acceleration2d {
     Vector2d accelerationXy;
     float radians;
     float magnitude;
 } Acceleration2d;
 
 // 2D mommentum state 
-typedef struct {
+typedef struct Momentum2d {
     Vector2d momentumXy;
     float radians;
     float magnitude;
 } Momentum2d;
 
 // 2D object with Newtonian properties; mass, position, velocity, acceleration, momentum 
-typedef struct {
+typedef struct NewtonObject2d {
     Vector2d pos;
     Velocity2d velocity;
     Acceleration2d acceleration;
     Momentum2d momentum;
     float mass;
+    float inverseMass;
 } NewtonObject2d;
 
 
@@ -58,7 +59,8 @@ typedef struct {
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 
-//NewtonObject2 *CreateNewtonObject2(size_t element_count, size_t element_bytes);
-
+NewtonObject2d CreateNewtonObject2d(size_t mass, Vector2d position, Velocity2d velocity, Acceleration2d acceleration);
+NewtonObject2d CreateNewtonObject2d_Static(Vector2d position);
+void CalculateVectors(NewtonObject2d *object, float deltaTime);
 
 #endif

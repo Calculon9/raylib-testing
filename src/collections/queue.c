@@ -5,27 +5,26 @@
 #include "memory/cmemory.h"
 
 // Create a new queue with specified element size and count
-Queue NewQueue(int elemCount, size_t elemSize)
+Queue *NewQueue(int elemCount, size_t elemSize)
 {
-    Queue q;
-    q.elemSize = elemSize;
-    q.capacity = elemCount;
-    q.count = 0;
-    q.front = 0;
-    q.rear = 0;
-    q.items = allocate_collection(elemCount, elemSize);
+    // Allocate memory for the Queue struct itself
+    Queue *q = AllocateBytes(sizeof(Queue));
+
+    // Allocate memory for the internal Collection struct 
+    q->coll = NewCollection(elemCount, elemSize);
 
     // Simple safety check
-    if (q.items == NULL) {
+    if (q == NULL || q->coll == NULL) 
+    {
         fprintf(stderr, "Failed to allocate memory for Queue!\n");
-        q.capacity = 0; // Ensure nothing can be pushed
+        q->coll = NULL; // Ensure nothing can done on the collection if allocation failed
     }
     return q;
 }
 
-Queue *push(Queue *q, void *item)
+Queue *Queue_Push(Queue *q, void *item)
 {
-    if (q == NULL || q->count >= q->capacity)
+    if (q == NULL || q->coll == NULL || q->coll->count >= q->coll->capacity)
     {
         fprintf(stderr, "Queue is full! Cannot push new item.\n");
         return q; // Keep the return consistent with the signature
@@ -34,40 +33,40 @@ Queue *push(Queue *q, void *item)
     // 1. Calculate the address using the CURRENT rear (e.g., 0)
     // We cast it to a char * because the size of a char is guaranteed to be exactly 1 byte.
     // Otherwise pointer arithmetic would be scaled by the size of the type pointed to, which is not what we want here since we're treating it as a raw byte array.
-    void *target = (char *)q->items + (q->rear * q->elemSize);
+    void *target = (char *)q->coll->items + (q->coll->rear * q->coll->elemSize);
     
     // 2. Put the data there
-    memcpy(target, item, q->elemSize);
+    memcpy(target, item, q->coll->elemSize);
 
     // 3. Now move the rear for the NEXT push
     // This correctly wraps around to 0 only AFTER the last slot is filled
-    q->rear = (q->rear + 1) % q->capacity;
+    q->coll->rear = (q->coll->rear + 1) % q->coll->capacity;
     
-    q->count++;
+    q->coll->count++;
 
     return q;
 }
 
-Queue *pop(Queue *q, void *outItem)
+Queue *Queue_Pop(Queue *q, void *outItem)
 {
-    if (q == NULL || q->count <= 0)
+    if (q == NULL || q->coll == NULL || q->coll->count <= 0)
     {
         fprintf(stderr, "Queue is empty! Cannot pop item.\n");
         return q;
     }
 
     // Calculate the address using the current FRONT index
-    void *source = (char *)q->items + (q->front * q->elemSize);
+    void *source = (char *)q->coll->items + (q->coll->front * q->coll->elemSize);
     
     // Copy the data out for the user
     if (outItem != NULL) {
-        memcpy(outItem, source, q->elemSize);
+        memcpy(outItem, source, q->coll->elemSize);
     }
 
     // Update the front index (Wrap around if it hits capacity)
-    q->front = (q->front + 1) % q->capacity;
+    q->coll->front = (q->coll->front + 1) % q->coll->capacity;
     
-    q->count--;
+    q->coll->count--;
 
     return q;
 }
@@ -97,13 +96,8 @@ Queue *pop(Queue *q, void *outItem)
 // }
 
 // Dispose of the queue and free its memory
-void dispose_queue(Queue *q)
+void DisposeQueue(Queue *q)
 {
-    if (q->items != NULL)
-    {
-        deallocate_shallow(&q->items, q->capacity * q->elemSize);
-        q->items = NULL;
-    }
-    q->count = 0;
-    q->capacity = 0;
+    if(q == NULL) return;
+    DisposeCollection(q->coll);
 }
