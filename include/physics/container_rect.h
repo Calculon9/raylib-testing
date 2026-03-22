@@ -30,7 +30,8 @@ typedef struct Container_Rect {
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-Container_Rect CreateContainer_Rect(Rectangloid object, void *items);
+//Container_Rect CreateContainer_Rect(Rectangloid object, void *items);
+Container_Rect CreateContainer_Rect_Static(float height, float width, ColourRgba colour, Vector2d position, void *items);
 //Rectangloid CreateRectangloid_FromObject(NewtonObject2d newtOb, float height, float width, ColourRgba colour);
 void Container_Rect_GetCollisionObjects(Rectangloid rect);
 #endif

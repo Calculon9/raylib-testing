@@ -21,6 +21,7 @@ NewtonObject2d CreateNewtonObject2d(size_t mass, Vector2d position, Velocity2d v
    NewtonObject2d newtOb = {0};
    // Initialize the NewtonObject2d properties here (e.g., set position, velocity, etc.)
    newtOb.mass = mass;
+   newtOb.inverseMass = 1.0f / mass;
    newtOb.pos = position;
    newtOb.velocity = velocity;
    newtOb.acceleration = acceleration;
@@ -34,10 +35,11 @@ NewtonObject2d CreateNewtonObject2d_Static(Vector2d position)
 {
    NewtonObject2d newtOb = {0};
    // Initialize the NewtonObject2d properties here (e.g., set position, velocity, etc.)
-   newtOb.mass = 0;
+   newtOb.mass = 0.0;
+   newtOb.inverseMass = 0.0;
    newtOb.pos = position;
-   newtOb.velocity = (Velocity2d){(Vector2d){0.0f, 0.0f},0.0f, 0.0f};
-   newtOb.acceleration = (Acceleration2d){(Vector2d){0.0f, 0.0f},0.0f, 0.0f};
+   newtOb.velocity = (Velocity2d){(Vector2d){0.0f, 0.0f}, 0.0f, 0.0f};
+   newtOb.acceleration = (Acceleration2d){(Vector2d){0.0f, 0.0f}, 0.0f, 0.0f};
 
    return newtOb;
    // Initialize momentum based on mass and velocity
@@ -57,7 +59,8 @@ void CalculateVectors(NewtonObject2d *object, float deltaTime)
    object->pos.x += object->velocity.velocityXy.x * deltaTime;
    object->pos.y += object->velocity.velocityXy.y * deltaTime;
 
-   if (object->acceleration.accelerationXy.x != 0) {
-    printf("DEBUG: Acceleration is NOT zero! It is: %f\n", object->acceleration.accelerationXy.x);
-}
+   if (object->acceleration.accelerationXy.x != 0)
+   {
+      printf("DEBUG: Acceleration is NOT zero! It is: %f\n", object->acceleration.accelerationXy.x);
+   }
 }

@@ -29,6 +29,7 @@
 #include "utility/utility.h"
 #include "physics/circloid.h"
 #include "physics/rectangloid.h"
+#include "physics/field.h"
 #include "collections/dynamic_array.h"
 
 //----------------------------------------------------------------------------------
@@ -45,7 +46,8 @@ int stageHeight = 0;
 static int finishScreen = 0;
 static int initObjectCount = 8;
 static DynamicArray *circloids = NULL; // = {0};
-static Rectangloid container = {0};
+static Field_Rect position_field = {0};
+static Rectangloid rectangloid_container = {0};
 
 //----------------------------------------------------------------------------------
 // Gameplay Screen Functions Definition
@@ -53,19 +55,23 @@ static Rectangloid container = {0};
 void DrawCircloids();
 int GetCircloidCount(void);
 void UpdateObjectVectors();
+void DrawFields_Rect(void);
 void AddStockCircloid_Moving(int posX, int posY);
 
 // Gameplay Screen Initialization logic
 void InitGameplayScreen(void)
 {
-    // Initialise Window dimensins based on current screen size
+    // Initialise Window dimensions based on current screen size
     panelHeight = GetScreenHeight();
     stageWidth = GetScreenWidth() - panelWidth;
     stageHeight = panelHeight;
 
     // Initialise Objects
     circloids = NEW_DYNAMIC_ARRAY(initObjectCount, Circloid);
-    container = CreateRectangloid(stageHeight, stageWidth, (ColourRgba){0, 0, 0, 0}, 0, (Vector2d){stageWidth / 2, stageHeight / 2}, (Velocity2d){0.0f, 0.0f}, (Acceleration2d){0.0f, 0.0f});
+
+    // Initialise Fields
+    rectangloid_container = CreateRectangloid_Static(stageHeight, stageWidth, (ColourRgba){0, 0, 0, 0}, (Vector2d){panelWidth, 0}); // position will start at the end of the panel and take up the rest of the screen, so that it only applies to the stage
+    position_field = CreateField_Rect(rectangloid_container, 24, 24, circloids);
 
     // Add 1 Circloid in the middle of container to start with
     AddStockCircloid_Moving(stageWidth / 2, stageHeight / 2);
@@ -109,37 +115,14 @@ void UpdateGameplayScreenPanel(void)
     UpdateUtilities();
 }
 
-void UpdateObjectVectors()
-{
-    // Update Circloids
-    if (circloids == NULL || circloids->coll == NULL || circloids->coll->count <= 0)
-    {
-        return; // No circloids to update
-    }
-    Circloid *circloid = Enumerate(circloids->coll);
-    if (circloid == NULL)
-    {
-        fprintf(stderr, "Failed to retrieve enumerated Circloid\n"); // Enumerator failed to retrieve the first item
-    }
-    while (circloid != NULL)
-    {
-        if (&circloid->object != NULL)
-        {
-            CalculateVectors(&circloid->object, GetFrameDeltaTime());
-        }
-        circloid = Enumerate(circloids->coll);
-    }
-    ResetEnumerator(circloids->coll); // Reset enumerator after drawing
-
-    // Update Container
-}
-
 // Gameplay Screen Stage Update logic
 void UpdateGameplayScreenStage(void)
 {
 
     // Update vectors of all objects
     UpdateObjectVectors();
+
+    // Update Fields
 
     // Draw a circle where the mouse clicks and add it to the state
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
@@ -158,7 +141,7 @@ void UpdateGameplayScreenStage(void)
         // newCircloid.radius = 24;
 
         // Add a new circloid to the state with the position of the mouse click
-        //Array_Push(circloids, &newCircloid);
+        // Array_Push(circloids, &newCircloid);
 
         // finishScreen = 1;
         // PlaySound(fxCoin);
@@ -174,7 +157,7 @@ void AddStockCircloid_Moving(int posX, int posY)
     Velocity2d velocity = {(Vector2d){0.0f, 20.0f}, 0.0f, 0.0f};
     Acceleration2d acceleration = {(Vector2d){0.0f, 0.0f}, 0.0f, 0.0f};
     Circloid newCircloid = CreateCircloid(radius, colour, mass, pos, velocity, acceleration);
-   
+
     Array_Push(circloids, &newCircloid);
 }
 
@@ -231,6 +214,9 @@ void DrawGameplayScreenStage(int startX, int startY, int width, int height, Colo
 
     // Draw circloids here
     DrawCircloids();
+
+    // Draw fields here
+    DrawFields_Rect();
 }
 
 void DrawCircloids(void)
@@ -254,7 +240,85 @@ void DrawCircloids(void)
     ResetEnumerator(circloids->coll); // Reset enumerator after drawing
 }
 
+void DrawFields_Rect(void)
+{
+    if (position_field.grid == NULL || position_field.grid->coll == NULL) // Don't need to check count here because we can still draw the field lines even if there are no items in the field
+    {
+        return; // No field to draw
+    }
+    // Use the number of rows, columns, and their dimensions to draw field lines as rectangles
+    // Method 1: Enumerate the grid
+    // float *cell = Enumerate(position_field.grid->coll);
+    // if (cell == NULL)
+    // {
+    //     fprintf(stderr, "Failed to retrieve enumerated field unit\n"); // Enumerator failed to retrieve the first item
+    // }
 
+    float j = 0;
+    float cells = position_field.row_units * position_field.column_units;
+    for (size_t i = 0; i < cells; i++)
+    {
+        int x = i % (int)(position_field.row_units);
+        // Update j for next row if we have reached the end of the current row (i.e., drawn all columns in the current row)
+        if (i > 0 && x == 0)
+        {
+            j += 1;
+        }
+        DrawRectangleLines(position_field.shape.object.pos.x + (x * position_field.unit_vect.x), position_field.shape.object.pos.y + (j * position_field.unit_vect.y), position_field.unit_vect.x, position_field.unit_vect.y, (Color){255, 0, 0, 75});
+    }
+}
+
+void UpdateObjectVectors()
+{
+    // Update Circloids
+    if (circloids == NULL || circloids->coll == NULL || circloids->coll->count <= 0)
+    {
+        return; // No circloids to update
+    }
+    Circloid *circloid = Enumerate(circloids->coll);
+    if (circloid == NULL)
+    {
+        fprintf(stderr, "Failed to retrieve enumerated Circloid\n"); // Enumerator failed to retrieve the first item
+    }
+    while (circloid != NULL)
+    {
+        if (&circloid->object != NULL)
+        {
+            CalculateVectors(&circloid->object, GetFrameDeltaTime());
+        }
+        circloid = Enumerate(circloids->coll);
+    }
+    ResetEnumerator(circloids->coll); // Reset enumerator after drawing
+
+    // Update Container
+}
+
+void UpdateFields()
+{
+    // Update the collision/position field
+
+    // Update Circloids
+    // if (circloids == NULL || circloids->coll == NULL || circloids->coll->count <= 0)
+    // {
+    //     return; // No circloids to update
+    // }
+    // Circloid *circloid = Enumerate(circloids->coll);
+    // if (circloid == NULL)
+    // {
+    //     fprintf(stderr, "Failed to retrieve enumerated Circloid\n"); // Enumerator failed to retrieve the first item
+    // }
+    // while (circloid != NULL)
+    // {
+    //     if (&circloid->object != NULL)
+    //     {
+    //         CalculateVectors(&circloid->object, GetFrameDeltaTime());
+    //     }
+    //     circloid = Enumerate(circloids->coll);
+    // }
+    // ResetEnumerator(circloids->coll); // Reset enumerator after drawing
+
+    // Update Container
+}
 
 int GetCircloidCount(void)
 {

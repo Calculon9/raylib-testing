@@ -3,27 +3,31 @@
 CIRCLOID MODULE
 *
 **********************************************************************************************/
-#ifndef RECTANGLOID_H
-#define RECTANGLOID_H
+#ifndef FIELD_H
+#define FIELD_H
 #include <stddef.h>
 #include "math/cvectors.h"
-#include "colour/colour.h"
-#include "physics/newton_object.h"
+#include "collections/dynamic_array.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
-//#define NEW_CIRCLOID() AllocateBytes(sizeof(Circloid))
-//#define NEW_CIRCLOID() allocate_block(sizeof(Circloid))
+// #define NEW_CIRCLOID() AllocateBytes(sizeof(Circloid))
+// #define NEW_CIRCLOID() allocate_block(sizeof(Circloid))
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
-typedef struct Rectangloid {
-    NewtonObject2d object;
-    ColourRgba colourRgba;
-    float height, width;
-} Rectangloid;
+
+
+typedef struct Field_Rect
+{
+    Rectangloid shape;  // shape
+    Vector2d unit_vect; // resolution
+    float row_units, column_units;
+    DynamicArray *grid; // grid (in linear form) of field units, with values representing the field's properties at that unit (e.g., occupied, empty, etc.)
+    DynamicArray *items; // objects that will be mapped to & interacting with the field
+} Field_Rect;
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
@@ -32,8 +36,8 @@ typedef struct Rectangloid {
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-Rectangloid CreateRectangloid(float height, float width, ColourRgba colour, size_t mass, Vector2d position, Velocity2d velocity, Acceleration2d acceleration);
-Rectangloid CreateRectangloid_FromObject(NewtonObject2d newtOb, float height, float width, ColourRgba colour);
-Rectangloid CreateRectangloid_Static(float height, float width, ColourRgba colour, Vector2d position);
-void Rectangloid_GetCollisionObjects(Rectangloid rect);
+Field_Rect CreateField_Rect(Rectangloid object, float unitWidth, float unitHeight, DynamicArray *items);
+Field_Rect CalculateField_Rect(Field_Rect field);
+// Rectangloid CreateRectangloid_FromObject(NewtonObject2d newtOb, float height, float width, ColourRgba colour);
+void Field_Rect_GetCollisionObjects(Rectangloid rect);
 #endif

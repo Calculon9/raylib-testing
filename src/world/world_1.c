@@ -6,6 +6,8 @@
 
 #include <stdio.h>
 #include "world/world.h"
+#include "physics/rectangloid.h"
+#include "physics/field.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -13,7 +15,7 @@
 
 //Physical state variables
 float gravity = 9.8f; // Gravitational acceleration (m/s^2)
-
+float field = {0};
 
 
 //----------------------------------------------------------------------------------
