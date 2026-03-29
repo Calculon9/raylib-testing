@@ -85,13 +85,21 @@ int main(void)
     SetTargetFPS(60); // Set our game to run at 60 frames-per-second
     //--------------------------------------------------------------------------------------
 
+ 
+
     // Main game loop
     while (!WindowShouldClose()) // Detect window close button or ESC key
     {
-        // DEBUGGING - we will update game loop if space bar is pressed
-        //if (IsKeyDown(KEY_LEFT_CONTROL))
+           // DEBUGGING - we will update game loop if button is pressed
+        bool keyDown = IsKeyDown(KEY_LEFT_CONTROL);
+        if(true)
         {
             UpdateDrawFrame();
+        } else {
+            BeginDrawing();
+            ClearBackground(RAYWHITE);
+            DrawText("Hold Left Control to update!", 10, 10, 20, DARKGRAY);
+            EndDrawing();
         }
     }
 #endif

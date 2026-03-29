@@ -25,6 +25,12 @@ typedef struct Vector3d {
     float z;
 } Vector3d;
 
+//typedef struct Matrix2d {
+//     DynamicArray *items; // The flat array of data
+//     int cols;        // Number of columns
+//     int rows;        // Number of rows
+// } Matrix2d;
+
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
 //----------------------------------------------------------------------------------

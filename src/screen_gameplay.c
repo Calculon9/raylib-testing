@@ -46,7 +46,10 @@ int stageHeight = 0;
 static int finishScreen = 0;
 static int initObjectCount = 8;
 static DynamicArray *circloids = NULL; // = {0};
-static Field_Rect position_field = {0};
+static Field position_field = {0};
+static ColourRgba fieldBackgroundColour = {110, 175, 215, 255};
+static ColourRgba fieldLineColour = {250, 230, 60, 125};
+static ColourRgba stageBackgroundColour = {225, 225, 225, 255};
 static Rectangloid rectangloid_container = {0};
 
 //----------------------------------------------------------------------------------
@@ -70,8 +73,8 @@ void InitGameplayScreen(void)
     circloids = NEW_DYNAMIC_ARRAY(initObjectCount, Circloid);
 
     // Initialise Fields
-    rectangloid_container = CreateRectangloid_Static(stageHeight, stageWidth, (ColourRgba){0, 0, 0, 0}, (Vector2d){panelWidth, 0}); // position will start at the end of the panel and take up the rest of the screen, so that it only applies to the stage
-    position_field = CreateField_Rect(rectangloid_container, 24, 24, circloids);
+    rectangloid_container = CreateRectangloid_Static(stageHeight, stageWidth, fieldBackgroundColour, (Vector2d){panelWidth, 0}); // position will start at the end of the panel and take up the rest of the screen, so that it only applies to the stage
+    position_field = CreateField(rectangloid_container, 8, 8, fieldLineColour, circloids);
 
     // Add 1 Circloid in the middle of container to start with
     AddStockCircloid_Moving(stageWidth / 2, stageHeight / 2);
@@ -120,7 +123,12 @@ void UpdateGameplayScreenStage(void)
 {
 
     // Update vectors of all objects
-    UpdateObjectVectors();
+    // DEBUGGING - we will update object vectors if button is pressed
+    bool keyDown = IsKeyDown(KEY_LEFT_CONTROL);
+    //if (keyDown)
+    {
+        UpdateObjectVectors();
+    }
 
     // Update Fields
 
@@ -150,11 +158,11 @@ void UpdateGameplayScreenStage(void)
 
 void AddStockCircloid_Moving(int posX, int posY)
 {
-    float radius = 24.0f;
-    float mass = 1.0f;
+    float radius = 50.0f;
+    float mass = 2.0f;
     ColourRgba colour = {76, 63, 47, 200};
     Vector2d pos = {posX, posY};
-    Velocity2d velocity = {(Vector2d){0.0f, 20.0f}, 0.0f, 0.0f};
+    Velocity2d velocity = {(Vector2d){0.0f, 10.0f}, 0.0f, 0.0f};
     Acceleration2d acceleration = {(Vector2d){0.0f, 0.0f}, 0.0f, 0.0f};
     Circloid newCircloid = CreateCircloid(radius, colour, mass, pos, velocity, acceleration);
 
@@ -173,7 +181,7 @@ void DrawGameplayScreen(void)
     DrawGameplayScreenPanel(0, 0, panelWidth, panelHeight, (Color)BROWN);
 
     // Draw the stage
-    DrawGameplayScreenStage(panelWidth, 0, stageWidth, stageHeight, (Color)DARKGREEN);
+    DrawGameplayScreenStage(panelWidth, 0, stageWidth, stageHeight, (Color){stageBackgroundColour.r, stageBackgroundColour.g, stageBackgroundColour.b, stageBackgroundColour.a});
     // Vector2 pos = { 20, 100 };
     // DrawTextEx(font, "GAMEPLAY SCREEN", pos, font.baseSize*3.0f, 4, MAROON);
 
@@ -212,11 +220,11 @@ void DrawGameplayScreenStage(int startX, int startY, int width, int height, Colo
     // Stage canvas for circloids to interact on
     DrawRectangle(startX, startY, width, height, color);
 
-    // Draw circloids here
-    DrawCircloids();
-
     // Draw fields here
     DrawFields_Rect();
+
+    // Draw circloids last so that they are on top of the fields
+    DrawCircloids();
 }
 
 void DrawCircloids(void)
@@ -232,7 +240,13 @@ void DrawCircloids(void)
     }
     while (circloid != NULL)
     {
-        DrawCircle(circloid->object.pos.x, circloid->object.pos.y, circloid->radius, (Color){76, 63, 47, 200});
+        Vector2d pos = circloid->object.pos;
+        Vector2d cell = GetCellFromWorld(position_field, circloid->object.pos);
+        DrawCircleLines(pos.x, pos.y, circloid->radius, (Color){76, 63, 47, 200});
+
+        // Output the circloid's position and cell as text on top of it
+        DrawTextEx(font, TextFormat("(%d,%d)", pos.x, pos.y), (Vector2){pos.x - (circloid->radius / 2), pos.y - (circloid->radius / 2)}, font.baseSize, 1, (Color)BEIGE);
+        DrawTextEx(font, TextFormat("Cell: (%d,%d)", (int)cell.x, (int)cell.y), (Vector2){pos.x - (circloid->radius / 2), pos.y + (circloid->radius / 2)}, font.baseSize, 1, (Color)BEIGE);
         // DrawCircleLines(circloid->object.pos.x, circloid->object.pos.y, circloid->radius, MAROON);
 
         circloid = Enumerate(circloids->coll);
@@ -246,6 +260,58 @@ void DrawFields_Rect(void)
     {
         return; // No field to draw
     }
+    // Draw background
+    DrawRectangle(position_field.shape.object.pos.x, position_field.shape.object.pos.y, position_field.shape.width, position_field.shape.height, (Color){fieldBackgroundColour.r, fieldBackgroundColour.g, fieldBackgroundColour.b, fieldBackgroundColour.a});
+
+    int rows = position_field.gridSpace.rows;
+    int cols = position_field.gridSpace.columns;
+    GridSpace gridSpace = position_field.gridSpace;
+    ColourRgba colour = position_field.lineColour;
+    Color color = (Color){colour.r, colour.g, colour.b, colour.a};
+
+    // Draw "Horizontal-ish" lines (Rows)
+    // These lines start at (origin + r*v) and end at (origin + r*v + cols*u)
+
+    //-----SEGMENTATION FAULT HERE--------- (lineSegments are not being generated properly in CalculateField)--------------------------------Actuall fixed it most likely (weren't returning the updated field with the line segments in CalculateField) but will keep an eye on it just in case
+    //ALSO create a separate CoordinateSpace struct that contains the basis vectors and line segments for drawing the field, so that we can keep the Field struct focused on just the field properties and values, and have a separate struct for the coordinate space representation of the field for drawing purposes - this will also make it easier to manage multiple fields with different coordinate spaces if needed in the future
+    Vector2d origin = position_field.shape.object.pos;
+    for (int r = 0; r < gridSpace.lineSegments_u->coll->count; r++)
+    {
+        LineSegment2d *segment = (LineSegment2d *)((char *)gridSpace.lineSegments_u->coll->items + (r * gridSpace.lineSegments_u->coll->elemSize));
+        DrawLineV((Vector2){(*segment).start.x, (*segment).start.y}, (Vector2){(*segment).end.x, (*segment).end.y}, color);
+    }
+
+    // Draw "Vertical-ish" lines (Columns)
+    // These lines start at (origin + c*u) and end at (origin + c*u + rows*v)
+    for (int c = 0; c < gridSpace.lineSegments_v->coll->count; c++)
+    {
+        LineSegment2d *segment = (LineSegment2d *)((char *)gridSpace.lineSegments_v->coll->items + (c * gridSpace.lineSegments_v->coll->elemSize));
+        DrawLineV((Vector2){(*segment).start.x, (*segment).start.y}, (Vector2){(*segment).end.x, (*segment).end.y}, color);
+        // Vector2d start = {
+        //     origin.x + c * position_field.gridSpace.basis.u.x,
+        //     origin.y + c * position_field.gridSpace.basis.u.y};
+        // Vector2d end = {
+        //     start.x + rows * position_field.gridSpace.basis.v.x,
+        //     start.y + rows * position_field.gridSpace.basis.v.y};
+    }
+
+    // for (int r = 0; r < position_field.rows; r++)
+    // {
+    //     for (int c = 0; c < position_field.columns; c++)
+    //     {
+    //         // Calculate exact pixel positions
+    //         float drawX = position_field.shape.object.pos.x + (c * position_field.unit_vect.x);
+    //         float drawY = position_field.shape.object.pos.y + (r * position_field.unit_vect.y);
+
+    //         DrawRectangleLines(
+    //             (int)drawX,
+    //             (int)drawY,
+    //             (int)position_field.unit_vect.x,
+    //             (int)position_field.unit_vect.y,
+    //             (Color){255, 0, 0, 150});
+    //     }
+    // }
+
     // Use the number of rows, columns, and their dimensions to draw field lines as rectangles
     // Method 1: Enumerate the grid
     // float *cell = Enumerate(position_field.grid->coll);
@@ -253,19 +319,6 @@ void DrawFields_Rect(void)
     // {
     //     fprintf(stderr, "Failed to retrieve enumerated field unit\n"); // Enumerator failed to retrieve the first item
     // }
-
-    float j = 0;
-    float cells = position_field.row_units * position_field.column_units;
-    for (size_t i = 0; i < cells; i++)
-    {
-        int x = i % (int)(position_field.row_units);
-        // Update j for next row if we have reached the end of the current row (i.e., drawn all columns in the current row)
-        if (i > 0 && x == 0)
-        {
-            j += 1;
-        }
-        DrawRectangleLines(position_field.shape.object.pos.x + (x * position_field.unit_vect.x), position_field.shape.object.pos.y + (j * position_field.unit_vect.y), position_field.unit_vect.x, position_field.unit_vect.y, (Color){255, 0, 0, 75});
-    }
 }
 
 void UpdateObjectVectors()

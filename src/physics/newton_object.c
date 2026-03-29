@@ -25,6 +25,7 @@ NewtonObject2d CreateNewtonObject2d(size_t mass, Vector2d position, Velocity2d v
    newtOb.pos = position;
    newtOb.velocity = velocity;
    newtOb.acceleration = acceleration;
+   //newtOb.id = GenerateId();
 
    return newtOb;
    // Initialize momentum based on mass and velocity
