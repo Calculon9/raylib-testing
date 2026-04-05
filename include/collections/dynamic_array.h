@@ -16,8 +16,8 @@ QUEUE MODULE
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
-typedef struct {
-    Collection *coll;  // Collection struct to hold the actual data and metadata
+typedef struct DynamicArray {
+    Collection coll;  // Collection struct to hold the actual data and metadata
 } DynamicArray;
 
 // typedef struct {

@@ -20,7 +20,7 @@ CIRCLOID MODULE
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
 typedef struct Rectangloid {
-    NewtonObject2d object;
+    NewtonObject2d newtonian_properties;
     ColourRgba colourRgba;
     float height, width;
 } Rectangloid;

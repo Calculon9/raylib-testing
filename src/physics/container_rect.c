@@ -27,11 +27,14 @@ Container_Rect CreateContainer_Rect_Static(float height, float width, ColourRgba
    Container_Rect contRect = {0};
    contRect.items = items;
 
+   Surface2d surface = {0};
+   surface.surface_vectors = *NewDynamicArray(4, sizeof(Vector2d));
+
    // Initialize the static NewtonObject2d and its position here
    //NewtonObject2d newtObStatic = CreateNewtonObject2d_Static(position);
    
    // Implement a static NewtonObject2d as a Rectangloid
-   contRect.rect = CreateRectangloid_FromObject(CreateNewtonObject2d_Static(position), height, width, colour);
+   contRect.rect = CreateRectangloid_FromObject(CreateNewtonObject2d_Static(position, surface), height, width, colour);
 
    return contRect;
 }

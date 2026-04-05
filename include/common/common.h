@@ -1,38 +1,40 @@
 /**********************************************************************************************
 *
-WORLD MODULE
+COMMON MODULE
 *
 **********************************************************************************************/
-#ifndef WORLD_H
-#define WORLD_H
-#include "common/common.h"
-#include "physics/field.h"
+
+#ifndef COMMON_H
+#define COMMON_H
+
+// 1. External dependencies
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <math.h>
+
+// 2. Global Math Constants
+#ifndef PI
+    #define PI 3.14159265358979323846f
+#endif
+#define EPSILON 0.00001f
+
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
+//#define NEW_CIRCLOID() AllocateBytes(sizeof(Circloid))
+//#define NEW_CIRCLOID() allocate_block(sizeof(Circloid))
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
-typedef struct World {
-    CoordinateSpace world_space; // The coordinate space of the world, containing the basis vectors and line segments for drawing the world (if applicable)
-    DynamicArray objects;
-    float gravity;
-} World;
-
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
 //----------------------------------------------------------------------------------
-extern World world_1; 
 
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-Field CreateWorldSpace(Rectangloid object, int rows, int columns, ColourRgba lineColour);
-
-Vector2d GetCellIndicesFromCoordinates(Vector2d origin_coordinates, Vector2d input_coordinates, Basis2d basis);
-Field UpdateFieldCellValues(Field field);
-
 #endif

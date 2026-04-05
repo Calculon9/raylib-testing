@@ -1,38 +1,31 @@
 /**********************************************************************************************
 *
-WORLD MODULE
+TEXT MODULE
 *
 **********************************************************************************************/
-#ifndef WORLD_H
-#define WORLD_H
-#include "common/common.h"
-#include "physics/field.h"
+#ifndef TEXT_H
+#define TEXT_H
+#include "math/cvectors.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
+//#define NEW_COLOUR_RGBA(count, type) allocate_array(count, sizeof(type))
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
-typedef struct World {
-    CoordinateSpace world_space; // The coordinate space of the world, containing the basis vectors and line segments for drawing the world (if applicable)
-    DynamicArray objects;
-    float gravity;
-} World;
 
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
 //----------------------------------------------------------------------------------
-extern World world_1; 
 
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-Field CreateWorldSpace(Rectangloid object, int rows, int columns, ColourRgba lineColour);
-
-Vector2d GetCellIndicesFromCoordinates(Vector2d origin_coordinates, Vector2d input_coordinates, Basis2d basis);
-Field UpdateFieldCellValues(Field field);
+//Incomplete.....
+Vector2d GetTextCenterPos(const char* text, float fontSize, Vector2d origin);
+//void *allocate_array(size_t element_count, size_t element_bytes);
 
 #endif

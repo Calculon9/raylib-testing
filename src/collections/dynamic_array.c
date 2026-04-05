@@ -17,80 +17,76 @@ DynamicArray *NewDynamicArray(int elemCount, size_t elemSize)
     DynamicArray *da = AllocateBytes(sizeof(DynamicArray));
 
     // Allocate memory for the internal Collection struct 
-    da->coll = NewCollection(elemCount, elemSize);
+    da->coll = *NewCollection(elemCount, elemSize);
     
     // Simple safety check
-    if (da == NULL || da->coll == NULL)
+    if (da == NULL)// || da->coll == NULL)
     {
         fprintf(stderr, "Failed to allocate memory for Dynamic Array!\n");
-        da->coll = NULL; // Ensure nothing can done on the collection if allocation failed
+        //da->coll = NULL; // Ensure nothing can done on the collection if allocation failed
     }
     return da;
 }
 
 DynamicArray *Array_Push(DynamicArray *da, void *item)
-{  
-    if (da == NULL || da->coll == NULL)
+{   
+    if (da == NULL)
     {
-        fprintf(stderr, "The provided collection is NULL. Cannot push new item.\n");
-        return da; // Keep the return consistent with the signature
+        fprintf(stderr, "The provided DynamicArray is NULL.\n");
+        return NULL; 
     }
-    // Check if we need to grow the array before pushing
-    if (da->coll->count >= da->coll->capacity)
+
+    // 1. Check for growth FIRST
+    // We use -> to access the REAL data, not a copy
+    if (da->coll.count >= da->coll.capacity)
     {
         if (!GrowDynamicArray(da))
         {
-            fprintf(stderr, "Failed to grow array! Cannot push new item.\n");
-            return da; // Return without pushing if we failed to grow
+            fprintf(stderr, "Failed to grow array!\n");
+            return da;
         }
     }
 
-    // 1. Calculate the address using the CURRENT rear (e.g., 0)
-    // We cast it to a char * because the size of a char is guaranteed to be exactly 1 byte.
-    // Otherwise pointer arithmetic would be scaled by the size of the type pointed to, which is not what we want here since we're treating it as a raw byte array.
-    // We want pointer arithmetic to move in increments of elemSize, not sizeof(void*) or something else.
-    void *target = (char *)da->coll->items + (da->coll->rear * da->coll->elemSize);
+    // 2. Calculate the target address using the ACTUAL live data
+    // Note: We use da->coll.items because GrowDynamicArray might have changed it!
+    void *target = (char *)da->coll.items + (da->coll.rear * da->coll.elemSize);
 
-    // 2. Put the data there
-    memcpy(target, item, da->coll->elemSize);
+    // 3. Copy the data
+    memcpy(target, item, da->coll.elemSize);
 
-    // 3. Now move the rear for the NEXT push
-    // This correctly wraps around to 0 only AFTER the last slot is filled
-    da->coll->rear = (da->coll->rear + 1) % da->coll->capacity;
-
-    da->coll->count++;
+    // 4. Update the REAL state
+    da->coll.rear = (da->coll.rear + 1) % da->coll.capacity;
+    da->coll.count++;
 
     return da;
 }
 
 DynamicArray *Array_Pop(DynamicArray *da, void *outItem)
 {
-    if (da == NULL || da->coll == NULL)
+    if (da == NULL)// || da->coll == NULL)
     {
         fprintf(stderr, "The provided collection is NULL. Cannot pop item.\n");
         return da; // Keep the return consistent with the signature
     }
-    if (da->coll->count <= 0)
+    if (da->coll.count <= 0)
     {
         fprintf(stderr, "Dynamic Array is empty! Cannot pop item.\n");
         return da;
     }
 
     // Calculate the address using the current FRONT index
-    void *source = (char *)da->coll->items + (da->coll->front * da->coll->elemSize);
+    void *source = (char *)da->coll.items + (da->coll.front * da->coll.elemSize);
 
     // Copy the data out for the user
     if (outItem != NULL)
     {
-        memcpy(outItem, source, da->coll->elemSize);
+        memcpy(outItem, source, da->coll.elemSize);
     }
 
     // Update the front index (Wrap around if it hits capacity)
-    da->coll->front = (da->coll->front + 1) % da->coll->capacity;
-
-    da->coll->enumeratorIndex = da->coll->front; // Reset enumerator to the new front after a pop
-
-    da->coll->count--;
+    da->coll.front = (da->coll.front + 1) % da->coll.capacity;
+    da->coll.enumeratorIndex = da->coll.front; // Reset enumerator to the new front after a pop
+    da->coll.count--;
 
     return da;
 }
@@ -98,7 +94,7 @@ DynamicArray *Array_Pop(DynamicArray *da, void *outItem)
 // Increase the capacity of the array by a specified factor (e.g., double the capacity)
 bool GrowDynamicArray(DynamicArray *da) 
 {
-    return GrowCollection(da->coll);
+    return GrowCollection(&da->coll);
     // // 1. Calculate new capacity (Double it)
     // int newCapacity = (da->coll->capacity == 0) ? 4 : da->coll->capacity * 2;
     
@@ -122,7 +118,7 @@ bool GrowDynamicArray(DynamicArray *da)
 void DisposeArray(DynamicArray *da)
 {
     if(da == NULL) return;
-    DisposeCollection(da->coll);
+    DisposeCollection(&da->coll);
 }
 
 // Queue *pop(Queue *q, void *outItem)

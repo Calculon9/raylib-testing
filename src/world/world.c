@@ -21,5 +21,6 @@ float field = {0};
 //----------------------------------------------------------------------------------
 // Functions Definition
 //----------------------------------------------------------------------------------
-
+//World CalculateFieldLines(Field field);
+//World InitialiseFieldCells(Field field);
 

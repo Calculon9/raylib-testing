@@ -1,38 +1,39 @@
 /**********************************************************************************************
 *
-WORLD MODULE
+CIRCLOID MODULE
 *
 **********************************************************************************************/
-#ifndef WORLD_H
-#define WORLD_H
+#ifndef CIRCLOID_H
+#define CIRCLOID_H
 #include "common/common.h"
-#include "physics/field.h"
+#include "math/cvectors.h"
+#include "colour/colour.h"
+#include "physics/newton_object.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
+//#define NEW_CIRCLOID() AllocateBytes(sizeof(Circloid))
+//#define NEW_CIRCLOID() allocate_block(sizeof(Circloid))
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
-typedef struct World {
-    CoordinateSpace world_space; // The coordinate space of the world, containing the basis vectors and line segments for drawing the world (if applicable)
-    DynamicArray objects;
-    float gravity;
-} World;
-
+typedef struct {
+    NewtonObject2d object;
+    ColourRgba colourRgba;
+    float radius;
+} Circloid;
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
 //----------------------------------------------------------------------------------
-extern World world_1; 
 
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-Field CreateWorldSpace(Rectangloid object, int rows, int columns, ColourRgba lineColour);
-
-Vector2d GetCellIndicesFromCoordinates(Vector2d origin_coordinates, Vector2d input_coordinates, Basis2d basis);
-Field UpdateFieldCellValues(Field field);
-
+Circloid CreateCircloid(float radius, ColourRgba colour, size_t mass, Vector2d position, Velocity2d velocity, Acceleration2d acceleration, Surface2d surface);
+DynamicArray* GenerateCircloidSurfaceVectors (Circloid *circloid, int vertices);
+Circloid CreateCircloid_FromObject(NewtonObject2d newtOb, float radius, ColourRgba colour);
+//void Circloid_GetCollisionObjects(Circloid circ);
 #endif

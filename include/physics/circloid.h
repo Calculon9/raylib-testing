@@ -5,7 +5,7 @@ CIRCLOID MODULE
 **********************************************************************************************/
 #ifndef CIRCLOID_H
 #define CIRCLOID_H
-#include <stddef.h>
+#include "common/common.h"
 #include "math/cvectors.h"
 #include "colour/colour.h"
 #include "physics/newton_object.h"
@@ -20,7 +20,7 @@ CIRCLOID MODULE
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
 typedef struct {
-    NewtonObject2d object;
+    NewtonObject2d newtonian_properties;
     ColourRgba colourRgba;
     float radius;
 } Circloid;
@@ -32,7 +32,8 @@ typedef struct {
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-Circloid CreateCircloid(float radius, ColourRgba colour, size_t mass, Vector2d position, Velocity2d velocity, Acceleration2d acceleration);
+Circloid CreateCircloid(float radius, ColourRgba colour, size_t mass, Vector2d position, Velocity2d velocity, Acceleration2d acceleration, Surface2d surface);
+DynamicArray* GenerateCircloidSurfaceVectors (Circloid *circloid, int vertices);
 Circloid CreateCircloid_FromObject(NewtonObject2d newtOb, float radius, ColourRgba colour);
-void Circloid_GetCollisionObjects(Circloid circ);
+//void Circloid_GetCollisionObjects(Circloid circ);
 #endif

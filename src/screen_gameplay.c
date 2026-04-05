@@ -74,7 +74,7 @@ void InitGameplayScreen(void)
 
     // Initialise Fields
     rectangloid_container = CreateRectangloid_Static(stageHeight, stageWidth, fieldBackgroundColour, (Vector2d){panelWidth, 0}); // position will start at the end of the panel and take up the rest of the screen, so that it only applies to the stage
-    position_field = CreateField(rectangloid_container, 8, 8, fieldLineColour, circloids);
+    position_field = CreateField(rectangloid_container, 3, 3, fieldLineColour, circloids);
 
     // Add 1 Circloid in the middle of container to start with
     AddStockCircloid_Moving(stageWidth / 2, stageHeight / 2);
@@ -125,7 +125,7 @@ void UpdateGameplayScreenStage(void)
     // Update vectors of all objects
     // DEBUGGING - we will update object vectors if button is pressed
     bool keyDown = IsKeyDown(KEY_LEFT_CONTROL);
-    //if (keyDown)
+    if (keyDown)
     {
         UpdateObjectVectors();
     }
@@ -160,11 +160,13 @@ void AddStockCircloid_Moving(int posX, int posY)
 {
     float radius = 50.0f;
     float mass = 2.0f;
-    ColourRgba colour = {76, 63, 47, 200};
+    ColourRgba colour = BEIGE_RGBA;
     Vector2d pos = {posX, posY};
-    Velocity2d velocity = {(Vector2d){0.0f, 10.0f}, 0.0f, 0.0f};
+    Velocity2d velocity = {(Vector2d){0.0f, 40.0f}, 0.0f, 0.0f};
     Acceleration2d acceleration = {(Vector2d){0.0f, 0.0f}, 0.0f, 0.0f};
-    Circloid newCircloid = CreateCircloid(radius, colour, mass, pos, velocity, acceleration);
+    Surface2d surface = {0};
+    surface.surface_vectors = *NewDynamicArray(8, sizeof(Vector2d)); // Placeholder surface vectors, not used for circloids but required for creating the NewtonObject
+    Circloid newCircloid = CreateCircloid(radius, colour, mass, pos, velocity, acceleration, surface);
 
     Array_Push(circloids, &newCircloid);
 }
@@ -172,20 +174,11 @@ void AddStockCircloid_Moving(int posX, int posY)
 // Gameplay Screen Draw logic
 void DrawGameplayScreen(void)
 {
-    // int panel_width = 250;
-    // int panel_height = GetScreenHeight();
-    // int stage_width = GetScreenWidth() - panel_width;
-    // int stage_height = GetScreenHeight();
-
     // Draw the side panel
     DrawGameplayScreenPanel(0, 0, panelWidth, panelHeight, (Color)BROWN);
 
     // Draw the stage
     DrawGameplayScreenStage(panelWidth, 0, stageWidth, stageHeight, (Color){stageBackgroundColour.r, stageBackgroundColour.g, stageBackgroundColour.b, stageBackgroundColour.a});
-    // Vector2 pos = { 20, 100 };
-    // DrawTextEx(font, "GAMEPLAY SCREEN", pos, font.baseSize*3.0f, 4, MAROON);
-
-    // DrawText("PRESS ENTER or TAP to JUMP to ENDING SCREEN", 130, 220, 20, MAROON);
 }
 
 // Gameplay Screen - Stats panel Draw
@@ -229,119 +222,133 @@ void DrawGameplayScreenStage(int startX, int startY, int width, int height, Colo
 
 void DrawCircloids(void)
 {
-    if (circloids == NULL || circloids->coll == NULL || circloids->coll->count <= 0)
+    if (circloids == NULL)// || circloids->coll == NULL || circloids->coll->count <= 0)
     {
         return; // No circloids to draw
     }
-    Circloid *circloid = Enumerate(circloids->coll);
-    if (circloid == NULL)
-    {
-        fprintf(stderr, "Failed to retrieve enumerated Circloid\n"); // Enumerator failed to retrieve the first item
-    }
-    while (circloid != NULL)
-    {
-        Vector2d pos = circloid->object.pos;
-        Vector2d cell = GetCellFromWorld(position_field, circloid->object.pos);
-        DrawCircleLines(pos.x, pos.y, circloid->radius, (Color){76, 63, 47, 200});
+    Collection *circloid_coll = &circloids->coll;
+    for (int i = 0; i < circloid_coll->count; i++)
+    {   
+        Circloid *circloid = (Circloid *)((char *)circloid_coll->items + (i * circloid_coll->elemSize));
+        Vector2d circloidPos = circloid->newtonian_properties.world_position;
+        Vector2d cellIndices = GetCellIndicesFromCoordinates(position_field.shape.newtonian_properties.world_position, circloid->newtonian_properties.world_position, position_field.coordinateSpace.basis);
 
-        // Output the circloid's position and cell as text on top of it
-        DrawTextEx(font, TextFormat("(%d,%d)", pos.x, pos.y), (Vector2){pos.x - (circloid->radius / 2), pos.y - (circloid->radius / 2)}, font.baseSize, 1, (Color)BEIGE);
-        DrawTextEx(font, TextFormat("Cell: (%d,%d)", (int)cell.x, (int)cell.y), (Vector2){pos.x - (circloid->radius / 2), pos.y + (circloid->radius / 2)}, font.baseSize, 1, (Color)BEIGE);
-        // DrawCircleLines(circloid->object.pos.x, circloid->object.pos.y, circloid->radius, MAROON);
+        //TODO: If circloid coordinates are negative, it is in the left half of stage then the indices will be negative because the origin of the field is at the top left corner of the stage, so we can check for this and adjust the indices accordingly to get the correct cell
 
-        circloid = Enumerate(circloids->coll);
+        const char *displayText = TextFormat("Cell: %d (%d,%d)\nCoord: (%d,%d)", ((int)cellIndices.x + 1) * ((int)cellIndices.y + 1), (int)cellIndices.x + 1, (int)cellIndices.y + 1, (int)circloidPos.x, (int)circloidPos.y);
+        // DrawTextEx(font, displayText, (Vector2){cellPos.x + textOffsetX, cellPos.y - textOffsetY}, font.baseSize, 1, (Color)DARKBLUE_RGBA);
+
+        //Draw circloid THEN text so text is on top
+        DrawCircle(circloidPos.x, circloidPos.y, circloid->radius, (Color)DARKBROWN_RGBA);
+        DrawTextEx(font, displayText, (Vector2){circloidPos.x - 0.7 * circloid->radius, circloidPos.y - 0.7 * circloid->radius}, font.baseSize, 1, (Color)BEIGE_RGBA);
+
+        // Debug print
+        // printf("Cell %d [Row %d, Col %d] Value: %.1f\n", i + 1, row, col, cell->value);
     }
-    ResetEnumerator(circloids->coll); // Reset enumerator after drawing
+    // Circloid *circloid = Enumerate(circloids->coll);
+    // if (circloid == NULL)
+    // {
+    //     fprintf(stderr, "Failed to retrieve enumerated Circloid\n"); // Enumerator failed to retrieve the first item
+    // }
+    // while (circloid != NULL)
+    // {
+    //     Vector2d pos = circloid->object.pos;
+    //     Vector2d cell = GetCellFromCoordinates(position_field, circloid->object.pos);
+    //     DrawCircle(pos.x, pos.y, circloid->radius, (Color)DARKBROWN_RGBA);
+
+    //     // Output the circloid's position and cell as text on top of it
+    //     const char *cellText = TextFormat("Cell: (%d,%d)", (int)cell.x, (int)cell.y);
+    //     const char *posText = TextFormat("Coord: (%d,%d)", (int)pos.x, (int)pos.y);
+    //     const char *allText = TextFormat("%s\n%s", cellText, posText);
+    //     DrawTextEx(font, allText, (Vector2){pos.x, pos.y}, font.baseSize, 1, (Color)BEIGE_RGBA);
+    //     // DrawTextEx(font, cellText, (Vector2){pos.x - (circloid->radius / 2), pos.y - (circloid->radius / 2)}, font.baseSize, 1, (Color)DARKGREEN_RGBA);
+
+    //     circloid = Enumerate(circloids->coll);
+    // }
+    // ResetEnumerator(circloids->coll); // Reset enumerator after drawing
 }
 
 void DrawFields_Rect(void)
 {
-    if (position_field.grid == NULL || position_field.grid->coll == NULL) // Don't need to check count here because we can still draw the field lines even if there are no items in the field
+    if (position_field.coordinateSpace.cells.coll.capacity > 0) // Don't need to check count here because we can still draw the field lines even if there are no items in the field
     {
         return; // No field to draw
     }
     // Draw background
-    DrawRectangle(position_field.shape.object.pos.x, position_field.shape.object.pos.y, position_field.shape.width, position_field.shape.height, (Color){fieldBackgroundColour.r, fieldBackgroundColour.g, fieldBackgroundColour.b, fieldBackgroundColour.a});
+    DrawRectangle(position_field.shape.newtonian_properties.world_position.x, position_field.shape.newtonian_properties.world_position.y, position_field.shape.width, position_field.shape.height, (Color){fieldBackgroundColour.r, fieldBackgroundColour.g, fieldBackgroundColour.b, fieldBackgroundColour.a});
 
-    int rows = position_field.gridSpace.rows;
-    int cols = position_field.gridSpace.columns;
-    GridSpace gridSpace = position_field.gridSpace;
+    int rows = position_field.coordinateSpace.rows;
+    int cols = position_field.coordinateSpace.columns;
+    int totalUnits = rows * cols;
+    CoordinateSpace coordinateSpace = position_field.coordinateSpace;
     ColourRgba colour = position_field.lineColour;
     Color color = (Color){colour.r, colour.g, colour.b, colour.a};
 
     // Draw "Horizontal-ish" lines (Rows)
     // These lines start at (origin + r*v) and end at (origin + r*v + cols*u)
-
-    //-----SEGMENTATION FAULT HERE--------- (lineSegments are not being generated properly in CalculateField)--------------------------------Actuall fixed it most likely (weren't returning the updated field with the line segments in CalculateField) but will keep an eye on it just in case
-    //ALSO create a separate CoordinateSpace struct that contains the basis vectors and line segments for drawing the field, so that we can keep the Field struct focused on just the field properties and values, and have a separate struct for the coordinate space representation of the field for drawing purposes - this will also make it easier to manage multiple fields with different coordinate spaces if needed in the future
-    Vector2d origin = position_field.shape.object.pos;
-    for (int r = 0; r < gridSpace.lineSegments_u->coll->count; r++)
+    Vector2d origin = position_field.shape.newtonian_properties.world_position;
+    for (int r = 0; r < coordinateSpace.lineSegments_u.coll.count; r++)
     {
-        LineSegment2d *segment = (LineSegment2d *)((char *)gridSpace.lineSegments_u->coll->items + (r * gridSpace.lineSegments_u->coll->elemSize));
+        LineSegment2d *segment = (LineSegment2d *)((char *)coordinateSpace.lineSegments_u.coll.items + (r * coordinateSpace.lineSegments_u.coll.elemSize));
         DrawLineV((Vector2){(*segment).start.x, (*segment).start.y}, (Vector2){(*segment).end.x, (*segment).end.y}, color);
     }
 
     // Draw "Vertical-ish" lines (Columns)
     // These lines start at (origin + c*u) and end at (origin + c*u + rows*v)
-    for (int c = 0; c < gridSpace.lineSegments_v->coll->count; c++)
+    for (int c = 0; c < coordinateSpace.lineSegments_v.coll.count; c++)
     {
-        LineSegment2d *segment = (LineSegment2d *)((char *)gridSpace.lineSegments_v->coll->items + (c * gridSpace.lineSegments_v->coll->elemSize));
+        LineSegment2d *segment = (LineSegment2d *)((char *)coordinateSpace.lineSegments_v.coll.items + (c * coordinateSpace.lineSegments_v.coll.elemSize));
         DrawLineV((Vector2){(*segment).start.x, (*segment).start.y}, (Vector2){(*segment).end.x, (*segment).end.y}, color);
-        // Vector2d start = {
-        //     origin.x + c * position_field.gridSpace.basis.u.x,
-        //     origin.y + c * position_field.gridSpace.basis.u.y};
-        // Vector2d end = {
-        //     start.x + rows * position_field.gridSpace.basis.v.x,
-        //     start.y + rows * position_field.gridSpace.basis.v.y};
     }
 
-    // for (int r = 0; r < position_field.rows; r++)
-    // {
-    //     for (int c = 0; c < position_field.columns; c++)
-    //     {
-    //         // Calculate exact pixel positions
-    //         float drawX = position_field.shape.object.pos.x + (c * position_field.unit_vect.x);
-    //         float drawY = position_field.shape.object.pos.y + (r * position_field.unit_vect.y);
+    // Draw field unit values as text on top of each field unit
+    Collection *cells = &position_field.coordinateSpace.cells.coll;
+    // int textOffsetX = (position_field.coordinateSpace.basis.u.x + position_field.coordinateSpace.basis.v.x) / 2;
+    // int textOffsetY = (position_field.coordinateSpace.basis.u.y + position_field.coordinateSpace.basis.v.y) / 2;
+    for (int i = 0; i < totalUnits; i++)
+    {
+        int row = i / cols;
+        int col = i % cols;
+        Cell *cell = (Cell *)((char *)cells->items + (i * cells->elemSize));
+        Vector2d cellPos = cell->coordinates;
+        const char *displayText = TextFormat("Cell: %d (%d,%d)\nCoord: (%d,%d)\nValue: %.1f", i + 1, row + 1, col + 1, (int)cellPos.x, (int)cellPos.y, cell->value);
+        // DrawTextEx(font, displayText, (Vector2){cellPos.x + textOffsetX, cellPos.y - textOffsetY}, font.baseSize, 1, (Color)DARKBLUE_RGBA);
+        DrawTextEx(font, displayText, (Vector2){cellPos.x, cellPos.y}, font.baseSize, 1, (Color)DARKBLUE_RGBA);
 
-    //         DrawRectangleLines(
-    //             (int)drawX,
-    //             (int)drawY,
-    //             (int)position_field.unit_vect.x,
-    //             (int)position_field.unit_vect.y,
-    //             (Color){255, 0, 0, 150});
-    //     }
-    // }
-
-    // Use the number of rows, columns, and their dimensions to draw field lines as rectangles
-    // Method 1: Enumerate the grid
-    // float *cell = Enumerate(position_field.grid->coll);
-    // if (cell == NULL)
-    // {
-    //     fprintf(stderr, "Failed to retrieve enumerated field unit\n"); // Enumerator failed to retrieve the first item
-    // }
+        // Debug print
+        // printf("Cell %d [Row %d, Col %d] Value: %.1f\n", i + 1, row, col, cell->value);
+    }
+    // printf("Drew %d cells\n", count);
+    //  Use the number of rows, columns, and their dimensions to draw field lines as rectangles
+    //  Method 1: Enumerate the grid
+    //  float *cell = Enumerate(position_field.cells->coll);
+    //  if (cell == NULL)
+    //  {
+    //      fprintf(stderr, "Failed to retrieve enumerated field unit\n"); // Enumerator failed to retrieve the first item
+    //  }
 }
 
 void UpdateObjectVectors()
 {
     // Update Circloids
-    if (circloids == NULL || circloids->coll == NULL || circloids->coll->count <= 0)
+    if (circloids == NULL || circloids->coll.count <= 0)
     {
         return; // No circloids to update
     }
-    Circloid *circloid = Enumerate(circloids->coll);
+    Circloid *circloid = Enumerate(&circloids->coll);
     if (circloid == NULL)
     {
         fprintf(stderr, "Failed to retrieve enumerated Circloid\n"); // Enumerator failed to retrieve the first item
     }
     while (circloid != NULL)
     {
-        if (&circloid->object != NULL)
+        if (&circloid->newtonian_properties != NULL)
         {
-            CalculateVectors(&circloid->object, GetFrameDeltaTime());
+            CalculateVectors(&circloid->newtonian_properties, GetFrameDeltaTime());
         }
-        circloid = Enumerate(circloids->coll);
+        circloid = Enumerate(&circloids->coll);
     }
-    ResetEnumerator(circloids->coll); // Reset enumerator after drawing
+    ResetEnumerator(&circloids->coll); // Reset enumerator after drawing
 
     // Update Container
 }
@@ -375,7 +382,7 @@ void UpdateFields()
 
 int GetCircloidCount(void)
 {
-    return circloids->coll->count;
+    return circloids->coll.count;
 }
 
 // Gameplay Screen Unload logic

@@ -8,6 +8,7 @@
 #include <string.h>
 #include <math.h>
 #include "physics/rectangloid.h"
+#include "physics/circloid.h"
 #include "physics/newton_object.h"
 #include "physics/field.h"
 
@@ -31,7 +32,7 @@ Field CreateField(Rectangloid object, int rows, int columns, ColourRgba lineColo
    //    return field;
    // };
 
-   field.items = items;
+   field.items = *items;
    field.shape = object;
    field.lineColour = lineColour;
 
@@ -44,30 +45,37 @@ Field CreateField(Rectangloid object, int rows, int columns, ColourRgba lineColo
    columns = ceil((float)totalWidth / unitW);
    rows = ceil((float)totalHeight / unitH);
 
-   field.gridSpace.rows = rows;
-   field.gridSpace.columns = columns;
+   field.coordinateSpace.rows = rows;
+   field.coordinateSpace.columns = columns;
 
    // Set the basis vectors for the field;
    // Initialise each basis vector to align with the x and y axes respectively, and have a magnitude equal to the unit width and height respectively, so that we can scale them with a scalar to get the position of any field unit in the field coordinate space
-   field.gridSpace.basis.u = (Vector2d){unitW, 0};
-   field.gridSpace.basis.v = (Vector2d){0, unitH};
+   field.coordinateSpace.basis.u = (Vector2d){unitW, 0};
+   field.coordinateSpace.basis.v = (Vector2d){0, unitH};
 
    int totalUnits = rows * columns;
+   field.coordinateSpace.cells = *NewDynamicArray(totalUnits, sizeof(Cell));
 
-   field.grid = NewDynamicArray(totalUnits, sizeof(Cell)); // AllocateArray((object.height / unitHeight) * (object.width / unitWidth), sizeof(float));
+   field = CalculateFieldLines(field);
+   field = InitialiseFieldCells(field);
 
-   field = CalculateField(field);
-
-   // printf("Adjusted: Total field units is %f.\n", totalUnits);
-   //  The unitWidth and unitHeight may not go evenly into the total width and height
-   //  Adjust both so that they do go evenly into the total width and height, and recalculate the number of row and column units accordingly
-   //  float unitHeight_calc = object.height / (object.height / unitHeight);
-   //  float unitWidth_calc = object.width / (object.width / unitWidth);
-   //  float totalUnits_calc = (object.height / unitHeight_calc) * (object.width / unitWidth_calc);
-   //  float leftoverHeight_calc = object.height - (int)(object.height / unitHeight) * unitHeight;
-   //  float leftoverWidth_calc = object.width - (int)(object.width / unitWidth) * unitWidth;
-   //  float rowUnits_calc = object.height / unitHeight;
-   //  float columnUnits_calc = object.width / unitWidth;
+   // LOG FIELD INFO
+   Vector2d basis_u = field.coordinateSpace.basis.u;
+   Vector2d basis_v = field.coordinateSpace.basis.v;
+   // char text[64]; // Buffer to hold the text
+   // snprintf(text, sizeof(text), "FIELD INITIALISED:  Dimensions (%d, %d); Units (%d); Basis -> u = [%d,%d], v = [%d,%d].\n", unitW, unitH, totalUnits, basis_u.x, basis_u.y, basis_v.x, basis_v.y);
+   printf("FIELD INITIALISED:  Dimensions (W:%d, H:%d); Units (%d); Basis -> u = [%d,%d], v = [%d,%d].\n", object.width, object.height, totalUnits, basis_u.x, basis_u.y, basis_v.x, basis_v.y);
+   // printf("Created field with dimensions (%f, %f) and unit dimensions (%f, %f). Total field units is %d.\n", object.width, object.height, unitW, unitH, totalUnits);
+   //  printf("Adjusted: Total field units is %f.\n", totalUnits);
+   //   The unitWidth and unitHeight may not go evenly into the total width and height
+   //   Adjust both so that they do go evenly into the total width and height, and recalculate the number of row and column units accordingly
+   //   float unitHeight_calc = object.height / (object.height / unitHeight);
+   //   float unitWidth_calc = object.width / (object.width / unitWidth);
+   //   float totalUnits_calc = (object.height / unitHeight_calc) * (object.width / unitWidth_calc);
+   //   float leftoverHeight_calc = object.height - (int)(object.height / unitHeight) * unitHeight;
+   //   float leftoverWidth_calc = object.width - (int)(object.width / unitWidth) * unitWidth;
+   //   float rowUnits_calc = object.height / unitHeight;
+   //   float columnUnits_calc = object.width / unitWidth;
 
    // Adjusted units and dimensions to account for any leftover width and height that doesn't go evenly into the total width and height
    // float rowUnits_adj = rowUnits_calc;
@@ -135,42 +143,32 @@ Field CreateField(Rectangloid object, int rows, int columns, ColourRgba lineColo
    return field;
 }
 
-Field CalculateField(Field field)
+Field CalculateFieldLines(Field field)
 {
-   // Map object positions to the grid for all objects
-   // if (field.items == NULL || field.items->coll == NULL || field.items->coll->count <= 0)
-   // {
-   //    printf("No items are in the provided field. Nothing to calculate.");
-   //    return field; // No objects to update
-   // }
-
-   // Zero the field unit values before recalculating them based on the current object positions, so that they don't keep increasing indefinitely as the objects move around the field
-   memset(field.grid->coll->items, 0, field.grid->coll->elemSize * field.grid->coll->count);
-
-   Vector2d origin = field.shape.object.pos;
-   int rows = field.gridSpace.rows;
-   int cols = field.gridSpace.columns;
+   Vector2d origin = field.shape.newtonian_properties.world_position;
+   int rows = field.coordinateSpace.rows;
+   int cols = field.coordinateSpace.columns;
 
    // 1. Correct the counts
    int numHorizontalLines = rows + 1;
    int numVerticalLines = cols + 1;
 
-   field.gridSpace.lineSegments_u = NewDynamicArray(numHorizontalLines, sizeof(LineSegment2d));
-   field.gridSpace.lineSegments_v = NewDynamicArray(numVerticalLines, sizeof(LineSegment2d));
+   field.coordinateSpace.lineSegments_u = *NewDynamicArray(numHorizontalLines, sizeof(LineSegment2d));
+   field.coordinateSpace.lineSegments_v = *NewDynamicArray(numVerticalLines, sizeof(LineSegment2d));
 
    // 2. Generate Horizontal-ish Lines (spanning the width)
    for (int r = 0; r < numHorizontalLines; r++)
    {
       LineSegment2d segment;
       // Start at origin, step DOWN 'r' times using Basis V
-      segment.start.x = origin.x + r * field.gridSpace.basis.v.x;
-      segment.start.y = origin.y + r * field.gridSpace.basis.v.y;
+      segment.start.x = origin.x + r * field.coordinateSpace.basis.v.x;
+      segment.start.y = origin.y + r * field.coordinateSpace.basis.v.y;
 
       // Extend across the whole width (cols) using Basis U
-      segment.end.x = segment.start.x + cols * field.gridSpace.basis.u.x;
-      segment.end.y = segment.start.y + cols * field.gridSpace.basis.u.y;
+      segment.end.x = segment.start.x + cols * field.coordinateSpace.basis.u.x;
+      segment.end.y = segment.start.y + cols * field.coordinateSpace.basis.u.y;
 
-      Array_Push(field.gridSpace.lineSegments_u, &segment);
+      Array_Push(&field.coordinateSpace.lineSegments_u, &segment);
    }
 
    // 3. Generate Vertical-ish Lines (spanning the height)
@@ -178,14 +176,14 @@ Field CalculateField(Field field)
    {
       LineSegment2d segment;
       // Start at origin, step RIGHT 'c' times using Basis U
-      segment.start.x = origin.x + c * field.gridSpace.basis.u.x;
-      segment.start.y = origin.y + c * field.gridSpace.basis.u.y;
+      segment.start.x = origin.x + c * field.coordinateSpace.basis.u.x;
+      segment.start.y = origin.y + c * field.coordinateSpace.basis.u.y;
 
       // Extend down the whole height (rows) using Basis V
-      segment.end.x = segment.start.x + rows * field.gridSpace.basis.v.x;
-      segment.end.y = segment.start.y + rows * field.gridSpace.basis.v.y;
+      segment.end.x = segment.start.x + rows * field.coordinateSpace.basis.v.x;
+      segment.end.y = segment.start.y + rows * field.coordinateSpace.basis.v.y;
 
-      Array_Push(field.gridSpace.lineSegments_v, &segment);
+      Array_Push(&field.coordinateSpace.lineSegments_v, &segment);
    }
    return field;
    // NewtonObject2d *newtObj = Enumerate(field.items->coll);
@@ -205,10 +203,10 @@ Field CalculateField(Field field)
    //       Vector2d cell = GetCellFromWorld(field, newtObj->pos);
 
    //       int index = -1;
-   //       if (cell.x >= 0 && cell.x < field.gridSpace.columns && cell.y >= 0 && cell.y < field.gridSpace.rows)
+   //       if (cell.x >= 0 && cell.x < field.coordinateSpace.columns && cell.y >= 0 && cell.y < field.coordinateSpace.rows)
    //       {
    //          // You are officially inside the grid!
-   //          int index = (int)cell.y * field.gridSpace.columns + (int)cell.x; // Convert the 2D position to a linear index
+   //          int index = (int)cell.y * field.coordinateSpace.columns + (int)cell.x; // Convert the 2D position to a linear index
    //       }
    //       else
    //       {
@@ -236,59 +234,144 @@ Field CalculateField(Field field)
    // Enumerate(field.items->coll);
 }
 
-Vector2d GetCellFromWorld(Field field, Vector2d objectPos)
+Field InitialiseFieldCells(Field field)
 {
-   Vector2d origin = field.shape.object.pos;
-   Vector2d u = field.gridSpace.basis.u;
-   Vector2d v = field.gridSpace.basis.v;
+   Collection cells = field.coordinateSpace.cells.coll;
+   size_t cells_capacity = cells.capacity;
+   memset(cells.items, 0, cells.elemSize * cells_capacity);
 
-   // Get position relative to the grid origin
-   float px = objectPos.x - origin.x;
-   float py = objectPos.y - origin.y;
+   Vector2d origin = field.shape.newtonian_properties.world_position;
+   int rows = field.coordinateSpace.rows;
+   int cols = field.coordinateSpace.columns;
 
-   // Calculate the Determinant
-   float det = (u.x * v.y) - (u.y * v.x);
+   int count = 0;
+   for (int r = 0; r < rows; r++)
+   {
+      for (int c = 0; c < cols; c++)
+      {
+         // The c and r represent the column and row index of the cell respectively, so we can calculate the position of the cell by scaling the basis vectors by the column and row index and adding it to the origin
+         int index = (r * cols + c); // Convert 2D row and column index to linear index
+         Cell cell;
 
-   // If determinant is 0, the grid is collapsed (invalid)
-   if (fabs(det) < 0.0001f)
-      return (Vector2d){-1, -1};
+         // Scale the basis vectors (u,v) and add them to get the displacement from the origin
+         Vector2d scaled_u = {c * field.coordinateSpace.basis.u.x, c * field.coordinateSpace.basis.u.y};
+         Vector2d scaled_v = {r * field.coordinateSpace.basis.v.x, r * field.coordinateSpace.basis.v.y};
+         Vector2d displacement = {scaled_u.x + scaled_v.x, scaled_u.y + scaled_v.y};
 
-   // Solve for Grid Coordinates (c, r) using the Inverse Matrix logic
-   float c = (px * v.y - py * v.x) / det;
-   float r = (py * u.x - px * u.y) / det;
+         // Add the displacement vector to the origin to get the coordinates of the cell
+         cell.coordinates.x = origin.x + displacement.x;
+         cell.coordinates.y = origin.y + displacement.y;
 
-   // Use floor() to get the integer index of the cell
-   return (Vector2d){floorf(c), floorf(r)};
+         cell.value = 0.0f;  // Initialize the cell value to 0
+         cell.occupancy = 0; // Initialize the cell occupancy to 0
+
+         // Write the cell to the array
+         Cell *address = (Cell *)((char *)cells.items + (index * cells.elemSize));
+         memcpy(address, &cell, cells.elemSize);
+         count++;
+         printf("Initialised Cell (%d,%d)\n", r + 1, c + 1);
+      }
+   }
+   cells.count = rows * cols;
+   printf("Initialised %d cells\n", count);
+   return field;
 }
 
-// void Container_Rect_GetCollisionObjects(Rectangloid rect);
-//  Rectangloid CreateRectangloid(float height, float width, ColourRgba colour, size_t mass, Vector2d position, Velocity2d velocity, Acceleration2d acceleration)
-//  {
-//     NewtonObject2d newtOb = CreateNewtonObject2d(mass, position, velocity, acceleration);
-//     // Initialize the NewtonObject2d properties here (e.g., set position, velocity, etc.)
-//     Rectangloid newRect = {0};
-//     newRect.object = newtOb;
-//     newRect.height = height;
-//     newRect.width = width;
-//     newRect.colourRgba = colour;
+// Gets the cell indices (i,j) (zero based) from the provided input coordinates
+Vector2d GetCellIndicesFromCoordinates(Vector2d origin_coordinates, Vector2d input_coordinates, Basis2d basis)
+{
+   // Get position relative to the grid origin
+   float px = input_coordinates.x - origin_coordinates.x;
+   float py = input_coordinates.y - origin_coordinates.y;
 
-//    return newRect;
-//    // Initialize momentum based on mass and velocity
-// }
+   // Calculate the Determinant
+   float det = (basis.u.x * basis.v.y) - (basis.u.y * basis.v.x);
 
-// Rectangloid CreateRectangloid_FromObject(NewtonObject2d newtOb, float height, float width, ColourRgba colour)
-// {
-//    // Initialize the NewtonObject2d properties here (e.g., set position, velocity, etc.)
-//    Rectangloid newRect = {0};
-//    newRect.object = newtOb;
-//    newRect.height = height;
-//    newRect.width = width;
-//    newRect.colourRgba = colour;
+   // If determinant is 0, the grid is collapsed (invalid)
+   if (fabs(det) < 0.0001f) 
+   {
+      return (Vector2d){-1, -1};
+   }
 
-//    return newRect;
-// }
+   // Solve for Grid Coordinates (i, j) using the Inverse Matrix logic
+   float i = (py * basis.u.x - px * basis.u.y) / det;
+   float j = (px * basis.v.y - py * basis.v.x) / det;
 
-// void Rectangloid_GetCollisionObjects(Rectangloid rect)
-// {
+   // Use floor() to get the integer index of the cell
+   return (Vector2d){floorf(i), floorf(j)};
+}
 
-// }
+// Update the values of all cells in the field according to object interactions with them
+Field UpdateFieldCellValues(Field field)
+{
+   Collection *cells = &field.coordinateSpace.cells.coll;
+   Collection *objects = &field.items.coll;
+
+   // Goal = Adjust cell value if the cell's surface has some overlap with the surface that an object's contact vectors create
+
+   // If there are more cells than objects, iterate through the objects and increment the value for the all cells the object occupies
+   for (size_t i = 0; i < objects->count; i++)
+   { 
+      Circloid *circloid_i = (Circloid *)((char *)objects + (i * objects->elemSize));
+      Collection *vertices = &circloid_i->newtonian_properties.surface.surface_vectors.coll;
+
+      DynamicArray *vector_indices = NewDynamicArray(vertices->count, vertices->elemSize);
+      // Get the surface vectors of the object and find the corresponding cell indices
+      for (size_t i = 0; i < vertices->count; i++)
+      {
+         // Calculate cell indices
+         Vector2d indices = GetCellIndicesFromCoordinates(field.shape.newtonian_properties.world_position, ((Vector2d*)vertices->items)[i], field.coordinateSpace.basis);
+         Array_Push(vector_indices, &indices);
+      }
+      
+      
+      
+   }
+   // if (cells->count >= objects->count)
+   // {
+   // }
+
+   // If there are more objects than cells, iterate through the cells and check for collisions if the cell has occupancy > 1
+   // field.
+
+   return field;
+}
+
+// Update the values of all cells in the field according to object interactions with them
+void UpdateFieldCellValue(Cell *cell)
+{
+   // Positional
+}
+
+// Update the values of all cells in the field according to object interactions with them
+void FindCellsWithCollisions(Field *field)
+{
+   // If there are more objects than cells, iterate through the cells and check for collisions if the cell has occupancy > 1
+   // If there are more cells than objects, iterate through the objects and check for collisions with the cell they are in
+}
+
+// NOT DONE
+Vector2d GetCellCoordinates(Field field, Vector2d objectPos)
+{
+   Vector2d origin = field.shape.newtonian_properties.world_position;
+   Vector2d u = field.coordinateSpace.basis.u;
+   Vector2d v = field.coordinateSpace.basis.v;
+
+   // // Get position relative to the grid origin
+   // float px = objectPos.x - origin.x;
+   // float py = objectPos.y - origin.y;
+
+   // // Calculate the Determinant
+   // float det = (u.x * v.y) - (u.y * v.x);
+
+   // // If determinant is 0, the grid is collapsed (invalid)
+   // if (fabs(det) < 0.0001f)
+   //    return (Vector2d){-1, -1};
+
+   // // Solve for Grid Coordinates (c, r) using the Inverse Matrix logic
+   // float c = (px * v.y - py * v.x) / det;
+   // float r = (py * u.x - px * u.y) / det;
+
+   // // Use floor() to get the integer index of the cell
+   // return (Vector2d){floorf(c), floorf(r)};
+}

@@ -20,37 +20,43 @@
 //----------------------------------------------------------------------------------
 Rectangloid CreateRectangloid(float height, float width, ColourRgba colour, size_t mass, Vector2d position, Velocity2d velocity, Acceleration2d acceleration)
 {
-   NewtonObject2d newtOb = CreateNewtonObject2d(mass, position, velocity, acceleration);
+   Surface2d surface = {0};
+   surface.surface_vectors = *NewDynamicArray(4, sizeof(Vector2d));
+
+   NewtonObject2d newtOb = CreateNewtonObject2d(mass, position, velocity, acceleration, surface);
+
    // Initialize the NewtonObject2d properties here (e.g., set position, velocity, etc.)
    Rectangloid newRect = {0};
-   newRect.object = newtOb;
+   newRect.newtonian_properties = newtOb;
    newRect.height = height;
    newRect.width = width;
    newRect.colourRgba = colour;
 
    return newRect;
-   // Initialize momentum based on mass and velocity
 }
 
 Rectangloid CreateRectangloid_Static(float height, float width, ColourRgba colour, Vector2d position)
 {
-   NewtonObject2d newtOb = CreateNewtonObject2d_Static(position);
+   Surface2d surface = {0};
+   surface.surface_vectors = *NewDynamicArray(4, sizeof(Vector2d));
+
+   NewtonObject2d newtOb = CreateNewtonObject2d_Static(position, surface);
+   
    // Initialize the NewtonObject2d properties here (e.g., set position, velocity, etc.)
    Rectangloid newRect = {0};
-   newRect.object = newtOb;
+   newRect.newtonian_properties = newtOb;
    newRect.height = height;
    newRect.width = width;
    newRect.colourRgba = colour;
 
    return newRect;
-   // Initialize momentum based on mass and velocity
 }
 
 Rectangloid CreateRectangloid_FromObject(NewtonObject2d newtOb, float height, float width, ColourRgba colour)
 {
    // Initialize the NewtonObject2d properties here (e.g., set position, velocity, etc.)
    Rectangloid newRect = {0};
-   newRect.object = newtOb;
+   newRect.newtonian_properties = newtOb;
    newRect.height = height;
    newRect.width = width;
    newRect.colourRgba = colour;
