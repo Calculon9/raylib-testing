@@ -20,11 +20,11 @@ CIRCLOID MODULE
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
 
-typedef struct Cell {
+typedef struct UnitCell {
     Vector2d coordinates; // coordinates of the cell in world coordinates
     int occupancy;
     float value; // value representing the properties of the field at this cell (e.g., occupied, empty, etc.)
-} Cell;
+} UnitCell;
 
 typedef struct LineSegment2d {
     Vector2d start;

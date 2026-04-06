@@ -10,7 +10,7 @@
 #include "physics/rectangloid.h"
 #include "physics/circloid.h"
 #include "physics/newton_object.h"
-#include "physics/coordinate_space.h"
+#include "math/coordinate_space.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -23,7 +23,7 @@ void CalculateLineSegmentVectors(CoordinateSpace2d *coordinate_space);
 void InitialiseUnitCells(CoordinateSpace2d *coordinate_space);
 
 // Creates a static/immovable rectangloid container with the given rectangloid and items to be contained
-CoordinateSpace2d CreateCoordinateSpace(Rectangloid object, int rows, int columns, ColourRgba lineColour)
+CoordinateSpace2d CreateCoordinateSpace(Rectangloid object, Vector2d resolution_ixj, Basis2d basis, ColourRgba lineColour)
 {
    CoordinateSpace2d coordinate_space = {0};
 
@@ -36,41 +36,59 @@ CoordinateSpace2d CreateCoordinateSpace(Rectangloid object, int rows, int column
 
    coordinate_space.object = object;
    coordinate_space.lineColour = lineColour;
+   coordinate_space.basis = basis;
+   coordinate_space.resolution_ixj = resolution_ixj;
 
-   int totalWidth = (int)object.width;
-   int totalHeight = (int)object.height;
+   // Calculate the 'Area' of a single basis tile; this is the determinant of the basis matrix, which gives us the area of the parallelogram formed by the basis vectors, which is the area of each cell in the coordinate space. We can then divide the total area of the field by this cell area to get the total number of cells needed to fill the field.
+   float cellArea = fabsf((basis.u.x * basis.v.y) - (basis.u.y * basis.v.x));
 
-   int unitW = totalWidth / columns;
-   int unitH = totalHeight / rows;
+   // If cellArea is 0, the basis is invalid (it's a line, not a space)
+   if (cellArea < 0.0001f)
+   {
+      fprintf(stderr, "ERROR: Invalid basis vectors. The area of the basis tile is too small (close to zero). Cannot create coordinate space with these basis vectors!");
+   }
 
-   columns = ceil((float)totalWidth / unitW);
-   rows = ceil((float)totalHeight / unitH);
+   // Total area of the bounding box/object
+   float totalArea = resolution_ixj.x * resolution_ixj.y;
 
-   coordinate_space.rows = rows;
-   coordinate_space.columns = columns;
+   // Total units needed to fill that area
+   int totalUnits = (int)ceilf(totalArea / cellArea);
+
+   // int totalWidth = (int)resolution_ixj.x;
+   // int totalHeight = (int)resolution_ixj.y;
+
+   // int unitW = totalWidth / columns;
+   // int unitH = totalHeight / rows;
+
+   //int basis_u_units = ceil((float)resolution_ixj.x / VectorMagnitude_2d(basis.u));
+   //int basis_v_units = ceil((float)resolution_ixj.y / VectorMagnitude_2d(basis.v));
+   // basis_v_units = ceil((float)totalHeight / unitH);
+
+   // coordinate_space.rows = rows;
+   // coordinate_space.columns = columns;
 
    // Set the basis vectors for the field;
    // Initialise each basis vector to align with the x and y axes respectively, and have a magnitude equal to the unit width and height respectively, so that we can scale them with a scalar to get the position of any field unit in the field coordinate space
-   coordinate_space.basis.u = (Vector2d){unitW, 0};
-   coordinate_space.basis.v = (Vector2d){0, unitH};
+   // coordinate_space.basis.u = (Vector2d){unitW, 0};
+   // coordinate_space.basis.v = (Vector2d){0, unitH};
 
-   int totalUnits = rows * columns;
-   coordinate_space.cells = *NewDynamicArray(totalUnits, sizeof(Cell));
+   //int totalUnits = basis_u_units * basis_v_units; // The total number of units in the field is the area of the field divided by the area of each unit, which is equivalent to the determinant of the basis matrix (u.x * v.y - u.y * v.x), but since we are assuming orthogonal basis vectors for now, we can just multiply the magnitudes of the basis vectors together to get the total number of units
+   coordinate_space.cells = NewDynamicArray(totalUnits, sizeof(Cell));
 
-   CalculateLineSegmentVectors(&coordinate_space);
-   InitialiseUnitCells(&coordinate_space);
+   // CalculateLineSegmentVectors(&coordinate_space);
+   //InitialiseUnitCells(&coordinate_space);
 
    // LOG FIELD INFO
    Vector2d basis_u = coordinate_space.basis.u;
    Vector2d basis_v = coordinate_space.basis.v;
    // char text[64]; // Buffer to hold the text
    // snprintf(text, sizeof(text), "FIELD INITIALISED:  Dimensions (%d, %d); Units (%d); Basis -> u = [%d,%d], v = [%d,%d].\n", unitW, unitH, totalUnits, basis_u.x, basis_u.y, basis_v.x, basis_v.y);
-   printf("FIELD INITIALISED:  Dimensions (W:%d, H:%d); Units (%d); Basis -> u = [%d,%d], v = [%d,%d].\n", object.width, object.height, totalUnits, basis_u.x, basis_u.y, basis_v.x, basis_v.y);
-  
+   printf("COORD.SPACE INITIALISED:  Dimensions (W:%d, H:%d); Units (%d); Basis -> u = [%0.2f,%0.2f], v = [%0.2f,%0.2f].\n", resolution_ixj.x, resolution_ixj.y, totalUnits, basis_u.x, basis_u.y, basis_v.x, basis_v.y);
+
    return coordinate_space;
 }
 
-//Calculate coordinate space lines relative to the space's world position
+// Calculate coordinate space lines relative to the space's world position
 void CalculateLineSegmentVectors(CoordinateSpace2d *coordinate_space)
 {
    Vector2d space_coords = coordinate_space->object.newtonian_properties.world_position;
@@ -115,9 +133,10 @@ void CalculateLineSegmentVectors(CoordinateSpace2d *coordinate_space)
    }
 }
 
+//NEEDS REDOING
 void InitialiseUnitCells(CoordinateSpace2d *coordinate_space)
 {
-   Collection *cells = &coordinate_space->cells.coll;
+   Collection *cells = &coordinate_space->cells->coll;
    size_t cells_capacity = cells->capacity;
    memset(cells->items, 0, cells->elemSize * cells_capacity);
 
@@ -156,10 +175,6 @@ void InitialiseUnitCells(CoordinateSpace2d *coordinate_space)
    cells->count = rows * cols;
    printf("Initialised %d cells\n", count);
 }
-
-
-
-
 
 // Update the values of all cells in the field according to object interactions with them
 // void UpdateCellValue(Cell *cell)
@@ -210,7 +225,7 @@ void InitialiseUnitCells(CoordinateSpace2d *coordinate_space)
 
 //    // If there are more cells than objects, iterate through the objects and increment the value for the all cells the object occupies
 //    for (size_t i = 0; i < objects->count; i++)
-//    { 
+//    {
 //       Circloid *circloid_i = (Circloid *)((char *)objects + (i * objects->elemSize));
 //       Collection *vertices = &circloid_i->object.surface.surface_vectors.coll;
 
@@ -222,9 +237,7 @@ void InitialiseUnitCells(CoordinateSpace2d *coordinate_space)
 //          Vector2d indices = GetCellIndicesFromCoordinates(field.shape.object.position, ((Vector2d*)vertices->items)[i], field.coordinateSpace.basis);
 //          Array_Push(vector_indices, &indices);
 //       }
-      
-      
-      
+
 //    }
 //    // if (cells->count >= objects->count)
 //    // {

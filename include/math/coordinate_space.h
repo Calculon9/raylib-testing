@@ -33,11 +33,13 @@ typedef struct LineSegment2d {
 
 typedef struct CoordinateSpace2d {
     ColourRgba lineColour;
-    Rectangloid object; 
+    Rectangloid object;
+    Vector2d resolution_ixj; // The dimensions of the coordinate space in terms of how many units it has in the i and j directions, which we can use to calculate the number of lines and cells needed to fill the space
     Basis2d basis; // basis vectors representing the direction and length of one step to the right and down respectively
     DynamicArray lineSegments_u; // array of line segments representing the "horizontal" lines of the field (if applicable)
     DynamicArray lineSegments_v; // array of line segments representing the "vertical" lines of the field (if applicable)
-    DynamicArray cells; // the cells or field units within the coordinate space (in linear form) of field units
+    DynamicArray *cells; // the cells or field units within the coordinate space (in linear form) of field units
+    //Matrix3x3 basisTransform; // the matrix that transforms coordinates in this coordinate space to world coordinates
     float rows, columns; // number of rows and columns in the coordinate space
 } CoordinateSpace2d;
 
@@ -53,7 +55,8 @@ typedef struct CoordinateSpace2d {
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-CoordinateSpace2d CreateCoordinateSpace(Rectangloid object, int rows, int columns, ColourRgba lineColour);
+CoordinateSpace2d CreateCoordinateSpace(Rectangloid object, Vector2d resolution_ixj, Basis2d basis, ColourRgba lineColour);
+//CoordinateSpace2d CreateCoordinateSpace(Rectangloid object, int rows, int columns, ColourRgba lineColour);
 
 //Vector2d GetCellIndicesFromCoordinates(Vector2d input_coordinates, Basis2d basis);
 // void UpdateUnitCellValues(CoordinateSpace2d *coordinate_space);

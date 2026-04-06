@@ -54,7 +54,7 @@ Field CreateField(Rectangloid object, int rows, int columns, ColourRgba lineColo
    field.coordinateSpace.basis.v = (Vector2d){0, unitH};
 
    int totalUnits = rows * columns;
-   field.coordinateSpace.cells = *NewDynamicArray(totalUnits, sizeof(Cell));
+   field.coordinateSpace.cells = *NewDynamicArray(totalUnits, sizeof(UnitCell));
 
    field = CalculateFieldLines(field);
    field = InitialiseFieldCells(field);
@@ -251,7 +251,7 @@ Field InitialiseFieldCells(Field field)
       {
          // The c and r represent the column and row index of the cell respectively, so we can calculate the position of the cell by scaling the basis vectors by the column and row index and adding it to the origin
          int index = (r * cols + c); // Convert 2D row and column index to linear index
-         Cell cell;
+         UnitCell cell;
 
          // Scale the basis vectors (u,v) and add them to get the displacement from the origin
          Vector2d scaled_u = {c * field.coordinateSpace.basis.u.x, c * field.coordinateSpace.basis.u.y};
@@ -266,7 +266,7 @@ Field InitialiseFieldCells(Field field)
          cell.occupancy = 0; // Initialize the cell occupancy to 0
 
          // Write the cell to the array
-         Cell *address = (Cell *)((char *)cells.items + (index * cells.elemSize));
+         UnitCell *address = (UnitCell *)((char *)cells.items + (index * cells.elemSize));
          memcpy(address, &cell, cells.elemSize);
          count++;
          printf("Initialised Cell (%d,%d)\n", r + 1, c + 1);
@@ -338,7 +338,7 @@ Field UpdateFieldCellValues(Field field)
 }
 
 // Update the values of all cells in the field according to object interactions with them
-void UpdateFieldCellValue(Cell *cell)
+void UpdateFieldCellValue(UnitCell *cell)
 {
    // Positional
 }
