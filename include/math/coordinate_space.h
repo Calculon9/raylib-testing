@@ -20,28 +20,41 @@ CIRCLOID MODULE
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
 
-typedef struct Cell {
-    Vector2d world_coordinates; // coordinates of the cell in world coordinates
+typedef struct Cell
+{
+    Vector2d coords; // coordinates of the cell in world coordinates
     int occupancy;
     float value; // value representing the properties of the field at this cell (e.g., occupied, empty, etc.)
 } Cell;
 
-typedef struct LineSegment2d {
+typedef struct LineSegment2d
+{
     Vector2d start;
     Vector2d end;
 } LineSegment2d;
 
-typedef struct CoordinateSpace2d {
-    ColourRgba lineColour;
-    Rectangloid object;
-    Vector2d resolution_ixj; // The dimensions of the coordinate space in terms of how many units it has in the i and j directions, which we can use to calculate the number of lines and cells needed to fill the space
-    Basis2d basis; // basis vectors representing the direction and length of one step to the right and down respectively
-    DynamicArray lineSegments_u; // array of line segments representing the "horizontal" lines of the field (if applicable)
-    DynamicArray lineSegments_v; // array of line segments representing the "vertical" lines of the field (if applicable)
-    DynamicArray *cells; // the cells or field units within the coordinate space (in linear form) of field units
-    //Matrix3x3 basisTransform; // the matrix that transforms coordinates in this coordinate space to world coordinates
-    float rows, columns; // number of rows and columns in the coordinate space
-} CoordinateSpace2d;
+// A bare-bones coordinate space with no associated object or physicality. Use for describing a logical grid space.
+typedef struct CoordSpace2d
+{
+    Vector2d coords_origin;
+    // Vector2d coords_end;         // This can simply be calculated from the resolution
+    Vector2d resolution_ixj;        // The dimensions of the coordinate space in terms of how many units it has in the i and j directions, which we can use to calculate the number of lines and cells needed to fill the space
+    Basis2d basis;                  // basis vectors representing the direction and length of one step to the right and down respectively
+    DynamicArray *cells;            // the cells or field units within the coordinate space (in linear form) of field units
+    float unitArea, stepsU, stepsV; // rows, columns; // number of rows and columns in the coordinate space
+} CoordSpace2d;
+
+typedef struct CoordSpace2d_Grid
+{
+    CoordSpace2d coord_space;
+    ColourRgba colour_fill;
+    ColourRgba colour_line;
+    NewtonObject2d_Static object;
+    // DynamicArray lineSegments_u; // array of line segments representing the "horizontal" lines of the field (if applicable)
+    // DynamicArray lineSegments_v; // array of line segments representing the "vertical" lines of the field (if applicable)
+} CoordSpace2d_Grid;
+
+
 
 // typedef struct WorldSpace {
 //     Vector2d position; // position of the cell in world coordinates
@@ -55,10 +68,11 @@ typedef struct CoordinateSpace2d {
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-CoordinateSpace2d CreateCoordinateSpace(Rectangloid object, Vector2d resolution_ixj, Basis2d basis, ColourRgba lineColour);
-//CoordinateSpace2d CreateCoordinateSpace(Rectangloid object, int rows, int columns, ColourRgba lineColour);
+CoordSpace2d_Grid NewCoordSpace2d_Grid(Vector2d origin, Vector2d resolution_ixj, Basis2d basis, ColourRgba colour_fill, ColourRgba colour_line);
+CoordSpace2d NewCoordSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d basis);
+// CoordinateSpace2d CreateCoordinateSpace(Rectangloid object, int rows, int columns, ColourRgba lineColour);
 
-//Vector2d GetCellIndicesFromCoordinates(Vector2d input_coordinates, Basis2d basis);
-// void UpdateUnitCellValues(CoordinateSpace2d *coordinate_space);
-//void Field_Rect_GetCollisionObjects(Rectangloid rect);
+// Vector2d GetCellIndicesFromCoordinates(Vector2d input_coordinates, Basis2d basis);
+//  void UpdateUnitCellValues(CoordinateSpace2d *coordinate_space);
+// void Field_Rect_GetCollisionObjects(Rectangloid rect);
 #endif

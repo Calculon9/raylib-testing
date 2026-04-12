@@ -56,7 +56,6 @@ typedef struct Matrix3x3 {
 typedef struct Matrix2x2 {
     float m0, m3, m6; // Row 1: BasisU.x, BasisV.x, Trans.x
     float m1, m4, m7; // Row 2: BasisU.y, BasisV.y, Trans.y
-    float m2, m5, m8; // Row 3: 0, 0, 1
 } Matrix2x2;
 
 //typedef struct Matrix2d {
@@ -74,6 +73,7 @@ typedef struct Matrix2x2 {
 //----------------------------------------------------------------------------------
 
 Vector2d VectorSumArray_2d(Vector2d *array, size_t count);
+Vector2d VectorSum_2d(Vector2d a, Vector2d b);
 Vector2d* VectorSumArray_2d_Dynamic(Vector2d *array, size_t count);
 Vector2d VectorScale_2d(Vector2d vector, float scalar);
 Polar2d PolarForm_2d(Vector2d vector);
@@ -88,5 +88,6 @@ Matrix3x3 MatrixInvert_3x3(Matrix3x3 M);
 //For transforming coordinates from one basis to another, we can create a basis transform matrix that represents the transformation from the source basis to the destination basis, and then apply this matrix to the coordinates we want to transform. The destination origin is needed to account for any translation between the two bases.
 //Specify (0,0) as the destination origin if the destination basis shares the same origin as the source basis.
 Matrix3x3 BasisTransform_2d(Basis2d source, Basis2d destination, Vector2d destination_origin);
+Vector2d MatrixMultiply_3x3_2x2(Matrix3x3 matrix_function, Vector2d vector_input);
 
 #endif

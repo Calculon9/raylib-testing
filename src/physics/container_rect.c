@@ -21,23 +21,23 @@
 //----------------------------------------------------------------------------------
 
 // Creates a static/immovable rectangloid container with the given rectangloid and items to be contained
-Container_Rect CreateContainer_Rect_Static(float height, float width, ColourRgba colour, Vector2d position, void *items)
-{
-   // Initialise the container and give it the contained items
-   Container_Rect contRect = {0};
-   contRect.items = items;
+// Container_Rect CreateContainer_Rect_Static(float height, float width, ColourRgba colour, Vector2d position, void *items)
+// {
+//    // Initialise the container and give it the contained items
+//    Container_Rect contRect = {0};
+//    contRect.items = items;
 
-   Surface2d surface = {0};
-   surface.surface_vectors = *NewDynamicArray(4, sizeof(Vector2d));
+//    Surface2d surface = {0};
+//    surface.surface_vectors = *NewDynamicArray(4, sizeof(Vector2d));
 
-   // Initialize the static NewtonObject2d and its position here
-   //NewtonObject2d newtObStatic = CreateNewtonObject2d_Static(position);
+//    // Initialize the static NewtonObject2d and its position here
+//    //NewtonObject2d newtObStatic = CreateNewtonObject2d_Static(position);
    
-   // Implement a static NewtonObject2d as a Rectangloid
-   contRect.rect = CreateRectangloid_FromObject(CreateNewtonObject2d_Static(position, surface), height, width, colour);
+//    // Implement a static NewtonObject2d as a Rectangloid
+//    contRect.rect = CreateRectangloid_FromObject(CreateNewtonObject2d_Static(position, surface), height, width, colour);
 
-   return contRect;
-}
+//    return contRect;
+// }
 
 void Container_Rect_GetCollisionObjects(Rectangloid rect) 
 {

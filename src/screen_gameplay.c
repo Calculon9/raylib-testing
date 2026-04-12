@@ -26,88 +26,131 @@
 #include "screens.h"
 #include "utility/utility.h"
 #include "physics/circloid.h"
+#include "math/cvectors.h"
 #include "physics/rectangloid.h"
 #include "physics/polygonoid.h"
 #include "physics/field.h"
 #include "collections/dynamic_array.h"
 #include "common/common.h"
 #include "world/world.h"
+#include "camera/camera.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
 
-// Dimensions of each Window component (calculated as necessary in InitGameplayScreen)
+// ------------------TOTAL SCREEN-------------------------
+// Pixel Space Properties
+static Vector2d screen_pixel_origin = {0};
+static Vector2d screen_pixel_resolution = {1200, 800};
+// Coordinate Space Properties
+static Vector2d screen_origin = {0};
+static Vector2d resolution = {0};
+// Logical->pixel-space conversion properties
+static float screen_resolution_scalar = 100.0; // used to divide up the pixel resolution to get a local coordinate resolution for the entire screen
 
-// static int framesCounter = 0;
-static int finishScreen = 0;
-static int initObjectCount = 8;
-static DynamicArray *circloids = NULL; // = {0};
-static Field position_field = {0};
+// ----------LEFT PANEL SCREEN----------
+// Visual Properties
+static ColourRgba lpanel_text_colour = BEIGE_RGBA;
+static ColourRgba lpanel_fill_colour = {150, 115, 70, 255};
+// Coordinate Space Properties
+static CoordSpace2d lpanel_space = {0};
+static Vector2d lpanel_origin, lpanel_end = {0}; // Dependent on the game world screen area
+static Vector2d lpanel_pixel_origin, lpanel_pixel_end = {0};
+static Vector2d lpanel_u = {1, 0};
+static Vector2d lpanel_v = {0, 1};
+static Vector2d lpanel_resolution = {0};
+// Logical->pixel-space conversion properties
+static Vector2d pixel_lpanel_u = {75, 0};
+static Vector2d pixel_lpanel_v = {0, 75};
+static Camera2d camera_lpanel = {0};
 
-static ColourRgba stageBackgroundColour = {225, 225, 225, 255};
-// static Rectangloid rectangloid = {0};
-
-// ----------WORLD----------
-// Properties
-static World world = {0};
-static Basis2d world_basis = {0};
+// ----------GAME WORLD SCREEN----------
+// Visual Properties
+static ColourRgba world_text_colour = BROWN_RGBA;//{55, 97, 0, 200};
+static ColourRgba world_fill_colour = {150, 255, 220,180};//DARKGREEN_RGBA;
+static ColourRgba world_line_colour = {128, 99, 42, 100};
+// Coordinate Space Properties
+static World2d world = {0};
+static Vector2d world_origin, world_end = {0};
+static Vector2d world_pixel_origin, world_pixel_end = {0};
 static Vector2d world_u = {1, 0};
 static Vector2d world_v = {0, 1};
-static Vector2d resolution_ixj = {10, 10};
-static ColourRgba world_bg_colour = {110, 175, 215, 255};
-static ColourRgba world_line_colour = {250, 230, 60, 125};
+static Vector2d world_resolution = {0};
 static float gravity = 10;
+// Objects and properties
+static DynamicArray *polygonoids = NULL; // static DynamicArray *circloids = NULL;
+static int finishScreen = 0;
+static int initObjectCount = 8;
+// Logical->pixel-space conversion properties
+// static Vector2d screen_game_origin, screen_game_end = {0};
+static Vector2d world_pixel_u = {75, 0};
+static Vector2d world_pixel_v = {0, 75};
+static Camera2d camera_world = {0};
+static float camera_world_zoom = 1.0;
+static float camera_world_rotation = 0.0;
 
-// Objects
-static DynamicArray *polygonoids = NULL;
+// ----------SCREEN WORLD (logical)----------
 
-// ----------SCREEN----------
-// Properties
-int panelWidth = 250;
-int panelHeight = 0;
-int stageWidth = 0;
-int stageHeight = 0;
-static Vector2d screen_u = {10, 0};
-static Vector2d screen_v = {0, 10};
-Matrix3x3 screen_basis_transform = {0};
-// static float world_u_to_screen_u = 0;
-// static float world_v_to_screen_v = 0;
+// Left Side Panel Screen Properties
+// static Vector2d screen_panel_origin, screen_panel_end = {0, 0};
+// static Vector2d screen_panel_u = {75, 0};
+// static Vector2d screen_panel_v = {0, 75};
+// // Game Screen Properties
+// static Vector2d screen_game_origin, screen_game_end = {0, 0};
+// static Vector2d world_pixel_u = {75, 0};
+// static Vector2d world_pixel_v = {0, 75};
+// static ColourRgba stageBackgroundColour = {225, 225, 225, 255};
 
-// Objects
+// ----------CAMERA (logical to pixel)----------
+// Camera and Properties
+// static Camera2d camera = {0};
+// Matrix3x3 screen_basis_transform = {0};
+// static Basis2d world_basis = {0};
+// static Vector2d world_u = {1, 0};
+// static Vector2d world_v = {0, 1};
 
 //----------------------------------------------------------------------------------
 // Gameplay Screen Functions Definition
 //----------------------------------------------------------------------------------
+void InitCoordinateSpaceProperties();
 void DrawCircloids();
-int GetCircloidCount(void);
+void DrawPanelRegion(CoordSpace2d panel_space, Color fill_colour);
+void DrawWorldRegion(World2d world, Camera2d world_camera);
+void DrawWorldCoordinateGrid();
+// int GetCircloidCount(void);
 int GetPolygonoidCount(void);
 void UpdatePolygonoidVectors();
-void DrawWorldCoordinateSpace(CoordinateSpace2d world_space);
 void DrawFields_Rect(void);
 void AddStockCircloid_Moving(int posX, int posY);
-Vector2d WorldToScreenCoordinates(Matrix3x3 screen_basis_transform, Vector2d world_coordinates);
+// Vector2d WorldToScreenCoordinates(Matrix3x3 screen_basis_transform, Vector2d world_coordinates);
 
-// Gameplay Screen Initialization logic
+// FIRST: Initialisation of Gameplay Screen
 void InitGameplayScreen(void)
 {
-    // Initialise Window dimensions based on current screen size
-    panelHeight = GetScreenHeight();
-    stageWidth = GetScreenWidth() - panelWidth;
-    stageHeight = panelHeight;
-
-    // Initialise Objects
+    // 0. CALCULATE LOGICAL screen origin and end points for each region (panel, world)
+    InitCoordinateSpaceProperties();
+    
+    // 1. INIT CAMERAS using using the resolutions, sceen basis, origins etc. from Step 0
+    // 1.1 Game world camera
+    Basis2d world_basis = (Basis2d){world_u, world_v};
+    Basis2d world_pixel_basis = (Basis2d){world_pixel_u, world_pixel_v};
+    camera_world = CreateCamera2d(world_pixel_basis, world_basis, world_pixel_origin, camera_world_zoom, camera_world_rotation);
+    //1.2 Panel camera
+    Basis2d lpanel_basis = (Basis2d){lpanel_u, lpanel_v};
+    Basis2d lpanel_pixel_basis = (Basis2d){pixel_lpanel_u, pixel_lpanel_v};
+    camera_lpanel = CreateCamera2d(lpanel_pixel_basis, lpanel_basis, lpanel_pixel_origin, 1, 0);
+    
+    // 2. INIT a LOCAL COORD SPACE for the SIDE PANEL using the resolutions, origins etc. from Step 0
+    lpanel_space = NewCoordSpace2d(lpanel_origin, lpanel_resolution, lpanel_basis);
+    
+    // 3 CREATE GAME WORLD using the resolutions, origins etc. from Step 0
+    // 3.1 Create the coordinate space for the world
+    // 3.11 Initialise Objects
     polygonoids = NEW_DYNAMIC_ARRAY(initObjectCount, Polygonoid);
-
-    // Create the World
-    // 1 . Create the coordinate space for the world
-    world_basis = (Basis2d){world_u, world_v};
-    Rectangloid world_shape_object = CreateRectangloid_Static(resolution_ixj.y, resolution_ixj.x, world_bg_colour, (Vector2d){0, 0}); // position will start at the end of the panel and take up the rest of the screen, so that it only applies to the stage
-    CoordinateSpace2d coord_space = CreateCoordinateSpace(world_shape_object, resolution_ixj, world_basis, world_line_colour);
-    world = CreateWorld(coord_space, *polygonoids, gravity);
-
-    // Calculate world-to-screen basis transform matrix
-    screen_basis_transform = BasisTransform_2d(world_basis, (Basis2d){screen_u, screen_v},(Vector2d){panelWidth, 0}); // For now we will assume the screen basis is the standard basis, so we are just calculating the transform from world to standard basis. TODO: make this more flexible to allow for different screen bases and transformations.
+    // 3.2 Create the space then world
+    CoordSpace2d_Grid space_g = NewCoordSpace2d_Grid(world_origin, world_resolution, world_basis, world_fill_colour, world_line_colour);
+    world = CreateWorld(space_g, *polygonoids, gravity);
 
     // Initialise Fields
     // rectangloid = CreateRectangloid_Static(stageHeight, stageWidth, fieldBackgroundColour, (Vector2d){panelWidth, 0}); // position will start at the end of the panel and take up the rest of the screen, so that it only applies to the stage
@@ -123,15 +166,56 @@ void InitGameplayScreen(void)
     finishScreen = 0;
 }
 
+// Calculates initial coordinates in local coordinate space, screen/pixel space basis's, resolutoins, from local resolution and desired world->pixel scaling.
+void InitCoordinateSpaceProperties()
+{
+    // 0 CALCULATE LOGICAL/LOCAL resolution from screen's pixel resolution
+    resolution = VectorScale_2d(screen_pixel_resolution, 1 / screen_resolution_scalar);
+    resolution.x = floorf(resolution.x);
+    resolution.y = floorf(resolution.y);
+
+    // 1. DEFINE & CALCULATE LOGICAL screen origin and end points for each region (panel, world)
+    // 1.1 Give the panel ~1/4 of the x-dimension, and always 100% y-dimension
+    lpanel_origin = screen_origin;
+    lpanel_end.x = floorf(lpanel_origin.x + ((1.0f / 4.0f) * resolution.x));
+    lpanel_end.y = resolution.y;
+    lpanel_resolution = VectorSum_2d(VectorScale_2d(lpanel_origin, -1), lpanel_end);
+
+    // 1.2 The game screen simply takes up the rest of the screen
+    world_resolution = (Vector2d){resolution.x - lpanel_resolution.x, resolution.y};
+    world_origin = (Vector2d){lpanel_end.x, screen_origin.y};
+    world_end = (Vector2d){world_origin.x + world_resolution.x, world_origin.y + world_resolution.y};
+
+    // 2. BACK-CALCULATE SCREEN PIXEL SPACE Basis for panel and game world
+    // 2.1 Influence of resolution scaling
+    world_pixel_u = VectorScale_2d(world_u, screen_resolution_scalar);
+    world_pixel_v = VectorScale_2d(world_v, screen_resolution_scalar);
+    pixel_lpanel_u = VectorScale_2d(lpanel_u, screen_resolution_scalar);
+    pixel_lpanel_v = VectorScale_2d(lpanel_v, screen_resolution_scalar);
+
+    // 3. CALCULATE SCREEN PIXEL SPACE origins for each region (panel, world)
+    lpanel_pixel_origin.x = (pixel_lpanel_u.x + pixel_lpanel_v.x) * lpanel_origin.x;
+    lpanel_pixel_origin.y = (pixel_lpanel_u.y + pixel_lpanel_v.y) * lpanel_origin.y;
+    world_pixel_origin.x = (world_pixel_u.x + world_pixel_v.x) * world_origin.x;
+    world_pixel_origin.y = (world_pixel_u.y + world_pixel_v.y) * world_origin.y;
+
+    // DEBUG - the sum of panel and world resolutions should equal the overall resolution from Step 0
+    Vector2d res_recalc = VectorSum_2d(lpanel_resolution, world_resolution);
+    printf("LOCAL RESOLUTIONS --> TOTAL_LOCAL(%0.1f,%0.1f); PANEL_LOCAL(%0.1f,%0.1f); WORLD_LOCAL(%0.1f,%0.1f); TOTAL_LOCAL_RECALC(%0.1f,%0.1f) --THIS IS WRONG!!!;\n",
+           resolution.x, resolution.y, lpanel_resolution.x, lpanel_resolution.y, world_resolution.x, world_resolution.y, res_recalc.x, res_recalc.y);
+    printf("PIXEL ORIGINS --> PANEL(%0.1f,%0.1f); GAME_WORLD (%0.1f,%0.1f);\n",
+           lpanel_pixel_origin.x, lpanel_pixel_origin.y, world_pixel_origin.x, world_pixel_origin.y);
+}
+
 //-
 
 // Gameplay Screen Update logic
 void UpdateGameplayScreen(void)
 {
     // TODO: Update GAMEPLAY screen variables here!
-    UpdateGameplayScreenPanel();
+    // UpdateGameplayScreenPanel();
 
-    UpdateGameplayScreenStage();
+    // UpdateGameplayScreenStage();
 
     // Press enter or tap to change to ENDING screen
     // if (IsKeyPressed(KEY_ENTER) || IsGestureDetected(GESTURE_TAP))
@@ -173,7 +257,7 @@ void UpdateGameplayScreenStage(void)
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
         // Add a new circloid to the state with the position of the mouse click - give an initial velocity
-        AddStockCircloid_Moving(GetMouseX(), GetMouseY());
+        // AddStockCircloid_Moving(GetMouseX(), GetMouseY());
         // float radius = 24.0f;
         // float mass = 1.0f;
         // ColourRgba colour = {76, 63, 47, 200};
@@ -193,313 +277,184 @@ void UpdateGameplayScreenStage(void)
     }
 }
 
-void AddStockCircloid_Moving(int posX, int posY)
-{
-    float radius = 50.0f;
-    float mass = 2.0f;
-    ColourRgba colour = BEIGE_RGBA;
-    Vector2d pos = {posX, posY};
-    Velocity2d velocity = {(Vector2d){0.0f, 40.0f}, 0.0f, 0.0f};
-    Acceleration2d acceleration = {(Vector2d){0.0f, 0.0f}, 0.0f, 0.0f};
-    Surface2d surface = {0};
-    surface.surface_vectors = *NewDynamicArray(8, sizeof(Vector2d)); // Placeholder surface vectors, not used for circloids but required for creating the NewtonObject
-    Circloid newCircloid = CreateCircloid(radius, colour, mass, pos, velocity, acceleration, surface);
+// void AddStockCircloid_Moving(int posX, int posY)
+// {
+//     float radius = 50.0f;
+//     float mass = 2.0f;
+//     ColourRgba colour = BEIGE_RGBA;
+//     Vector2d pos = {posX, posY};
+//     Velocity2d velocity = {(Vector2d){0.0f, 40.0f}, 0.0f, 0.0f};
+//     Acceleration2d acceleration = {(Vector2d){0.0f, 0.0f}, 0.0f, 0.0f};
+//     Surface2d surface = {0};
+//     surface.surface_vectors = *NewDynamicArray(8, sizeof(Vector2d)); // Placeholder surface vectors, not used for circloids but required for creating the NewtonObject
+//     Circloid newCircloid = CreateCircloid(radius, colour, mass, pos, velocity, acceleration, surface);
 
-    Array_Push(circloids, &newCircloid);
-}
+//     Array_Push(circloids, &newCircloid);
+// }
 
 // Gameplay Screen Draw logic
-void DrawGameplayScreen(void)
+void DrawGameplayScreen()
 {
-    // Draw the side panel
-    DrawGameplayScreenPanel(0, 0, panelWidth, panelHeight, (Color)BROWN);
+    // 1. Draw the side panel
+    // 1.1 Convert coords to screen/pixel coords
+    // Vector2d lpanel_pixel_start = TransformCoordinates(Matrix3x3 transformation_mtx, Vector2d coordinates_to_transform);
 
-    // Draw the stage
-    DrawGameplayScreenStage(panelWidth, 0, stageWidth, stageHeight, (Color){stageBackgroundColour.r, stageBackgroundColour.g, stageBackgroundColour.b, stageBackgroundColour.a});
+    DrawPanelRegion(lpanel_space, (Color){lpanel_fill_colour.r,lpanel_fill_colour.g,lpanel_fill_colour.b,lpanel_fill_colour.a});
+
+    // 2. Draw the game world
+    DrawWorldRegion(world, camera_world);
+    // DrawWorldRegion(panelWidth, 0, stageWidth, stageHeight, (Color){stageBackgroundColour.r, stageBackgroundColour.g, stageBackgroundColour.b, stageBackgroundColour.a});
 }
 
-// Gameplay Screen - Stats panel Draw
-void DrawGameplayScreenPanel(int startX, int startY, int width, int height, Color color)
+// Draws Left Panel
+void DrawPanelRegion(CoordSpace2d panel_space, Color fill_colour)
 {
-    // TODO: Draw GAMEPLAY screen here!
-    DrawRectangle(startX, startY, width, height, color);
+     // Need to convert world coordinates to screen coordinates
+    Basis2d basis = panel_space.basis;
+
+    // The world position of the coordinate space object is the origin of the coordinate space, so (0,0).
+    // But to make it more flexible for different coordinate space origins, we will add the world position to the start and end points of the lines to get their actual coordinates in world space, and then convert those to screen coordinates using the basis transform matrix
+    Vector2d origin = panel_space.coords_origin;
+    Vector2d end = VectorSum_2d(origin, panel_space.resolution_ixj);
+
+    // Transform local space position to pixel space
+    Vector2d pixel_origin = TransformCoordinates(camera_lpanel.transformation_mtx, origin);
+    Vector2d pixel_end = TransformCoordinates(camera_lpanel.transformation_mtx, end);
+
+    // First: Draw background
+    ColourRgba colour_fill = world.coord_space_grid.colour_fill;
+    ColourRgba colour_line = world.coord_space_grid.colour_line;
+    DrawRectangle(pixel_origin.x, pixel_origin.y, abs(pixel_end.x - pixel_origin.x), abs(pixel_end.y - pixel_origin.y), fill_colour);
     Vector2 pos = {20, 100};
     Vector2 lineSpacing = {0, 40};
 
     // Circloid count display
-    char text[32];                 
+    char text[32];
     snprintf(text, sizeof(text), "Polygonoids: %d", GetPolygonoidCount()); // Format the FPS value into the buffer
-    DrawTextEx(font, text, pos, font.baseSize * 2.0f, 2, (Color)BEIGE);                                    // Buffer to hold the text
+    DrawTextEx(font, text, pos, font.baseSize * 2.0f, 2, (Color){lpanel_text_colour.r,lpanel_text_colour.g,lpanel_text_colour.b,lpanel_text_colour.a});    // Buffer to hold the text
     // snprintf(text, sizeof(text), "Circloids: %d", GetCircloidCount()); // Format the FPS value into the buffer
     // DrawTextEx(font, text, pos, font.baseSize * 2.0f, 2, (Color)BEIGE);
 
     // FPS display
     snprintf(text, sizeof(text), "FPS: %.1f", GetFps().fps); // Format the FPS value into the buffer
-    DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + lineSpacing.y}, font.baseSize * 2.0f, 2, (Color)BEIGE);
+    DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + lineSpacing.y}, font.baseSize * 2.0f, 2, (Color){lpanel_text_colour.r,lpanel_text_colour.g,lpanel_text_colour.b,lpanel_text_colour.a});
 
     // Memory display - Total allocated memory in bytes
     snprintf(text, sizeof(text), "Memory (bytes): %zu", GetCurrentMemoryAllocated()); // Format the FPS value into the buffer
-    DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + 2 * lineSpacing.y}, font.baseSize * 2.0f, 2, (Color)BEIGE);
+    DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + 2 * lineSpacing.y}, font.baseSize * 2.0f, 2, (Color){lpanel_text_colour.r,lpanel_text_colour.g,lpanel_text_colour.b,lpanel_text_colour.a});
 
     // Memory display - Consumed memory in bytes out of the total allocated bytes
     // snprintf(text, sizeof(text), "Memory Consumed (bytes): %zu", GetCurrentMemoryAllocated()); // Format the FPS value into the buffer
     // DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + 2 * lineSpacing.y}, font.baseSize * 2.0f, 2, (Color)BEIGE);
 }
 
-// Gameplay Screen - Main stage Draw
-void DrawGameplayScreenStage(int startX, int startY, int width, int height, Color color)
+void DrawWorldRegion(World2d world, Camera2d camera)
 {
-    // Stage canvas for circloids to interact on
-    DrawRectangle(startX, startY, width, height, color);
-
+    // Draw the world's coordinate space
     // DEBUGGING - Draw the world coordinate space basis vectors to check they are correct
-    DrawWorldCoordinateSpace(world.world_space);
-    // Draw fields here
-    // DrawFields_Rect();
-
-    // Draw circloids last so that they are on top of the fields
-    // DrawCircloids();
+    DrawWorldCoordinateGrid();
+    // Draw objects in the world (circloids, polygonoids, etc.)
 }
 
-void DrawCircloids(void)
+void DrawWorldCoordinateGrid()
 {
-    if (circloids == NULL) // || circloids->coll == NULL || circloids->coll->count <= 0)
-    {
-        return; // No circloids to draw
-    }
-    Collection *circloid_coll = &circloids->coll;
-    for (int i = 0; i < circloid_coll->count; i++)
-    {
-        Circloid *circloid = (Circloid *)((char *)circloid_coll->items + (i * circloid_coll->elemSize));
-        Vector2d circloidPos = circloid->newtonian_properties.world_position;
-        Vector2d cellIndices = GetCellIndicesFromCoordinates(position_field.shape.newtonian_properties.world_position, circloid->newtonian_properties.world_position, position_field.coordinateSpace.basis);
-
-        // TODO: If circloid coordinates are negative, it is in the left half of stage then the indices will be negative because the origin of the field is at the top left corner of the stage, so we can check for this and adjust the indices accordingly to get the correct cell
-
-        const char *displayText = TextFormat("Cell: %d (%d,%d)\nCoord: (%d,%d)", ((int)cellIndices.x + 1) * ((int)cellIndices.y + 1), (int)cellIndices.x + 1, (int)cellIndices.y + 1, (int)circloidPos.x, (int)circloidPos.y);
-        // DrawTextEx(font, displayText, (Vector2){cellPos.x + textOffsetX, cellPos.y - textOffsetY}, font.baseSize, 1, (Color)DARKBLUE_RGBA);
-
-        // Draw circloid THEN text so text is on top
-        DrawCircle(circloidPos.x, circloidPos.y, circloid->radius, (Color)DARKBROWN_RGBA);
-        DrawTextEx(font, displayText, (Vector2){circloidPos.x - 0.7 * circloid->radius, circloidPos.y - 0.7 * circloid->radius}, font.baseSize, 1, (Color)BEIGE_RGBA);
-
-        // Debug print
-        // printf("Cell %d [Row %d, Col %d] Value: %.1f\n", i + 1, row, col, cell->value);
-    }
-    // Circloid *circloid = Enumerate(circloids->coll);
-    // if (circloid == NULL)
-    // {
-    //     fprintf(stderr, "Failed to retrieve enumerated Circloid\n"); // Enumerator failed to retrieve the first item
-    // }
-    // while (circloid != NULL)
-    // {
-    //     Vector2d pos = circloid->object.pos;
-    //     Vector2d cell = GetCellFromCoordinates(position_field, circloid->object.pos);
-    //     DrawCircle(pos.x, pos.y, circloid->radius, (Color)DARKBROWN_RGBA);
-
-    //     // Output the circloid's position and cell as text on top of it
-    //     const char *cellText = TextFormat("Cell: (%d,%d)", (int)cell.x, (int)cell.y);
-    //     const char *posText = TextFormat("Coord: (%d,%d)", (int)pos.x, (int)pos.y);
-    //     const char *allText = TextFormat("%s\n%s", cellText, posText);
-    //     DrawTextEx(font, allText, (Vector2){pos.x, pos.y}, font.baseSize, 1, (Color)BEIGE_RGBA);
-    //     // DrawTextEx(font, cellText, (Vector2){pos.x - (circloid->radius / 2), pos.y - (circloid->radius / 2)}, font.baseSize, 1, (Color)DARKGREEN_RGBA);
-
-    //     circloid = Enumerate(circloids->coll);
-    // }
-    // ResetEnumerator(circloids->coll); // Reset enumerator after drawing
-}
-
-void DrawWorldCoordinateSpace(CoordinateSpace2d world_space)
-{
-    if (!world_space.cells->coll.capacity > 0) // Don't need to check count here because we can still draw the field lines even if there are no items in the field
+    if (!world.coord_space_grid.coord_space.cells->coll.capacity > 0) // Don't need to check count here because we can still draw the field lines even if there are no items in the field
     {
         return; // No field to draw
     }
-    // Draw background
-    DrawRectangle(world_space.object.newtonian_properties.world_position.x,
-                  world_space.object.newtonian_properties.world_position.y,
-                  world_space.object.width,
-                  position_field.shape.height,
-                  (Color){world_bg_colour.r, world_bg_colour.g, world_bg_colour.b, world_bg_colour.a});
-
-    // float i_total = world_space.object.width;
-    // float j_total = world_space.object.height;
-    float cellArea = fabsf((world_space.basis.u.x * world_space.basis.v.y) - (world_space.basis.u.y * world_space.basis.v.x));
-    float totalArea = resolution_ixj.x * resolution_ixj.y;
-
-    // Total units needed to fill that area
-    int totalUnits = (int)ceilf(totalArea / cellArea);
-    ColourRgba colour = world_space.lineColour;
-    Color color = (Color){colour.r, colour.g, colour.b, colour.a};
 
     // Need to convert world coordinates to screen coordinates
-    // Draw "Horizontal-ish" lines (j) -
-    // These lines start at {(world_space_origin + j*v),0} and end at {(world_space_origin + j*v) + cols*u)}
-    Basis2d basis = world_space.basis;
+    Basis2d basis = world.coord_space_grid.coord_space.basis;
 
-    // The world position of the coordinate space object is the origin of the coordinate space, so (0,0). But to make it more flexible for different coordinate space origins, we will add the world position to the start and end points of the lines to get their actual coordinates in world space, and then convert those to screen coordinates using the basis transform matrix
-    Vector2d origin = world_space.object.newtonian_properties.world_position;
-    
-    // We need to know how many "steps" to take in each direction
-    int stepsU = ceilf((float)world_space.resolution_ixj.x / VectorMagnitude_2d(basis.u));
-    int stepsV = ceilf((float)world_space.resolution_ixj.y / VectorMagnitude_2d(basis.v));
+    // The world position of the coordinate space object is the origin of the coordinate space, so (0,0).
+    // But to make it more flexible for different coordinate space origins, we will add the world position to the start and end points of the lines to get their actual coordinates in world space, and then convert those to screen coordinates using the basis transform matrix
+    Vector2d origin = world.coord_space_grid.coord_space.coords_origin;
+    Vector2d end = VectorSum_2d(origin, world.coord_space_grid.coord_space.resolution_ixj);
 
-    //world_space.cells->coll.count = 0; // Reset cell count before drawing
+    // Transform local space position to pixel space
+    Vector2d world_pixel_origin = TransformCoordinates(camera_world.transformation_mtx, origin);
+    Vector2d world_pixel_end = TransformCoordinates(camera_world.transformation_mtx, end);
+
+    // First: Draw background
+    ColourRgba colour_fill = world.coord_space_grid.colour_fill;
+    ColourRgba colour_line = world.coord_space_grid.colour_line;
+    DrawRectangle(world_pixel_origin.x,
+                  world_pixel_origin.y,
+                  fabsf(world_pixel_end.x - world_pixel_origin.x),
+                  fabsf(world_pixel_end.y - world_pixel_origin.y),
+                  (Color){colour_fill.r, colour_fill.g, colour_fill.b, colour_fill.a});
+
+    // Need to know how the unit steps to take in each direction
+    int stepsU = world.coord_space_grid.coord_space.stepsU; // ceilf((float)world_space.resolution_ixj.x / VectorMagnitude_2d(basis.u));
+    int stepsV = world.coord_space_grid.coord_space.stepsV; // VectorMagnitude_2d(basis.v));
+    // int stepsU = (int)(world_w / step_u);
+    // int stepsV = (int)(world_h / step_v);
 
     // 1. Draw "Horizontal-ish" lines (along the U direction)
-    // We create a line at every 'v' step that spans the entire 'u' width
-    for (int j = 0; j <= stepsV; j++) 
+    // Create a line at every 'v' step that spans the entire 'u' width
+    ColourRgba colour = world.coord_space_grid.colour_line;
+    Vector2d line_origin, line_end = {0};
+    Vector2d line_pixel_origin, line_pixel_end = {0};
+    for (int j = 0; j <= stepsV; j++)
     {
-        // Start of line (World Space): Origin + j steps of V
-        Vector2d worldStart = {
-            origin.x + (j * basis.v.x),
-            origin.y + (j * basis.v.y)
-        };
-        
-        // End of line (World Space): worldStart + total width of U
-        Vector2d worldEnd = {
-            worldStart.x + (stepsU * basis.u.x),
-            worldStart.y + (stepsU * basis.u.y)
-        };
+        // Define the line in LOCAL coordinates (simple units)
+        // Line i starts at (i, 0) and goes to (i, stepsV)
+        line_origin = (Vector2d){origin.x, (float)j};
+        line_end = (Vector2d){(float)stepsU, (float)j};
 
-        // Convert World to Screen (using transform function)
-        Vector2d screenStart = WorldToScreenCoordinates(screen_basis_transform, worldStart);
-        Vector2d screenEnd = WorldToScreenCoordinates(screen_basis_transform, worldEnd);
+        // The Matrix handles everything:
+        // It applies World Position (Origin), Rotation, and Scale in one go.
+        line_pixel_origin = TransformCoordinates(camera_world.transformation_mtx, line_origin);
+        line_pixel_end = TransformCoordinates(camera_world.transformation_mtx, line_end);
+        // Vector2d screenStart = WorldToScreenCoordinates(screen_basis_transform, localStart);
+        // Vector2d screenEnd = WorldToScreenCoordinates(screen_basis_transform, localEnd);
 
-        DrawLineV((Vector2){screenStart.x, screenStart.y}, (Vector2){screenEnd.x, screenEnd.y}, color);
+        // Draw
+        DrawLineV((Vector2){line_pixel_origin.x, line_pixel_origin.y},
+                  (Vector2){line_pixel_end.x, line_pixel_end.y}, (Color){colour.r, colour.g, colour.b, colour.a});
     }
 
     // 2. Draw "Vertical-ish" lines (along the V direction)
     // We create a line at every 'u' step that spans the entire 'v' height
-    for (int i = 0; i <= stepsU; i++) 
+    for (int i = 0; i <= stepsU; i++)
     {
-        // Start of line (World Space): Origin + i steps of U
-        Vector2d worldStart = {
-            origin.x + (i * basis.u.x),
-            origin.y + (i * basis.u.y)
-        };
-        
-        // End of line (World Space): worldStart + total height of V
-        Vector2d worldEnd = {
-            worldStart.x + (stepsV * basis.v.x),
-            worldStart.y + (stepsV * basis.v.y)
-        };
+        // Define the line in LOCAL coordinates (simple units)
+        // Line i starts at (i, 0) and goes to (i, stepsV)
+        line_origin = (Vector2d){(float)i, origin.y};
+        line_end = (Vector2d){(float)i, (float)stepsV};
 
-        Vector2d screenStart = WorldToScreenCoordinates(screen_basis_transform, worldStart);
-        Vector2d screenEnd = WorldToScreenCoordinates(screen_basis_transform, worldEnd);
+        // The Matrix handles everything:
+        // It applies World Position (Origin), Rotation, and Scale in one go.
+        Vector2d line_pixel_origin = TransformCoordinates(camera_world.transformation_mtx, line_origin);
+        Vector2d line_pixel_end = TransformCoordinates(camera_world.transformation_mtx, line_end);
+        // Vector2d localStart = {(double)i, 0.0};
+        // Vector2d localEnd = {(double)i, (double)stepsV};
 
-        DrawLineV((Vector2){screenStart.x, screenStart.y}, (Vector2){screenEnd.x, screenEnd.y}, color);
+        // Draw
+        DrawLineV((Vector2){line_pixel_origin.x, line_pixel_origin.y},
+                  (Vector2){line_pixel_end.x, line_pixel_end.y}, (Color){colour.r, colour.g, colour.b, colour.a});
     }
 
-    // Draw "Horizontal-ish" lines (Rows) in increments of the v basis vector
-
-    // for (int j = 0; j < i_total; j++)
-    // {
-    //     // Calculate the start and end points of the line segment for this row
-    //     Vector2d start = {origin.x + j * basis.v.x, origin.y + j * basis.v.y}; // Start point is the origin plus j steps down the v basis vector
-    //     Vector2d end = {start.x + i_total * basis.u.x, start.y + i_total * basis.u.y}; // End point is the start point plus cols steps across the u basis vector
-
-    //     start = WorldToScreenCoordinates(screen_basis_transform, start);
-    //     end = WorldToScreenCoordinates(screen_basis_transform, end);
-
-    //     DrawLineV((Vector2){start.x, start.y}, (Vector2){end.x, end.y}, color);
-    //     // float startX = WorldToScreenCoordinates(screen_basis_transform, origin); //origin.x + j * (basis.v.x + basis.u.x);
-    //     // float startY = origin.y + j * (basis.v.y + basis.u.y);
-    //     // float endX = startX + j * (basis.v.x + basis.u.x);
-    //     // float endY = origin.y + j * (basis.v.y + basis.u.y);
-    //     //LineSegment2d *segment = (LineSegment2d *)((char *)world_space.lineSegments_u.coll.items + (j * world_space.lineSegments_u.coll.elemSize));
-    //     //DrawLineV((Vector2){(*segment).start.x, (*segment).start.y}, (Vector2){(*segment).end.x, (*segment).end.y}, color);
-    // }
-
-    // Draw "Vertical-ish" lines (Columns)
-    // These lines start at (origin + c*u) and end at (origin + c*u + rows*v)
-    // for (int i = 0; c < world_space.lineSegments_v.coll.count; c++)
-    // {
-    //     Vector2d start = {origin.x + j * basis.v.x, origin.y + j * basis.v.y}; // Start point is the origin plus j steps down the v basis vector
-    //     Vector2d end = {start.x + i_total * basis.u.x, start.y + i_total * basis.u.y}; // End point is the start point plus cols steps across the u basis vector
-
-    //     start = WorldToScreenCoordinates(screen_basis_transform, start);
-    //     end = WorldToScreenCoordinates(screen_basis_transform, end);
-
-    //     DrawLineV((Vector2){start.x, start.y}, (Vector2){end.x, end.y}, color);
-    //     LineSegment2d *segment = (LineSegment2d *)((char *)world_space.lineSegments_v.coll.items + (c * world_space.lineSegments_v.coll.elemSize));
-    //     DrawLineV((Vector2){(*segment).start.x, (*segment).start.y}, (Vector2){(*segment).end.x, (*segment).end.y}, color);
-    // }
-
-    // Draw field unit values as text on top of each field unit
-    Collection *cells = &world_space.cells->coll;
+    // Draw values as text on top of each field unit
+    // float totalArea = resolution_ixj.x * resolution_ixj.y;
+    // float cellArea = world_space.unitArea; //((world_space.basis.u.x * world_space.basis.v.y) - (world_space.basis.u.y * world_space.basis.v.x));
+    int totalUnits = stepsU * stepsV; // (int)ceilf(totalArea / cellArea);
+    Collection *cells = &world.coord_space_grid.coord_space.cells->coll;
     // int textOffsetX = (position_field.coordinateSpace.basis.u.x + position_field.coordinateSpace.basis.v.x) / 2;
     // int textOffsetY = (position_field.coordinateSpace.basis.u.y + position_field.coordinateSpace.basis.v.y) / 2;
+
+    //---------ISSUE HERE IS WE ARENT CALLING INITIALISECELLS------------------
     for (int k = 0; k < totalUnits; k++)
     {
         int i = k / stepsU; // Row index (based on horizontal lines)
-        int j = k % stepsV; // Column index (based on vertical lines)
-        Cell *cell = (Cell *)((char *)cells->items + (i * cells->elemSize));
-        Vector2d cell_world_coords = cell->world_coordinates;
-        Vector2d cell_screen_coords = WorldToScreenCoordinates(screen_basis_transform, cell_world_coords);
-        const char *displayText = TextFormat("Cell: %d (%d,%d)\nWorldCoord: (%d,%d)\nScreenCoord: (%d,%d)\nValue: %.1f", k + 1, i + 1, j + 1, (int)cell_world_coords.x, (int)cell_world_coords.y, cell->value);
-        // DrawTextEx(font, displayText, (Vector2){cellPos.x + textOffsetX, cellPos.y - textOffsetY}, font.baseSize, 1, (Color)DARKBLUE_RGBA);
-        DrawTextEx(font, displayText, (Vector2){cell_screen_coords.x, cell_screen_coords.y}, font.baseSize, 1, (Color)DARKBLUE_RGBA);
-
-        // Debug print
-        // printf("Cell %d [Row %d, Col %d] Value: %.1f\n", i + 1, row, col, cell->value);
-    }
-    // printf("Drew %d cells\n", count);
-    //  Use the number of rows, columns, and their dimensions to draw field lines as rectangles
-    //  Method 1: Enumerate the grid
-    //  float *cell = Enumerate(position_field.cells->coll);
-    //  if (cell == NULL)
-    //  {
-    //      fprintf(stderr, "Failed to retrieve enumerated field unit\n"); // Enumerator failed to retrieve the first item
-    //  }
-}
-
-void DrawFields_Rect(void)
-{
-    if (position_field.coordinateSpace.cells.coll.capacity > 0) // Don't need to check count here because we can still draw the field lines even if there are no items in the field
-    {
-        return; // No field to draw
-    }
-    // Draw background
-    DrawRectangle(position_field.shape.newtonian_properties.world_position.x, position_field.shape.newtonian_properties.world_position.y, position_field.shape.width, position_field.shape.height, (Color){world_bg_colour.r, world_bg_colour.g, world_bg_colour.b, world_bg_colour.a});
-
-    int rows = position_field.coordinateSpace.rows;
-    int cols = position_field.coordinateSpace.columns;
-    int totalUnits = rows * cols;
-    CoordinateSpace coordinateSpace = position_field.coordinateSpace;
-    ColourRgba colour = position_field.lineColour;
-    Color color = (Color){colour.r, colour.g, colour.b, colour.a};
-
-    // Draw "Horizontal-ish" lines (Rows)
-    // These lines start at (origin + r*v) and end at (origin + r*v + cols*u)
-    Vector2d origin = position_field.shape.newtonian_properties.world_position;
-    for (int r = 0; r < coordinateSpace.lineSegments_u.coll.count; r++)
-    {
-        LineSegment2d *segment = (LineSegment2d *)((char *)coordinateSpace.lineSegments_u.coll.items + (r * coordinateSpace.lineSegments_u.coll.elemSize));
-        DrawLineV((Vector2){(*segment).start.x, (*segment).start.y}, (Vector2){(*segment).end.x, (*segment).end.y}, color);
-    }
-
-    // Draw "Vertical-ish" lines (Columns)
-    // These lines start at (origin + c*u) and end at (origin + c*u + rows*v)
-    for (int c = 0; c < coordinateSpace.lineSegments_v.coll.count; c++)
-    {
-        LineSegment2d *segment = (LineSegment2d *)((char *)coordinateSpace.lineSegments_v.coll.items + (c * coordinateSpace.lineSegments_v.coll.elemSize));
-        DrawLineV((Vector2){(*segment).start.x, (*segment).start.y}, (Vector2){(*segment).end.x, (*segment).end.y}, color);
-    }
-
-    // Draw field unit values as text on top of each field unit
-    Collection *cells = &position_field.coordinateSpace.cells.coll;
-    // int textOffsetX = (position_field.coordinateSpace.basis.u.x + position_field.coordinateSpace.basis.v.x) / 2;
-    // int textOffsetY = (position_field.coordinateSpace.basis.u.y + position_field.coordinateSpace.basis.v.y) / 2;
-    for (int i = 0; i < totalUnits; i++)
-    {
-        int row = i / cols;
-        int col = i % cols;
-        Cell *cell = (Cell *)((char *)cells->items + (i * cells->elemSize));
-        Vector2d cellPos = cell->world_coordinates;
-        const char *displayText = TextFormat("Cell: %d (%d,%d)\nCoord: (%d,%d)\nValue: %.1f", i + 1, row + 1, col + 1, (int)cellPos.x, (int)cellPos.y, cell->value);
-        // DrawTextEx(font, displayText, (Vector2){cellPos.x + textOffsetX, cellPos.y - textOffsetY}, font.baseSize, 1, (Color)DARKBLUE_RGBA);
-        DrawTextEx(font, displayText, (Vector2){cellPos.x, cellPos.y}, font.baseSize, 1, (Color)DARKBLUE_RGBA);
+        int j = k % stepsU; // Column index (based on vertical lines)
+        Cell *cell = (Cell *)((char *)cells->items + (k * cells->elemSize));
+        Vector2d cell_coords = cell->coords;
+        Vector2d cell_pixel_coords = TransformCoordinates(camera_world.transformation_mtx, cell_coords);
+        const char *displayText = TextFormat(" %d (%d,%d)\n (%0.0f,%0.0f)\n", k + 1, i + 1, j + 1, cell_pixel_coords.x, cell_pixel_coords.y);
+        // const char *displayText = TextFormat("Cell: %d (%d,%d)\nWorldCoord: (%d,%d)\nScreenCoord: (%d,%d)\nValue: %.1f", k + 1, i + 1, j + 1, (int)cell_world_coords.x, (int)cell_world_coords.y, cell->value);
+        //  DrawTextEx(font, displayText, (Vector2){cellPos.x + textOffsetX, cellPos.y - textOffsetY}, font.baseSize, 1, (Color)DARKBLUE_RGBA);
+        DrawTextEx(font, displayText, (Vector2){cell_pixel_coords.x, cell_pixel_coords.y}, 22, 1, (Color){world_text_colour.r, world_text_colour.g, world_text_colour.b, world_text_colour.a});
 
         // Debug print
         // printf("Cell %d [Row %d, Col %d] Value: %.1f\n", i + 1, row, col, cell->value);
@@ -517,11 +472,11 @@ void DrawFields_Rect(void)
 void UpdatePolygonoidVectors()
 {
     // Update Circloids
-    if (circloids == NULL || circloids->coll.count <= 0)
+    if (polygonoids == NULL || polygonoids->coll.count <= 0)
     {
         return; // No circloids to update
     }
-    Circloid *circloid = Enumerate(&circloids->coll);
+    Circloid *circloid = Enumerate(&polygonoids->coll);
     if (circloid == NULL)
     {
         fprintf(stderr, "Failed to retrieve enumerated Circloid\n"); // Enumerator failed to retrieve the first item
@@ -532,9 +487,9 @@ void UpdatePolygonoidVectors()
         {
             CalculateVectors(&circloid->newtonian_properties, GetFrameDeltaTime());
         }
-        circloid = Enumerate(&circloids->coll);
+        circloid = Enumerate(&polygonoids->coll);
     }
-    ResetEnumerator(&circloids->coll); // Reset enumerator after drawing
+    ResetEnumerator(&polygonoids->coll); // Reset enumerator after drawing
 
     // Update Container
 }
@@ -571,10 +526,10 @@ int GetPolygonoidCount(void)
     return polygonoids->coll.count;
 }
 
-int GetCircloidCount(void)
-{
-    return circloids->coll.count;
-}
+// int GetCircloidCount(void)
+// {
+//     return circloids->coll.count;
+// }
 
 // Gameplay Screen Unload logic
 void UnloadGameplayScreen(void)
@@ -589,51 +544,24 @@ int FinishGameplayScreen(void)
 }
 
 // Gameplay Screen should finish
-Vector2d WorldToScreenCoordinates(Matrix3x3 basis_transform, Vector2d world_coordinates)
-{
-    Vector2d screen_coords;
+// Vector2d WorldToScreenCoordinates(Matrix3x3 basis_transform, Vector2d world_coordinates)
+// {
+//     Vector2d screen_coords;
 
-    // 1. Get the "transformation" or "mapping" basis to go from world basis to screen basis.
-    // 2. Get the scaling factor to go from world basis magnitude to screen basis magnitude.
+//     // 1. Get the "transformation" or "mapping" basis to go from world to screen.
+//     // 2. Get the scaling factor to go from world basis magnitude to screen basis magnitude.
 
-    // Since we are using a 3x  matrix for 2D, we treat the 2D point as a 3D vector where z=1. This is a trick called Homogeneous Coordinates that allows the matrix to move (translate) the point, not just rotate or scale it.
-    //  Multiply: (Row 1 * WorldColumn)
-    //  screenX = (m0 * x) + (m3 * y) + m6
-    screen_coords.x = (world_coordinates.x * basis_transform.m0) + (world_coordinates.y * basis_transform.m3) + basis_transform.m6;
+//     // Since we are using a 3x  matrix for 2D, we treat the 2D point as a 3D vector where z=1. This is a trick called Homogeneous Coordinates that allows the matrix to move (translate) the point, not just rotate or scale it.
+//     //  Multiply: (Row 1 * WorldColumn)
+//     //  screenX = (m0 * x) + (m3 * y) + m6
+//     screen_coords.x = (world_coordinates.x * basis_transform.m0) + (world_coordinates.y * basis_transform.m3) + basis_transform.m6;
 
-    // Multiply: (Row 2 * WorldColumn)
-    // screenY = (m1 * x) + (m4 * y) + m7
-    screen_coords.y = (world_coordinates.x * basis_transform.m1) + (world_coordinates.y * basis_transform.m4) + basis_transform.m7;
+//     // Multiply: (Row 2 * WorldColumn)
+//     // screenY = (m1 * x) + (m4 * y) + m7
+//     screen_coords.y = (world_coordinates.x * basis_transform.m1) + (world_coordinates.y * basis_transform.m4) + basis_transform.m7;
 
-    return screen_coords;
-
-    // //Get the angles of world and screen basis
-    // float world_basis_u_rad = VectorRadians_2d(world_basis.u);
-    // float world_basis_v_rad = VectorRadians_2d(world_basis.v);
-    // float screen_basis_u_rad = VectorRadians_2d(screen_basis.u);
-    // float screen_basis_v_rad = VectorRadians_2d(screen_basis.v);
-
-    // // x_s = (world.x * basisU.x) + (world.y * basisV.x) + origin.x
-    // screen_coords.x = (world_coordinates.x * screen_basis.u.x) + (world_coordinates.y * screen_basis.v.x) + screen_origin_coordinates.x;
-
-    // // y_s = (world.x * basisU.y) + (world.y * basisV.y) + origin.y
-    // screen_coords.y = (world_coordinates.x * screen_basis.u.x) + (world_coordinates.y * screen_basis.v.x) + screen_origin_coordinates.x;
-
-    // // Need to translate the world's basis to screen basis. Therefore need basis_u and basis_v scaling factor
-    // float world_basis_u_mag = VectorMagnitude_2d(world_basis.u);
-    // float world_basis_v_mag = VectorMagnitude_2d(world_basis.v);
-
-    // float screen_basis_u_mag = VectorMagnitude_2d(screen_basis.u);
-    // float screen_basis_v_mag = VectorMagnitude_2d(screen_basis.v);
-
-    // float scale_u = screen_basis_u_mag / world_basis_u_mag;
-    // float scale_v = screen_basis_v_mag / world_basis_v_mag;
-
-    // // Scale the world coordinates by the basis scaling factors to get the coordinates in terms of the screen basis
-    // screen_coords.x = (world_coordinates.x * scale_u) + screen_origin_coordinates.x;
-    // screen_coords.y = (world_coordinates.y * scale_v) + screen_origin_coordinates.y;
-    // return screen_coords;
-}
+//     return screen_coords;
+// }
 
 // Vector2d WorldToScreenBasisTransformVector(Basis2d world_basis, Basis2d screen_basis, Vector2d screen_origin_coordinates, Vector2d world_coordinates)
 // {
@@ -687,4 +615,127 @@ Vector2d WorldToScreenCoordinates(Matrix3x3 basis_transform, Vector2d world_coor
 //     Vector2 pos = { 20, 100 };
 //     DrawTextEx(font, "GAMEPLAY SCREEN", pos, font.baseSize*3.0f, 4, MAROON);
 //     DrawText("PRESS ENTER or TAP to JUMP to ENDING SCREEN", 130, 220, 20, MAROON);
+// }
+// Gameplay Screen - Main stage Draw
+// void DrawGameplayScreenStage(int startX, int startY, int width, int height, Color color)
+// {
+//     // Stage canvas for circloids to interact on
+//     DrawRectangle(startX, startY, width, height, color);
+
+//     // DEBUGGING - Draw the world coordinate space basis vectors to check they are correct
+//     // DrawWorld(world);
+//     // DrawWorldCoordinateSpace(world.world_space);
+//     //  Draw fields here
+//     //  DrawFields_Rect();
+
+//     // Draw circloids last so that they are on top of the fields
+//     // DrawCircloids();
+// }
+
+// void DrawCircloids(void)
+// {
+//     if (circloids == NULL) // || circloids->coll == NULL || circloids->coll->count <= 0)
+//     {
+//         return; // No circloids to draw
+//     }
+//     Collection *circloid_coll = &circloids->coll;
+//     for (int i = 0; i < circloid_coll->count; i++)
+//     {
+//         Circloid *circloid = (Circloid *)((char *)circloid_coll->items + (i * circloid_coll->elemSize));
+//         Vector2d circloidPos = circloid->newtonian_properties.world_position;
+//         Vector2d cellIndices = GetCellIndicesFromCoordinates(position_field.shape.newtonian_properties.world_position, circloid->newtonian_properties.world_position, position_field.coordinateSpace.basis);
+
+//         // TODO: If circloid coordinates are negative, it is in the left half of stage then the indices will be negative because the origin of the field is at the top left corner of the stage, so we can check for this and adjust the indices accordingly to get the correct cell
+
+//         const char *displayText = TextFormat("Cell: %d (%d,%d)\nCoord: (%d,%d)", ((int)cellIndices.x + 1) * ((int)cellIndices.y + 1), (int)cellIndices.x + 1, (int)cellIndices.y + 1, (int)circloidPos.x, (int)circloidPos.y);
+//         // DrawTextEx(font, displayText, (Vector2){cellPos.x + textOffsetX, cellPos.y - textOffsetY}, font.baseSize, 1, (Color)DARKBLUE_RGBA);
+
+//         // Draw circloid THEN text so text is on top
+//         DrawCircle(circloidPos.x, circloidPos.y, circloid->radius, (Color)DARKBROWN_RGBA);
+//         DrawTextEx(font, displayText, (Vector2){circloidPos.x - 0.7 * circloid->radius, circloidPos.y - 0.7 * circloid->radius}, font.baseSize, 1, (Color)BEIGE_RGBA);
+
+//         // Debug print
+//         // printf("Cell %d [Row %d, Col %d] Value: %.1f\n", i + 1, row, col, cell->value);
+//     }
+//     // Circloid *circloid = Enumerate(circloids->coll);
+//     // if (circloid == NULL)
+//     // {
+//     //     fprintf(stderr, "Failed to retrieve enumerated Circloid\n"); // Enumerator failed to retrieve the first item
+//     // }
+//     // while (circloid != NULL)
+//     // {
+//     //     Vector2d pos = circloid->object.pos;
+//     //     Vector2d cell = GetCellFromCoordinates(position_field, circloid->object.pos);
+//     //     DrawCircle(pos.x, pos.y, circloid->radius, (Color)DARKBROWN_RGBA);
+
+//     //     // Output the circloid's position and cell as text on top of it
+//     //     const char *cellText = TextFormat("Cell: (%d,%d)", (int)cell.x, (int)cell.y);
+//     //     const char *posText = TextFormat("Coord: (%d,%d)", (int)pos.x, (int)pos.y);
+//     //     const char *allText = TextFormat("%s\n%s", cellText, posText);
+//     //     DrawTextEx(font, allText, (Vector2){pos.x, pos.y}, font.baseSize, 1, (Color)BEIGE_RGBA);
+//     //     // DrawTextEx(font, cellText, (Vector2){pos.x - (circloid->radius / 2), pos.y - (circloid->radius / 2)}, font.baseSize, 1, (Color)DARKGREEN_RGBA);
+
+//     //     circloid = Enumerate(circloids->coll);
+//     // }
+//     // ResetEnumerator(circloids->coll); // Reset enumerator after drawing
+// }
+
+// void DrawFields_Rect(void)
+// {
+//     if (position_field.coordinateSpace.cells.coll.capacity > 0) // Don't need to check count here because we can still draw the field lines even if there are no items in the field
+//     {
+//         return; // No field to draw
+//     }
+//     // Draw background
+//     DrawRectangle(position_field.shape.newtonian_properties.world_position.x, position_field.shape.newtonian_properties.world_position.y, position_field.shape.width, position_field.shape.height, (Color){world_bg_colour.r, world_bg_colour.g, world_bg_colour.b, world_bg_colour.a});
+
+//     int rows = position_field.coordinateSpace.rows;
+//     int cols = position_field.coordinateSpace.columns;
+//     int totalUnits = rows * cols;
+//     CoordinateSpace coordinateSpace = position_field.coordinateSpace;
+//     ColourRgba colour = position_field.lineColour;
+//     Color color = (Color){colour.r, colour.g, colour.b, colour.a};
+
+//     // Draw "Horizontal-ish" lines (Rows)
+//     // These lines start at (origin + r*v) and end at (origin + r*v + cols*u)
+//     Vector2d origin = position_field.shape.newtonian_properties.world_position;
+//     for (int r = 0; r < coordinateSpace.lineSegments_u.coll.count; r++)
+//     {
+//         LineSegment2d *segment = (LineSegment2d *)((char *)coordinateSpace.lineSegments_u.coll.items + (r * coordinateSpace.lineSegments_u.coll.elemSize));
+//         DrawLineV((Vector2){(*segment).start.x, (*segment).start.y}, (Vector2){(*segment).end.x, (*segment).end.y}, color);
+//     }
+
+//     // Draw "Vertical-ish" lines (Columns)
+//     // These lines start at (origin + c*u) and end at (origin + c*u + rows*v)
+//     for (int c = 0; c < coordinateSpace.lineSegments_v.coll.count; c++)
+//     {
+//         LineSegment2d *segment = (LineSegment2d *)((char *)coordinateSpace.lineSegments_v.coll.items + (c * coordinateSpace.lineSegments_v.coll.elemSize));
+//         DrawLineV((Vector2){(*segment).start.x, (*segment).start.y}, (Vector2){(*segment).end.x, (*segment).end.y}, color);
+//     }
+
+//     // Draw field unit values as text on top of each field unit
+//     Collection *cells = &position_field.coordinateSpace.cells.coll;
+//     // int textOffsetX = (position_field.coordinateSpace.basis.u.x + position_field.coordinateSpace.basis.v.x) / 2;
+//     // int textOffsetY = (position_field.coordinateSpace.basis.u.y + position_field.coordinateSpace.basis.v.y) / 2;
+//     for (int i = 0; i < totalUnits; i++)
+//     {
+//         int row = i / cols;
+//         int col = i % cols;
+//         Cell *cell = (Cell *)((char *)cells->items + (i * cells->elemSize));
+//         Vector2d cellPos = cell->coords;
+//         const char *displayText = TextFormat("Cell: %d (%d,%d)\nCoord: (%d,%d)\nValue: %.1f", i + 1, row + 1, col + 1, (int)cellPos.x, (int)cellPos.y, cell->value);
+//         // DrawTextEx(font, displayText, (Vector2){cellPos.x + textOffsetX, cellPos.y - textOffsetY}, font.baseSize, 1, (Color)DARKBLUE_RGBA);
+//         DrawTextEx(font, displayText, (Vector2){cellPos.x, cellPos.y}, font.baseSize, 1, (Color)DARKBLUE_RGBA);
+
+//         // Debug print
+//         // printf("Cell %d [Row %d, Col %d] Value: %.1f\n", i + 1, row, col, cell->value);
+//     }
+//     // printf("Drew %d cells\n", count);
+//     //  Use the number of rows, columns, and their dimensions to draw field lines as rectangles
+//     //  Method 1: Enumerate the grid
+//     //  float *cell = Enumerate(position_field.cells->coll);
+//     //  if (cell == NULL)
+//     //  {
+//     //      fprintf(stderr, "Failed to retrieve enumerated field unit\n"); // Enumerator failed to retrieve the first item
+//     //  }
 // }

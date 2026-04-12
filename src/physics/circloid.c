@@ -56,8 +56,8 @@ DynamicArray* GenerateCircloidSurfaceVectors (Circloid *circloid, int vertices) 
         
         Vector2d p;
         //Circle origin position is by default at the center, no need to calculate it
-        p.x = circloid->newtonian_properties.world_position.x + circloid->radius * cosf(currentAngle);
-        p.y = circloid->newtonian_properties.world_position.y + circloid->radius * sinf(currentAngle);
+        p.x = circloid->newtonian_properties.coords_origin.x + circloid->radius * cosf(currentAngle);
+        p.y = circloid->newtonian_properties.coords_origin.y + circloid->radius * sinf(currentAngle);
         
         Array_Push(points, &p);
     }

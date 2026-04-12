@@ -19,6 +19,14 @@ Vector2d VectorSumArray_2d(Vector2d *array, size_t count)
     return result;
 }
 
+Vector2d VectorSum_2d(Vector2d a, Vector2d b)
+{
+    Vector2d result = {0.0f, 0.0f};
+    result.x = a.x + b.x; // Use . because it's a contiguous array of structs
+    result.y = a.y + b.y;
+    return result;
+}
+
 Vector2d VectorScale_2d(Vector2d vector, float scalar)
 {
     Vector2d result = {0.0f, 0.0f};
@@ -170,9 +178,28 @@ Matrix3x3 BasisTransform_2d(Basis2d source, Basis2d destination, Vector2d destin
         0,          0,          1
     };
 
-    // Matrix Multiplication order is also vital:
     // Usually: Result = Dest * invSource
+    // Inverse of source x destination = transformation matrix to convert a source vector to destination vector 
     return MatrixMultiply_3x3_3x3(matDest, invSource);
+}
+
+Vector2d MatrixMultiply_3x3_2x2(Matrix3x3 matrix_function, Vector2d vector_input)
+{
+    Vector2d vector_result;
+
+    // 1. Get the "transformation" or "mapping" basis to go from world to screen.
+    // 2. Get the scaling factor to go from world basis magnitude to screen basis magnitude.
+
+    // Since we are using a 3x  matrix for 2D, we treat the 2D point as a 3D vector where z=1. This is a trick called Homogeneous Coordinates that allows the matrix to move (translate) the point, not just rotate or scale it.
+    //  Multiply: (Row 1 * WorldColumn)
+    //  screenX = (m0 * x) + (m3 * y) + m6
+    vector_result.x = (vector_input.x * matrix_function.m0) + (vector_input.y * matrix_function.m3) + matrix_function.m6;
+
+    // Multiply: (Row 2 * WorldColumn)
+    // screenY = (m1 * x) + (m4 * y) + m7
+    vector_result.y = (vector_input.x * matrix_function.m1) + (vector_input.y * matrix_function.m4) + matrix_function.m7;
+
+    return vector_result;
 }
 
 // Matrix3x3 BasisTransform_Scale_Rotate_2d(Basis2d source_basis, Basis2d dest_basis)// scale_u, float scale_v, float radians_u, float radians_v)

@@ -145,7 +145,7 @@ Field CreateField(Rectangloid object, int rows, int columns, ColourRgba lineColo
 
 Field CalculateFieldLines(Field field)
 {
-   Vector2d origin = field.shape.newtonian_properties.world_position;
+   Vector2d origin = field.shape.newtonian_properties.coords_origin;
    int rows = field.coordinateSpace.rows;
    int cols = field.coordinateSpace.columns;
 
@@ -240,7 +240,7 @@ Field InitialiseFieldCells(Field field)
    size_t cells_capacity = cells.capacity;
    memset(cells.items, 0, cells.elemSize * cells_capacity);
 
-   Vector2d origin = field.shape.newtonian_properties.world_position;
+   Vector2d origin = field.shape.newtonian_properties.coords_origin;
    int rows = field.coordinateSpace.rows;
    int cols = field.coordinateSpace.columns;
 
@@ -320,7 +320,7 @@ Field UpdateFieldCellValues(Field field)
       for (size_t i = 0; i < vertices->count; i++)
       {
          // Calculate cell indices
-         Vector2d indices = GetCellIndicesFromCoordinates(field.shape.newtonian_properties.world_position, ((Vector2d*)vertices->items)[i], field.coordinateSpace.basis);
+         Vector2d indices = GetCellIndicesFromCoordinates(field.shape.newtonian_properties.coords_origin, ((Vector2d*)vertices->items)[i], field.coordinateSpace.basis);
          Array_Push(vector_indices, &indices);
       }
       
@@ -353,7 +353,7 @@ void FindCellsWithCollisions(Field *field)
 // NOT DONE
 Vector2d GetCellCoordinates(Field field, Vector2d objectPos)
 {
-   Vector2d origin = field.shape.newtonian_properties.world_position;
+   Vector2d origin = field.shape.newtonian_properties.coords_origin;
    Vector2d u = field.coordinateSpace.basis.u;
    Vector2d v = field.coordinateSpace.basis.v;
 

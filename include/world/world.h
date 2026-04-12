@@ -15,22 +15,23 @@ WORLD MODULE
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
-typedef struct World {
-    CoordinateSpace2d world_space; // The coordinate space of the world, containing the basis vectors and line segments for drawing the world (if applicable)
+typedef struct World2d {
+    CoordSpace2d_Grid coord_space_grid; // The coordinate space of the world, containing the basis vectors and line segments for drawing the world (if applicable)
     DynamicArray objects;
     float gravity;
-} World;
+} World2d;
 
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
 //----------------------------------------------------------------------------------
-extern World world_1; 
+extern World2d world_1; 
 
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-World CreateWorld(CoordinateSpace2d world_space, DynamicArray objects, float gravity);
+World2d CreateWorld(CoordSpace2d_Grid space, DynamicArray objects, float gravity);
+void UpdateWorld(World2d *world);
 
 //Vector2d GetCellIndicesFromCoordinates(Vector2d origin_coordinates, Vector2d input_coordinates, Basis2d basis);
 //Field UpdateFieldCellValues(Field field);

@@ -35,22 +35,22 @@ Rectangloid CreateRectangloid(float height, float width, ColourRgba colour, size
    return newRect;
 }
 
-Rectangloid CreateRectangloid_Static(float height, float width, ColourRgba colour, Vector2d position)
-{
-   Surface2d surface = {0};
-   surface.surface_vectors = *NewDynamicArray(4, sizeof(Vector2d));
+// Rectangloid CreateRectangloid_Static(float height, float width, ColourRgba colour, Vector2d position)
+// {
+//    Surface2d surface = {0};
+//    surface.surface_vectors = *NewDynamicArray(4, sizeof(Vector2d));
 
-   NewtonObject2d newtOb = CreateNewtonObject2d_Static(position, surface);
+//    NewtonObject2d_Static newtOb = CreateNewtonObject2d_Static(position, surface);
    
-   // Initialize the NewtonObject2d properties here (e.g., set position, velocity, etc.)
-   Rectangloid newRect = {0};
-   newRect.newtonian_properties = newtOb;
-   newRect.height = height;
-   newRect.width = width;
-   newRect.colourRgba = colour;
+//    // Initialize the NewtonObject2d properties here (e.g., set position, velocity, etc.)
+//    Rectangloid newRect = {0};
+//    newRect.newtonian_properties = newtOb;
+//    newRect.height = height;
+//    newRect.width = width;
+//    newRect.colourRgba = colour;
 
-   return newRect;
-}
+//    return newRect;
+// }
 
 Rectangloid CreateRectangloid_FromObject(NewtonObject2d newtOb, float height, float width, ColourRgba colour)
 {

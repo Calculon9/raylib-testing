@@ -20,14 +20,19 @@ float field = {0};
 //----------------------------------------------------------------------------------
 // Functions Definition
 //----------------------------------------------------------------------------------
-World CreateWorld(CoordinateSpace2d world_space, DynamicArray objects, float gravity)
+World2d CreateWorld(CoordSpace2d_Grid space_obj, DynamicArray objects, float gravity)
 {
-   World world = {0};
-   world.world_space = world_space;
+   World2d world = {0};
+   world.coord_space_grid = space_obj;
    world.objects = objects;
    world.gravity = gravity;
-   
+
    return world;
+}
+
+void UpdateWorld(World2d *world) 
+{
+
 }
 //World CalculateFieldLines(Field field);
 //World InitialiseFieldCells(Field field);
