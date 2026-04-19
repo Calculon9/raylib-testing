@@ -32,7 +32,7 @@ typedef struct Rectangloid {
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-Rectangloid CreateRectangloid(float height, float width, ColourRgba colour, size_t mass, Vector2d position, Velocity2d velocity, Acceleration2d acceleration);
+Rectangloid CreateRectangloid(float height, float width, ColourRgba colour, size_t mass, Vector2d position, Vector2d velocity, Vector2d acceleration);
 Rectangloid CreateRectangloid_FromObject(NewtonObject2d newtOb, float height, float width, ColourRgba colour);
 Rectangloid CreateRectangloid_Static(float height, float width, ColourRgba colour, Vector2d position);
 void Rectangloid_GetCollisionObjects(Rectangloid rect);

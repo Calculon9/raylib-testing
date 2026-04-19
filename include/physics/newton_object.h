@@ -49,10 +49,10 @@ typedef struct Surface2d {
 typedef struct NewtonObject2d {
     Vector2d coords_center;
     Vector2d coords_origin;
-    Velocity2d velocity;
-    Acceleration2d acceleration;
-    Momentum2d momentum;
-    Surface2d surface; 
+    Vector2d velocity;
+    Vector2d acceleration;
+    Vector2d momentum;
+    Surface2d surface;
     float mass;
     float inverseMass;
 } NewtonObject2d;
@@ -75,9 +75,10 @@ typedef struct NewtonObject2d_Static {
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 
-NewtonObject2d CreateNewtonObject2d(size_t mass, Vector2d origin, Velocity2d velocity, Acceleration2d acceleration, Surface2d surface);
-NewtonObject2d_Static CreateNewtonObject2d_Static(Vector2d origin, Surface2d surface);
+NewtonObject2d CreateNewtonObject2d(size_t mass, Vector2d origin, Vector2d velocity, Vector2d acceleration, Surface2d surface);
+NewtonObject2d CreateNewtonObject2d_Static(Vector2d origin, Surface2d surface);
 Surface2d CreateSurface_Rectangular(Vector2d resolution);
 void CalculateVectors(NewtonObject2d *object, float deltaTime);
+Matrix2x2 FindBoxedCoords(DynamicArray vertices);
 
 #endif

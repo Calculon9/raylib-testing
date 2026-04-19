@@ -19,13 +19,15 @@ CAMERA MODULE
 // Camera is the adapter between an input/source space and some other space, the target/output space. Converts the coordinates/vector from the input/source space to coordinates/vector in the target/output space.
 typedef struct Camera2d
 {
-    Vector2d destination_origin_coords; // Where on the screen is the camera "target"? (e.g., center of screen)
-    Vector2d source_coords; // What source/input space coordinate is the camera looking at?
+    Matrix3x3 source_to_dest_mtx;       // The calculated input-to-output space matrix
+    Matrix3x3 dest_to_source_mtx;       // The calculated output-to-input space matrix
+    Vector2d destination_origin_coords; // The destination spaces's origin coordinates (in dest. space units) => e.g. origin point of viewport in pixel coords
+    Vector2d source_origin_coords;      // The source spaces's origin coordinates (in source space units) => e.g. origin point of local (or root, encoded, topological ... you get the idea) space in its defined coords
+    Vector2d source_focal_coords;       // What source space coordinate is the camera looking at?
     Basis2d destination_basis;
     Basis2d source_basis;
-    float rotation;               // In radians
-    float zoom;                   // Scaling factor (e.g., 2.0f for 2x zoom)
-    Matrix3x3 transformation_mtx; // The calculated input-to-output space matrix
+    float rotation; // In radians
+    float zoom;     // Scaling factor (e.g., 2.0f for 2x zoom)
 } Camera2d;
 
 //----------------------------------------------------------------------------------
@@ -36,8 +38,8 @@ typedef struct Camera2d
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-Camera2d CreateCamera2d(Basis2d target_basis, Basis2d source_basis, Vector2d target_origin_coords, float zoom, float rotation);
-void UpdateCameraMatrix(Camera2d *cam, Basis2d input_basis);
+Camera2d CreateCamera2d(Basis2d destination_basis, Basis2d source_basis, Vector2d destination_origin_coords, Vector2d source_origin_coords, float zoom, float rotation);
+void UpdateCamera_Source_To_Dest(Camera2d *cam, Basis2d input_basis);
 Vector2d TransformCoordinates(Matrix3x3 transformation_mtx, Vector2d coordinates_to_transform);
 
 // Vector2d GetCellIndicesFromCoordinates(Vector2d origin_coordinates, Vector2d input_coordinates, Basis2d basis);

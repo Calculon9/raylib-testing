@@ -27,7 +27,10 @@ COLOURS MODULE
 #define VIOLET_RGBA     { 135, 60, 190, 255 }    // Violet
 #define DARKPURPLE_RGBA { 112, 31, 126, 255 }    // Dark Purple
 #define BEIGE_RGBA      { 211, 176, 131, 255 }   // Beige
-#define BROWN_RGBA      { 127, 106, 79, 255 }    // Brown
+#define BROWN_RGBA      { 127, 106, 79, 255 }    // Brown#16a085
+#define BROWN_RGBA_2    { 127, 106, 79, 127 }    // Brown#16a085
+#define BROWN_RGBA_3    { 127, 106, 79, 85 }    // Brown#16a085
+#define BROWN_RGBA_4    { 127, 106, 79, 64 }    // Brown#16a085
 #define DARKBROWN_RGBA  { 76, 63, 47, 255 }      // Dark Brown
 
 #define WHITE_RGBA      { 255, 255, 255, 255 }   // White

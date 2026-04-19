@@ -10,57 +10,41 @@
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
 
-
-
-
 //----------------------------------------------------------------------------------
 // Functions Definition
 //----------------------------------------------------------------------------------
-Camera2d CreateCamera2d(Basis2d destination_basis, Basis2d source_basis, Vector2d destination_origin_coords, float zoom, float rotation)
+Camera2d CreateCamera2d(Basis2d destination_basis, Basis2d source_basis, Vector2d destination_origin_coords, Vector2d source_origin_coords, float zoom, float rotation)
 {
-   Camera2d camera = {0};
-   camera.destination_basis = destination_basis;
-   camera.source_basis = source_basis;
-   camera.destination_origin_coords = destination_origin_coords;
-   camera.zoom = zoom;
-   camera.rotation = rotation;
+    Camera2d camera = {0};
+    camera.destination_basis = destination_basis;
+    camera.source_basis = source_basis;
+    camera.destination_origin_coords = destination_origin_coords;
+    camera.source_origin_coords = source_origin_coords;
+    camera.zoom = zoom;
+    camera.rotation = rotation;
 
-   // Calculate the transformation matrix that will be used to translate any world space to screen space 
-   camera.transformation_mtx = BasisTransform_2d(source_basis, destination_basis, destination_origin_coords);
-
-   return camera;
+    // Calculate the transformation matrix that will be used to translate any world space to screen space
+    camera.source_to_dest_mtx = CoordSpaceTransform_2d(source_basis, destination_basis, destination_origin_coords);
+    camera.dest_to_source_mtx = MatrixInvert_3x3(camera.source_to_dest_mtx);
+    //camera.dest_to_source_mtx = CoordSpaceTransform_2d(destination_basis, source_basis, source_origin_coords);
+    return camera;
 }
 
-// Camera2d CreateCamera2d_(Basis2d destination_basis, Basis2d source_basis, Vector2d destination_origin_coords, float zoom, float rotation)
-// {
-//    Camera2d camera = {0};
-//    camera.destination_basis = destination_basis;
-//    camera.source_basis = source_basis;
-//    camera.destination_origin_coords = destination_origin_coords;
-//    camera.zoom = zoom;
-//    camera.rotation = rotation;
-
-//    // Calculate the transformation matrix that will be used to translate any world space to screen space 
-
-
-//    return camera;
-// }
-
-void UpdateCameraMatrix(Camera2d *cam, Basis2d input_basis) {
+void UpdateCamera_Source_To_Dest(Camera2d *cam, Basis2d input_basis)
+{
     // 1. Calculate the Screen Basis based on Zoom
     Basis2d screen_basis = {
-        .u = { cam->zoom, 0 },
-        .v = { 0, cam->zoom }
-    };
+        .u = {cam->zoom, 0},
+        .v = {0, cam->zoom}};
 
     // 2. Generate the transform
     // Pass the 'offset' as the screen origin
-    cam->transformation_mtx = BasisTransform_2d(input_basis, screen_basis, cam->destination_origin_coords);
+    cam->source_to_dest_mtx = CoordSpaceTransform_2d(input_basis, screen_basis, cam->destination_origin_coords);
 }
 
 Vector2d TransformCoordinates(Matrix3x3 transformation_mtx, Vector2d coordinates_to_transform)
 {
-   Vector2d output_coords;
+    Vector2d output_coords;
 
     // 1. Get the "transformation" or "mapping" basis to go from world to screen.
     // 2. Get the scaling factor to go from world basis magnitude to screen basis magnitude.
@@ -76,6 +60,5 @@ Vector2d TransformCoordinates(Matrix3x3 transformation_mtx, Vector2d coordinates
 
     return output_coords;
 }
-//World CalculateFieldLines(Field field);
-//World InitialiseFieldCells(Field field);
-
+// World CalculateFieldLines(Field field);
+// World InitialiseFieldCells(Field field);

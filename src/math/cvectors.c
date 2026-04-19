@@ -111,34 +111,37 @@ Vector3d *VectorSumArray_3d_Dynamic(Vector3d *array, size_t count)
     return presult;
 }
 
-Matrix3x3 MatrixMultiply_3x3_3x3(Matrix3x3 A, Matrix3x3 B) {
-    Matrix3x3 result = { 0 };
+Matrix3x3 MatrixMultiply_3x3_3x3(Matrix3x3 A, Matrix3x3 B)
+{
+    Matrix3x3 result = {0};
 
     // Row 1
-    result.m0 = A.m0*B.m0 + A.m3*B.m1 + A.m6*B.m2;
-    result.m3 = A.m0*B.m3 + A.m3*B.m4 + A.m6*B.m5;
-    result.m6 = A.m0*B.m6 + A.m3*B.m7 + A.m6*B.m8;
+    result.m0 = A.m0 * B.m0 + A.m3 * B.m1 + A.m6 * B.m2;
+    result.m3 = A.m0 * B.m3 + A.m3 * B.m4 + A.m6 * B.m5;
+    result.m6 = A.m0 * B.m6 + A.m3 * B.m7 + A.m6 * B.m8;
 
     // Row 2
-    result.m1 = A.m1*B.m0 + A.m4*B.m1 + A.m7*B.m2;
-    result.m4 = A.m1*B.m3 + A.m4*B.m4 + A.m7*B.m5;
-    result.m7 = A.m1*B.m6 + A.m4*B.m7 + A.m7*B.m8;
+    result.m1 = A.m1 * B.m0 + A.m4 * B.m1 + A.m7 * B.m2;
+    result.m4 = A.m1 * B.m3 + A.m4 * B.m4 + A.m7 * B.m5;
+    result.m7 = A.m1 * B.m6 + A.m4 * B.m7 + A.m7 * B.m8;
 
     // Row 3
-    result.m2 = A.m2*B.m0 + A.m5*B.m1 + A.m8*B.m2;
-    result.m5 = A.m2*B.m3 + A.m5*B.m4 + A.m8*B.m5;
-    result.m8 = A.m2*B.m6 + A.m5*B.m7 + A.m8*B.m8;
+    result.m2 = A.m2 * B.m0 + A.m5 * B.m1 + A.m8 * B.m2;
+    result.m5 = A.m2 * B.m3 + A.m5 * B.m4 + A.m8 * B.m5;
+    result.m8 = A.m2 * B.m6 + A.m5 * B.m7 + A.m8 * B.m8;
 
     return result;
 }
 
-Matrix3x3 MatrixInvert_3x3(Matrix3x3 M) {
+Matrix3x3 MatrixInvert_3x3(Matrix3x3 M)
+{
     // 1. Calculate the Determinant
     float det = M.m0 * (M.m4 * M.m8 - M.m5 * M.m7) -
                 M.m3 * (M.m1 * M.m8 - M.m2 * M.m7) +
                 M.m6 * (M.m1 * M.m5 - M.m2 * M.m4);
 
-    if (det == 0.0f) return (Matrix3x3){ 0 }; // Cannot invert
+    if (det == 0.0f)
+        return (Matrix3x3){0}; // Cannot invert
 
     float invDet = 1.0f / det;
     Matrix3x3 res;
@@ -159,28 +162,60 @@ Matrix3x3 MatrixInvert_3x3(Matrix3x3 M) {
     return res;
 }
 
+float VectorBox_2d(Vector2d vector)
+{
+    float box = vector.x * vector.y;
 
-Matrix3x3 BasisTransform_2d(Basis2d source, Basis2d destination, Vector2d destination_origin)
+    // Just want the absolute area
+    if (box < 0)
+    {
+        box *= -1;
+    }
+    return box;
+}
+
+float MatrixDeterminant_2x2(Matrix2x2 M)
+{
+    // 1. Calculate the Determinant
+    float det = (M.col1.x * M.col2.y) + (M.col2.x * M.col1.y);
+
+    return det;
+}
+
+Matrix3x3 CoordSpaceTransform_2d(Basis2d source, Basis2d destination, Vector2d destination_origin)
 {
     // matSource stays the same (usually 0,0 for world origin)
     Matrix3x3 matSource = {
         source.u.x, source.v.x, 0,
         source.u.y, source.v.y, 0,
-        0,          0,          1
-    };
+        0, 0, 1};
 
     Matrix3x3 invSource = MatrixInvert_3x3(matSource);
 
     // matDest NEEDS the origin in the third column (m6, m7)
     Matrix3x3 matDest = {
-        destination.u.x,   destination.v.x,   destination_origin.x, // <--- HERE
-        destination.u.y,   destination.v.y,   destination_origin.y, // <--- HERE
-        0,          0,          1
-    };
+        destination.u.x, destination.v.x, destination_origin.x, // <--- HERE
+        destination.u.y, destination.v.y, destination_origin.y, // <--- HERE
+        0, 0, 1};
 
     // Usually: Result = Dest * invSource
-    // Inverse of source x destination = transformation matrix to convert a source vector to destination vector 
+    // Inverse of source x destination = transformation matrix to convert a source vector to destination vector
     return MatrixMultiply_3x3_3x3(matDest, invSource);
+}
+
+Vector2d BasisTransform_2d_Scale(Basis2d source, Basis2d destination)
+{
+    float magSourceU = VectorMagnitude_2d(source.u);
+    float magSourceV = VectorMagnitude_2d(source.v);
+
+    float magDestU = VectorMagnitude_2d(destination.u);
+    float magDestV = VectorMagnitude_2d(destination.v);
+
+    // Guard against division by zero
+    if (magSourceU == 0 || magSourceV == 0)
+        return (Vector2d){1.0, 1.0};
+
+    return (Vector2d){magDestU / magSourceU, magDestV / magSourceV};
 }
 
 Vector2d MatrixMultiply_3x3_2x2(Matrix3x3 matrix_function, Vector2d vector_input)
@@ -202,6 +237,48 @@ Vector2d MatrixMultiply_3x3_2x2(Matrix3x3 matrix_function, Vector2d vector_input
     return vector_result;
 }
 
+// Returns the boxed coords from a collection of vertice vectors (must all be relative to the associated object's coords)
+// Matrix2x2 GetEnvelopingSubspace2d_FromMatrix(DynamicArray position_vectors)
+// {
+//    Matrix2x2 subspace_coords = {0};
+//    if (position_vectors == NULL)
+//    {
+//       return subspace_coords;
+//    }
+//    if (position_vectors.)
+//    Matrix2x2 box_coords = {0};
+//    Vector2d *pts = vertices.coll.items;
+
+//    // Must initialise with one of the provided vertices rather than all 0s because 0 could be the largest or smallest value compared to the provided vertices
+//    box_coords.col1 = pts[0];
+//    box_coords.col2 = pts[1];
+//    Vector2d vertice = {0};
+//    for (size_t i = 1; i < vertices.coll.count; i++)
+//    {
+//       vertice = pts[i];
+
+//       // Check if x is a min or max
+//       if (vertice.x > box_coords.col2.x)
+//       {
+//          box_coords.col2.x = vertice.x;
+//       }
+//       else if (vertice.x < box_coords.col1.x)
+//       {
+//          box_coords.col1.x = vertice.x;
+//       }
+
+//       // Check if y is a min or max
+//       if (vertice.y > box_coords.col2.y)
+//       {
+//          box_coords.col2.y = vertice.y;
+//       } else if (vertice.y > box_coords.col1.y)
+//       {
+//          box_coords.col1.y = vertice.y;
+//       }
+//    }
+//    return box_coords;
+// }
+
 // Matrix3x3 BasisTransform_Scale_Rotate_2d(Basis2d source_basis, Basis2d dest_basis)// scale_u, float scale_v, float radians_u, float radians_v)
 // {
 //     Matrix3x3 mat;
@@ -211,7 +288,7 @@ Vector2d MatrixMultiply_3x3_2x2(Matrix3x3 matrix_function, Vector2d vector_input
 //     float dest_basis_u_rad = VectorRadians_2d(dest_basis.u);
 //     float dest_basis_v_rad = VectorRadians_2d(dest_basis.v);
 
-//     // Get the scaling factor to go from world basis magnitude to screen basis magnitude. 
+//     // Get the scaling factor to go from world basis magnitude to screen basis magnitude.
 //     float source_basis_u_mag = VectorMagnitude_2d(source_basis.u);
 //     float source_basis_v_mag = VectorMagnitude_2d(source_basis.v);
 //     float dest_basis_u_mag = VectorMagnitude_2d(dest_basis.u);
