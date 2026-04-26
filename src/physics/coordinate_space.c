@@ -117,30 +117,6 @@ void InitUnitCells(CoordSpace2d *space)
       Cell *address = (Cell *)((char *)cells->items + (k * cells->elemSize));
       memcpy(address, &cell, cells->elemSize);
       count++;
-      // for (int j = 0; j < stepsV; j++)
-      // {
-      //    // The c and r represent the column and row index of the cell respectively, so we can calculate the position of the cell by scaling the basis vectors by the column and row index and adding it to the origin
-      //    int index = (i * stepsV + j); // Convert 2D row and column index to linear index
-      //    Cell cell;
-
-      //    // Scale the basis vectors (u,v) and add them to get the displacement from the origin
-      //    Vector2d scaled_u = {j * space->basis.u.x, j * space->basis.u.y};
-      //    Vector2d scaled_v = {i * space->basis.v.x, i * space->basis.v.y};
-      //    Vector2d displacement = {scaled_u.x + scaled_v.x, scaled_u.y + scaled_v.y};
-
-      //    // Add the displacement vector to the origin to get the coordinates of the cell
-      //    cell.coords.x = coords.x + displacement.x;
-      //    cell.coords.y = coords.y + displacement.y;
-
-      //    cell.value = 0.0f;  // Initialize the cell value to 0
-      //    cell.occupancy = 0; // Initialize the cell occupancy to 0
-
-      //    // Write the cell to the array
-      //    Cell *address = (Cell *)((char *)cells->items + (index * cells->elemSize));
-      //    memcpy(address, &cell, cells->elemSize);
-      //    count++;
-      //    // printf("Initialised Cell (%d,%d)\n", i + 1, j + 1);
-      // }
    }
    cells->count = stepsU * stepsV;
    printf("Initialised %d cells\n", count);

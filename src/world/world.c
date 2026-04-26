@@ -62,7 +62,7 @@ void AddObjectToWorld(World2d *world, Polygonoid *object)
    // Add the newton_object to the world's objects array
    Array_Push(&world->objects, object);
 
-   printf("Added object with ID %d to world at coordinates (%.1f, %.1f)\n", object->id, object->newtonian_properties.coords_origin.x, object->newtonian_properties.coords_origin.y);
+   printf("CREATED OBJECT (ID %d): Cell %d (%.1f, %.1f)\n", object->id, cell_index, object_coords.x, object_coords.y);
 }
 
 void UpdateWorld(World2d *world, float delta_time)
@@ -96,21 +96,22 @@ void UpdateWorld(World2d *world, float delta_time)
          printf("WARNING: Object ID %d is out of bounds at coordinates (%.1f, %.1f). Skipping cell update.\n", polygonoids[i].id, obj->coords_origin.x, obj->coords_origin.y);
 
          // Need to calculate a collision response to push the object back into the bounds of the world here, otherwise it will just keep moving out of bounds and we won't be able to track it anymore. For simplicity, let's just reverse the velocity of the object when it hits the boundary of the world, which will create a bouncing effect. We can also apply a damping factor to the velocity to simulate energy loss during the collision, which will prevent the object from bouncing indefinitely.
-            if (obj->coords_origin.x < 0 || obj->coords_origin.x >= world->coord_space_grid.coord_space.resolution_ixj.x)
-            {
-               obj->velocity.x = -obj->velocity.x; // Reverse and dampen the x velocity
-               //obj->coords_origin.x = obj->coords_origin.x < 0 ? 0 : world->coord_space_grid.coord_space.resolution_ixj.x - 1; // Move the object back within bounds
-            }
-            if (obj->coords_origin.y < 0 || obj->coords_origin.y >= world->coord_space_grid.coord_space.resolution_ixj.y)
-            {
-               obj->velocity.y = -obj->velocity.y; // Reverse and dampen the y velocity
-               //obj->coords_origin.y = obj->coords_origin.y < 0 ? 0 : world->coord_space_grid.coord_space.resolution_ixj.y - 1; // Move the object back within bounds
-            }
+         if (obj->coords_origin.x < 0 || obj->coords_origin.x >= world->coord_space_grid.coord_space.resolution_ixj.x)
+         {
+            obj->velocity.x = -obj->velocity.x; // Reverse and dampen the x velocity
+            // obj->coords_origin.x = obj->coords_origin.x < 0 ? 0 : world->coord_space_grid.coord_space.resolution_ixj.x - 1; // Move the object back within bounds
+         }
+         if (obj->coords_origin.y < 0 || obj->coords_origin.y >= world->coord_space_grid.coord_space.resolution_ixj.y)
+         {
+            obj->velocity.y = -obj->velocity.y; // Reverse and dampen the y velocity
+            // obj->coords_origin.y = obj->coords_origin.y < 0 ? 0 : world->coord_space_grid.coord_space.resolution_ixj.y - 1; // Move the object back within bounds
+         }
          CalculateVectors(obj, delta_time); // Still update the object's vectors based on its acceleration and velocity so that it can move back into the bounds of the world
          continue;
       }
+
       // NO COPYING. Point directly to the source in the heap.
-      
+
       // Add the object's ID to the cell's object_ids array if there is space
       Cell *target_cell = GetCellFromCoords(&world->coord_space_grid.coord_space, polygonoids[i].newtonian_properties.coords_origin);
 
@@ -141,6 +142,38 @@ void UpdateWorld(World2d *world, float delta_time)
          Polygonoid *b = &polygonoids[j];
 
          bool colliding = CheckForCollision(a->newtonian_properties, b->newtonian_properties);
+
+         if (colliding)
+         {
+            // Apply momentum conservation to determine velocities of a and b
+            float a_mom_1 = VectorMagnitude_2d(a->newtonian_properties.velocity) / a->newtonian_properties.inverseMass;
+            float b_mom_1 = VectorMagnitude_2d(b->newtonian_properties.velocity) / b->newtonian_properties.inverseMass;
+            Vector2d a_b_vel = VectorSum_2d(a->newtonian_properties.velocity, VectorScale_2d(b->newtonian_properties.velocity, -1));
+
+            // Get the collision normal - just use A as the reference object
+            // For simplicity, we'll assume the normal is in the direction that starts at A's origin and points to B's origin
+            Vector2d a_b_pos = VectorSum_2d(a->newtonian_properties.coords_origin, VectorScale_2d(b->newtonian_properties.coords_origin, -1));
+            Vector2d a_b_pos_normal = VectorScale_2d(a_b_pos, 1 / VectorMagnitude_2d(a_b_pos));
+
+            // Velocity along the Normal (The Dot Product)
+            float a_b_vel_dot = VectorDot_2d(a_b_vel, a_b_pos_normal);
+
+            // Get the Impulse: $$j = \frac{-(1 + e)(\mathbf{v}_{rel} \cdot \mathbf{n})}{\frac{1}{m_a} + \frac{1}{m_b}}$$
+            // Calculate Impulse Scalar
+            float e = 1; // Coefficient of Restitution
+            float j = -(1 + e) * a_b_vel_dot / (a->newtonian_properties.inverseMass + b->newtonian_properties.inverseMass);
+
+            // Apply the Impulse
+            // Turn that scalar back into a vector and update the velocities
+            Vector2d impulse_vector = VectorScale_2d(a_b_pos_normal, j);
+
+            // Apply the impulse vector to A and B to get velocities
+            Vector2d a_vel_change = VectorScale_2d(impulse_vector, a->newtonian_properties.inverseMass);
+            Vector2d b_vel_change = VectorScale_2d(impulse_vector, b->newtonian_properties.inverseMass);
+
+            a->newtonian_properties.velocity = VectorSum_2d(a->newtonian_properties.velocity, a_vel_change);
+            b->newtonian_properties.velocity = VectorSum_2d(b->newtonian_properties.velocity, VectorScale_2d(b_vel_change, -1));
+         }
 
          printf("COLLISION CHECK for A(%.0f,%.0f) B(%.0f,%.0f) = %s\n",
                 a->newtonian_properties.coords_origin.x,

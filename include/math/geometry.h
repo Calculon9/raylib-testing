@@ -1,37 +1,33 @@
 /**********************************************************************************************
 *
-COMMON MODULE
+GEOMETRY MODULE
 *
 **********************************************************************************************/
-
-#ifndef COMMON_H
-#define COMMON_H
-
-// 1. External dependencies
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <string.h>
-#include <stddef.h>
-#include <math.h>
-#include "collections/dynamic_array.h"
-
-// 2. Global Math Constants
-#ifndef PI
-    #define PI 3.14159265358979323846f
-#endif
-#define EPSILON 0.00001f
-
+#ifndef GEOMETRY_H
+#define GEOMETRY_H
+#include "common/common.h"
+#include "math/cvectors.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
-//#define NEW_CIRCLOID() AllocateBytes(sizeof(Circloid))
-//#define NEW_CIRCLOID() allocate_block(sizeof(Circloid))
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
+// typedef struct {
+//     float x, y, width, height;
+// } Rectangle;
+
+typedef struct {
+    DynamicArray vertices;
+} Polygon;
+
+// typedef struct Matrix2d {
+//      DynamicArray *items; // The flat array of data
+//      int cols;        // Number of columns
+//      int rows;        // Number of rows
+//  } Matrix2d;
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
@@ -40,4 +36,7 @@ COMMON MODULE
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
+
+bool IsPointInPolygon(Vector2d point, Vector2d* vertices, int count);
+
 #endif

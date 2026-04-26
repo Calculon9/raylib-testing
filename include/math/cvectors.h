@@ -5,7 +5,7 @@ MEMORY MANAGEMENT MODULE
 **********************************************************************************************/
 #ifndef CVECTORS_H
 #define CVECTORS_H
-#include <stddef.h>
+#include "common/common.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
@@ -87,7 +87,7 @@ Vector2d VectorScale_2d(Vector2d vector, float scalar);
 Polar2d PolarForm_2d(Vector2d vector);
 float VectorMagnitude_2d(Vector2d vector);
 float VectorBox_2d(Vector2d vector);
-float Vector_2d_Dot(Vector2d a, Vector2d b);
+float VectorDot_2d(Vector2d a, Vector2d b);
 float VectorRadians_2d(Vector2d vector);
 Vector3d VectorSumArray_3d(Vector3d *array, size_t count);
 Vector3d *VectorSumArray_3d_Dynamic(Vector3d *array, size_t count);
@@ -100,5 +100,6 @@ Matrix3x3 MatrixInvert_3x3(Matrix3x3 M);
 Vector2d BasisTransform_2d_Scale(Basis2d source, Basis2d destination);
 Matrix3x3 CoordSpaceTransform_2d(Basis2d source, Basis2d destination, Vector2d destination_origin);
 Vector2d MatrixMultiply_3x3_2x2(Matrix3x3 matrix_function, Vector2d vector_input);
+bool IsPointInPolygon(Vector2d point, Vector2d vertices[], int count);
 
 #endif

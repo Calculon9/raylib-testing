@@ -1,37 +1,25 @@
 /**********************************************************************************************
 *
-COMMON MODULE
+WORLD MODULE
 *
 **********************************************************************************************/
-
-#ifndef COMMON_H
-#define COMMON_H
-
-// 1. External dependencies
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <string.h>
-#include <stddef.h>
-#include <math.h>
-#include "collections/dynamic_array.h"
-
-// 2. Global Math Constants
-#ifndef PI
-    #define PI 3.14159265358979323846f
-#endif
-#define EPSILON 0.00001f
-
+#ifndef UI_H
+#define UI_H
+#include "common/common.h"
+#include "math/cvectors.h"
+#include "math/geometry.h"
+#include "colour/colour.h"
+#include "ui/text_region.h"
+#include "ui/cfont.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
-//#define NEW_CIRCLOID() AllocateBytes(sizeof(Circloid))
-//#define NEW_CIRCLOID() allocate_block(sizeof(Circloid))
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
+
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
@@ -40,4 +28,5 @@ COMMON MODULE
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
+
 #endif

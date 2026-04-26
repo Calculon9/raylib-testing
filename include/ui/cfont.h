@@ -1,37 +1,38 @@
 /**********************************************************************************************
 *
-COMMON MODULE
+FONT MODULE
 *
 **********************************************************************************************/
-
-#ifndef COMMON_H
-#define COMMON_H
-
-// 1. External dependencies
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <string.h>
-#include <stddef.h>
-#include <math.h>
-#include "collections/dynamic_array.h"
-
-// 2. Global Math Constants
-#ifndef PI
-    #define PI 3.14159265358979323846f
-#endif
-#define EPSILON 0.00001f
-
+#ifndef CFONT_H
+#define CFONT_H
+#include "common/common.h"
+#include "colour/colour.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
-//#define NEW_CIRCLOID() AllocateBytes(sizeof(Circloid))
-//#define NEW_CIRCLOID() allocate_block(sizeof(Circloid))
+
+#define FONT_BASIC (Bitmap_Font){.bitmap = font8x8_bitmap_basic, .spacing = -2, .base_size = 8, .colour = BLACK_RGBA}
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
+typedef struct
+{
+    unsigned char (*bitmap)[8]; // Pointer to the bitmap data for the font
+    float spacing;              // Additional spacing between characters in pixels. Use -ve numbers to remove embedded spacing in bitmap.
+    ColourRgba colour;          // Default color for rendering the font
+    short base_size;            // Base size for scaling (e.g., 8 for an 8x8 font)
+    // short width;                // Width of each character in pixels
+    // short height;               // Height of each character in pixels
+} Bitmap_Font;
+
+/* * 8x8 Fixed-Width Bitfont
+ * Each index corresponds to the ASCII value of the character.
+ * A '1' bit represents a colored pixel, a '0' is transparent.
+ */
+extern unsigned char font8x8_bitmap_basic[128][8];
+extern Bitmap_Font default_font;
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
@@ -40,4 +41,5 @@ COMMON MODULE
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
+
 #endif

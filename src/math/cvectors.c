@@ -1,5 +1,3 @@
-#include "common/common.h"
-#include "memory/cmemory.h"
 #include "math/cvectors.h"
 
 // Sum all Vector2 in a contiguous array, return by value (Stack)
@@ -56,9 +54,27 @@ Polar2d PolarForm_2d(Vector2d vector)
 // Result > 0: The vectors are pointing in the same general direction (angle < pi/2).
 // Result = 0: The vectors are perfectly perpendicular (pi/2).
 // Result < 0: The vectors are pointing away from each other (angle > pi/2).
-float Vector_2d_Dot(Vector2d a, Vector2d b)
+float VectorDot_2d(Vector2d a, Vector2d b)
 {
     return (a.x * b.x) + (a.y * b.y);
+}
+
+// Ray Casting Algorithm: PIP Test
+bool IsPointInPolygon(Vector2d point, Vector2d *vertices, int count)
+{
+    bool inside = false;
+    for (int i = 0, j = count - 1; i < count; j = i++)
+    {
+        // Check if the ray crosses the edge between vertex i and vertex j
+        if (((vertices[i].y > point.y) != (vertices[j].y > point.y)) &&
+            (point.x < (vertices[j].x - vertices[i].x) * (point.y - vertices[i].y) /
+                               (vertices[j].y - vertices[i].y) +
+                           vertices[i].x))
+        {
+            inside = !inside; // Toggle the state
+        }
+    }
+    return inside;
 }
 
 // Basis2d BasisTransform_2d(Basis2d basis_to_change, Transform scalar)
@@ -70,16 +86,16 @@ float Vector_2d_Dot(Vector2d a, Vector2d b)
 // }
 
 // Sum all Vector2 in a contiguous array, return dynamic allocation (Heap)
-Vector2d *VectorSumArray_2d_Dynamic(Vector2d *array, size_t count)
-{
-    // We only need to allocate ONE Vector2 to hold the result, not a whole array!
-    Vector2d *presult = AllocateArray(1, sizeof(Vector2d));
+// Vector2d *VectorSumArray_2d_Dynamic(Vector2d *array, size_t count)
+// {
+//     // We only need to allocate ONE Vector2 to hold the result, not a whole array!
+//     Vector2d *presult = AllocateArray(1, sizeof(Vector2d));
 
-    // Calculate the sum using our stack function to avoid duplicating logic
-    *presult = VectorSumArray_2d(array, count);
+//     // Calculate the sum using our stack function to avoid duplicating logic
+//     *presult = VectorSumArray_2d(array, count);
 
-    return presult;
-}
+//     return presult;
+// }
 
 // Sum all Vector3 in the array, return by value (Stack).
 Vector3d VectorSumArray_3d(Vector3d *array, size_t count)
@@ -100,16 +116,16 @@ Vector3d VectorSumArray_3d(Vector3d *array, size_t count)
 };
 
 // Sum all Vector3 in a contiguous array, return dynamic allocation (Heap)
-Vector3d *VectorSumArray_3d_Dynamic(Vector3d *array, size_t count)
-{
-    // We only need to allocate ONE Vector3 to hold the result, not a whole array!
-    Vector3d *presult = AllocateArray(1, sizeof(Vector3d));
+// Vector3d *VectorSumArray_3d_Dynamic(Vector3d *array, size_t count)
+// {
+//     // We only need to allocate ONE Vector3 to hold the result, not a whole array!
+//     Vector3d *presult = AllocateArray(1, sizeof(Vector3d));
 
-    // Calculate the sum using our stack function to avoid duplicating logic
-    *presult = VectorSumArray_3d(array, count);
+//     // Calculate the sum using our stack function to avoid duplicating logic
+//     *presult = VectorSumArray_3d(array, count);
 
-    return presult;
-}
+//     return presult;
+// }
 
 Matrix3x3 MatrixMultiply_3x3_3x3(Matrix3x3 A, Matrix3x3 B)
 {

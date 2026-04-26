@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <time.h>
+#include <stdint.h>
 #include "utility/utility.h"
 #include "collections/queue.h"
 #include "memory/cmemory.h"
@@ -13,13 +14,32 @@ static Queue *frameTimes = NULL;
 static double prevFrameTime = {0};
 static double currTime = {0};
 static FPS fps = {0};
-// static time_t start_time = NULL;
+
 // static const int time_interval = 1; // Time interval in seconds for FPS calculation
-// static int frame_count = 0;
+
 
 FPS GetFps()
 {
     return fps;
+}
+
+void UpdateFrameCounter(FrameCounter *fc) {
+    double current_time = GetPreciseTime(); // Or your OS-specific high-res timer
+    fc->delta_time = (float)(current_time - fc->last_time);
+    fc->last_time = current_time;
+
+    // Method 1: Instant FPS
+    fc->fps = 1.0f / fc->delta_time;
+
+    // Method 2: Averaged FPS (Updates once per second for readability)
+    fc->timer += fc->delta_time;
+    fc->frame_count_this_second++;
+
+    if (fc->timer >= 1.0) {
+        //printf("FPS: %d\n", fc->frame_count_this_second);
+        fc->frame_count_this_second = 0;
+        fc->timer = 0.0;
+    }
 }
 
 // Utilities (FPS) Initialization logic
@@ -107,3 +127,9 @@ size_t GetCurrentMemoryAllocated()
 {
     return CurrBytesAllocated();
 }
+
+// void Concatenate(char *dest, size_t dest_size, const char *src) {
+//     // This finds the current end of the string and appends src
+//     // while ensuring we never exceed dest_size.
+//     snprintf(dest + strlen(dest), dest_size - strlen(dest), "%s", src);
+// }
