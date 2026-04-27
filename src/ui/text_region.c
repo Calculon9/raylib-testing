@@ -23,43 +23,102 @@ bool IsFocused(Vector2d pixel_coords, Vector2d *vertices, int vertex_count)
     return IsPointInPolygon(pixel_coords, vertices, vertex_count);
 }
 
-TextField CreateTextField(float width, float height, Vector2d origin_coords, Vector2d padding_inner, Vector2d padding_outer, ColourRgba colour_border_outer, ColourRgba colour_fill_outer, ColourRgba colour_border_inner, ColourRgba colour_fill_inner)
+TextField *CreateTextField(float width, float height, Vector2d origin_coords, Vector2d parent_offset, Vector2d label_tbox_offset, Vector2d label_tbox_padding, char max_label_chars, char max_text_box_chars)
 {
-    TextField t = {0};
-    t.origin = origin_coords;
-    t.colour_fill_outer = colour_fill_outer;
-    t.colour_fill_inner = colour_fill_inner;
-    t.colour_border_outer = colour_border_outer;
-    t.colour_border_inner = colour_border_inner;
-    t.width = width;
-    t.height = height;
-    t.padding_inner = padding_inner;
-    t.padding_outer = padding_outer;
-    t.is_focused = false;
-    t.is_read_only = false;
-    t.cursor_pos = 0;
-    TextFieldsContainer *parent; // The "Backlink" for bubbling up changes to the text field container (e.g., for re-rendering when text changes)
+    TextField *tf = AllocateBytes(sizeof(TextField));
+    tf->origin = origin_coords;
+    tf->width = width;
+    tf->height = height;
+    tf->parent_offset = parent_offset;
+    // tf.parent = parent;
 
-    // Allocate memory for the text buffer
-    // t.text = calloc(64, sizeof(char));
+    // Determine if Label is above or inline
+    // If the vertical offset is small, we assume they sit side-by-side
+    bool label_is_inline = (label_tbox_offset.y < height / 4);
+
+    TextBox tb = {0};
+    TextLabel tl = {0};
+    // Set backlink for the label to the TextField we are currently building
+    // Note: We'll set tf.label = tl at the end, copying the data.
+    tl.parent = tf;
+    tb.parent = tf; // TextBox bubbles to the Container
+
+    tb.max_len = max_text_box_chars;
+
+    if (label_is_inline)
+    {
+        // 1. Calculate Width Proportions based on char counts
+        float total_chars = (float)(max_text_box_chars + max_label_chars);
+        float tl_w = (max_label_chars / total_chars) * (width - label_tbox_offset.x);
+        float tb_w = width - tl_w - label_tbox_offset.x;
+
+        // 2. Set Label Dimensions & Origin (Left Side)
+        tl.width = tl_w;
+        tl.height = height;
+        tl.origin = origin_coords;
+        tl.parent_offset = (Vector2d){0, 0};
+
+        // 3. Set TextBox Dimensions & Origin (Right Side, shifted by label + offset)
+        tb.width = tb_w;
+        tb.height = height;
+        tb.origin.x = origin_coords.x + tl_w + label_tbox_offset.x;
+        tb.origin.y = origin_coords.y;
+        tb.parent_offset = (Vector2d){tl_w + label_tbox_offset.x, 0};
+    }
+    else
+    {
+        // Stacked Layout: Label is above the TextBox
+        // Label takes full width, height is determined by the offset
+        tl.width = width;
+        tl.height = label_tbox_offset.y;
+        tl.origin = origin_coords;
+        tl.parent_offset = (Vector2d){0, 0};
+
+        // TextBox takes full width, starts below the label offset
+        tb.width = width;
+        tb.height = height - label_tbox_offset.y;
+        tb.origin.x = origin_coords.x;
+        tb.origin.y = origin_coords.y + label_tbox_offset.y;
+        tb.parent_offset = (Vector2d){0, label_tbox_offset.y};
+    }
+
+    // Assign the sub-structs to the main TextField
+    tf->label = tl;
+    tf->text_box = tb;
+
+    return tf;
+}
+
+TextBox *CreateTextBox(float width, float height, Vector2d origin_coords, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill)
+{
+    TextBox *t = AllocateBytes(sizeof(TextBox));
+    t->origin = origin_coords;
+    t->colour_fill = colour_fill;
+    t->colour_border = colour_border;
+    t->width = width;
+    t->height = height;
+    t->padding = padding;
+    t->is_focused = false;
+    t->is_read_only = false;
+    t->cursor_pos = 0;
+    TextField *parent; // The "Backlink" for bubbling up changes to the text field container (e.g., for re-rendering when text changes)
 
     return t;
 }
 
-TextFieldsContainer CreateTextFieldContainer(float width, float height, Vector2d origin_coords, Vector2d padding_inner, Vector2d padding_outer, ColourRgba colour_border_outer, ColourRgba colour_fill_outer, ColourRgba colour_border_inner, ColourRgba colour_fill_inner)
+TextFieldsContainer *CreateTextFieldContainer(float width, float height, Vector2d origin_coords, Vector2d padding, Vector2d field_spacing, ColourRgba colour_border, ColourRgba colour_fill)
 {
-    TextFieldsContainer t = {0};
-    t.origin = origin_coords;
-    t.colour_fill_outer = colour_fill_outer;
-    t.colour_fill_inner = colour_fill_inner;
-    t.colour_border_outer = colour_border_outer;
-    t.colour_border_inner = colour_border_inner;
-    t.width = width;
-    t.height = height;
-    t.padding_inner = padding_inner;
-    t.padding_outer = padding_outer;
+    TextFieldsContainer *tc = AllocateBytes(sizeof(TextFieldsContainer));
+    tc->origin = origin_coords;
+    tc->colour_fill = colour_fill;
+    tc->colour_border = colour_border;
+    tc->width = width;
+    tc->height = height;
+    tc->padding = padding;
+    tc->field_spacing = field_spacing;
 
-    return t;
+    tc->text_fields = *NEW_DYNAMIC_ARRAY(4, sizeof(TextField)); // Start with capacity for 4 text fields, will grow as needed
+    return tc;
 }
 
 ShortString GetText_TextField(TextField *text_box)
@@ -106,6 +165,7 @@ Vector2d GetTextCenterPos(const char *text, float fontSize, Vector2d origin)
     // return startPos;
 }
 
+// Custom text drawing function that uses our Bitmap_Font and supports scaling and color. Coordinate origin is the top-left corner of the text in pixels.
 float DrawTextCustom(const char *text, float origin_x, float origin_y, char scale, Bitmap_Font font, ColourRgba colour)
 {
     float current_x = origin_x;

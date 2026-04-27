@@ -59,6 +59,16 @@ static Bitmap_Font font_default = FONT_BASIC;
 static int font_scale_l = 3;
 static int font_scale_m = 2;
 static int font_scale_s = 1;
+// Default UI Properties
+static Vector2d tbox_tlabel_default_offset = {0.04, 0};
+static Vector2d tbox_default_dims = {2.5, 0.4};
+static Vector2d tbox_default_padding_outer = {0.03, 0.03};
+static Vector2d tbox_default_padding_inner = {0.02, 0.02};
+static ColourRgba tbox_default_colour_border_outer = BROWN_RGBA; // {150, 115, 70, 255};//MAROON_RGBA; //{128, 99, 42, 100};
+static ColourRgba tbox_default_colour_border_inner = BEIGE_RGBA; // {150, 115, 70, 255};//MAROON_RGBA; //{128, 99, 42, 100};
+static ColourRgba tbox_default_colour_fill_outer = BROWN_RGBA;
+static ColourRgba tbox_default_colour_fill_inner = BEIGE_RGBA;
+static Vector2d tfield_default_spacing = {0, 0.05};
 
 // ----------LEFT PANEL SCREEN----------
 //  Visual Properties
@@ -76,23 +86,15 @@ static Vector2d lpanel_pixel_u = {75, 0};
 static Vector2d lpanel_pixel_v = {0, 75};
 static Camera2d camera_lpanel = {0};
 // UI Elements
-static TextFieldsContainer lpanel_properties_tcont = {0};
-static TextFieldsContainer lpanel_stats_tcont = {0};
+static TextFieldsContainer *lpanel_properties_tcont = {0};
+static TextFieldsContainer *lpanel_stats_tcont = {0};
 static Vector2d lpanel_properties_tcont_origin = {0, 5};
 static Vector2d lpanel_stats_tcont_origin = {0};
 // - default text container props
 static Vector2d lpanel_tcont_default_dims = {3, 5};
-static Vector2d lpanel_tcont_default_padding_outer = {0.05, 0.05};
-static Vector2d lpanel_tcont_default_padding_inner = {0.05, 0.05};
+static Vector2d lpanel_tcont_default_padding = {0.05, 0.05};
 // - other default text container props are same as text box
 // - default text box props
-static Vector2d lpanel_tbox_default_dims = {2.5, 0.4};
-static Vector2d lpanel_tbox_default_padding_outer = {0.03, 0.03};
-static Vector2d lpanel_tbox_default_padding_inner = {0.02, 0.02};
-static ColourRgba lpanel_tbox_default_colour_border_outer = BROWN_RGBA; // {150, 115, 70, 255};//MAROON_RGBA; //{128, 99, 42, 100};
-static ColourRgba lpanel_tbox_default_colour_border_inner = BEIGE_RGBA; // {150, 115, 70, 255};//MAROON_RGBA; //{128, 99, 42, 100};
-static ColourRgba lpanel_tbox_default_colour_fill_outer = BROWN_RGBA;
-static ColourRgba lpanel_tbox_default_colour_fill_inner = BEIGE_RGBA;
 
 // ----------GAME WORLD SCREEN----------
 static int finishScreen = 0;
@@ -161,7 +163,7 @@ void DrawPanelRegion_ObjectProps(CoordSpace2d panel_space, Color fill_colour);
 void DrawPanelRegion_Stats(CoordSpace2d panel_space, Color fill_colour);
 void DrawWorldRegion(World2d *world, Camera2d world_camera);
 void DrawWorldCoordinateGrid();
-void DrawTextField(TextField *text_box, Bitmap_Font font, int font_size, Camera2d camera);
+void DrawTextFieldElements(TextField *text_field, Vector2d parent_pixel_coords, Bitmap_Font font, int font_scale, Camera2d camera);
 void DrawTextFieldsContainer(TextFieldsContainer *text_fields_container, Camera2d camera);
 // int GetCircloidCount(void);
 int GetPolygonoidCount(void);
@@ -222,23 +224,38 @@ void InitGameplayScreen(void)
 void InitPanelTextContainers()
 {
     // PROPERTIES Text Container and its Text Boxes for the panel
-    lpanel_properties_tcont = CreateTextFieldContainer(lpanel_tcont_default_dims.x, lpanel_tcont_default_dims.y, lpanel_properties_tcont_origin, lpanel_tcont_default_padding_inner, lpanel_tcont_default_padding_outer, lpanel_tbox_default_colour_border_outer, lpanel_tbox_default_colour_fill_outer, lpanel_tbox_default_colour_border_inner, lpanel_tbox_default_colour_fill_inner);
+
+    lpanel_properties_tcont = CreateTextFieldContainer(lpanel_tcont_default_dims.x, lpanel_tcont_default_dims.y, lpanel_properties_tcont_origin, lpanel_tcont_default_padding, tfield_default_spacing, tbox_default_colour_border_outer, tbox_default_colour_fill_inner);
+    // lpanel_properties_tcont = CreateTextFieldContainer(lpanel_tcont_default_dims.x, lpanel_tcont_default_dims.y, lpanel_properties_tcont_origin, lpanel_tcont_default_padding_inner, lpanel_tcont_default_padding_outer, lpanel_tbox_default_colour_border_outer, lpanel_tbox_default_colour_fill_outer, lpanel_tbox_default_colour_border_inner, lpanel_tbox_default_colour_fill_inner);
     Vector2d text_field_spacing = (Vector2d){0.05, 0.05};
-    lpanel_properties_tcont.text_field_spacing = text_field_spacing;
 
     // This will be the initial origin for the first text field in the properties container, and the rest will be positioned relative to this one using the text_field_spacing property of the container
     // Just set to container origin coords {0,0} for now and will update in the Draw loop based on the actual position and dimensions of the container, so that it works even if we change the container's properties later
-    char *tbox_labels[] = {"OBJECT PROPERTIES", "MASS.", "POS. (X,Y)", "VEL. (X,Y)", "ACCEL. (X,Y)"};
+    char *tbox_labels[] = {"OBJECT PROPERTIES"};
+    // char *tbox_labels[] = {"OBJECT PROPERTIES", "MASS.", "POS.(X,Y)", "VEL.(X,Y)", "ACCEL.(X,Y)"};
     Vector2d tf_initial_origin = (Vector2d){lpanel_properties_tcont_origin.x, lpanel_properties_tcont_origin.y};
-    for (int i = 0; i < 5; i++)
+    TextField dummy = {0}; // Just to get the sizes of the label and text box char arrays for the loop below, so we can use them when copying the text to ensure we don't overflow the buffers
+    int char_count_label = sizeof(dummy.label.text);
+    int char_count_box = sizeof(dummy.text_box.text);
+    for (int i = 0; i < 1; i++)
     {
-        // Create text box
-        TextField lpanel_properties_tbox = CreateTextField(lpanel_tbox_default_dims.x, lpanel_tbox_default_dims.y, tf_initial_origin, lpanel_tbox_default_padding_inner, lpanel_tbox_default_padding_outer, lpanel_tbox_default_colour_border_outer, lpanel_tbox_default_colour_fill_outer, lpanel_tbox_default_colour_border_inner, lpanel_tbox_default_colour_fill_inner);
-        //lpanel_properties_title_tbox.is_read_only = true;
-        lpanel_properties_tbox.parent = &lpanel_properties_tcont; // Set the parent of the text box to the container
-        int char_count = sizeof(lpanel_properties_tbox.label);
-        strncpy(lpanel_properties_tbox.label, tbox_labels[i], char_count - 1);
-        Array_Push(&lpanel_properties_tcont.text_fields, &lpanel_properties_tbox);
+        // Create TextField
+        // TextField *all_fields = (TextField *)lpanel_properties_tcont->text_fields.coll.items;
+        Vector2d tcont_tfield_offset = VectorScale_2d(tfield_default_spacing, i + 1);
+        TextField *tfield = CreateTextField(tbox_default_dims.x, tbox_default_dims.y, tf_initial_origin, tcont_tfield_offset, tbox_tlabel_default_offset, tbox_default_padding_inner, char_count_label, char_count_box);
+        tfield->parent = lpanel_properties_tcont;
+
+        // Customise the TextField's TextBox and calculate the TextBox's origin based on the TextField's origin and the TextBox's padding, so that the text box is positioned correctly within the field
+        tfield->text_box.colour_fill = tbox_default_colour_fill_outer;
+        tfield->text_box.padding = tbox_default_padding_outer;
+        tfield->text_box.colour_border = tbox_default_colour_border_outer;
+
+        tfield->label.colour_fill = tbox_default_colour_fill_outer;
+        tfield->label.padding = tbox_default_padding_outer;
+        tfield->label.colour_border = tbox_default_colour_border_outer;
+
+        strncpy(tfield->label.text, tbox_labels[i], char_count_label - 1);
+        Array_Push(&lpanel_properties_tcont->text_fields, &tfield);
     }
 
     // Object Properties title
@@ -388,7 +405,7 @@ void UpdatePanelRegion(int mouse_x, int mouse_y, bool cursor_in_region)
     offset += snprintf(log + offset, sizeof(log) - offset, "Region: Panel (%.1f, %.1f) --> Cell %d (%.1f, %.1f) --> ", lpanel_pixel_origin.x, lpanel_pixel_origin.y, cell_index, cell.coords.x, cell.coords.y);
 
     // Loop through all properties text boxes and apply focus if the clicked_coords are within a text_box, otherwise set focus --> false
-    Collection tbox_coll = (Collection)lpanel_properties_tcont.text_fields.coll;
+    Collection tbox_coll = (Collection)lpanel_properties_tcont->text_fields.coll;
     TextField *t = &((TextField *)(tbox_coll.items))[0];
     Vector2d *vertices = NULL;
     bool any_focus = false;
@@ -411,30 +428,30 @@ void UpdatePanelRegion(int mouse_x, int mouse_y, bool cursor_in_region)
         }
     }
     // If nothing in Properties was clicked, loop through all stats text boxes and apply focus if the clicked_coords are within a text_box, otherwise set focus --> false
-    if (!any_focus && lpanel_stats_tcont.text_fields.coll.count > 0)
-    {
-        tbox_coll = (Collection)lpanel_stats_tcont.text_fields.coll;
+    // if (!any_focus && lpanel_stats_tcont->text_fields.coll.count > 0)
+    // {
+    //     tbox_coll = (Collection)lpanel_stats_tcont->text_fields.coll;
 
-        t = &((TextField *)(tbox_coll.items))[0];
-        vertices = GetTextFieldVertices(*t);
-        bool any_focus = false;
-        for (int i = 0; i < tbox_coll.count; i++)
-        {
-            // Check if the click is within the text box
-            t = &((TextField *)(tbox_coll.items))[i];
-            vertices = GetTextFieldVertices(*t);
-            if (IsFocused(click_panel_coords, vertices, 4))
-            {
-                // Apply focus on text box
-                HandleTextFieldClick(t);
-                //t->is_focused = true;
-                any_focus = true;
-                offset += snprintf(log + offset, sizeof(log) - offset, "Element: TextBox (%.1f, %.1f)", click_panel_coords.x, click_panel_coords.y);
-                break;
-                // printf("Clicked on object properties text box! Text box properties - Position: (%.1f, %.1f), Dimensions: (%.1f, %.1f)\n", lpanel_properties_tbox.origin.x, lpanel_properties_tbox.origin.y, lpanel_properties_tbox.width, lpanel_properties_tbox.height);
-            }
-        }
-    }
+    //     t = &((TextField *)(tbox_coll.items))[0];
+    //     vertices = GetTextFieldVertices(*t);
+    //     bool any_focus = false;
+    //     for (int i = 0; i < tbox_coll.count; i++)
+    //     {
+    //         // Check if the click is within the text box
+    //         t = &((TextField *)(tbox_coll.items))[i];
+    //         vertices = GetTextFieldVertices(*t);
+    //         if (IsFocused(click_panel_coords, vertices, 4))
+    //         {
+    //             // Apply focus on text box
+    //             HandleTextFieldClick(t);
+    //             // t->is_focused = true;
+    //             any_focus = true;
+    //             offset += snprintf(log + offset, sizeof(log) - offset, "Element: TextBox (%.1f, %.1f)", click_panel_coords.x, click_panel_coords.y);
+    //             break;
+    //             // printf("Clicked on object properties text box! Text box properties - Position: (%.1f, %.1f), Dimensions: (%.1f, %.1f)\n", lpanel_properties_tbox.origin.x, lpanel_properties_tbox.origin.y, lpanel_properties_tbox.width, lpanel_properties_tbox.height);
+    //         }
+    //     }
+    // }
     if (!any_focus)
     {
         offset += snprintf(log + offset, sizeof(log) - offset, "Element: Nill");
@@ -611,14 +628,14 @@ void DrawPanelRegion(CoordSpace2d panel_space, Color fill_colour)
     ColourRgba colour_line = world.coord_space_grid.colour_line;
     DrawRectangle(pixel_origin.x, pixel_origin.y, abs(pixel_end.x - pixel_origin.x), abs(pixel_end.y - pixel_origin.y), fill_colour);
 
-    DrawPanelRegion_Stats(panel_space, fill_colour);
-    //DrawPanelRegion_ObjectProps(panel_space, fill_colour);
+    // DrawPanelRegion_Stats(panel_space, fill_colour);
+    //  DrawPanelRegion_ObjectProps(panel_space, fill_colour);
 
     // Draw the text boxes in the Properties container
-    DrawTextFieldsContainer(&lpanel_properties_tcont, camera_lpanel);
+    DrawTextFieldsContainer(lpanel_properties_tcont, camera_lpanel);
 
     // Draw the text boxes in the Stats container
-    //DrawTextFieldsContainer(&lpanel_stats_tcont, camera_lpanel);
+    // DrawTextFieldsContainer(&lpanel_stats_tcont, camera_lpanel);
 
     // Memory display - Consumed memory in bytes out of the total allocated bytes
     // snprintf(text, sizeof(text), "Memory Consumed (bytes): %zu", GetCurrentMemoryAllocated()); // Format the FPS value into the buffer
@@ -646,59 +663,63 @@ void DrawPanelRegion_Stats(CoordSpace2d panel_space, Color fill_colour)
     DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + 2 * lineSpacing.y}, font.baseSize * 2.0f, 2, (Color){lpanel_text_colour.r, lpanel_text_colour.g, lpanel_text_colour.b, lpanel_text_colour.a});
 }
 
-void DrawPanelRegion_ObjectProps(CoordSpace2d panel_space, Color fill_colour)
+// void DrawPanelRegion_ObjectProps(CoordSpace2d panel_space, Color fill_colour)
+//{
+// Vector2 pos = {20, 250};
+// Vector2 lineSpacing = {0, 40};
+
+// DrawTextFieldsContainer(lpanel_properties_tcont, camera_lpanel);
+
+// Draw the Properties text box container and its text boxes
+
+// Title display
+// DrawTextField(&lpanel_properties_tbox, font_default, font_scale_m, camera_lpanel);
+// DrawTextBox(&lpanel_properties_tbox, font_default, 1, camera_lpanel);
+//  char text[32];
+//  snprintf(text, sizeof(text), "Polygonoid Properties");
+//  DrawTextEx(font, text, pos, font.baseSize * 2.0f, 2, (Color){lpanel_text_colour.r, lpanel_text_colour.g, lpanel_text_colour.b, lpanel_text_colour.a}); // Buffer to hold the text
+
+// // Coords display
+// snprintf(text, sizeof(text), "Id. %d", selectedObject != NULL ? selectedObject->id : 0);
+// DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + lineSpacing.y}, font.baseSize * 1.5f, 1.5, (Color){lpanel_text_colour.r, lpanel_text_colour.g, lpanel_text_colour.b, lpanel_text_colour.a}); // Buffer to hold the text
+
+// // Coords display
+// snprintf(text, sizeof(text), "Coords. {%.1f, %.1f}", selectedObject != NULL ? selectedObject->newtonian_properties.coords_origin.x : 0, selectedObject != NULL ? selectedObject->newtonian_properties.coords_origin.y : 0);
+// DrawTextEx(font, text, (Vector2){pos.x + 2 * lineSpacing.x, pos.y + 2 * lineSpacing.y}, font.baseSize * 1.5f, 1.5, (Color){lpanel_text_colour.r, lpanel_text_colour.g, lpanel_text_colour.b, lpanel_text_colour.a});
+
+// // Velocity display
+// snprintf(text, sizeof(text), "Vel. {%.1f, %.1f}", selectedObject != NULL ? selectedObject->newtonian_properties.velocity.x : 0, selectedObject != NULL ? selectedObject->newtonian_properties.velocity.y : 0);
+// DrawTextEx(font, text, (Vector2){pos.x + 3 * lineSpacing.x, pos.y + 3 * lineSpacing.y}, font.baseSize * 1.5f, 1.5, (Color){lpanel_text_colour.r, lpanel_text_colour.g, lpanel_text_colour.b, lpanel_text_colour.a});
+
+// // Acceleration display
+// snprintf(text, sizeof(text), "Accel. {%.1f, %.1f}", selectedObject != NULL ? selectedObject->newtonian_properties.acceleration.x : 0, selectedObject != NULL ? selectedObject->newtonian_properties.acceleration.y : 0);
+// DrawTextEx(font, text, (Vector2){pos.x + 4 * lineSpacing.x, pos.y + 4 * lineSpacing.y}, font.baseSize * 1.5f, 1.5, (Color){lpanel_text_colour.r, lpanel_text_colour.g, lpanel_text_colour.b, lpanel_text_colour.a});
+//}
+
+void HandleTextFieldClick(TextField *clicked)
 {
-    Vector2 pos = {20, 250};
-    Vector2 lineSpacing = {0, 40};
-
-    DrawTextFieldsContainer(&lpanel_properties_tcont, camera_lpanel);
-
-    // Draw the Properties text box container and its text boxes
-
-    // Title display
-    // DrawTextField(&lpanel_properties_tbox, font_default, font_scale_m, camera_lpanel);
-    // DrawTextBox(&lpanel_properties_tbox, font_default, 1, camera_lpanel);
-    //  char text[32];
-    //  snprintf(text, sizeof(text), "Polygonoid Properties");
-    //  DrawTextEx(font, text, pos, font.baseSize * 2.0f, 2, (Color){lpanel_text_colour.r, lpanel_text_colour.g, lpanel_text_colour.b, lpanel_text_colour.a}); // Buffer to hold the text
-
-    // // Coords display
-    // snprintf(text, sizeof(text), "Id. %d", selectedObject != NULL ? selectedObject->id : 0);
-    // DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + lineSpacing.y}, font.baseSize * 1.5f, 1.5, (Color){lpanel_text_colour.r, lpanel_text_colour.g, lpanel_text_colour.b, lpanel_text_colour.a}); // Buffer to hold the text
-
-    // // Coords display
-    // snprintf(text, sizeof(text), "Coords. {%.1f, %.1f}", selectedObject != NULL ? selectedObject->newtonian_properties.coords_origin.x : 0, selectedObject != NULL ? selectedObject->newtonian_properties.coords_origin.y : 0);
-    // DrawTextEx(font, text, (Vector2){pos.x + 2 * lineSpacing.x, pos.y + 2 * lineSpacing.y}, font.baseSize * 1.5f, 1.5, (Color){lpanel_text_colour.r, lpanel_text_colour.g, lpanel_text_colour.b, lpanel_text_colour.a});
-
-    // // Velocity display
-    // snprintf(text, sizeof(text), "Vel. {%.1f, %.1f}", selectedObject != NULL ? selectedObject->newtonian_properties.velocity.x : 0, selectedObject != NULL ? selectedObject->newtonian_properties.velocity.y : 0);
-    // DrawTextEx(font, text, (Vector2){pos.x + 3 * lineSpacing.x, pos.y + 3 * lineSpacing.y}, font.baseSize * 1.5f, 1.5, (Color){lpanel_text_colour.r, lpanel_text_colour.g, lpanel_text_colour.b, lpanel_text_colour.a});
-
-    // // Acceleration display
-    // snprintf(text, sizeof(text), "Accel. {%.1f, %.1f}", selectedObject != NULL ? selectedObject->newtonian_properties.acceleration.x : 0, selectedObject != NULL ? selectedObject->newtonian_properties.acceleration.y : 0);
-    // DrawTextEx(font, text, (Vector2){pos.x + 4 * lineSpacing.x, pos.y + 4 * lineSpacing.y}, font.baseSize * 1.5f, 1.5, (Color){lpanel_text_colour.r, lpanel_text_colour.g, lpanel_text_colour.b, lpanel_text_colour.a});
-}
-
-void HandleTextFieldClick(TextField *clicked) {
     // 1. "Bubble up" to parent
     TextFieldsContainer *p = clicked->parent;
-    
-    if (p == NULL) return;
+
+    if (p == NULL)
+        return;
     TextField *siblings = (TextField *)p->text_fields.coll.items;
 
     // 2. Access siblings via parent's list
-    for (int i = 0; i < p->text_fields.coll.count; i++) {
+    for (int i = 0; i < p->text_fields.coll.count; i++)
+    {
         TextField *current_sibling = &siblings[i];
-        
-        if (current_sibling == clicked) {
+
+        if (current_sibling == clicked)
+        {
             continue; // Skip the one we clicked
         }
-        
+
         // 3. Do something to the siblings (e.g., deselect them)
-        current_sibling->is_focused = false;
+        current_sibling->text_box.is_focused = false;
     }
-    
-    clicked->is_focused = true;
+
+    clicked->text_box.is_focused = true;
 }
 
 void DrawWorldRegion(World2d *world, Camera2d camera)
@@ -900,170 +921,169 @@ int FinishGameplayScreen(void)
 void DrawTextFieldsContainer(TextFieldsContainer *text_fields_container, Camera2d camera)
 {
     // 1. Get the primary anchor in pixel space
-    Vector2d origin = TransformCoordinates(camera.source_to_dest_mtx, text_fields_container->origin);
+    Vector2d tcont_local_coords = text_fields_container->origin;
+    Vector2d tcont_pixel_coords = TransformCoordinates(camera.source_to_dest_mtx, text_fields_container->origin);
 
     // Need to scale dimensions from world units to pixel units using the camera's basis transform
     Vector2d basis_scale = BasisTransform_2d_Scale(camera.source_basis, camera.destination_basis);
 
     // We assume width/height and padding are already in "pixels"
     // If they aren't, you'd need to scale them by the camera's zoom factor.
-    float w = text_fields_container->width * basis_scale.x;  // Assuming width is defined in world units and needs to be scaled to pixel units
-    float h = text_fields_container->height * basis_scale.y; // Assuming height is defined in world units and needs to be scaled to pixel units
+    float tcont_w = text_fields_container->width * basis_scale.x;  // Assuming width is defined in world units and needs to be scaled to pixel units
+    float tcont_h = text_fields_container->height * basis_scale.y; // Assuming height is defined in world units and needs to be scaled to pixel units
+    // float w = text_fields_container->width * basis_scale.x;  // Assuming width is defined in world units and needs to be scaled to pixel units
+    // float h = text_fields_container->height * basis_scale.y; // Assuming height is defined in world units and needs to be scaled to pixel units
 
     // 2. Padding logic (All in Pixel Space)
-    Vector2d out_p = {text_fields_container->padding_outer.x * basis_scale.x, text_fields_container->padding_outer.y * basis_scale.y}; // Outer padding (margin)
-    Vector2d in_p = {text_fields_container->padding_inner.x * basis_scale.x, text_fields_container->padding_inner.y * basis_scale.y};
+    // Vector2d padding = {text_fields_container->padding.x * basis_scale.x, text_fields_container->padding.y * basis_scale.y}; // Outer padding (margin)
+    // Vector2d in_p = {text_fields_container->padding_inner.x * basis_scale.x, text_fields_container->padding_inner.y * basis_scale.y};
 
     // Inner Box (The actual "Box" part inside the outer margin)
-    float inner_x = origin.x + out_p.x;
-    float inner_y = origin.y + out_p.y;
-    float inner_w = w - (2 * out_p.x);
-    float inner_h = h - (2 * out_p.y);
+    // float inner_x = origin.x + padding.x;
+    // float inner_y = origin.y + padding.y;
+    // float inner_w = w - (2 * padding.x);
+    // float inner_h = h - (2 * padding.y);
+    float inner_w = tcont_w;
+    float inner_h = tcont_h;
 
-    // Text Field (Where the text field actually starts)
-    float text_field_x = inner_x + in_p.x;
-    float text_field_y = inner_y + in_p.y;
-
-    ColourRgba colour_border_o = text_fields_container->colour_border_outer;
-    ColourRgba colour_border_i = text_fields_container->colour_border_inner;
+    ColourRgba colour_border_o = text_fields_container->colour_border;
     Color color_border_o = (Color){colour_border_o.r, colour_border_o.g, colour_border_o.b, colour_border_o.a};
-    Color color_border_i = (Color){colour_border_i.r, colour_border_i.g, colour_border_i.b, colour_border_i.a};
-    ColourRgba colour_fill_o = text_fields_container->colour_fill_outer;
-    ColourRgba colour_fill_i = text_fields_container->colour_fill_inner;
+    ColourRgba colour_fill_o = text_fields_container->colour_fill;
     Color color_fill_o = (Color){colour_fill_o.r, colour_fill_o.g, colour_fill_o.b, colour_fill_o.a};
-    Color color_fill_i = (Color){colour_fill_i.r, colour_fill_i.g, colour_fill_i.b, colour_fill_i.a};
 
-    // 3. DRAW FILL (Outer Background)
-    DrawRectangle(origin.x, origin.y, w, h, color_fill_o);
+    // 3. DRAW FILL (Outer Background) -- WORKING
+    DrawRectangle(tcont_pixel_coords.x, tcont_pixel_coords.y, tcont_w, tcont_h, color_fill_o);
 
     // 4. DRAW BORDER (Outer Box)
     // Top
-    DrawLine(origin.x, origin.y, origin.x + w, origin.y, color_border_o);
-    // Bottom
-    DrawLine(origin.x, origin.y + h, origin.x + w, origin.y + h, color_border_o);
-    // Left
-    DrawLine(origin.x, origin.y, origin.x, origin.y + h, color_border_o);
-    // Right
-    DrawLine(origin.x + w, origin.y, origin.x + w, origin.y + h, color_border_o);
+    // DrawLine(origin_pixel.x, origin_pixel.y, origin_pixel.x + w_pixel, origin_pixel.y, color_border_o);
+    // // Bottom
+    // DrawLine(origin_pixel.x, origin_pixel.y + h_pixel, origin_pixel.x + w_pixel, origin_pixel.y + h_pixel, color_border_o);
+    // // Left
+    // DrawLine(origin_pixel.x, origin_pixel.y, origin_pixel.x, origin_pixel.y + h_pixel, color_border_o);
+    // // Right
+    // DrawLine(origin_pixel.x + w_pixel, origin_pixel.y, origin_pixel.x + w_pixel, origin_pixel.y + h_pixel, color_border_o);
 
     // DrawRectangle(origin.x, origin.y, origin.x + w, origin.y, color_border);
 
     // 5. DRAW FILL (Inner Background)
-    DrawRectangle(inner_x, inner_y, inner_w, inner_h, color_border_i);
+    // DrawRectangle(inner_x, inner_y, inner_w, inner_h, color_border_i);
 
     // 6. DRAW BORDER (Inner Box)
     // Top
-    DrawLine(inner_x, inner_y, inner_x + inner_w, inner_y, color_border_i);
-    // Bottom
-    DrawLine(inner_x, inner_y + inner_h, inner_x + inner_w, inner_y + inner_h, color_border_i);
-    // Left
-    DrawLine(inner_x, inner_y, inner_x, inner_y + inner_h, color_border_i);
-    // Right
-    DrawLine(inner_x + inner_w, inner_y, inner_x + inner_w, inner_y + inner_h, color_border_i);
+    // DrawLine(inner_x, inner_y, inner_x + inner_w, inner_y, color_border_i);
+    // // Bottom
+    // DrawLine(inner_x, inner_y + inner_h, inner_x + inner_w, inner_y + inner_h, color_border_i);
+    // // Left
+    // DrawLine(inner_x, inner_y, inner_x, inner_y + inner_h, color_border_i);
+    // // Right
+    // DrawLine(inner_x + inner_w, inner_y, inner_x + inner_w, inner_y + inner_h, color_border_i);
 
-    Vector2d text_field_spacing = text_fields_container->text_field_spacing;
-    // 7. DRAW TEXT FIELDS
+    // Vector2d text_field_spacing = text_fields_container->text_field_spacing;
+    //  7. DRAW TEXT FIELDS
+    TextField *text_fields = text_fields_container->text_fields.coll.items;
     for (int i = 0; i < text_fields_container->text_fields.coll.count; i++)
     {
-        TextField *text_field = (TextField *)((char *)text_fields_container->text_fields.coll.items + (i * text_fields_container->text_fields.coll.elemSize));
-        text_field->origin = (Vector2d){text_field_x + text_field_spacing.x, text_field_y + text_field_spacing.y}; // Position each text field below the previous one with some spacing
-        DrawTextField(text_field, font_default, font_scale_m, camera);
+        TextField *text_field = ((TextField **)text_fields)[i];
+        Vector2d tfield_pixel_coords = {(text_field->parent_offset.x * basis_scale.x) + tcont_pixel_coords.x, (text_field->parent_offset.y * basis_scale.y) + tcont_pixel_coords.y};
+        // text_field->origin = (Vector2d){inner_x + text_field_spacing.x, inner_y + text_field_spacing.y}; // Position each text field below the previous one with some spacing
+        float w = text_field->width * basis_scale.x;
+        float h = text_field->height * basis_scale.y;
+
+        // DEBUG - draw rectangle around the field to check it's in the right place
+        DrawRectangleLines(tfield_pixel_coords.x, tfield_pixel_coords.y, w, h, BLACK);
+        if (total_frames % 180 == 0)
+        {
+            printf("Drew Text Field %d (%.1f, %.1f) : w = %.1f, h = %.1f\n", i, tfield_pixel_coords.x, tfield_pixel_coords.y, w, h);
+        }
+
+        DrawTextFieldElements(text_field, tfield_pixel_coords, font_default, font_scale_m, camera);
     }
 }
 
-void DrawTextField(TextField *text_box, Bitmap_Font font, int font_scale, Camera2d camera)
+void DrawTextFieldElements(TextField *text_field, Vector2d parent_pixel_coords, Bitmap_Font font, int font_scale, Camera2d camera)
 {
-    // 1. Get the primary anchor in pixel space
-    Vector2d origin = TransformCoordinates(camera.source_to_dest_mtx, text_box->origin);
+    TextBox *text_box = &text_field->text_box;
+    TextLabel *text_label = &text_field->label;
+    Color color_border = (Color){text_box->colour_border.r, text_box->colour_border.g, text_box->colour_border.b, text_box->colour_border.a};
+    Color color_fill = (Color){text_box->colour_fill.r, text_box->colour_fill.g, text_box->colour_fill.b, text_box->colour_fill.a};
 
     // Need to scale dimensions from world units to pixel units using the camera's basis transform
     Vector2d basis_scale = BasisTransform_2d_Scale(camera.source_basis, camera.destination_basis);
 
-    // We assume width/height and padding are already in "pixels"
-    // If they aren't, you'd need to scale them by the camera's zoom factor.
-    float w = text_box->width * basis_scale.x;  // Assuming width is defined in world units and needs to be scaled to pixel units
-    float h = text_box->height * basis_scale.y; // Assuming height is defined in world units and needs to be scaled to pixel units
+    // --- DRAW TEXT BOX ---
+    // Raw Properties (before applying padding)
+    // These are the raw dimensions of the text box in pixel space before padding is applied, so the actual area available for text will be smaller once we apply padding
+    Vector2d tbox_pixel_coords = {(text_box->parent_offset.x * basis_scale.x) + parent_pixel_coords.x, (text_box->parent_offset.y * basis_scale.y) + parent_pixel_coords.y};
+    float tbox_w = text_box->width * basis_scale.x;  // Assuming width is defined in world units and needs to be scaled to pixel units
+    float tbox_h = text_box->height * basis_scale.y; // Assuming height is defined in world units and needs to be scaled to pixel units
 
-    // 2. Padding logic (All in Pixel Space)
-    Vector2d out_p = {text_box->padding_outer.x * basis_scale.x, text_box->padding_outer.y * basis_scale.y}; // Outer padding (margin)
-    Vector2d in_p = {text_box->padding_inner.x * basis_scale.x, text_box->padding_inner.y * basis_scale.y};
+    // Text Box - raw
+    DrawRectangleLines(tbox_pixel_coords.x, tbox_pixel_coords.y, tbox_w, tbox_h, color_border);
 
-    // Inner Box (The actual "Box" part inside the outer margin)
-    float inner_x = origin.x + out_p.x;
-    float inner_y = origin.y + out_p.y;
-    float inner_w = w - (2 * out_p.x);
-    float inner_h = h - (2 * out_p.y);
+    // Inner Properties (after applying padding).
+    Vector2d padding = {text_box->padding.x * basis_scale.x, text_box->padding.y * basis_scale.y}; // Outer padding (margin)
+    float tbox_inner_x = tbox_pixel_coords.x + padding.x;
+    float tbox_inner_y = tbox_pixel_coords.y + padding.y;
+    float tbox_inner_w = tbox_w - (2 * padding.x);
+    float tbox_inner_h = tbox_h - (2 * padding.y);
 
-    // Text Field (Where the text actually starts)
-    float text_x = inner_x + in_p.x;
-    float text_y = inner_y + in_p.y;
-
-    ColourRgba colour_border_o = text_box->colour_border_outer;
-    ColourRgba colour_border_i = text_box->colour_border_inner;
-    Color color_border_o = (Color){colour_border_o.r, colour_border_o.g, colour_border_o.b, colour_border_o.a};
-    Color color_border_i = (Color){colour_border_i.r, colour_border_i.g, colour_border_i.b, colour_border_i.a};
-    ColourRgba colour_fill_o = text_box->colour_fill_outer;
-    ColourRgba colour_fill_i = text_box->colour_fill_inner;
-    Color color_fill_o = (Color){colour_fill_o.r, colour_fill_o.g, colour_fill_o.b, colour_fill_o.a};
-    Color color_fill_i = (Color){colour_fill_i.r, colour_fill_i.g, colour_fill_i.b, colour_fill_i.a};
-
-    // 3. DRAW FILL (Outer Background)
-    DrawRectangle(origin.x, origin.y, w, h, color_fill_o);
-
-    // 4. DRAW BORDER (Outer Box)
-    // Top
-    DrawLine(origin.x, origin.y, origin.x + w, origin.y, color_border_o);
-    // Bottom
-    DrawLine(origin.x, origin.y + h, origin.x + w, origin.y + h, color_border_o);
-    // Left
-    DrawLine(origin.x, origin.y, origin.x, origin.y + h, color_border_o);
-    // Right
-    DrawLine(origin.x + w, origin.y, origin.x + w, origin.y + h, color_border_o);
-
-    // DrawRectangle(origin.x, origin.y, origin.x + w, origin.y, color_border);
-
-    // 5. DRAW FILL (Inner Background)
-    DrawRectangle(inner_x, inner_y, inner_w, inner_h, color_border_i);
-
-    // 6. DRAW BORDER (Inner Box)
-    // Top
-    DrawLine(inner_x, inner_y, inner_x + inner_w, inner_y, color_border_i);
-    // Bottom
-    DrawLine(inner_x, inner_y + inner_h, inner_x + inner_w, inner_y + inner_h, color_border_i);
-    // Left
-    DrawLine(inner_x, inner_y, inner_x, inner_y + inner_h, color_border_i);
-    // Right
-    DrawLine(inner_x + inner_w, inner_y, inner_x + inner_w, inner_y + inner_h, color_border_i);
+    // Text Box - inner
+    DrawRectangleLines(tbox_inner_x, tbox_inner_y, tbox_inner_w, tbox_inner_h, color_border);
 
     // 7. DRAW TEXT
     // 7.1 Draw the label of the text field above the text box (using the same x coordinate but a y coordinate above the box with some spacing)
-    int label_w = MeasureTextWidth(text_box->label, font.spacing, font_scale);
-    DrawTextCustom(text_box->label, text_x, text_y, font_scale, font_default, font.colour);
-    DrawTextCustom(text_box->text, text_x + label_w, text_y, font_scale, font_default, font.colour);
+    // DrawTextCustom(text_box->text, text_x, text_y, font_scale, font_default, font.colour);
     // DrawText(text_box->text, text_x, text_y, font_size, (Color){colour_border.r, colour_border.g, colour_border.b, colour_border.a});
 
-    // 8. DRAW CURSOR
-    if (text_box->is_focused)
+    // --- DRAW TEXT LABEL ---
+    // Raw Properties (before applying padding)
+    Vector2d tlabel_pixel_coords = {(text_label->parent_offset.x * basis_scale.x) + parent_pixel_coords.x, (text_label->parent_offset.y * basis_scale.y) + parent_pixel_coords.y};
+    float tlabel_w = text_label->width * basis_scale.x; - (2 * padding.x);
+    float tlabel_h = text_label->height * basis_scale.y; - (2 * padding.y);
+
+    // Text Label - raw
+    DrawRectangleLines(tlabel_pixel_coords.x, tlabel_pixel_coords.y, tlabel_w, tlabel_h, color_border);
+
+    // Inner Properties (after applying padding).
+    float tlabel_inner_x = tlabel_pixel_coords.x + padding.x;
+    float tlabel_inner_y = tlabel_pixel_coords.y + padding.y;
+    float tlabel_inner_w = tlabel_w - (2 * padding.x);
+    float tlabel_inner_h = tlabel_h - (2 * padding.y);
+
+    // Text Label- inner
+    DrawRectangleLines(tlabel_inner_x, tlabel_inner_y, tlabel_inner_w, tlabel_inner_h, color_border);
+    // DrawTextCustom(text_label->text, tlabel_pixel_coords.x, tlabel_pixel_coords.y, font_scale, font_default, font.colour);
+
+    if (total_frames % 180 == 0)
     {
-        // Simple blinking cursor logic
-        static int frames = 0;
-        char *text = text_box->text;
-        if ((frames++ / 30) % 2 == 0)
-        {
-            int tw = MeasureTextWidth(text, font.spacing, font_scale);
-            int th = font_scale * 8;
-            int spacing_abs = abs(font.spacing);
-            int spacing_split = spacing_abs / 2 < 1 ? 1 : spacing_abs / 2;
-
-            int cursor_x_start = font.spacing > 0 ? text_x + tw + spacing_split : text_x + tw + spacing_abs;
-            int cursor_y_start = text_y - spacing_split;
-            int cursor_y_end = text_y + th + spacing_split;
-            // DEBUGGING - Boxing the text to check it's drawn correctly
-            // DrawRectangleLines(text_x, text_y, tw, text_y + th, (Color){colour_border.r, colour_border.g, colour_border.b, colour_border.a});
-
-            DrawLine(cursor_x_start, cursor_y_start, cursor_x_start, cursor_y_end, WHITE);
-        }
+        printf("Drew Text Box at (%.1f, %.1f) : w = %.1f, h = %.1f\n", tbox_pixel_coords.x, tbox_pixel_coords.y, tbox_w, tbox_h);
+        printf("Drew Text Label at (%.1f, %.1f) : w = %.1f, h = %.1f\n", tlabel_pixel_coords.x, tlabel_pixel_coords.y, tlabel_w, tlabel_h);
     }
+    // DRAW CURSOR
+    // if (text_field->text_box.is_focused)
+    // {
+    //     // Simple blinking cursor logic
+    //     static int frames = 0;
+    //     char *text = text_box->text;
+    //     if ((frames++ / 30) % 2 == 0)
+    //     {
+    //         int tw = MeasureTextWidth(text, font.spacing, font_scale);
+    //         int th = font_scale * 8;
+    //         int spacing_abs = abs(font.spacing);
+    //         int spacing_split = spacing_abs / 2 < 1 ? 1 : spacing_abs / 2;
+
+    //         int cursor_x_start = font.spacing > 0 ? text_x + tw + spacing_split : text_x + tw + spacing_abs;
+    //         int cursor_y_start = text_y - spacing_split;
+    //         int cursor_y_end = text_y + th + spacing_split;
+    //         // DEBUGGING - Boxing the text to check it's drawn correctly
+    //         // DrawRectangleLines(text_x, text_y, tw, text_y + th, (Color){colour_border.r, colour_border.g, colour_border.b, colour_border.a});
+
+    //         DrawLine(cursor_x_start, cursor_y_start, cursor_x_start, cursor_y_end, WHITE);
+    //     }
+    // }
+
+    // DrawTextCustom(text_label->text, text_x + label_w, text_y, font_scale, font_default, font.colour);
 }
 void UpdateFields()
 {

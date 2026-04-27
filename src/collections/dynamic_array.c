@@ -28,6 +28,7 @@ DynamicArray *NewDynamicArray(int elemCount, size_t elemSize)
     return da;
 }
 
+// Provide the address of the DynamicArray and the address of the item to push.
 DynamicArray *Array_Push(DynamicArray *da, void *item)
 {   
     if (da == NULL)

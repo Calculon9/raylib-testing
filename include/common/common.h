@@ -14,6 +14,7 @@ COMMON MODULE
 #include <string.h>
 #include <stddef.h>
 #include <math.h>
+#include "memory/cmemory.h"
 #include "collections/dynamic_array.h"
 
 // 2. Global Math Constants
