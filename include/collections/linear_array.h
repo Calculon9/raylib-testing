@@ -3,22 +3,30 @@
 QUEUE MODULE
 *
 **********************************************************************************************/
-#ifndef ARRAY_H
-#define ARRAY_H
+#ifndef LINEAR_ARRAY_H
+#define LINEAR_ARRAY_H
 #include <stddef.h>
-#include "collections/collection.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
-#define NEW_ARRAY(count, type) NewArray(count, sizeof(type))
+//#define NEW_ARRAY(count, type) NewArray(count, sizeof(type))
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
-// typedef struct DynamicArray {
-//     Collection coll;  // Collection struct to hold the actual data and metadata
-// } DynamicArray;
+
+// Simple linear array
+typedef struct LArray
+{
+    size_t elem_bytes;   // Size of one element (e.g., sizeof(int))
+    void *items;       // Raw memory block
+    int capacity;      // Total space allocated
+    int front;
+    int count;         // Number of items currently stored
+    int enumeratorIndex; // Index used for enumeration
+    int enumerationCount; // Count of items enumerated so far (for safety check)
+} LArray;
 
 // typedef struct {
 //     void *items;       // Raw memory block
@@ -36,15 +44,17 @@ QUEUE MODULE
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-void *NewArray(int elemCount, size_t elemSize);
-void *Array_Push(void *array, void *item);
-void *Array_Pop(void *array, void *out_item);
-//void* Enumerate(DynamicArray *da);
-//void* ResetEnumerator(DynamicArray *da);
-//size_t GetElementCount(DynamicArray *da);
-//void DisposeArray(DynamicArray *da);
+LArray *NewLArray(int elem_count, size_t elem_bytes);
+bool LArray_Push(LArray *la, void *item);
+void *LArray_Pop(LArray *la, void *out_item);
+void *LArray_Get(LArray *la, int index);
+bool LArray_RemoveAt(LArray *la, int index);
+// void* Enumerate(DynamicArray *da);
+// void* ResetEnumerator(DynamicArray *da);
+// size_t GetElementCount(DynamicArray *da);
+// void DisposeArray(DynamicArray *da);
 
-//Vector3 vector3_sum_array (Vector3 *array, size_t count);
-//Vector3* vector3_sum_array_dynamic(Vector3 *array, size_t count);
+// Vector3 vector3_sum_array (Vector3 *array, size_t count);
+// Vector3* vector3_sum_array_dynamic(Vector3 *array, size_t count);
 
 #endif

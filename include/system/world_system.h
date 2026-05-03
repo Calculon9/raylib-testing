@@ -1,41 +1,40 @@
 /**********************************************************************************************
 *
-COMMON MODULE
+WORLD MODULE
 *
 **********************************************************************************************/
-
-#ifndef COMMON_H
-#define COMMON_H
-
-// 1. External dependencies
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <string.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <math.h>
-#include "memory/cmemory.h"
+#ifndef WORLD_SYSTEM_H
+#define WORLD_SYSTEM_H
+#include "common/common.h"
 #include "math/cvectors.h"
-#include "collections/dynamic_array.h"
-#include "collections/linear_array.h"
-
-// 2. Global Math Constants
-#ifndef PI
-    #define PI 3.14159265358979323846f
-#endif
-#define EPSILON 0.00001f
+#include "camera/camera.h"
 
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
-//#define NEW_CIRCLOID() AllocateBytes(sizeof(Circloid))
-//#define NEW_CIRCLOID() allocate_block(sizeof(Circloid))
+// Coordinate Space Properties
+extern Vector2d world_origin, world_end;// = {0};
 
+extern Vector2d world_u;// = {1, 0};
+extern Vector2d world_v;// = {0, 1};
+extern Vector2d world_resolution;// = {0};
+
+// Logical->pixel-space conversion properties
+extern Vector2d world_pixel_origin, world_pixel_end;// = {0};
+extern Vector2d world_pixel_u;// = {75, 0};
+extern Vector2d world_pixel_v;// = {0, 75};
+extern Camera2d camera_world;// = {0};
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
+
+
+
+
+// typedef struct {
+//     Texture *texture;
+// } UIImageData;
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
@@ -44,4 +43,6 @@ COMMON MODULE
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
+
+//UIElement *CreateTextField(float width, float height, Vector2d origin_coords, Vector2d parent_offset, Vector2d label_tbox_offset, Vector2d label_tbox_padding, char max_label_chars, char max_text_box_chars);
 #endif

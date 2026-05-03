@@ -14,7 +14,9 @@
 
 #include "raylib.h"
 #include "screens.h" // NOTE: Declares global (extern) variables and screens functions
-
+#include "system/ui_system.h"
+#include "system/world_system.h"
+#include "system/systems.h"
 #if defined(PLATFORM_WEB)
 #include <emscripten/emscripten.h>
 #endif
@@ -24,6 +26,8 @@
 // NOTE: Those variables are shared between modules through screens.h
 //----------------------------------------------------------------------------------
 GameScreen currentScreen = LOGO;
+FrameCounter frame_counter = {0};
+size_t memory_allocated = 0.0f;
 Font font = {0};
 Music music = {0};
 Sound fxCoin = {0};
@@ -33,6 +37,8 @@ Sound fxCoin = {0};
 //----------------------------------------------------------------------------------
 static const int screenWidth = 1920;
 static const int screenHeight = 1080;
+static Vector2d resolution = {0};
+int screen_resolution_scalar = 100; // used to divide up the pixel resolution to get a local coordinate resolution for the entire screen
 
 // Required variables to manage screen transitions (fade-in, fade-out)
 static float transAlpha = 0.0f;
@@ -44,13 +50,12 @@ static GameScreen transToScreen = UNKNOWN;
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-static void ChangeToScreen(int screen); // Change to screen, no transition effect
-
+static void ChangeToScreen(int screen);     // Change to screen, no transition effect
 static void TransitionToScreen(int screen); // Request transition to next screen
 static void UpdateTransition(void);         // Update transition effect
 static void DrawTransition(void);           // Draw transition effect (full-screen rectangle)
-
-static void UpdateDrawFrame(void); // Update and draw one frame
+static void UpdateDrawFrame(void);          // Update and draw one frame
+static void CalculateSpaceProperties(void); // Caclulates the world and UI regions' resolution and origins
 
 //----------------------------------------------------------------------------------
 // Program main entry point
@@ -60,7 +65,6 @@ int main(void)
     // Initialization
     //---------------------------------------------------------
     InitWindow(screenWidth, screenHeight, "raylib game template");
-    
 
     InitAudioDevice(); // Initialize audio device
 
@@ -76,6 +80,8 @@ int main(void)
     currentScreen = GAMEPLAY;
     InitGameplayScreen();
 
+    frame_counter = InitFrameCounter();
+
     // Setup and init first screen
     // currentScreen = LOGO;
     // InitLogoScreen();
@@ -86,17 +92,17 @@ int main(void)
     SetTargetFPS(60); // Set our game to run at 60 frames-per-second
     //--------------------------------------------------------------------------------------
 
- 
-
     // Main game loop
     while (!WindowShouldClose()) // Detect window close button or ESC key
     {
-           // DEBUGGING - we will update game loop if button is pressed
+        // DEBUGGING - we will update game loop if button is pressed
         bool keyDown = IsKeyDown(KEY_LEFT_CONTROL);
-        if(true)
+        if (true)
         {
             UpdateDrawFrame();
-        } else {
+        }
+        else
+        {
             BeginDrawing();
             ClearBackground(RAYWHITE);
             DrawText("Hold Left Control to update!", 10, 10, 20, DARKGRAY);
@@ -177,7 +183,8 @@ static void ChangeToScreen(int screen)
         break;
     // case OPTIONS: InitOptionsScreen(); break;
     case GAMEPLAY:
-        InitGameplayScreen();
+        CalculateSpaceProperties();
+        InitGameWorld();
         break;
     // case ENDING: InitEndingScreen(); break;
     default:
@@ -276,6 +283,8 @@ static void DrawTransition(void)
 // Update and draw game frame
 static void UpdateDrawFrame(void)
 {
+    UpdateFrameCounter(&frame_counter);
+    memory_allocated = GetCurrentMemoryAllocated();
     // Update
     //----------------------------------------------------------------------------------
     // UpdateMusicStream(music);       // NOTE: Music keeps playing between screens
@@ -347,4 +356,71 @@ static void UpdateDrawFrame(void)
 
     EndDrawing();
     //----------------------------------------------------------------------------------
+}
+
+void InitGameplayScreen(void)
+{
+    CalculateSpaceProperties();
+    InitGameWorld();
+    InitUI();
+}
+
+void DrawGameplayScreen(void)
+{
+    DrawGameWorld();
+    DrawUI();
+}
+
+void UpdateGameplayScreen(void)
+{
+    int mouse_x = GetMouseX();
+    int mouse_y = GetMouseY();
+
+    UpdateUISystem(mouse_x, mouse_y);
+    UpdateWorldSystem(mouse_x, mouse_y);
+}
+
+// Draw transition effect (full-screen rectangle)
+static void CalculateSpaceProperties(void)
+{
+    // 0 CALCULATE LOGICAL/LOCAL resolution from screen's pixel resolution
+    resolution = VectorScale_2d((Vector2d){screenWidth, screenHeight}, 1.0f / screen_resolution_scalar);
+    resolution.x = floorf(resolution.x);
+    resolution.y = floorf(resolution.y);
+    float total_space_measure = resolution.x * resolution.y;
+
+    // 1. DEFINE & CALCULATE LOGICAL screen origin and end points for each region (panel, world)
+    // 1.1 Give the panel ~1/4 of the x-dimension, and always 100% y-dimension
+    lpanel_origin = ZERO_VECTOR_2D;
+    lpanel_end.x = floorf(lpanel_origin.x + ((1.0f / 4.0f) * resolution.x));
+    lpanel_end.y = resolution.y;
+    lpanel_resolution = VectorSum_2d(VectorScale_2d(lpanel_origin, -1), lpanel_end);
+    float lpanel_space_measure = VectorBox_2d(lpanel_resolution);
+
+    // 1.2 The game screen simply takes up the rest of the screen
+    world_resolution = (Vector2d){resolution.x - lpanel_resolution.x, resolution.y};
+    world_origin = (Vector2d){lpanel_end.x, 0};
+    world_end = (Vector2d){world_origin.x + world_resolution.x, world_origin.y + world_resolution.y};
+    float world_space_measure = VectorBox_2d(world_resolution);
+
+    // 2. BACK-CALCULATE SCREEN PIXEL SPACE Basis for panel and game world
+    // 2.1 Influence of resolution scaling
+    world_pixel_u = VectorScale_2d(world_u, screen_resolution_scalar);
+    world_pixel_v = VectorScale_2d(world_v, screen_resolution_scalar);
+    lpanel_pixel_u = VectorScale_2d(lpanel_u, screen_resolution_scalar);
+    lpanel_pixel_v = VectorScale_2d(lpanel_v, screen_resolution_scalar);
+
+    // 3. CALCULATE SCREEN PIXEL SPACE origins for each region (panel, world)
+    lpanel_pixel_origin.x = (lpanel_pixel_u.x + lpanel_pixel_v.x) * lpanel_origin.x;
+    lpanel_pixel_origin.y = (lpanel_pixel_u.y + lpanel_pixel_v.y) * lpanel_origin.y;
+    world_pixel_origin.x = (world_pixel_u.x + world_pixel_v.x) * world_origin.x;
+    world_pixel_origin.y = (world_pixel_u.y + world_pixel_v.y) * world_origin.y;
+
+    // DEBUG - the sum of panel and world resolutions should equal the overall resolution from Step 0
+    float resolution_recalc_x = lpanel_resolution.x + world_resolution.x;
+    float resolution_recalc_y = lpanel_resolution.y + world_resolution.y;
+    float res_recalc_measure = resolution_recalc_x * resolution_recalc_y; // world_space_measure + lpanel_space_measure;
+
+    printf("LOCAL RESOLUTIONS --> TOTAL_LOCAL(%0.1f)(%0.1f,%0.1f); PANEL_LOCAL(%0.1f)(%0.1f,%0.1f); WORLD_LOCAL(%0.1f)(%0.1f,%0.1f); TOTAL_LOCAL_RECALC_MEASURE(%0.1f);\n", total_space_measure, resolution.x, resolution.y, lpanel_space_measure, lpanel_resolution.x, lpanel_resolution.y, world_space_measure, world_resolution.x, world_resolution.y, res_recalc_measure);
+    printf("PIXEL ORIGINS --> PANEL(%0.1f,%0.1f); GAME_WORLD (%0.1f,%0.1f);\n", lpanel_pixel_origin.x, lpanel_pixel_origin.y, world_pixel_origin.x, world_pixel_origin.y);
 }
