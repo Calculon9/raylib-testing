@@ -12,7 +12,7 @@ FONT MODULE
 // Macros and Defines
 //----------------------------------------------------------------------------------
 
-#define FONT_BASIC (Bitmap_Font){.bitmap = font8x8_bitmap_basic, .spacing = -2, .base_size = 8, .colour = BLACK_RGBA}
+#define FONT_BASIC (Bitmap_Font){.bitmap = font8x8_bitmap_basic, .spacing = -2, .scale = 1, .colour = BLACK_RGBA}
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
@@ -22,7 +22,7 @@ typedef struct
     unsigned char (*bitmap)[8]; // Pointer to the bitmap data for the font
     float spacing;              // Additional spacing between characters in pixels. Use -ve numbers to remove embedded spacing in bitmap.
     ColourRgba colour;          // Default color for rendering the font
-    short base_size;            // Base size for scaling (e.g., 8 for an 8x8 font)
+    short scale;            // Base size for scaling (e.g., 8 for an 8x8 font)
     // short width;                // Width of each character in pixels
     // short height;               // Height of each character in pixels
 } Bitmap_Font;

@@ -31,7 +31,7 @@ typedef struct TextFieldsContainer
     ColourRgba colour_fill;
     Vector2d text_field_spacing;
     Vector2d padding;
-    Vector2d origin;
+    Vector2d resolved_origin;
     Vector2d field_spacing;
     float width, height;
 } TextFieldsContainer;
@@ -43,7 +43,7 @@ typedef struct TextLabel
     ColourRgba colour_border;
     ColourRgba colour_fill;
     Vector2d padding;
-    Vector2d origin;
+    Vector2d resolved_origin;
     Vector2d parent_offset;
     float width, height;
 } TextLabel;
@@ -61,7 +61,7 @@ typedef struct TextBox
     //ColourRgba colour_fill_inner;
     Vector2d padding;
     //Vector2d padding_outer;
-    Vector2d origin;
+    Vector2d resolved_origin;
     Vector2d parent_offset;
     float width, height;
     bool is_focused, is_read_only;
@@ -73,7 +73,7 @@ typedef struct TextField
     Vector2d parent_offset;
     TextLabel label;             // Optional label for the text box
     TextFieldsContainer *parent; // The "Backlink" for bubbling up changes to the text field container (e.g., for re-rendering when text changes)
-    Vector2d origin;
+    Vector2d resolved_origin;
     float width, height;
 } TextField;
 
@@ -98,17 +98,14 @@ typedef struct
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 //TextField CreateTextField(float width, float height, Vector2d origin_coords, Vector2d padding_inner, Vector2d padding_outer, ColourRgba colour_border_outer, ColourRgba colour_fill_outer, ColourRgba colour_border_inner, ColourRgba colour_fill_inner);
-UIElement *CreateTextFieldUnderParent(UIElement *parent, float width, float height, Vector2d origin_coords, Vector2d parent_offset, Vector2d padding, Vector2d label_tbox_offset, Vector2d label_tbox_padding, ColourRgba colour_border, ColourRgba colour_fill, int max_label_chars, int max_text_box_chars);//TextField *CreateTextField(float width, float height, Vector2d origin_coords, Vector2d parent_offset, Vector2d label_tbox_offset, Vector2d label_tbox_padding, char max_label_chars, char max_text_box_chars);
-UIElement *CreateTextFieldContainer(UIElement *parent, float width, float height, Vector2d origin_coords, Vector2d parent_offset, Vector2d padding, Vector2d child_spacing, ColourRgba colour_border, ColourRgba colour_fill);
+UIElement *CreateTextFieldInTree(Size size, UIElement *parent, Offset parent_offset, Vector2d padding, Vector2d label_tbox_offset, ColourRgba colour_border, ColourRgba colour_fill);
+UIElement *CreateTextFieldContainerInTree(Size size, UIElement *parent, Offset parent_offset, Vector2d padding, Vector2d child_spacing, ColourRgba colour_border, ColourRgba colour_fill);
 //ShortString GetText_TextField(TextField *text_box);
-void *GetTextFieldVertices(TextField text_box, Vector2d out_vertices[4]);
+//void *GetTextFieldVertices(TextField text_box, Vector2d out_vertices[4]);
 bool IsFocused(Vector2d pixel_coords, Vector2d *vertices, int vertex_count);
 // bool IsFocused(Vector2d pixel_coords, Polygon *polygon);
-float DrawTextCustom(const char *text, float origin_x, float origin_y, char scale, Bitmap_Font font, ColourRgba colour);
-int MeasureTextWidth(const char *text, char font_spacing, char scale);
-// Vector2d GetCellIndicesFromCoordinates(Vector2d origin_coordinates, Vector2d input_coordinates, Basis2d basis);
-// Field UpdateFieldCellValues(Field field);
+float DrawTextCustom(const char *text, Vector2d origin_coords, int scale, Bitmap_Font font, ColourRgba colour);
+int GetTextWidth(char *text, char font_spacing, char scale);
 
-void DisposeTextField(UIElement *tf);
 
 #endif

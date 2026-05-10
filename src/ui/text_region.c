@@ -16,7 +16,7 @@
 //----------------------------------------------------------------------------------
 // Functions Definition
 //----------------------------------------------------------------------------------
-void DrawChar(char c, float x, float y, int scale, Bitmap_Font font, ColourRgba colour);
+void DrawChar(char c, Vector2d origin_coords, int scale, Bitmap_Font font, ColourRgba colour);
 
 // Takes in pixel coord point and determines if they are in the target region
 bool IsFocused(Vector2d pixel_coords, Vector2d *vertices, int vertex_count)
@@ -25,91 +25,123 @@ bool IsFocused(Vector2d pixel_coords, Vector2d *vertices, int vertex_count)
     return IsPointInPolygon(pixel_coords, vertices, vertex_count);
 }
 
-UIElement *CreateTextFieldUnderParent(UIElement *parent, float width, float height, Vector2d origin_coords, Vector2d parent_offset, Vector2d padding, Vector2d label_tbox_offset, Vector2d label_tbox_padding, ColourRgba colour_border, ColourRgba colour_fill, int max_label_chars, int max_text_box_chars)
+// Ensure the dimensions and label_tbox_offset values are the same SIZE_MODE (e.g., fixed, percentage)
+UIElement *CreateTextFieldInTree(Size size, UIElement *parent, Offset parent_offset, Vector2d padding, Vector2d label_tbox_offset, ColourRgba colour_border, ColourRgba colour_fill)
 {
-    Vector2d zero_v = (Vector2d){0,0};
-    UIElement *tf = CreateUIElementUnderParent(parent, width, height, origin_coords, parent_offset, padding, colour_border, colour_fill);
-    //tf->origin = origin_coords;
-    //tf->width = width;
-    //tf->height = height;
-    //tf->parent_offset = parent_offset;
-    tf->children = *NewLArray(2, sizeof(UIElement *));
-    // tf->parent = parent;
+    UIElement *tf = CreateUIElementInTree(UI_ELEMENT_TEXTFIELD, size, parent, parent_offset, padding, colour_border, colour_fill);
     tf->type = UI_ELEMENT_TEXTFIELD;
 
-    // Determine if Label is above or inline
-    // If the vertical offset is small, we assume they sit side-by-side
-    bool label_is_inline = (label_tbox_offset.y < height / 4);
-
-    // Initialise the tbox and label - init values to be overwritten as below.
-    UIElement *tb = CreateUIElement(width, height, origin_coords, zero_v, zero_v, COLOUR_ERROR, COLOUR_WARNING);// AllocateBytes(sizeof(UIElement *)); // CreateUIElement(parent, width, height, origin_coords, parent_offset, padding, colour_border, colour_fill);
-    UIElement *tl = CreateUIElement(width, height, origin_coords, zero_v, zero_v, COLOUR_ERROR, COLOUR_WARNING);// AllocateBytes(sizeof(UIElement *)); // CreateUIElement(parent, width, height, origin_coords, parent_offset, padding, colour_border, colour_fill);
-
-    tb->type = UI_ELEMENT_TEXTBOX;
+    UIElement *tl = CreateUIElement(UI_ELEMENT_LABEL, (Size){ZERO_VECTOR_2D, SIZE_PERCENT}, (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ZERO_VECTOR_2D, colour_border, colour_fill);
+    UIElement *tb = CreateUIElement(UI_ELEMENT_TEXTBOX, (Size){ZERO_VECTOR_2D, SIZE_PERCENT}, (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ZERO_VECTOR_2D, colour_border, colour_fill);
     tl->type = UI_ELEMENT_LABEL;
+    tb->type = UI_ELEMENT_TEXTBOX;
+
+    // Determine layout style
+    bool label_is_inline = (label_tbox_offset.y < size.dimensions.y / 4);
 
     if (label_is_inline)
     {
-        // 1. Calculate Width Proportions based on char counts
-        float total_chars = (float)(max_text_box_chars + max_label_chars);
-        float tl_w = (max_label_chars / total_chars) * (width - label_tbox_offset.x);
-        float tb_w = width - tl_w - label_tbox_offset.x;
+        // 1. Percentage-based Inline Layout (e.g., 40% Label, 60% TextBox)
+        tl->size.dimensions.x = 0.4f; // 40% of parent width
+        tl->size.dimensions.y = 1.0f; // 100% of parent height
+        tl->parent_offset.offset = (Vector2d){0, 0};
 
-        // 2. Set Label Dimensions & Origin (Left Side)
-        tl->width = tl_w;
-        tl->height = height;
-        tl->origin = origin_coords;
-        tl->parent_offset = (Vector2d){0, 0};
-
-        // 3. Set TextBox Dimensions & Origin (Right Side, shifted by label + offset)
-        tb->width = tb_w;
-        tb->height = height;
-        tb->origin.x = origin_coords.x + tl_w + label_tbox_offset.x;
-        tb->origin.y = origin_coords.y;
-        tb->parent_offset = (Vector2d){tl_w + label_tbox_offset.x, 0};
+        tb->size.dimensions.x = 0.58f; // 60% of parent width
+        tb->size.dimensions.y = 1.0f;
+        // Offset starts where the label ends (40% mark)
+        // Note: Using percentage for offset requires Resolve function to handle it!
+        tb->parent_offset.offset = (Vector2d){0.42f, 0};
     }
     else
     {
-        // Stacked Layout: Label is above the TextBox
-        // Label takes full width, height is determined by the offset
-        tl->width = width;
-        tl->height = label_tbox_offset.y;
-        tl->origin = origin_coords;
-        tl->parent_offset = (Vector2d){0, 0};
+        // 2. Stacked Layout: Label top (e.g. 30%), TextBox bottom (70%)
+        tl->size.dimensions.x = 1.0f;
+        tl->size.dimensions.y = 0.3f;
+        tl->parent_offset.offset = (Vector2d){0, 0};
 
-        // TextBox takes full width, starts below the label offset
-        tb->width = width;
-        tb->height = height - label_tbox_offset.y;
-        tb->origin.x = origin_coords.x;
-        tb->origin.y = origin_coords.y + label_tbox_offset.y;
-        tb->parent_offset = (Vector2d){0, label_tbox_offset.y};
+        tb->size.dimensions.x = 1.0f;
+        tb->size.dimensions.y = 0.68f;
+        tb->parent_offset.offset = (Vector2d){0, 0.32f};
     }
-    tl->parent = tf;
-    tb->parent = tf; // TextBox bubbles to the Container
-    // Assign the tbox and label as the TextField's children
-    LArray_Push(&tf->children, &tl);
-    LArray_Push(&tf->children, &tb);
-    //((UIElement **)(tf->children.items))[0] = tl;
-    //((UIElement **)(tf->children.items))[1] = tb;
+
+    AddElementToTree(tl, tf);
+    AddElementToTree(tb, tf);
 
     return tf;
 }
 
-void DisposeTextField(UIElement *tf)
-{
-    if (tf == NULL)
-        return;
+// UIElement *CreateTextFieldInTree(UIElement *parent, Vector2d dimensions, Vector2d parent_offset, Vector2d padding, Vector2d label_tbox_offset, Vector2d label_tbox_padding, ColourRgba colour_border, ColourRgba colour_fill, int max_label_chars, int max_text_box_chars)
+// {
+//     UIElement *tf = CreateUIElementInTree(parent, dimensions, parent_offset, padding, colour_border, colour_fill);
+//     //tf->children = *NewLArray(2, sizeof(UIElement *));
+//     tf->type = UI_ELEMENT_TEXTFIELD;
 
-    DisposeUIElement(((UIElement **)(tf->children.items))[0]); // Label
-    DisposeUIElement(((UIElement **)(tf->children.items))[1]); // TextBox
-    DisposeUIElement(tf);
-}
+//     // Determine if Label is above or inline
+//     // If the vertical offset is small, we assume they sit side-by-side
+//     bool label_is_inline = (label_tbox_offset.y < dimensions.y / 4);
 
-UIElement *CreateTextFieldContainer(UIElement *parent, float width, float height, Vector2d origin_coords, Vector2d parent_offset, Vector2d padding, Vector2d child_spacing, ColourRgba colour_border, ColourRgba colour_fill)
+//     // Initialise the tbox and label - init values to be overwritten as below.
+//     UIElement *tb = CreateUIElement(dimensions, ZERO_VECTOR_2D, ZERO_VECTOR_2D, COLOUR_ERROR, COLOUR_WARNING);// AllocateBytes(sizeof(UIElement *)); // CreateUIElement(parent, width, height, origin_coords, parent_offset, padding, colour_border, colour_fill);
+//     UIElement *tl = CreateUIElement(dimensions, ZERO_VECTOR_2D, ZERO_VECTOR_2D, COLOUR_ERROR, COLOUR_WARNING);// AllocateBytes(sizeof(UIElement *)); // CreateUIElement(parent, width, height, origin_coords, parent_offset, padding, colour_border, colour_fill);
+//     tb->type = UI_ELEMENT_TEXTBOX;
+//     tl->type = UI_ELEMENT_LABEL;
+
+//     if (label_is_inline)
+//     {
+//         // 1. Calculate Width Proportions based on char counts
+//         float total_chars = (float)(max_text_box_chars + max_label_chars);
+//         float tl_w = (max_label_chars / total_chars) * (dimensions.x - label_tbox_offset.x);
+//         float tb_w = dimensions.x - tl_w - label_tbox_offset.x;
+
+//         // 2. Set Label Dimensions & Origin (Left Side)
+//         tl->dimensions.x = tl_w;
+//         tl->dimensions.y = dimensions.y;
+//         tl->parent_offset = (Vector2d){0, 0};
+
+//         // 3. Set TextBox Dimensions & Origin (Right Side, shifted by label + offset)
+//         tb->dimensions.x = tb_w;
+//         tb->dimensions.y = dimensions.y;
+//         tb->parent_offset = (Vector2d){tl_w + label_tbox_offset.x, 0};
+//     }
+//     else
+//     {
+//         // Stacked Layout: Label is above the TextBox
+//         // Label takes full width, height is determined by the offset
+//         tl->dimensions.x = dimensions.x;
+//         tl->dimensions.y = label_tbox_offset.y;
+//         tl->parent_offset = (Vector2d){0, 0};
+
+//         // TextBox takes full width, starts below the label offset
+//         tb->dimensions.x = dimensions.x;
+//         tb->dimensions.y = dimensions.y - label_tbox_offset.y;
+//         tb->parent_offset = (Vector2d){0, label_tbox_offset.y};
+//     }
+//     AddElementToTree(tl, tf);
+//     AddElementToTree(tb, tf);
+//     //tl->parent = tf;
+//     //tb->parent = tf; // TextBox bubbles to the Container
+//     // Assign the tbox and label as the TextField's children
+//     //LArray_Push(&tf->children, &tl);
+//     //LArray_Push(&tf->children, &tb);
+
+//     return tf;
+// }
+
+// void DisposeTextField(UIElement *tf)
+// {
+//     if (tf == NULL)
+//         return;
+
+//     DisposeUIElement(((UIElement **)(tf->children.items))[0]); // Label
+//     DisposeUIElement(((UIElement **)(tf->children.items))[1]); // TextBox
+//     DisposeUIElement(tf);
+// }
+
+UIElement *CreateTextFieldContainerInTree(Size size, UIElement *parent, Offset parent_offset, Vector2d padding, Vector2d child_spacing, ColourRgba colour_border, ColourRgba colour_fill)
 {
-    UIElement *tc = CreateUIElementUnderParent(parent, width, height, origin_coords, parent_offset, padding, colour_border, colour_fill);
+    UIElement *tc = CreateUIElementInTree(UI_ELEMENT_CONTAINER, size, parent, parent_offset, padding, colour_border, colour_fill);
     tc->child_spacing = child_spacing;
-    tc->children = *NewLArray(4, sizeof(UIElement *));
+    // tc->children = *NewLArray(4, sizeof(UIElement *));
 
     return tc;
 }
@@ -205,7 +237,7 @@ ShortString GetText_TextField(TextField *text_box)
     // return str;
 }
 
-int MeasureTextWidth(const char *text, char font_spacing, char scale)
+int GetTextWidth(char *text, char font_spacing, char scale)
 {
     if (text == NULL)
         return 0;
@@ -242,22 +274,22 @@ Vector2d GetTextCenterPos(const char *text, float fontSize, Vector2d origin)
 }
 
 // Custom text drawing function that uses our Bitmap_Font and supports scaling and color. Coordinate origin is the top-left corner of the text in pixels.
-float DrawTextCustom(const char *text, float origin_x, float origin_y, char scale, Bitmap_Font font, ColourRgba colour)
+float DrawTextCustom(const char *text, Vector2d origin_coords, int scale, Bitmap_Font font, ColourRgba colour)
 {
-    float current_x = origin_x;
+    Vector2d char_coords = origin_coords;
     while (*text)
     {
-        DrawChar(*text, current_x, origin_y, scale, font, colour);
+        DrawChar(*text, char_coords, scale, font, colour);
 
         // Move to the next character slot
         // 8 pixels wide * scale + 1 pixel of "letter spacing"
-        current_x += (8 * scale) + (scale * font.spacing); // - (scale * scale) + 1; // Subtracting "scale" removes embedded white-space in each character
+        char_coords.x += (8 * scale) + (scale * font.spacing); // - (scale * scale) + 1; // Subtracting "scale" removes embedded white-space in each character
         text++;
     }
-    return current_x;
+    return char_coords.x;
 }
 
-void DrawChar(char c, float origin_x, float origin_y, int scale, Bitmap_Font font, ColourRgba colour)
+void DrawChar(char c, Vector2d origin_coords, int scale, Bitmap_Font font, ColourRgba colour)
 {
     // Cast to unsigned to handle extended ASCII safely
     unsigned char u_c = (unsigned char)c;
@@ -273,7 +305,7 @@ void DrawChar(char c, float origin_x, float origin_y, int scale, Bitmap_Font fon
             if (row_data & (0x80 >> col))
             {
                 // If the bit is 1, draw a "pixel" scaled up
-                DrawRectangle(origin_x + (col * scale), origin_y + (row * scale), scale, scale, (Color){colour.r, colour.g, colour.b, colour.a});
+                DrawRectangle(origin_coords.x + (col * scale), origin_coords.y + (row * scale), scale, scale, (Color){colour.r, colour.g, colour.b, colour.a});
             }
         }
     }
@@ -287,29 +319,29 @@ void DrawChar(char c, float origin_x, float origin_y, int scale, Bitmap_Font fon
 //     out_vertices[3] = (Vector2d){text_box.origin.x, text_box.origin.y + text_box.height};
 // }
 
-void EvalChildrenOriginsFromParentOffset(TextFieldsContainer *tfcont)
-{
-    // TextFieldsContainer origin and additional space + offsets that will affect the origin of its children
-    // There is no TextField padding (currently), so nothing funnels down to children, just the predetermined parent_offsets specified when the children were initialised
-    Vector2d tfcont_origin = tfcont->origin;
-    Collection tfield_coll = tfcont->text_fields.coll;
+// void EvalChildrenOriginsFromParentOffset(TextFieldsContainer *tfcont)
+// {
+//     // TextFieldsContainer origin and additional space + offsets that will affect the origin of its children
+//     // There is no TextField padding (currently), so nothing funnels down to children, just the predetermined parent_offsets specified when the children were initialised
+//     Vector2d tfcont_origin = tfcont->origin;
+//     Collection tfield_coll = tfcont->text_fields.coll;
 
-    for (int i = 0; i < tfield_coll.count; i++)
-    {
-        TextField *tfield = ((TextField **)tfield_coll.items)[i];
-        Vector2d tfield_origin_total = VectorSum_2d(VectorSum_2d(tfield->parent_offset, tfcont->origin), tfcont->padding); // offset rel to parent (container) + parent padding
-        tfield->origin = tfield_origin_total;
-    }
-}
+//     for (int i = 0; i < tfield_coll.count; i++)
+//     {
+//         TextField *tfield = ((TextField **)tfield_coll.items)[i];
+//         Vector2d tfield_origin_total = VectorSum_2d(VectorSum_2d(tfield->parent_offset, tfcont->origin), tfcont->padding); // offset rel to parent (container) + parent padding
+//         tfield->origin = tfield_origin_total;
+//     }
+// }
 
-void EvalTextFieldChildrenOrigins(TextField *text_field)
-{
-    // TextField origin and additional space + offsets that will affect the origin of its children
-    // There is no TextField padding (currently), so nothing funnels down to children, just the predetermined parent_offsets specified when the children were initialised
-    Vector2d tfield_origin = text_field->origin;
-    Vector2d tbox_parent_offset = text_field->text_box.parent_offset;
-    Vector2d tlabel_parent_offset = text_field->label.parent_offset;
+// void EvalTextFieldChildrenOrigins(TextField *text_field)
+// {
+//     // TextField origin and additional space + offsets that will affect the origin of its children
+//     // There is no TextField padding (currently), so nothing funnels down to children, just the predetermined parent_offsets specified when the children were initialised
+//     Vector2d tfield_origin = text_field->origin;
+//     Vector2d tbox_parent_offset = text_field->text_box.parent_offset;
+//     Vector2d tlabel_parent_offset = text_field->label.parent_offset;
 
-    text_field->text_box.origin = VectorSum_2d(tfield_origin, tbox_parent_offset);
-    text_field->label.origin = VectorSum_2d(tfield_origin, tlabel_parent_offset);
-}
+//     text_field->text_box.origin = VectorSum_2d(tfield_origin, tbox_parent_offset);
+//     text_field->label.origin = VectorSum_2d(tfield_origin, tlabel_parent_offset);
+// }

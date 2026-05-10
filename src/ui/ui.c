@@ -14,7 +14,6 @@
 //----------------------------------------------------------------------------------
 // Functions Definition
 //----------------------------------------------------------------------------------
-// void DrawChar(char c, float x, float y, int scale, Bitmap_Font font, ColourRgba colour);
 
 // // Takes in pixel coord point and determines if they are in the target region
 // bool IsFocused(Vector2d pixel_coords, Vector2d *vertices, int vertex_count)
@@ -23,78 +22,468 @@
 //     return IsPointInPolygon(pixel_coords, vertices, vertex_count);
 // }
 
-UIElement *CreateUIElement(float width, float height, Vector2d origin_coords, Vector2d parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill)
+UIElement *CreateUIElement(UIElementType type, Size size, Offset parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill)
 {
     UIElement *e = AllocateBytes(sizeof(UIElement));
     // e->origin = origin_coords;
     e->colour_fill = colour_fill;
     e->colour_border = colour_border;
-    e->width = width;
-    e->height = height;
+    e->size = size;
     e->padding = padding;
+    e->parent_offset = parent_offset;
+    e->type = type;
+
+    // MUST explicitly set these to NULL
+    e->first_child = NULL;
+    e->next_sibling = NULL;
+    e->parent = NULL;
+    // e->children = *NewLArray(2, sizeof(UIElement *)); // Initialise the children array for this element
 
     return e;
 }
 
-UIElement *CreateUIElementUnderParent(UIElement *parent, float width, float height, Vector2d origin_coords, Vector2d parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill)
+UIElement *CreateUIElementInTree(UIElementType type, Size size, UIElement *parent, Offset parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill)
 {
-    UIElement *e = AllocateBytes(sizeof(UIElement));
-    e->parent = parent;
-    e->parent_offset = parent_offset;
-    // e->origin = origin_coords;
-    e->colour_fill = colour_fill;
-    e->colour_border = colour_border;
-    e->width = width;
-    e->height = height;
-    e->padding = padding;
+    UIElement *e = CreateUIElement(type, size, parent_offset, padding, colour_border, colour_fill);
+
+    AddElementToTree(e, parent);
+
+    return e;
+    // e->children = *NewLArray(2, sizeof(UIElement *)); // Initialise the children array for this element
 
     // Get the parent Element and add this as a child
-    bool success = LArray_Push(&parent->children, &e);
-    // e->children = *NewLArray(4, sizeof(UIElement));
+    // bool success = LArray_Push(&parent->children, &e);
 
-    if (success)
+    // printf("Error: Failed to add UIElement to parent's children array.\n");
+}
+
+void AddElementToTree(UIElement *e, UIElement *parent)
+{
+    if (!e)
     {
-        return e;
+        return;
+    }
+    e->parent = parent;
+    e->next_sibling = NULL;
+
+    // Make the provided child the youngest sibling, get the next_sibling starting at the first_child
+    if (parent->first_child == NULL)
+    {
+        // This is the only child
+        parent->first_child = e;
     }
     else
     {
-        printf("Error: Failed to add UIElement to parent's children array.\n");
-        return e;
+        UIElement *last_sibling = GetLastChild(parent);
+        if (last_sibling)
+        {
+            last_sibling->next_sibling = e;
+        }
+        else
+        {
+            parent->first_child = e;
+            printf("ERROR adding [%s] as child to [%s]: Parent has child but last_sibling of new element not found. Likely a bug in GetLastChild.\n", GetElementTypeName(e->type), GetElementTypeName(parent->type));
+        }
     }
 }
 
-bool DisposeUIElement(UIElement *e)
+void RemoveElementFromTree(UIElement *e)
 {
-    // Remove from parent's children array
-    if (e->parent != NULL)
+    if (!e)
     {
-        LArray *siblings = &e->parent->children;
-        for (size_t i = 0; i < siblings->count; i++)
+        return;
+    }
+    UIElement *parent = e->parent;
+    UIElement *p = e->parent;
+
+    UIElement *next_sibling = e->next_sibling;
+    UIElement *prev_sibling = GetPreviousSibling(parent);
+
+    // Remove element from siblings list by pointing prev_sibling to the removed element's next_sibling
+    if (prev_sibling)
+    {
+        prev_sibling->next_sibling = next_sibling;
+    }
+    else
+    {
+        // The element we want to remove must've been the first_child, need to update this
+        if (next_sibling)
         {
-            if (((UIElement **)siblings->items)[i] == e)
-            {
-                LArray_RemoveAt(siblings, i);
-                break;
-            }
+            p->first_child = next_sibling;
         }
     }
 
-    // Free the element's own resources
-    // Note: If the element has its own children, you may want to recursively destroy them here as well. We will.
-    for (size_t i = 0; i < e->children.count; i++)
-    {
-        DisposeUIElement(((UIElement **)e->children.items)[i]);
-    }
-    free(e);
-    return true;
+    // Dispose of the element
 }
+
+UIElement *GetLastChild(UIElement *e)
+{
+    if (!e || !e->first_child)
+    {
+        return NULL;
+    }
+
+    UIElement *next_child = e->first_child;
+    while (next_child->next_sibling)
+    {
+        next_child = next_child->next_sibling;
+    }
+
+    return next_child;
+}
+
+UIElement *GetPreviousSibling(UIElement *e)
+{
+    if (!e)
+    {
+        return NULL;
+    }
+    UIElement *p = e->parent;
+    if (!p)
+    {
+        return NULL;
+    }
+
+    UIElement *prev_child = p->first_child;
+    UIElement *next_child = prev_child;
+    while (next_child && next_child != e)
+    {
+        prev_child = next_child;
+        next_child = next_child->next_sibling;
+    }
+
+    if (next_child != e)
+    {
+        return NULL;
+    }
+
+    return prev_child;
+}
+
+bool ElementHasSibling(UIElement *e)
+{
+    if (!e)
+    {
+        return NULL;
+    }
+    if (e->next_sibling != NULL)
+        return true;
+
+    UIElement *p = e->parent;
+    if (!p)
+    {
+        return false;
+    }
+    if (p->first_child != NULL && p->first_child != e)
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+
+UIElement *GetElementAt(UIElement *e, Vector2d pixel_coords)
+{
+    if (!e)
+        return NULL;
+
+    // 1. If the mouse isn't even over THIS element, it can't be over its children
+    if (!IsMouseOverElement(e, pixel_coords))
+    {
+        return NULL;
+    }
+
+    // 2. Check children in REVERSE order (last sibling is usually drawn on top)
+    // For simplicity here, we'll go first-to-last, but the top-most child wins
+    UIElement *found = NULL;
+    UIElement *child = e->first_child;
+    while (child)
+    {
+        UIElement *clicked = GetElementAt(child, pixel_coords);
+        if (clicked)
+        {
+            found = clicked; // Keep track of the most recent (top-most) match
+        }
+        child = child->next_sibling;
+    }
+
+    // 3. If a child was clicked, return that. Otherwise, it's this element.
+    return (found) ? found : e;
+}
+
+// bool DisposeUITree(UIElement *e)
+// {
+//     // Remove from parent's children array
+//     if (e->parent != NULL)
+//     {
+//         LArray *siblings = &e->parent->children;
+//         for (size_t i = 0; i < siblings->count; i++)
+//         {
+//             if (((UIElement **)siblings->items)[i] == e)
+//             {
+//                 LArray_RemoveAt(siblings, i);
+//                 break;
+//             }
+//         }
+//     }
+
+//     // Free the element's own resources
+//     // Note: If the element has its own children, you may want to recursively destroy them here as well. We will.
+//     for (size_t i = 0; i < e->children.count; i++)
+//     {
+//         DisposeUIElement(((UIElement **)e->children.items)[i]);
+//     }
+//     free(e);
+//     return true;
+// }
+
+// Disposes Element - assumes it has already been removed from its UI Tree if in one
+void DisposeUIElement(UIElement *e)
+{
+    if (e == NULL)
+        if (!e)
+            return;
+
+    // 1. Recursively destroy the first child (and all its siblings)
+    // This goes "deep" before it stays "wide"
+    if (e->first_child)
+    {
+        DisposeUIElement(e->first_child);
+    }
+
+    // 2. Recursively destroy the next sibling
+    // This ensures every element in the horizontal list is freed
+    if (e->next_sibling)
+    {
+        DisposeUIElement(e->next_sibling);
+    }
+
+    // 3. Finally, free the current element
+    // Now that children and siblings are gone, it's safe to delete this one
+    free(e);
+}
+
+// bool DisposeUIElement(UIElement *e)
+// {
+//     // Remove from parent's children array
+//     if (e->parent != NULL)
+//     {
+//         LArray *siblings = &e->parent->children;
+//         for (size_t i = 0; i < siblings->count; i++)
+//         {
+//             if (((UIElement **)siblings->items)[i] == e)
+//             {
+//                 LArray_RemoveAt(siblings, i);
+//                 break;
+//             }
+//         }
+//     }
+
+//     // Free the element's own resources
+//     // Note: If the element has its own children, you may want to recursively destroy them here as well. We will.
+//     for (size_t i = 0; i < e->children.count; i++)
+//     {
+//         DisposeUIElement(((UIElement **)e->children.items)[i]);
+//     }
+//     free(e);
+//     return true;
+// }
 
 void GetUIElementVertices(UIElement *e, Vector2d out_vertices[4])
 {
-    out_vertices[0] = e->origin;
-    out_vertices[1] = (Vector2d){e->origin.x + e->width, e->origin.y};
-    out_vertices[2] = (Vector2d){e->origin.x + e->width, e->origin.y + e->height};
-    out_vertices[3] = (Vector2d){e->origin.x, e->origin.y + e->height};
+    out_vertices[0] = e->cached_box.coords;
+    out_vertices[1] = (Vector2d){e->cached_box.coords.x + e->cached_box.dimensions.x, e->cached_box.coords.y};
+    out_vertices[2] = (Vector2d){e->cached_box.coords.x + e->cached_box.dimensions.x, e->cached_box.coords.y + e->cached_box.dimensions.y};
+    out_vertices[3] = (Vector2d){e->cached_box.coords.x, e->cached_box.coords.y + e->cached_box.dimensions.y};
+    // out_vertices[0] = e->origin;
+    // out_vertices[1] = (Vector2d){e->origin.x + e->width, e->origin.y};
+    // out_vertices[2] = (Vector2d){e->origin.x + e->width, e->origin.y + e->height};
+    // out_vertices[3] = (Vector2d){e->origin.x, e->origin.y + e->height};
+}
+
+bool IsMouseOverElement(UIElement *el, Vector2d mouse_pos)
+{
+    return (mouse_pos.x >= el->cached_box.coords.x &&
+            mouse_pos.x <= el->cached_box.coords.x + el->cached_box.dimensions.x &&
+            mouse_pos.y >= el->cached_box.coords.y &&
+            mouse_pos.y <= el->cached_box.coords.y + el->cached_box.dimensions.y);
+}
+
+// Calculates the final screen-space pixel coordinates for an element
+// Vector2d ResolveElementPosition(UIElement *element, UIBox parent_box, Vector2d basis_scale)
+// {
+//     if (!element)
+//         return ZERO_VECTOR_2D;
+
+//     // 1. Start with the Parent's top-left anchor (already in pixels)
+//     Vector2d resolved = parent_box.coords;
+
+//     // 2. Add Parent's Padding (if the parent exists)
+//     // Note: We scale the padding by the basis so it shrinks/grows with zoom
+//     if (element->parent)
+//     {
+//         resolved.x += element->parent->padding.x * basis_scale.x;
+//         resolved.y += element->parent->padding.y * basis_scale.y;
+//     }
+
+//     // 3. Add the Child's specific Local Offset
+//     resolved.x += element->parent_offset.x * basis_scale.x;
+//     resolved.y += element->parent_offset.y * basis_scale.y;
+
+//     resolved.x = floorf(resolved.x);
+//     resolved.y = floorf(resolved.y);
+
+//     return resolved;
+// }
+
+// WE NEED TO BE PASSING IN THE PARENT'S BOX BECAUSE WE NEED TO KNOW THE ADJUSTED SPACE WE HAVE TO RENDER IN (I.E., THE PARENT'S DIMENSIONS MINUS PADDING) TO BE ABLE TO CLAMP THE CHILD ELEMENT'S SIZE AND PREVENT IT FROM LEAKING OUT OF THE PARENT
+UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_scale)
+{
+    if (!element)
+        return ZERO_BOX;
+
+    UIBox box;
+    box.coords = parent_box.coords; // Start at parent origin
+    float p_mid_x = parent_box.dimensions.x / 2;
+    float p_mid_y = parent_box.dimensions.y / 2;
+
+    // 1. Calculate the available content area inside the parent
+    float content_area_w = parent_box.dimensions.x;
+    float content_area_h = parent_box.dimensions.y;
+
+    // Apply any padding to correct the available area
+    if (element->parent)
+    {
+        // Account for padding
+        float pad_x = element->parent->padding.x * basis_scale.x;
+        float pad_y = element->parent->padding.y * basis_scale.y;
+
+        box.coords.x += pad_x;
+        box.coords.y += pad_y;
+
+        content_area_w -= (pad_x * 2.0f);
+        content_area_h -= (pad_y * 2.0f);
+    }
+
+    // 2. Resolve the local Offset (Relative to the content area)
+    float safe_offset_x = fmaxf(0.0f, element->parent_offset.offset.x);
+    float safe_offset_y = fmaxf(0.0f, element->parent_offset.offset.y);
+    float pixel_offset_x, pixel_offset_y;
+
+    // if (element->parent_offset.offset_mode == ALIGNED_CENTRE)
+    // {
+    //     // ALIGNED_CENTRE will overide the set Offset value for the element
+    //     // Determine the dimensions, then use them to calculate the offset
+
+    // }
+    if (element->parent_offset.offset_mode == OFFSET_PERCENT)
+    {
+        pixel_offset_x = content_area_w * safe_offset_x;
+        pixel_offset_y = content_area_h * safe_offset_y;
+    }
+    else
+    {
+        pixel_offset_x = safe_offset_x * basis_scale.x;
+        pixel_offset_y = safe_offset_y * basis_scale.y;
+    }
+
+    // Apply the offset to the final coordinates
+    box.coords.x += pixel_offset_x;
+    box.coords.y += pixel_offset_y;
+
+    // 3. Resolve Dimensions
+    if (element->size.size_mode == SIZE_PERCENT)
+    {
+        box.dimensions.x = element->size.dimensions.x * content_area_w;
+        box.dimensions.y = element->size.dimensions.y * content_area_h;
+    }
+    else
+    {
+        box.dimensions.x = element->size.dimensions.x * basis_scale.x;
+        box.dimensions.y = element->size.dimensions.y * basis_scale.y;
+    }
+
+    // 4. Resolve Size with Right/Bottom clamping
+    // The "Space Left" is the content area minus how far we shifted in
+    float remaining_w = fmaxf(0.0f, content_area_w - pixel_offset_x);
+    float remaining_h = fmaxf(0.0f, content_area_h - pixel_offset_y);
+
+    box.dimensions.x = fminf(box.dimensions.x, remaining_w);
+    box.dimensions.y = fminf(box.dimensions.y, remaining_h);
+
+    // 5. Pixel Snapping
+    box.coords.x = floorf(box.coords.x);
+    box.coords.y = floorf(box.coords.y);
+    box.dimensions.x = floorf(box.dimensions.x);
+    box.dimensions.y = floorf(box.dimensions.y);
+
+    return box;
+}
+
+// // This needs to be called after ResolveElementDimensions because the resolved dimensions are required to determine mid-points which are used here
+// Offset ResolveElementOffset(UIElement *element, Vector2d available_area, Vector2d basis_scale)
+// {
+//     // 1. Calculate the available content area inside the parent
+//     Offset p_offset = {0};
+//     float offset_x = fmaxf(0.0f, element->parent_offset.offset.x);
+//     float offset_y = fmaxf(0.0f, element->parent_offset.offset.y);
+//     float pixel_offset_x, pixel_offset_y;
+
+//     float p_mid_x = available_area.x / 2;
+//     float p_mid_y = available_area.y / 2;
+
+//     if (element->parent_offset.offset_mode == ALIGNED_CENTRE)
+//     {
+//         // This means the mid-point of the element needs to equal mid-point of parent
+//         pixel_offset_x;
+//     }
+//     else if (element->parent_offset.offset_mode == OFFSET_PERCENT)
+//     {
+//         pixel_offset_x = available_area * offset_x;
+//         pixel_offset_y = content_area_h * offset_y;
+//     }
+//     else if (element->parent_offset.offset_mode == OFFSET_FIXED)
+//     {
+//         if (element->parent)
+//         {
+//             // Account for padding
+//             float pad_x = element->parent->padding.x * basis_scale.x;
+//             float pad_y = element->parent->padding.y * basis_scale.y;
+
+//             p_offset.offset.x += pad_x;
+//             p_offset.offset.y += pad_y;
+
+//             content_area_w -= (pad_x * 2.0f);
+//             content_area_h -= (pad_y * 2.0f);
+//         }
+//     }
+// }
+
+const char *GetElementTypeName(UIElementType type)
+{
+    switch (type)
+    {
+    case UI_ELEMENT_ROOT:
+        return "ROOT";
+    case UI_ELEMENT_TEXTFIELD:
+        return "TEXTFIELD";
+    case UI_ELEMENT_CONTAINER:
+        return "CONTAINER";
+    case UI_ELEMENT_LABEL:
+        return "LABEL";
+    case UI_ELEMENT_TEXTBOX:
+        return "TEXTBOX";
+    case UI_ELEMENT_TEXTBOX_SAFE:
+        return "TEXTBOX_SAFE";
+    case UI_ELEMENT_BUTTON:
+        return "BUTTON";
+    case UI_ELEMENT_IMAGE:
+        return "IMAGE";
+    default:
+        return "UNKNOWN_TYPE";
+    }
 }
 
 // UIElement *CreateTextField(float width, float height, Vector2d origin_coords, Vector2d parent_offset, Vector2d label_tbox_offset, Vector2d label_tbox_padding, char max_label_chars, char max_text_box_chars)

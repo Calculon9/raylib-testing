@@ -15,7 +15,7 @@ UI SYSTEM MODULE
 // Macros and Defines
 //----------------------------------------------------------------------------------
 
-#define FONT_DEFAULT (Bitmap_Font)FONT_BASIC
+#define FONT_DEFAULT FONT_BASIC
 
 // Panel Colour Pallette 
 #define COLOUR_PANEL_DARK_1  OLIVE_GARDEN_GREEN_D//BROWN_1_RGBA
