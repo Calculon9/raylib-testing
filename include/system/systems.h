@@ -43,6 +43,8 @@ extern Font font;
 extern FrameCounter frame_counter;
 extern int screen_resolution_scalar;
 extern size_t memory_allocated;
+extern const int screenWidth;// = 1920;
+extern const int screenHeight;// = 1080;
 
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
@@ -63,6 +65,8 @@ void InitUI(void);
 void InitPanelSpace(void);
 void UpdateUISystem(int mouse_x, int mouse_y);
 void DrawUI(void);
+void UpdateInput(void);
+void ProcessUIInput(int mouse_x, int mouse_y, bool cursor_in_region);
 
 //----------------------------------------------------------------------------------
 // World Functions Declaration

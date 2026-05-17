@@ -13,10 +13,11 @@
  ********************************************************************************************/
 
 #include "raylib.h"
-#include "screens.h" // NOTE: Declares global (extern) variables and screens functions
+#include "screens.h"       // NOTE: Declares global (extern) variables and screens functions
+#include "system/screen.h" // NOTE: Declares global (extern) variables and screens functions
+#include "system/systems.h"
 #include "system/ui_system.h"
 #include "system/world_system.h"
-#include "system/systems.h"
 #if defined(PLATFORM_WEB)
 #include <emscripten/emscripten.h>
 #endif
@@ -31,12 +32,14 @@ size_t memory_allocated = 0.0f;
 Font font = {0};
 Music music = {0};
 Sound fxCoin = {0};
+const int screenWidth = 1920;
+const int screenHeight = 1080;
 
 //----------------------------------------------------------------------------------
 // Global Variables Definition (local to this module)
 //----------------------------------------------------------------------------------
-static const int screenWidth = 1920;
-static const int screenHeight = 1080;
+// static const int screenWidth = 1920;
+// static const int screenHeight = 1080;
 static Vector2d resolution = {0};
 int screen_resolution_scalar = 100; // used to divide up the pixel resolution to get a local coordinate resolution for the entire screen
 
@@ -93,6 +96,23 @@ int main(void)
     //--------------------------------------------------------------------------------------
 
     // Main game loop
+    // // 1. Logic & Physics
+    // UpdatePhysics(world);
+
+    // // 2. UI Interaction (The Dispatcher)
+    // // This lives in ui_input.c
+    // ProcessUIInput(GetMouseX(), GetMouseY(), CheckMouseInPanel());
+
+    // // 3. UI Resolution (The Math)
+    // // This lives in ui_core.c
+    // ResolveUITree(lpanel_root, screen_box, current_basis);
+
+    // // 4. Rendering
+    // BeginDrawing();
+    //     DrawWorld(world);
+    //     // This lives in ui_renderer.c
+    //     DrawUITree(lpanel_root);
+    // EndDrawing();
     while (!WindowShouldClose()) // Detect window close button or ESC key
     {
         // DEBUGGING - we will update game loop if button is pressed
@@ -409,6 +429,16 @@ static void CalculateSpaceProperties(void)
     world_pixel_v = VectorScale_2d(world_v, screen_resolution_scalar);
     lpanel_pixel_u = VectorScale_2d(lpanel_u, screen_resolution_scalar);
     lpanel_pixel_v = VectorScale_2d(lpanel_v, screen_resolution_scalar);
+
+    // 2.2 Save the basis scaling factors for later use in coordinate conversions
+    Basis2d lpanel_basis = (Basis2d){lpanel_u, lpanel_v};  
+    Basis2d lpanel_pixel_basis = (Basis2d){lpanel_pixel_u, lpanel_pixel_v};  
+    Basis2d world_basis = (Basis2d){world_u, world_v};  
+    Basis2d world_pixel_basis = (Basis2d){world_pixel_u, world_pixel_v};  
+    local_to_lpanel_scale = BasisTransform_2d_Scale(lpanel_basis, lpanel_pixel_basis); // useful for later
+    lpanel_to_local_scale = BasisTransform_2d_Scale(lpanel_pixel_basis, lpanel_basis); // useful for later
+    local_to_world_scale = BasisTransform_2d_Scale(world_basis, world_pixel_basis); // useful for later
+    world_to_local_scale = BasisTransform_2d_Scale(world_pixel_basis, world_basis); // useful for later
 
     // 3. CALCULATE SCREEN PIXEL SPACE origins for each region (panel, world)
     lpanel_pixel_origin.x = (lpanel_pixel_u.x + lpanel_pixel_v.x) * lpanel_origin.x;

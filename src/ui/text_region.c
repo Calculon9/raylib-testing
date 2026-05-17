@@ -246,6 +246,12 @@ int GetTextWidth(char *text, char font_spacing, char scale)
     if (char_count == 0)
         return 0;
 
+    // In case there was no string termination
+    // If there isn't, strlen will wonder outside the provided text buffer and count the 1st byte outside it as a char!
+    if(text[char_count - 1] != '\0')
+    {
+        char_count--;
+    }
     // 8 pixels for the char + 1 pixel for spacing = 9 total per char
     // Note: We subtract the very last spacing pixel for a perfect fit
     // (8 pixels per char + x pixel spacing) * scale

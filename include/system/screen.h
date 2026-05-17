@@ -1,38 +1,37 @@
 /**********************************************************************************************
 *
-FONT MODULE
+UI SYSTEM MODULE
 *
 **********************************************************************************************/
-#ifndef CFONT_H
-#define CFONT_H
+#ifndef SCREEN_H
+#define SCREEN_H
 #include "common/common.h"
 #include "colour/colour.h"
+#include "math/cvectors.h"
+#include "ui/cfont.h"
+#include "camera/camera.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
 
-#define FONT_BASIC (Bitmap_Font){.bitmap = font8x8_bitmap_basic, .spacing = -2, .scale = 2, .colour = BLACK_RGBA}
+#define FONT_DEFAULT FONT_BASIC
+
+
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
-typedef struct
-{
-    unsigned char (*bitmap)[8]; // Pointer to the bitmap data for the font
-    float spacing;              // Additional spacing between characters in pixels. Use -ve numbers to remove embedded spacing in bitmap.
-    ColourRgba colour;          // Default color for rendering the font
-    short scale;            // Base size for scaling (e.g., 8 for an 8x8 font)
-    // short width;                // Width of each character in pixels
-    // short height;               // Height of each character in pixels
-} Bitmap_Font;
+// Coordinate Space Properties
+extern const int screenWidth;// = 1920;
+extern const int screenHeight;// = 1080;
 
-/* * 8x8 Fixed-Width Bitfont
- * Each index corresponds to the ASCII value of the character.
- * A '1' bit represents a colored pixel, a '0' is transparent.
- */
-extern unsigned char font8x8_bitmap_basic[128][8];
-extern Bitmap_Font default_font;
+// Logical->pixel-space conversion properties
+// extern Vector2d lpanel_pixel_u;// = {75, 0};
+// extern Vector2d lpanel_pixel_v;// = {0, 75};
+// extern Vector2d lpanel_origin, lpanel_end; //= {0}; // Dependent on the game world screen area
+// extern Camera2d camera_lpanel;// = {0};
+
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
@@ -41,5 +40,6 @@ extern Bitmap_Font default_font;
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
+//void UpdateUISystem(int mouse_x, int mouse_y);
 
 #endif

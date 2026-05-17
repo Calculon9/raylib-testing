@@ -31,7 +31,7 @@
 #include "common/common.h"
 #include "world/world.h"
 #include "camera/camera.h"
-//#include "screens.h"
+// #include "screens.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -66,17 +66,18 @@ static int initObjectCount = 8;
 
 // Logical->pixel-space conversion properties
 // static Vector2d screen_game_origin, screen_game_end = {0};
-Vector2d world_pixel_u = {75, 0};
-Vector2d world_pixel_v = {0, 75};
+Vector2d world_pixel_u = {0};
+Vector2d world_pixel_v = {0};
+Vector2d local_to_world_scale = {0};
+Vector2d world_to_local_scale = {0};
 Camera2d camera_world = {0};
 static float camera_world_zoom = 1.0;
 static float camera_world_rotation = 0.0;
 
-
 //----------------------------------------------------------------------------------
 // Gameplay Screen Functions Definition
 //----------------------------------------------------------------------------------
-//void InitCoordinateSpaceProperties();
+// void InitCoordinateSpaceProperties();
 void InitPanelTextContainers();
 // void DrawCircloids();
 void DrawPolygonoids(Collection *polygonoids);
@@ -273,7 +274,6 @@ void DrawGameWorld()
     // DrawWorldRegion(panelWidth, 0, stageWidth, stageHeight, (Color){stageBackgroundColour.r, stageBackgroundColour.g, stageBackgroundColour.b, stageBackgroundColour.a});
 }
 
-
 void DrawWorldRegion(World2d *world, Camera2d camera)
 {
     // Draw the world's coordinate space
@@ -469,7 +469,6 @@ int FinishGameplayScreen(void)
 {
     return finishScreen;
 }
-
 
 // Gameplay Screen should finish
 // Vector2d WorldToScreenCoordinates(Matrix3x3 basis_transform, Vector2d world_coordinates)

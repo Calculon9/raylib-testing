@@ -23,6 +23,7 @@ WORLD MODULE
 //----------------------------------------------------------------------------------
 typedef enum
 {
+    UI_ELEMENT_NONE,
     UI_ELEMENT_ROOT,
     UI_ELEMENT_CONTAINER,
     UI_ELEMENT_TEXTBOX,
@@ -46,6 +47,13 @@ typedef enum
     OFFSET_PERCENT, // Use a percentage of the parent's content area (0.0 to 1.0)
     ALIGNED_CENTRE
 } OffsetMode;
+
+typedef enum
+{
+    LEFT,
+    RIGHT, 
+    MIDDLE
+} MouseBtn;
 
 typedef struct
 {
@@ -111,7 +119,6 @@ typedef struct UIElement
 {
     // LArray children;
     Offset parent_offset;
-    //Vector2d parent_offset;
     Vector2d child_spacing;
     Vector2d padding;
     ColourRgba colour_border;
@@ -120,7 +127,7 @@ typedef struct UIElement
     UIElementType type;
     UIElementData data;
     UIBox cached_box;
-    bool is_focused, is_dirty; // For interactive elements like TextBoxes and Buttons
+    bool is_focused, is_dirty, is_draggable; // For interactive elements like TextBoxes and Buttons
 
     UIElement *parent;
     UIElement *first_child;
@@ -142,7 +149,7 @@ UIElement *CreateUIElement(UIElementType type, Size size, Offset parent_offset, 
 UIElement *CreateUIElementInTree(UIElementType type, Size size, UIElement *parent, Offset parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill);
 void GetUIElementVertices(UIElement *e, Vector2d out_vertices[4]);
 bool IsMouseOverElement(UIElement *el, Vector2d mouse_pos);
-Vector2d ResolveElementPosition(UIElement *element, UIBox parent_box, Vector2d basis_scale);
+//Vector2d ResolveElementPosition(UIElement *element, UIBox parent_box, Vector2d basis_scale);
 UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_scale);
 const char *GetElementTypeName(UIElementType type);
 UIElement *GetLastChild(UIElement *e);
@@ -151,6 +158,7 @@ void RemoveElementFromTree(UIElement *element);
 UIElement *GetPreviousSibling(UIElement *element);
 bool ElementHasSibling(UIElement *e);
 UIElement *GetElementAt(UIElement *e, Vector2d pixel_coords);
+bool IsTextbox(UIElement *e);
 
 // UIElement *CreateTextField(float width, float height, Vector2d origin_coords, Vector2d parent_offset, Vector2d label_tbox_offset, Vector2d label_tbox_padding, char max_label_chars, char max_text_box_chars);
 #endif

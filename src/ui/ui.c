@@ -213,6 +213,18 @@ UIElement *GetElementAt(UIElement *e, Vector2d pixel_coords)
     return (found) ? found : e;
 }
 
+bool IsTextbox(UIElement *e)
+{
+    if (!e)
+        return false;
+
+    if (e->type == UI_ELEMENT_TEXTBOX || e->type == UI_ELEMENT_TEXTBOX_SAFE)
+    {
+        return true;
+    }
+    return false;
+}
+
 // bool DisposeUITree(UIElement *e)
 // {
 //     // Remove from parent's children array

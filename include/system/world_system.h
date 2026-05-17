@@ -15,7 +15,6 @@ WORLD MODULE
 //----------------------------------------------------------------------------------
 // Coordinate Space Properties
 extern Vector2d world_origin, world_end;// = {0};
-
 extern Vector2d world_u;// = {1, 0};
 extern Vector2d world_v;// = {0, 1};
 extern Vector2d world_resolution;// = {0};
@@ -25,6 +24,8 @@ extern Vector2d world_pixel_origin, world_pixel_end;// = {0};
 extern Vector2d world_pixel_u;// = {75, 0};
 extern Vector2d world_pixel_v;// = {0, 75};
 extern Camera2d camera_world;// = {0};
+extern Vector2d local_to_world_scale;
+extern Vector2d world_to_local_scale;
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
