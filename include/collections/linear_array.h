@@ -49,6 +49,7 @@ bool LArray_Push(LArray *la, void *item);
 void *LArray_Pop(LArray *la, void *out_item);
 void *LArray_Get(LArray *la, int index);
 bool LArray_RemoveAt(LArray *la, int index);
+void DisposeLinearArray(LArray *la);
 // void* Enumerate(DynamicArray *da);
 // void* ResetEnumerator(DynamicArray *da);
 // size_t GetElementCount(DynamicArray *da);

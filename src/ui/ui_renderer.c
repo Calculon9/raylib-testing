@@ -36,8 +36,18 @@ void DrawTextArea(UIElement *e)
         return;
 
     // 1. Data Setup - Abstract the difference between Label and Textbox
-    char *text_ptr = (e->type == UI_ELEMENT_LABEL) ? e->data.label.text.string : e->data.textbox.text.string;
-    Bitmap_Font font = e->data.textbox.font; // Assuming similar struct layout
+    char *text_ptr = NULL;  //(e->type == UI_ELEMENT_LABEL) ? e->data.label.text.string : e->data.textbox.text.string;
+    Bitmap_Font font = {0}; // e->data.textbox.font; // Assuming similar struct layout
+    if (IsTextbox(e))
+    {
+        text_ptr = e->data.textbox.text.string;
+        font = e->data.textbox.font;
+    }
+    else if (e->type == UI_ELEMENT_LABEL)
+    {
+        text_ptr = e->data.label.text.string;
+        font = e->data.label.font;
+    }
     Vector2d available_space = e->cached_box.dimensions;
 
     // 2. Metrics calculation
@@ -124,7 +134,7 @@ void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d camera)
 
     // Draw background & border
     DrawElementBox(root_element);
-    // frame_counter.total_frames % 800 == 0 ? printf("DREW [%s] pos: (%.1f, %.1f) | Size: (%.1f, %.1f)\n", GetElementTypeName(root_element->type), box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y) : (void)0;
+    // frame_counter.total_frames % 800 == 0 ? printf("DREW [%s] Pos: (%.1f, %.1f) | Size: (%.1f, %.1f)\n", GetElementTypeName(root_element->type), box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y) : (void)0;
 
     // Recursively draw children
     UIElement *child = root_element->first_child;
@@ -155,9 +165,35 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d camera)
     box.dimensions = (Vector2d){(int)box.dimensions.x, (int)box.dimensions.y};
     e->cached_box = box;
 
+    // DRAW IT ... IF it's within the ranged coordinates of its parent
+    LArray *parent_verts = NewLArray(4, sizeof(Vector2d));
+    LArray *verts = NewLArray(4, sizeof(Vector2d));
+    for (size_t i = 0; i < 4; i++)
+    {
+        Vector2d parent_vert = (Vector2d){
+            parent_box.coords.x + (i == 1 || i == 2 ? parent_box.dimensions.x : 0),
+            parent_box.coords.y + (i >= 2 ? parent_box.dimensions.y : 0)};
+        Vector2d vert = (Vector2d){
+            box.coords.x + (i == 1 || i == 2 ? box.dimensions.x : 0),
+            box.coords.y + (i >= 2 ? box.dimensions.y : 0)};
+        LArray_Push(parent_verts, &parent_vert);
+        LArray_Push(verts, &vert);
+    }
+
+    bool is_within_parent = ShapeFitsWithinShape(*verts, *parent_verts);
+    DisposeLinearArray(parent_verts);
+    DisposeLinearArray(verts);
+
+    // Don't draw it or any of its children
+    if (!is_within_parent)
+    {
+        frame_counter.total_frames % 300 == 0 ? printf("NOT DRAWING [%s] | NOT FULLY BOUNDED BY PARENT [%s]\n", GetElementTypeName(e->type), GetElementTypeName(e->parent->type)) : (void)0;
+        return;
+    }
+
     // Draw background & border
     DrawElementBox(e);
-    if (e->type == UI_ELEMENT_LABEL)
+    if (IsTextbox(e) || e->type == UI_ELEMENT_LABEL)
     {
         // Draw the Text
         DrawTextArea(e);
@@ -166,12 +202,8 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d camera)
         //  DrawTextCustom(e->data.label.text.string, e->cached_box.coords, 2, e->data.label.font, e->data.label.font.colour);
         //   DrawText(text_box->text, text_x, text_y, font_size, (Color){colour_border.r, colour_border.g, colour_border.b, colour_border.a});
     }
-    if (e->type == UI_ELEMENT_TEXTBOX || e->type == UI_ELEMENT_TEXTBOX_SAFE)
-    {
-        DrawTextArea(e);
-    }
 
-    frame_counter.total_frames % 1600 == 0 ? printf("DREW [%s] PIXEL(%.1f, %.1f) | SIZE(%.1f, %.1f)\n", GetElementTypeName(e->type), box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y) : (void)0;
+    // frame_counter.total_frames % 1600 == 0 ? printf("DREW [%s] PIXEL(%.1f, %.1f) | SIZE(%.1f, %.1f)\n", GetElementTypeName(e->type), box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y) : (void)0;
 
     // Recursively draw children elements
     UIElement *child = e->first_child;

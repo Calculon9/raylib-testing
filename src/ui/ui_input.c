@@ -32,13 +32,16 @@ void HandleLeftMouseDown(UIElement *element, Vector2d mouse_coords);
 void HandleLeftMouseUp(UIElement *target, Vector2d mouse_coords);
 void HandleTextBoxClick(UIElement *clicked);
 void HandleUIDragging(UIElement *e, Vector2d mouse_coords);
+void HandleFocusSwitch(UIElement *curr_focus, UIElement *prev_focus);
+void HandleTextCommit(UIElement *element, Text_64_IOState *tbox_buffers);
 // Vector2d CalculateDragOffset(UIElement *target, Vector2d mouse_coords);
 void UpdateTextIO(void);
-void RevertTextBoxChanges(UIElement *tbox, Text_64_IOState *tbox_buffers);
+void RevertTextChanges(UIElement *tbox, Text_64_IOState *t_bufs);
 bool IsMouseDragged(MouseDownState mouse_down_state);
 bool IsMouseClicked(MouseDownState mouse_down_state);
 void UpdateMouseDownState(MouseBtn btn_type, MouseDownState *mouse_down_state, Vector2d mouse_coords);
 void ResetMouseDownState(MouseDownState *mouse_down_state);
+void InitTextBuffers(UIElement *e, Text_64_IOState *t_bufs);
 // -----Global Helpers-----
 void UpdateUIFocus(UIElement *element);
 void UpdateDragFocus(UIElement *element, Vector2d mouse_coords);
@@ -107,8 +110,12 @@ void HandleLeftMouseDown(UIElement *target, Vector2d mouse_coords)
     {
         if (target != G_FocusedElement)
         {
-            RevertTextBoxChanges(G_FocusedElement, &tbox_io_buffers);
+            // Cleanup any state from previous focus
+            RevertTextChanges(G_FocusedElement, &tbox_io_buffers);
+
+            // Initialise new focus and new state
             UpdateUIFocus(target);
+            InitTextBuffers(target, &tbox_io_buffers);
             // Do NOT return here anymore; let the code cascade into starting the drag!
         }
 
@@ -196,7 +203,7 @@ void HandleUIDragging(UIElement *e, Vector2d mouse_coords)
     // 5. Compute real pixel offsets for accurate telemetry tracking
     Vector2d new_pixel_offset = (Vector2d){new_local_offset.x * basis_scale.x, new_local_offset.y * basis_scale.y};
     Vector2d diff_local = VectorSum_2d(new_local_offset, (Vector2d){-e->parent_offset.offset.x, -e->parent_offset.offset.y});
-    Vector2d diff_pixel = (Vector2d){diff_local.x / basis_scale.x, diff_local.y / basis_scale.y};;
+    Vector2d diff_pixel = (Vector2d){diff_local.x / basis_scale.x, diff_local.y / basis_scale.y};
 
     // 6. Finalize properties assignment
     e->parent_offset.offset = new_local_offset;
@@ -207,23 +214,59 @@ void HandleUIDragging(UIElement *e, Vector2d mouse_coords)
         printf("DRAGGED [%s] | DIFF (%0.2f, %0.2f)(%0.0f, %0.0f) | NewOffset (%0.2f, %0.2f)(%0.0f, %0.0f)\n", GetElementTypeName(e->type), diff_local.x, diff_local.y, diff_pixel.x, diff_pixel.y, new_local_offset.x, new_local_offset.y, new_pixel_offset.x, new_pixel_offset.y);
     }
 }
-The issue is that when changing focus from a tbox to anything else, if no text is input then no pre-existing txt is written to temp buffer. Then in here, we write "nothing" back to it!!
-void RevertTextBoxChanges(UIElement *tbox, Text_64_IOState *tbox_buffers)
+
+// The issue is that when changing focus from a tbox to anything else, if no text is input then no pre-existing txt is written to temp buffer. Then in here, we write "nothing" back to it!!
+void RevertTextChanges(UIElement *e, Text_64_IOState *tbox_buffers)
 {
-    char *output_buf = NULL;
-    if (IsTextbox(tbox))
+    if (!IsTextbox(e))
     {
-        output_buf = tbox->data.textbox.text.string;
-        strncpy(output_buf, tbox_buffers->temp_buffer.string, MAX_TEXTBOX_CHARS - 1);
+        return;
     }
+    char *output_buf = NULL;
+
+    output_buf = e->data.textbox.text.string;
+    strncpy(output_buf, tbox_buffers->temp_buffer.string, MAX_TEXTBOX_CHARS - 1);
 
     // Reset tracking buffers
     tbox_buffers->input_buffer.string[0] = '\0';
     tbox_buffers->temp_buffer.string[0] = '\0';
-    // tbox_input_buffer[0] = '\0';
-    // tbox_temp_buffer[0] = '\0';
-    // G_FocusedElement->is_focused = false;
-    // G_FocusedElement = NULL;
+}
+
+void HandleTextCommit(UIElement *element, Text_64_IOState *tbox_buffers)
+{
+    // PIPELINE COMMITTED TEXT TO THE SELECTED OBJECT
+    Polygonoid *obj = G_WorldState.selected_object;
+    if (!element || !IsTextbox(element) || !obj)
+    {
+        RevertTextChanges(element, tbox_buffers);
+        return;
+    }
+        
+
+    // These TextBoxes (IO) are interactive so check it's an IO type before doing anything
+    if (element->type == UI_ELEMENT_TEXTBOX_IO || element->type == UI_ELEMENT_TEXTBOX_SAFE_IO)
+    {
+        // Get the type of data the textbox is bound to
+        DatatType data_type = element->data.textbox.data_type;
+        switch (data_type)
+        {
+        case VECTOR2D:
+            PipelineTextToVector(element->data.textbox.text.string, element->data.textbox.data_bind); // Be sure the data type and data bind are compatible!
+            break;
+        case FLOAT:
+            PipelineTextToFloat(element->data.textbox.text.string, element->data.textbox.data_bind); // Be sure the data type and data bind are compatible!
+            break;
+        // case STRING64: case STRING128:
+        //     PipelineTextToFloat(tbox_io_buffers.input_buffer.string, element->data.textbox.data_bind); // Be sure the data type and data bind are compatible!
+        //     break;
+        default:
+            break;
+        }
+    }
+
+    // Clear buffers
+    tbox_io_buffers.input_buffer.string[0] = '\0';
+    tbox_io_buffers.temp_buffer.string[0] = '\0';
 }
 
 // HANDLER - MOUSE CLICK
@@ -249,7 +292,7 @@ void HandleTextBoxClick(UIElement *clicked)
 
     // Move the cursor to the end of the text string
     // This allows the user to start typing immediately after what's already there
-    if (clicked->type == UI_ELEMENT_TEXTBOX || clicked->type == UI_ELEMENT_TEXTBOX_SAFE)
+    if (clicked->type == UI_ELEMENT_TEXTBOX_IO || clicked->type == UI_ELEMENT_TEXTBOX_SAFE_IO)
     {
         int length = strlen(clicked->data.textbox.text.string);
         clicked->data.textbox.cursor_position = length;
@@ -258,7 +301,7 @@ void HandleTextBoxClick(UIElement *clicked)
 
 void UpdateTextIO()
 {
-    if (!G_FocusedElement || (G_FocusedElement->type != UI_ELEMENT_TEXTBOX && G_FocusedElement->type != UI_ELEMENT_TEXTBOX_SAFE))
+    if (!G_FocusedElement || (G_FocusedElement->type != UI_ELEMENT_TEXTBOX_IO && G_FocusedElement->type != UI_ELEMENT_TEXTBOX_SAFE_IO))
         return;
 
     char *output_buf = G_FocusedElement->data.textbox.text.string;
@@ -311,6 +354,7 @@ void UpdateTextIO()
     // 5. Handle Enter (Commit)
     if (IsKeyPressed(KEY_ENTER))
     {
+        HandleTextCommit(G_FocusedElement, &tbox_io_buffers);
         tbox_io_buffers.input_buffer.string[0] = '\0';
         tbox_io_buffers.temp_buffer.string[0] = '\0';
         G_FocusedElement->is_focused = false;
@@ -375,6 +419,25 @@ void UpdateMouseDownState(MouseBtn btn_type, MouseDownState *mouse_down_state, V
     }
 }
 
+// HANDLER - FOCUS SWITCH
+void HandleFocusSwitch(UIElement *curr_focus, UIElement *prev_focus)
+{
+    // Need to perform clean-up actions based on what was previously focused
+
+    // Textboxes
+    // if (IsTextbox(prev_focus))
+    // {
+    //     // If the text being output in the tbox wasn't overwritten by the user, the input_buf will be empty, so just clear the temp_buf
+    //     if (strlen(tbox_io_buffers.input_buffer.string) == 0)
+    //     {
+    //         strncpy(tbox_io_buffers.input_buffer.string, output_buf, MAX_TEXTBOX_CHARS - 1);
+    //         tbox_io_buffers.temp_buffer.string[MAX_TEXTBOX_CHARS - 1] = '\0';
+    //         tbox_io_buffers.input_buffer.string[0] = '\0';
+    //         tbox_io_buffers.temp_buffer.string[0] = '\0';
+    //     }
+    // }
+}
+
 // ----------------------------------------------------------------------------------
 // Utility Functions
 void ResetMouseDownState(MouseDownState *mouse_down_state)
@@ -413,8 +476,8 @@ void UpdateDragFocus(UIElement *element, Vector2d mouse_coords)
 {
     G_DragState.target_element = element;
 
-    //float parent_offset_x = 0.0f;
-    //float parent_offset_y = 0.0f;
+    // float parent_offset_x = 0.0f;
+    // float parent_offset_y = 0.0f;
 
     // if (element->parent)
     // {
@@ -422,7 +485,7 @@ void UpdateDragFocus(UIElement *element, Vector2d mouse_coords)
     //     parent_offset_x = element->parent_offset.offset.x; // + (e->parent->padding.x * basis_scale.x);
     //     parent_offset_y = element->parent_offset.offset.y; // + (e->parent->padding.y * basis_scale.y);
     // }
-    
+
     G_DragState.initial_element_offset = element->parent_offset.offset;
     printf("DRAG FOCUS CHANGE: [%s]\n", GetElementTypeName(element->type));
 }
@@ -432,4 +495,14 @@ void ResetDragState()
     G_DragState.drag_delta = (Vector2d){0, 0};
     G_DragState.target_element = NULL;
     printf("DRAG FOCUS CLEARED\n");
+}
+
+void InitTextBuffers(UIElement *e, Text_64_IOState *t_bufs)
+{
+    t_bufs->input_buffer.string[0] = '\0';
+
+    if (IsTextbox(e))
+    {
+        t_bufs->temp_buffer = e->data.textbox.text;
+    }
 }

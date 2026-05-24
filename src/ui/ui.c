@@ -218,7 +218,7 @@ bool IsTextbox(UIElement *e)
     if (!e)
         return false;
 
-    if (e->type == UI_ELEMENT_TEXTBOX || e->type == UI_ELEMENT_TEXTBOX_SAFE)
+    if (e->type == UI_ELEMENT_TEXTBOX_O || e->type == UI_ELEMENT_TEXTBOX_SAFE_IO || e->type == UI_ELEMENT_TEXTBOX_IO)
     {
         return true;
     }
@@ -485,10 +485,12 @@ const char *GetElementTypeName(UIElementType type)
         return "CONTAINER";
     case UI_ELEMENT_LABEL:
         return "LABEL";
-    case UI_ELEMENT_TEXTBOX:
-        return "TEXTBOX";
-    case UI_ELEMENT_TEXTBOX_SAFE:
-        return "TEXTBOX_SAFE";
+    case UI_ELEMENT_TEXTBOX_O:
+        return "TEXTBOX_O";
+    case UI_ELEMENT_TEXTBOX_IO:
+        return "TEXTBOX_IO";
+    case UI_ELEMENT_TEXTBOX_SAFE_IO:
+        return "TEXTBOX_SAFE_IO";
     case UI_ELEMENT_BUTTON:
         return "BUTTON";
     case UI_ELEMENT_IMAGE:

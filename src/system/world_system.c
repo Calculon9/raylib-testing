@@ -36,7 +36,7 @@
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
-
+WorldState G_WorldState = (WorldState){0};
 // ----------WORLD SCREEN----------
 static int finishScreen = 0;
 static Polygonoid *selectedObject = NULL; // Pointer to the currently selected object (if any) for displaying its properties in the panel
@@ -55,7 +55,6 @@ Vector2d world_resolution = {0};
 static float gravity = 10;
 // Objects and properties
 static int next_object_id = 1;           // Global variable to keep track of the next available ID for NewtonObjects
-static DynamicArray *polygonoids = NULL; // static DynamicArray *circloids = NULL;
 static ColourRgba polygonoid_line_colour = {155, 0, 0, 255};
 static ColourRgba polygonoid_text_colour = {64, 64, 64, 255};
 static float polygonoid_radius_default = 0.4;
@@ -80,12 +79,11 @@ static float camera_world_rotation = 0.0;
 // void InitCoordinateSpaceProperties();
 void InitPanelTextContainers();
 // void DrawCircloids();
-void DrawPolygonoids(Collection *polygonoids);
+void DrawPolygonoids(LArray *polygonoids);
 void DrawWorldRegion(World2d *world, Camera2d world_camera);
 void DrawWorldCoordinateGrid();
 void UpdatePolygonoidVectors(DynamicArray *polygonoids);
-void UpdatePanelRegion(int mouse_x, int mouse_y, bool cursor_in_panel);
-void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_panel);
+void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region);
 void CreateAddPolygonoid_Circle(float radius, float mass, ColourRgba colour, Vector2d origin, Vector2d velocity, Vector2d acceleration);
 // Vector2d WorldToScreenCoordinates(Matrix3x3 screen_basis_transform, Vector2d world_coordinates);
 
@@ -101,11 +99,12 @@ void InitGameWorld(void)
     // 3 CREATE GAME WORLD using the resolutions, origins etc. from Step 0
     // 3.1 Create the coordinate space for the world
     // 3.11 Initialise Objects
-    polygonoids = NEW_DYNAMIC_ARRAY(initObjectCount, Polygonoid);
+    LArray *objects = NewLArray(initObjectCount, sizeof(Polygonoid));
     // 3.2 Create the space then world
     CoordSpace2d_Grid space_g = NewCoordSpace2d_Grid(world_origin, world_resolution, world_basis, world_fill_colour, world_line_colour);
-    world = CreateWorld(space_g, *polygonoids, gravity);
-
+    world = CreateWorld(space_g, gravity);
+    world.objects = *objects;
+    free(objects);
     // 4 CREATE TEST POLYGONOIDS
     // 4.1 Static
     // CreateAddPolygonoid_Circle(polygonoid_radius_default, polygonoid_mass_default, polygonoid_line_colour, (Vector2d){world_resolution.x / 1.70, world_resolution.y / 1.65}, polygonoid_velocity_default, polygonoid_acceleration_default);
@@ -175,24 +174,29 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
 
     char log[256] = "";
     int offset = 0;
-    offset += snprintf(log + offset, sizeof(log) - offset, "Region: World (%.1f, %.1f) --> ", world_origin.x, world_origin.y);
+    offset += snprintf(log + offset, sizeof(log) - offset, "WORLD (%.1f, %.1f) --> ", world_origin.x, world_origin.y);
 
     // Check if a click is on an object and print some info about that object if so
     Vector2d click_pixel_coords = {mouse_x, mouse_y};                                                        // This is in pixel coordinates relative to the top left of the screen, so we need to convert it to world coordinates before we can compare it to object coordinates which are relative to the world origin
     Vector2d click_world_coords = TransformCoordinates(camera_world.dest_to_source_mtx, click_pixel_coords); // This is relative to the world origin, so we can use it directly to compare to object coordinates which are also relative to the world origin
 
-    Polygonoid *polygonoid_coll = polygonoids->coll.items;
+    Polygonoid *polygonoids = world.objects.items;
     int cell_index = ((int)click_world_coords.y * (int)world_resolution.x) + (int)click_world_coords.x;
 
     // Check if there are any objects in that cell and print info about those objects if so
     Cell *cells = world.coord_space_grid.coord_space.cells.coll.items;
     Cell cell = cells[cell_index];
-    selectedCell = &cells[cell_index];
+    G_WorldState.selected_cell = &cell;
+    //selectedCell = &cells[cell_index];
 
-    offset += snprintf(log + offset, sizeof(log) - offset, "Element: Cell %d (%.1f, %.1f), Occ. %d, Val. %.1f  --> ", cell_index, cell.coords.x, cell.coords.y, cell.occupancy, cell.value);
+    offset += snprintf(log + offset, sizeof(log) - offset, "CELL %d (%.1f, %.1f), Occ. %d, Val. %.1f  --> ", cell_index, cell.coords.x, cell.coords.y, cell.occupancy, cell.value);
+
+    // The cell stores the object IDs of occupying objects, the object/s can then be retrieved by ID.
+    //int object_ids[] = cell.object_ids;
+
 
     // Check World objects for the object with the same ID as the one in the cell and print its properties if found
-    Polygonoid *objs = (Polygonoid *)world.objects.coll.items;
+    Polygonoid *objs = (Polygonoid *)world.objects.items;
     Vector2d click_to_cell_dist = VectorSum_2d(VectorScale_2d(cell.coords, -1), click_world_coords);
     float click_to_cell_mag = fabs(VectorMagnitude_2d(click_to_cell_dist));
     Polygonoid *p_closest = NULL;
@@ -247,18 +251,22 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
         // }
     }
     selectedObject = p_closest; // Set the selected object to the one in the cell that was clicked, so that its properties can be displayed in the panel
+    G_WorldState.selected_object = p_closest;
     if (!p_closest)
     {
         offset += snprintf(log + offset, sizeof(log) - offset, "Object: Nill");
+    } else
+    {
+        offset += snprintf(log + offset, sizeof(log) - offset, "SELECTED Object: ID = %d (%.1f, %.1f)", p_closest->id, p_closest->newtonian_properties.coords_origin.x, p_closest->newtonian_properties.coords_origin.y);
     }
-    printf("CLICKED (%d, %d) { %s }\n", mouse_x, mouse_x, log);
+    printf("CLICKED (%d, %d) | { %s }\n", mouse_x, mouse_x, log);
 }
 
 void CreateAddPolygonoid_Circle(float radius, float mass, ColourRgba colour, Vector2d origin, Vector2d velocity, Vector2d acceleration)
 {
-    Polygonoid newPolygonoid = CreatePolygonoid_Symmetric(12, radius, colour, mass, origin, velocity, acceleration);
+    Polygonoid new_polygonoid = CreatePolygonoid_Symmetric(12, radius, colour, mass, origin, velocity, acceleration);
 
-    AddObjectToWorld(&world, &newPolygonoid);
+    AddObjectToWorld(&world, &new_polygonoid);
 
     // Array_Push(polygonoids, &newPolygonoid);
 }
@@ -280,7 +288,7 @@ void DrawWorldRegion(World2d *world, Camera2d camera)
     // DEBUGGING - Draw the world coordinate space basis vectors to check they are correct
     DrawWorldCoordinateGrid();
     // Draw objects in the world (circloids, polygonoids, etc.)
-    DrawPolygonoids(&world->objects.coll);
+    DrawPolygonoids(&world->objects);
 }
 
 void DrawWorldCoordinateGrid()
@@ -383,7 +391,7 @@ void DrawWorldCoordinateGrid()
     // printf("Drew %d cells\n", count);
 }
 
-void DrawPolygonoids(Collection *polygonoids)
+void DrawPolygonoids(LArray *polygonoids)
 {
     if (polygonoids == NULL)
     {
@@ -392,7 +400,7 @@ void DrawPolygonoids(Collection *polygonoids)
     // Collection *coll = &polygonoids->coll;
     for (int i = 0; i < polygonoids->count; i++)
     {
-        Polygonoid polygonoid = *((Polygonoid *)((char *)polygonoids->items + (i * polygonoids->elemSize)));
+        Polygonoid polygonoid = *((Polygonoid *)((char *)polygonoids->items + (i * polygonoids->elem_bytes)));
         Vector2d origin_relto_world = polygonoid.newtonian_properties.coords_origin;
         Vector2d basis_scale = BasisTransform_2d_Scale(camera_world.source_basis, camera_world.destination_basis);
 
@@ -455,7 +463,7 @@ void UpdatePolygonoidVectors(DynamicArray *polygonoids)
 
 int GetPolygonoidCount(void)
 {
-    return polygonoids->coll.count;
+    return world.objects.count;
 }
 
 // Gameplay Screen Unload logic

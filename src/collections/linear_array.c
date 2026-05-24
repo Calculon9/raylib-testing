@@ -9,7 +9,7 @@
 // Global Variables Definition (local to this module)
 bool GrowLinearArray(LArray *da);
 
-// Create a new queue with specified element size and count
+// Create a new linear array with specified element size and count
 LArray *NewLArray(int elem_count, size_t elem_bytes) 
 {
     // Allocate memory for the DynamicArray struct itself

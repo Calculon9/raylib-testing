@@ -5,6 +5,7 @@
  **********************************************************************************************/
 #include "common/common.h"
 #include "world/world.h"
+#include "system/systems.h"
 #include "physics/rectangloid.h"
 #include "physics/field.h"
 #include "physics/polygonoid.h"
@@ -25,11 +26,11 @@ bool CheckForCollision(NewtonObject2d a, NewtonObject2d b);
 void UpdateWorldState(Collection *objects, CoordSpace2d *space, float delta_time);
 // void UpdateObjectVectors(Collection *objects, float delta_time);
 
-World2d CreateWorld(CoordSpace2d_Grid space_obj, DynamicArray objects, float gravity)
+World2d CreateWorld(CoordSpace2d_Grid space_obj, float gravity)
 {
    World2d world = {0};
    world.coord_space_grid = space_obj;
-   world.objects = objects;
+   //world.objects = objects;
    world.gravity = gravity;
    world.next_object_id = 1; // Initialize the next available ID for NewtonObjects
 
@@ -60,18 +61,18 @@ void AddObjectToWorld(World2d *world, Polygonoid *object)
    }
 
    // Add the newton_object to the world's objects array
-   Array_Push(&world->objects, object);
+   LArray_Push(&world->objects, object);
 
    printf("CREATED OBJECT (ID %d): Cell %d (%.1f, %.1f)\n", object->id, cell_index, object_coords.x, object_coords.y);
 }
 
 void UpdateWorld(World2d *world, float delta_time)
 {
-   Collection *obj_coll = &world->objects.coll; //.items;
-   int object_count = obj_coll->count;
+   LArray *objects = &world->objects; //.items;
+   int count = objects->count;
    // 1. Update Object state first
    // 1.1 Update Grid cells while we're here
-   if (object_count < 1)
+   if (count < 1)
       return;
 
    // Zero out the occupancy and object_ids of all cells in the grid before we update them based on the new positions of the objects
@@ -84,8 +85,8 @@ void UpdateWorld(World2d *world, float delta_time)
       memset(&cells[i].object_ids, 0, sizeof(cells[i].object_ids));
    }
 
-   Polygonoid *polygonoids = obj_coll->items;
-   for (size_t i = 0; i < object_count; i++)
+   Polygonoid *polygonoids = objects->items;
+   for (size_t i = 0; i < count; i++)
    {
       NewtonObject2d *obj = &polygonoids[i].newtonian_properties;
 
@@ -106,11 +107,11 @@ void UpdateWorld(World2d *world, float delta_time)
             obj->velocity.y = -obj->velocity.y; // Reverse and dampen the y velocity
             // obj->coords_origin.y = obj->coords_origin.y < 0 ? 0 : world->coord_space_grid.coord_space.resolution_ixj.y - 1; // Move the object back within bounds
          }
+         //Recalc inverse_mass in case mass was changed
+         obj->inverseMass = 1.0/obj->mass;
          CalculateVectors(obj, delta_time); // Still update the object's vectors based on its acceleration and velocity so that it can move back into the bounds of the world
          continue;
       }
-
-      // NO COPYING. Point directly to the source in the heap.
 
       // Add the object's ID to the cell's object_ids array if there is space
       Cell *target_cell = GetCellFromCoords(&world->coord_space_grid.coord_space, polygonoids[i].newtonian_properties.coords_origin);
@@ -131,12 +132,12 @@ void UpdateWorld(World2d *world, float delta_time)
    }
 
    // 2. Check for collisions
-   if (object_count < 2)
+   if (count < 2)
       return;
 
-   for (size_t i = 0; i < object_count; i++)
+   for (size_t i = 0; i < count; i++)
    {
-      for (size_t j = i + 1; j < object_count; j++) // Optimized j loop
+      for (size_t j = i + 1; j < count; j++) // Optimized j loop
       {
          Polygonoid *a = &polygonoids[i];
          Polygonoid *b = &polygonoids[j];
@@ -175,12 +176,13 @@ void UpdateWorld(World2d *world, float delta_time)
             b->newtonian_properties.velocity = VectorSum_2d(b->newtonian_properties.velocity, VectorScale_2d(b_vel_change, -1));
          }
 
-         printf("COLLISION CHECK for A(%.0f,%.0f) B(%.0f,%.0f) = %s\n",
+         frame_counter.total_frames % 300 == 0 ? printf("COLLISION CHECK for A(%.0f,%.0f) B(%.0f,%.0f) = %s\n",
                 a->newtonian_properties.coords_origin.x,
                 a->newtonian_properties.coords_origin.y,
                 b->newtonian_properties.coords_origin.x,
                 b->newtonian_properties.coords_origin.y,
-                colliding ? "TRUE" : "FALSE");
+                colliding ? "TRUE" : "FALSE") : (void)0;
+         
       }
    }
    // UpdateObjectVectors(objs, delta_time);
@@ -294,12 +296,12 @@ bool CheckForCollision(NewtonObject2d a, NewtonObject2d b)
    float b_height = fabsf(b_box_coords.col2.y - b_box_coords.col1.y);
    if (a_top_left.y + a_height < b_top_left.y)
    {
-      printf("Object A is ABOVE Object B\n");
+      //printf("Object A is ABOVE Object B\n");
       return false; // A is above B
    }
    if (a_top_left.y > b_top_left.y + b_height)
    {
-      printf("Object A is BELOW Object B\n");
+      //printf("Object A is BELOW Object B\n");
       return false; // A is below B
    }
 

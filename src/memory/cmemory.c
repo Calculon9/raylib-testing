@@ -57,31 +57,33 @@ void *AllocateBytes(size_t bytes)
 
     ValidateAllocation(ptr, bytes);
 
-    printf("Allocated %zu bytes. Total currently allocated: %zu bytes.\n", bytes, bytesAllocated); // zu is the format specifier for size_t
+    //printf("Allocated %zu bytes. Total currently allocated: %zu bytes.\n", bytes, bytesAllocated); // zu is the format specifier for size_t
 
     return ptr;
 }
 
 // Deallocates memory for anything and updates bytes in use.
-void DeallocateShallow(void **ptr, size_t bytes)
+size_t DeallocateShallow(void **ptr, size_t bytes)
 {
     // If the pointer-to-pointer is NULL, or the pointer itself is already NULL,
     // do nothing. This prevents subtracting from bytes_in_use twice.
     if (ptr == NULL || *ptr == NULL)
     {
-        return;
+        return 0;
     }
 
     free(*ptr);
     *ptr = NULL; // Single de-reference to set the caller's pointer to NULL
 
-    printf("Deallocated %zu bytes. Total currently allocated: %zu bytes.\n", bytes, bytesAllocated);
+    //printf("Deallocated %zu bytes. Total currently allocated: %zu bytes.\n", bytes, bytesAllocated);
 
     // Prevent underflow if 'bytes' passed is somehow larger than current count
     if (bytesAllocated >= bytes)
     {
         bytesAllocated -= bytes;
     }
+
+    return bytes;
 }
 
 // Deallocates memory for a SINGLE ALLOCATION generic array and updates bytes in use.

@@ -30,7 +30,7 @@ MEMORY MANAGEMENT MODULE
 void *AllocateArray(size_t element_count, size_t element_bytes);
 void DeallocateArrayShallow(void **array, size_t element_count, size_t element_bytes);
 void ValidateAllocation(void *pMemory, size_t bytes);
-void DeallocateShallow(void **ptr, size_t bytes);
+size_t DeallocateShallow(void **ptr, size_t bytes);
 void *AllocateCollection(size_t element_count, size_t element_bytes);
 void *AllocateBytes(size_t bytes);
 // void deallocate_deep(void **ptr, size_t bytes);

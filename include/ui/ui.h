@@ -6,11 +6,13 @@ WORLD MODULE
 #ifndef UI_H
 #define UI_H
 #include "common/common.h"
-#include "math/cvectors.h"
 #include "math/coordinate_space.h"
+#include "math/geometry.h"
 #include "colour/colour.h"
 #include "ui/cfont.h"
 #include "system/systems.h"
+
+
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
@@ -26,8 +28,9 @@ typedef enum
     UI_ELEMENT_NONE,
     UI_ELEMENT_ROOT,
     UI_ELEMENT_CONTAINER,
-    UI_ELEMENT_TEXTBOX,
-    UI_ELEMENT_TEXTBOX_SAFE, // Will only save over previous text if ENTER is pressed
+    UI_ELEMENT_TEXTBOX_O, // Will save over previous text with whatever is typed into it
+    UI_ELEMENT_TEXTBOX_IO, // Will only save over previous text if ENTER is pressed
+    UI_ELEMENT_TEXTBOX_SAFE_IO, // Will only save over previous text if ENTER is pressed
     UI_ELEMENT_TEXTFIELD,
     UI_ELEMENT_LABEL,
     UI_ELEMENT_BUTTON,
@@ -75,6 +78,8 @@ typedef struct
 typedef struct
 {
     String64 text;
+    DatatType data_type;
+    void *data_bind;
     Bitmap_Font font;
     int cursor_position;
 } TextBoxData;

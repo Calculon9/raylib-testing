@@ -36,6 +36,26 @@ COMMON MODULE
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
+typedef struct String32
+{
+    char string[32];
+} String32;
+
+typedef struct String64
+{
+    char string[64];
+} String64;
+
+typedef struct String128
+{
+    char string[128];
+} String128;
+
+typedef struct String256
+{
+    char string[256];
+} String256;
+
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)

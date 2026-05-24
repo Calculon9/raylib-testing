@@ -65,7 +65,15 @@ typedef struct NewtonObject2d_Static {
     float inverseMass;
 } NewtonObject2d_Static;
 
-
+typedef enum {
+    NOTHING,
+    ID,
+    MASS,
+    VELOCITY,
+    ACCELERATION,
+    MOMENTUM,
+    POSITION,
+} NewtonProperty;
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)

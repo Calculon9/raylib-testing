@@ -36,7 +36,9 @@ typedef struct {
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-
+Matrix2x2 GetBoxedCoords(LArray vertices);
 bool IsPointInPolygon(Vector2d point, Vector2d* vertices, int count);
+bool ShapeFitsWithinShape(LArray shape1_vertices, LArray shape2_vertices);
+bool BoxFitsWithin(Matrix2x2 box1, Matrix2x2 box2);
 
 #endif

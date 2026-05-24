@@ -32,9 +32,9 @@ UIElement *CreateTextFieldInTree(Size size, UIElement *parent, Offset parent_off
     tf->type = UI_ELEMENT_TEXTFIELD;
 
     UIElement *tl = CreateUIElement(UI_ELEMENT_LABEL, (Size){ZERO_VECTOR_2D, SIZE_PERCENT}, (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ZERO_VECTOR_2D, colour_border, colour_fill);
-    UIElement *tb = CreateUIElement(UI_ELEMENT_TEXTBOX, (Size){ZERO_VECTOR_2D, SIZE_PERCENT}, (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ZERO_VECTOR_2D, colour_border, colour_fill);
+    UIElement *tb = CreateUIElement(UI_ELEMENT_TEXTBOX_SAFE_IO, (Size){ZERO_VECTOR_2D, SIZE_PERCENT}, (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ZERO_VECTOR_2D, colour_border, colour_fill);
     tl->type = UI_ELEMENT_LABEL;
-    tb->type = UI_ELEMENT_TEXTBOX;
+    tb->type = UI_ELEMENT_TEXTBOX_SAFE_IO;
 
     // Determine layout style
     bool label_is_inline = (label_tbox_offset.y < size.dimensions.y / 4);

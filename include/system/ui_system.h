@@ -15,7 +15,7 @@ UI SYSTEM MODULE
 // Macros and Defines
 //----------------------------------------------------------------------------------
 
-#define FONT_DEFAULT FONT_BASIC
+//#define FONT_DEFAULT FONT_BASIC
 
 // Panel Colour Pallette
 #define COLOUR_PANEL_DARK_1 OLIVE_GARDEN_GREEN_D // BROWN_1_RGBA
@@ -34,6 +34,7 @@ UI SYSTEM MODULE
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
+
 // Coordinate Space Properties
 extern Vector2d lpanel_u;                              // = {1, 0};
 extern Vector2d lpanel_v;                              // = {0, 1};

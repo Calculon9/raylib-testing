@@ -11,8 +11,8 @@ FONT MODULE
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
-
 #define FONT_BASIC (Bitmap_Font){.bitmap = font8x8_bitmap_basic, .spacing = -2, .scale = 2, .colour = BLACK_RGBA}
+
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
@@ -32,7 +32,7 @@ typedef struct
  * A '1' bit represents a colored pixel, a '0' is transparent.
  */
 extern unsigned char font8x8_bitmap_basic[128][8];
-extern Bitmap_Font default_font;
+//extern Bitmap_Font default_font;
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)

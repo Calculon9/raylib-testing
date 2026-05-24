@@ -13,6 +13,13 @@ WORLD MODULE
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
+
+//----------------------------------------------------------------------------------
+// Types and Structures Definition
+//----------------------------------------------------------------------------------
+
+
+
 // Coordinate Space Properties
 extern Vector2d world_origin, world_end;// = {0};
 extern Vector2d world_u;// = {1, 0};
@@ -26,12 +33,6 @@ extern Vector2d world_pixel_v;// = {0, 75};
 extern Camera2d camera_world;// = {0};
 extern Vector2d local_to_world_scale;
 extern Vector2d world_to_local_scale;
-//----------------------------------------------------------------------------------
-// Types and Structures Definition
-//----------------------------------------------------------------------------------
-
-
-
 
 // typedef struct {
 //     Texture *texture;
