@@ -65,7 +65,7 @@ CoordSpace2d NewCoordSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d b
    float totalArea = resolution_ixj.x * resolution_ixj.y;
    int totalUnits = (int)ceilf(totalArea / space.unitArea);
 
-   space.cells = *NewDynamicArray(totalUnits, sizeof(Cell));
+   space.cells = MakeDArray(totalUnits, sizeof(Cell));
 
    // CalculateLineSegmentVectors(&coordinate_space);
    InitUnitCells(&space);
@@ -83,9 +83,9 @@ CoordSpace2d NewCoordSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d b
 
 void InitUnitCells(CoordSpace2d *space)
 {
-   Collection *cells = &(space->cells.coll);
+   DArray *cells = &(space->cells);
    size_t cells_capacity = cells->capacity;
-   memset(cells->items, 0, cells->elemSize * cells_capacity);
+   memset(cells->items, 0, cells->elem_bytes * cells_capacity);
 
    Vector2d coords_origin = space->coords_origin;
    int stepsU = space->stepsU;
@@ -114,8 +114,8 @@ void InitUnitCells(CoordSpace2d *space)
       // cell.occupancy = 0; // Initialize the cell occupancy to 0
 
       // Write the cell to the array
-      Cell *address = (Cell *)((char *)cells->items + (k * cells->elemSize));
-      memcpy(address, &cell, cells->elemSize);
+      Cell *address = (Cell *)((char *)cells->items + (k * cells->elem_bytes));
+      memcpy(address, &cell, cells->elem_bytes);
       count++;
    }
    cells->count = stepsU * stepsV;
@@ -128,14 +128,86 @@ int GetIndexFromCoords(CoordSpace2d *space, Vector2d space_coords)
    return cell_index;
 }
 
-Cell* GetCellFromCoords(CoordSpace2d *space, Vector2d coords)
+Cell *GetCellFromCoords(CoordSpace2d *space, Vector2d coords)
 {
    int cell_index = GetIndexFromCoords(space, coords);
 
-   Cell *cells = space->cells.coll.items;
+   Cell *cells = space->cells.items;
    Cell *target_cell = &cells[cell_index];
-   
+
    return target_cell;
+}
+
+Matrix2x2 GetObjectFootprint_AsBox(Basis2d coord_space_basis, Surface2d object_surface)
+{
+   // Min area of effect will be the cell in the middle + all bordering cells - this will apply if the obj width and height are < cell width and height
+   Matrix2x2 obj_box = GetBoxedCoords(&object_surface.surface_vectors);
+   float cell_w = coord_space_basis.u.x + coord_space_basis.v.x;
+   float cell_h = coord_space_basis.u.y + coord_space_basis.v.y;
+
+   Vector2d obj_midpoint = (Vector2d){(obj_box.col1.x + obj_box.col2.x) / 2, (obj_box.col1.y + obj_box.col2.y) / 2};
+   // Each vertice when either their x or y pos is fixed, can move along the variable dimension and therefore partially enter the 2 neighbouring cells on that axis while still having its midpoint in the original cell
+   // the footprint will therefore be +/- 1 cell applied to each of the object's vertices
+
+   // For the min coords (col1) we add -1 and max coords (col2) we add +1
+   obj_box.col1.x -= cell_w;
+   obj_box.col1.y -= cell_h;
+   obj_box.col2.x += cell_w;
+   obj_box.col2.y += cell_h;
+
+   return obj_box;
+}
+
+Surface2d GetObjectFootprint_AsSurface(Basis2d coord_space_basis, Surface2d object_surface)
+{
+   // Min area of effect will be the cell in the middle + all bordering cells - this will apply if the obj width and height are < cell width and height
+   Vector2d obj_midpoint = GetObjectCentre(object_surface);
+   float cell_w = coord_space_basis.u.x + coord_space_basis.v.x;
+   float cell_h = coord_space_basis.u.y + coord_space_basis.v.y;
+
+   // Go through each vertice and add/subtract
+   Surface2d footprint = {0};
+   //LArray *footprint_vectors = NewLArray(object_surface.surface_vectors.count, sizeof(Vector2d));
+   footprint.surface_vectors.items = calloc(object_surface.surface_vectors.count, sizeof(Vector2d));
+   footprint.surface_vectors.capacity = 4;
+   footprint.surface_vectors.count = 0;
+   footprint.surface_vectors.elem_bytes = sizeof(Vector2d);
+
+   // Each vertice when either their x or y pos is fixed, can move along the variable dimension and therefore partially enter the 2 neighbouring cells on that axis while still having its midpoint in the original cell
+   // the footprint will therefore be +/- 1 cell applied to each of the object's vertices
+   for (size_t i = 0; i < object_surface.surface_vectors.count; i++)
+   {
+      Vector2d obj_vertice = ((Vector2d *)(object_surface.surface_vectors.items))[i]; // the [i] is the dereference
+      Vector2d footprint_vertice = obj_vertice;
+      if (obj_vertice.x <= obj_midpoint.x)
+      {
+         footprint_vertice.x -= cell_w;
+      }
+      else
+      {
+         footprint_vertice.x += cell_w;
+      }
+      if (obj_vertice.y <= obj_midpoint.y)
+      {
+         footprint_vertice.y -= cell_h;
+      }
+      else
+      {
+         footprint_vertice.y += cell_h;
+      }
+      printf("OBJ VERTICE: (%.2f, %.2f) -> FOOTPRINT VERTICE: (%.2f, %.2f)\n", obj_vertice.x, obj_vertice.y, footprint_vertice.x, footprint_vertice.y);
+      DArray_Push(footprint.surface_vectors.items, &footprint_vertice);
+   }
+   return footprint;
+   // float start_x = min_coords.x - 1;
+   // float end_x = max_coords.x + 1;
+   // float start_y = min_coords.y - 1;
+   // float end_y = max_coords.y + 1;
+
+   // float obj_effect_width = end_x - start_x;
+   // float obj_effect_height = end_y - start_y;
+   // Vector2d area = (Vector2d){obj_effect_width, obj_effect_height};
+   // Surface2d area_of_effect = CreateSurface_Rectangular(area);
 }
 
 // Calculate coordinate space lines relative to the space's world position

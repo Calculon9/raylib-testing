@@ -41,7 +41,7 @@ typedef struct CoordSpace2d
     // Vector2d coords_end;         // This can simply be calculated from the resolution
     Vector2d resolution_ixj;        // The dimensions of the coordinate space in terms of how many units it has in the i and j directions, which we can use to calculate the number of lines and cells needed to fill the space
     Basis2d basis;                  // basis vectors representing the direction and length of one step to the right and down respectively
-    DynamicArray cells;            // the cells or field units within the coordinate space (in linear form) of field units
+    DArray cells;            // the cells or field units within the coordinate space (in linear form) of field units
     float unitArea, stepsU, stepsV; // rows, columns; // number of rows and columns in the coordinate space
 } CoordSpace2d;
 
@@ -74,6 +74,8 @@ CoordSpace2d_Grid NewCoordSpace2d_Grid(Vector2d origin, Vector2d resolution_ixj,
 CoordSpace2d NewCoordSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d basis);
 Cell* GetCellFromCoords(CoordSpace2d *space, Vector2d coords);
 int GetIndexFromCoords(CoordSpace2d *space, Vector2d space_coords);
+Surface2d GetObjectFootprint_AsSurface(Basis2d coord_space_basis, Surface2d object_surface);
+Matrix2x2 GetObjectFootprint_AsBox(Basis2d coord_space_basis, Surface2d object_surface);
 // CoordinateSpace2d CreateCoordinateSpace(Rectangloid object, int rows, int columns, ColourRgba lineColour);
 
 // Vector2d GetCellIndicesFromCoordinates(Vector2d input_coordinates, Basis2d basis);

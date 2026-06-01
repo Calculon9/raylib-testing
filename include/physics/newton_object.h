@@ -8,6 +8,7 @@ CIRCLOID MODULE
 #include "common/common.h"
 #include "collections/dynamic_array.h"
 #include "math/cvectors.h"
+#include "math/geometry.h"
 #include "memory/cmemory.h"
 
 //----------------------------------------------------------------------------------
@@ -42,17 +43,24 @@ typedef struct Momentum2d {
 
 // 2D Surface Properties
 typedef struct Surface2d {
-    DynamicArray surface_vectors; // Sorted vectors (vector[i] connects to vector[i+1]) defining the points & shape of the object's surface
+    LArray surface_vectors; // Sorted vectors (vector[i] connects to vector[i+1]) defining the points & shape of the object's surface
 } Surface2d;
+
+typedef struct Box2d {
+    Vector2d coords;      // Top-Left or Center Origin (We will assume Top-Left here)
+    Vector2d dimensions;  // Width (x) and Height (y)
+} Box2d;
 
 // 2D Object with Newtonian properties; mass, position, velocity, acceleration, momentum 
 typedef struct NewtonObject2d {
     Vector2d coords_center;
-    Vector2d coords_origin;
+    Vector2d coords_origin; // the top-left
+    Vector2d boxed_dimensions;
     Vector2d velocity;
     Vector2d acceleration;
     Vector2d momentum;
     Surface2d surface;
+    Surface2d footprint;
     float mass;
     float inverseMass;
 } NewtonObject2d;
@@ -87,6 +95,7 @@ NewtonObject2d CreateNewtonObject2d(size_t mass, Vector2d origin, Vector2d veloc
 NewtonObject2d CreateNewtonObject2d_Static(Vector2d origin, Surface2d surface);
 Surface2d CreateSurface_Rectangular(Vector2d resolution);
 void CalculateVectors(NewtonObject2d *object, float deltaTime);
-Matrix2x2 FindBoxedCoords(DynamicArray vertices);
+Matrix2x2 FindBoxedCoords(DArray vertices);
+Vector2d GetObjectCentre(Surface2d object_surface);
 
 #endif

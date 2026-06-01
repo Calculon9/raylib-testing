@@ -4,10 +4,9 @@
  *
  **********************************************************************************************/
 #include "common/common.h"
-#include "physics/circloid.h"
 #include "physics/polygonoid.h"
 #include "physics/newton_object.h"
-#include "collections/dynamic_array.h"
+#include "math/geometry.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -18,14 +17,13 @@
 //----------------------------------------------------------------------------------
 // Circloid CreatePolygonoid(Surface2d surface, ColourRgba colour, size_t mass, Vector2d position, Velocity2d velocity, Acceleration2d acceleration);
 
-Polygonoid CreatePolygonoid_Symmetric(int vertice_count, float radius, ColourRgba colour, size_t mass, Vector2d origin, Vector2d velocity, Vector2d acceleration)
+Polygonoid CreatePolygonoid_Symmetric(int vertice_count, float radius, ColourRgba colour, size_t mass, Vector2d top_left, Vector2d velocity, Vector2d acceleration)
 {
-   //
    Polygonoid newPol = {0};
    Surface2d surface = {0};
-   DynamicArray *surface_vectors = GetPolygonoidSurfaceVectors_Symmetric(radius, vertice_count);
-   surface.surface_vectors = *surface_vectors;
-   NewtonObject2d newtOb = CreateNewtonObject2d(mass, origin, velocity, acceleration, surface);
+   LArray surface_vectors = GetPolygonoidSurfaceVectors_Symmetric(radius, vertice_count);
+   surface.surface_vectors = surface_vectors;
+   NewtonObject2d newtOb = CreateNewtonObject2d(mass, top_left, velocity, acceleration, surface);
 
    // Initialize the NewtonObject2d properties here (e.g., set position, velocity, etc.)
    newPol.newtonian_properties = newtOb;
@@ -35,33 +33,34 @@ Polygonoid CreatePolygonoid_Symmetric(int vertice_count, float radius, ColourRgb
    return newPol;
 }
 
-
-DynamicArray *GetPolygonoidSurfaceVectors_Symmetric(float radius, int vertice_count)
+LArray GetPolygonoidSurfaceVectors_Symmetric(float radius, int vertice_count)
 {
-
    if (vertice_count < 0)
    {
-      fprintf(stderr, "The provided number of contact vertices, %f, is less than 0. Continuing with 0 vertices instead so expect very inaccurate collisions.");
-      vertice_count = 0;
+      fprintf(stderr, "The provided number of contact vertices, %d, is less than 0. Returning an empty surface.\n", vertice_count);
+      return MakeLArray(0, sizeof(Vector2d));
    }
-   DynamicArray *points = NewDynamicArray(vertice_count, sizeof(Vector2d));
+   LArray points = MakeLArray(vertice_count, sizeof(Vector2d));
+   float angleStep = (2.0f * PI) / vertice_count;
 
-   // Use radians to define the points as polygonoid edges that collectively will describe the shape's surface
-   float angleStep = (2.0 * PI) / vertice_count;
+   char log_buffer[512] = {0};
+   int log_offset = 0;
+
    for (int i = 0; i < vertice_count; i++)
    {
       float currentAngle = i * angleStep;
-
       Vector2d p;
-      // Origin position is world coordinates of the center of the polygonoid, so we can calculate the position of each vertex based on the radius and angle from the origin
       p.x = radius * cosf(currentAngle);
       p.y = radius * sinf(currentAngle);
-      //   p.x = origin.x + radius * cosf(currentAngle);
-      //   p.y = origin.y + radius * sinf(currentAngle);
-
-      Array_Push(points, &p);
+      printf("Generated vertice %d: Angle = %.3f\n", i, currentAngle);
+      LArray_Push(&points, &p);
+      if (log_offset < (int)sizeof(log_buffer) - 30) 
+      {
+         log_offset += snprintf(log_buffer + log_offset, sizeof(log_buffer) - log_offset, " (%.2f, %.2f)", ((Vector2d *)points.items)[i].x, ((Vector2d *)points.items)[i].y);
+      }
    }
-
+   CenterVerticesToExtents(&points);
+   printf("SURFACE CREATED:%s\n", log_buffer);
    return points;
 }
 

@@ -120,7 +120,7 @@ double GetPreciseTime()
 float GetFrameDeltaTime()
 {
     // This function can be used to get the time taken for the last frame, which can be useful for physics calculations
-    if (frameTimes->coll->count > 1)
+    if (frameTimes->count > 1)
     {
         return (float)(currTime - prevFrameTime);
     }

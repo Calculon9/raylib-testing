@@ -20,7 +20,7 @@ GEOMETRY MODULE
 // } Rectangle;
 
 typedef struct {
-    DynamicArray vertices;
+    LArray vertices;
 } Polygon;
 
 // typedef struct Matrix2d {
@@ -36,9 +36,13 @@ typedef struct {
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-Matrix2x2 GetBoxedCoords(LArray vertices);
+Matrix2x2 GetBoxedCoords(LArray *vertices);
+Vector2d GetBoxedDimensions(LArray *vertices);
+Vector2d GetCenteredBoxOffset(Vector2d box_a_dimensions, Vector2d box_b_dimensions);
+void CenterVerticesToExtents(LArray *points);
+void NormaliseVerticesToLocal(LArray *points);
 bool IsPointInPolygon(Vector2d point, Vector2d* vertices, int count);
-bool ShapeFitsWithinShape(LArray shape1_vertices, LArray shape2_vertices);
-bool BoxFitsWithin(Matrix2x2 box1, Matrix2x2 box2);
+bool ShapeFitsWithinShape(LArray *shape1_vertices, LArray *shape2_vertices);
+bool BoxFitsWithinBox(Matrix2x2 box1, Matrix2x2 box2);
 
 #endif

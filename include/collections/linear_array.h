@@ -44,12 +44,14 @@ typedef struct LArray
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-LArray *NewLArray(int elem_count, size_t elem_bytes);
+LArray *AllocLArray(int elem_count, size_t elem_bytes);
+LArray MakeLArray(int elem_count, size_t elem_bytes);
 bool LArray_Push(LArray *la, void *item);
 void *LArray_Pop(LArray *la, void *out_item);
 void *LArray_Get(LArray *la, int index);
 bool LArray_RemoveAt(LArray *la, int index);
-void DisposeLinearArray(LArray *la);
+void DisposeLArray(LArray *la);
+void ClearLArray(LArray *la);
 // void* Enumerate(DynamicArray *da);
 // void* ResetEnumerator(DynamicArray *da);
 // size_t GetElementCount(DynamicArray *da);

@@ -23,14 +23,17 @@ NewtonObject2d CreateNewtonObject2d(size_t mass, Vector2d origin, Vector2d veloc
    newtOb.mass = mass;
    newtOb.inverseMass = 1.0f / mass;
    newtOb.coords_origin = origin;
-   newtOb.coords_center = origin; // For now we will assume the center is the same as the world_position, but this can be adjusted later if we want to define the world_position of the object based on its surface or some other point
    newtOb.velocity = velocity;
    newtOb.acceleration = acceleration;
    newtOb.surface = surface;
-   //newtOb.id = id;
-
+   newtOb.boxed_dimensions = GetBoxedDimensions(&surface.surface_vectors);
+   newtOb.coords_center = (Vector2d){origin.x + (newtOb.boxed_dimensions.x / 2), origin.y + (newtOb.boxed_dimensions.y / 2)};
    // Initialize momentum based on mass and velocity
-
+   printf("CREATED OBJECT BOX: Top-Left (%.2f, %.2f) Bottom-Right (%.2f, %.2f)\n",
+          newtOb.coords_origin.x,
+          newtOb.coords_origin.y,
+          newtOb.coords_origin.x + newtOb.boxed_dimensions.x,
+          newtOb.coords_origin.y + newtOb.boxed_dimensions.y);
    return newtOb;
 }
 
@@ -44,7 +47,7 @@ NewtonObject2d CreateNewtonObject2d_Static(Vector2d origin, Surface2d surface)
    newtOb.coords_origin = origin;
    newtOb.coords_center = origin; // For now we will assume the center is the same as the world_position, but this can be adjusted later if we want to define the world_position of the object based on its surface or some other point
    newtOb.surface = surface;
-   //newtOb.id = id;
+   // newtOb.id = id;
 
    return newtOb;
 }
@@ -73,86 +76,100 @@ void CalculateVectors(NewtonObject2d *object, float deltaTime)
 // 4----3
 // |    |
 // 1----2
-Surface2d CreateSurface_Rectangular(Vector2d resolution)
+Surface2d CreateSurface_Rectangular(Vector2d dimensions)
 {
    Surface2d surf = {0};
-   surf.surface_vectors = *NEW_DYNAMIC_ARRAY(4, Vector2d);
-   Vector2d *items = (Vector2d *)surf.surface_vectors.coll.items;
+   surf.surface_vectors.items = calloc(4, sizeof(Vector2d));
+   surf.surface_vectors.capacity = 4;
+   surf.surface_vectors.count = 0;
+   surf.surface_vectors.elem_bytes = sizeof(Vector2d);
 
-   // Vector2d vertice_1 = {origin.x, origin.y};
-   // Vector2d vertice_2 = {origin.x + resolution_ixj.x, origin.y};
-   // Vector2d vertice_3 = {origin.x + resolution_ixj.x, origin.y + resolution_ixj.y};
-   // Vector2d vertice_4 = {origin.x, origin.y + resolution_ixj.y};
-   // Do 1-2
-   Vector2d vertice = {0, 0};
-   int i, j = 0;
-   for (int i = 0; i < 2; i++)
+   // Calculate the half-extents
+   float hx = dimensions.x / 2.0f;
+   float hy = dimensions.y / 2.0f;
+
+   // Define the 4 corners relative to a center point of (0,0)
+   // Typically ordered clockwise or counter-clockwise
+   Vector2d vertices[4] = {
+      { -hx, -hy }, // Top-Left corner
+      {  hx, -hy }, // Top-Right corner
+      {  hx,  hy }, // Bottom-Right corner
+      { -hx,  hy }  // Bottom-Left corner
+   };
+
+   // Push the centered vertices into the dynamic array
+   for (int i = 0; i < 4; i++)
    {
-      vertice.x = i * resolution.x;
-      // Vector2d *pVec = items + (i * sizeof(Vector2d));
-      Array_Push(&surf.surface_vectors, &vertice);
-      // memcpy(pVec, &vertice, sizeof(Vector2d));
+      LArray_Push(&surf.surface_vectors, &vertices[i]);
    }
-   vertice.y = resolution.y; // go up (2-->3)
-   // Do 3-4
-   for (int i = 1; i > -1; i--)
-   {
-      vertice.x = (i * resolution.x);
-      // Vector2d *pVec = items + ((3 - i) * sizeof(Vector2d));
-      Array_Push(&surf.surface_vectors, &vertice);
-      // memcpy(pVec, &vertice, sizeof(Vector2d));
-   }
+
+   return surf;
 }
 
-Vector2d CalculateCenterRelativeToOrigin_Fast(NewtonObject2d *object)
-{
-   // Update velocity based on acceleration and time
-   Collection *points = &object->surface.surface_vectors.coll;
-}
+// Vector2d CalculateCenterRelativeToOrigin_Fast(NewtonObject2d *object)
+// {
+//    // Update velocity based on acceleration and time
+//    Collection *points = &object->surface.surface_vectors;
+// }
 
 // Returns the boxed coords from a collection of vertice vectors (must all be relative to the associated object's coords)
-Matrix2x2 FindBoxedCoords(DynamicArray vertices)
+// Matrix2x2 FindBoxedCoords(DArray vertices)
+// {
+//    Matrix2x2 box_coords = {0};
+//    if (vertices.count < 2)
+//    {
+//       return box_coords;
+//    }
+//    Vector2d *pts = vertices.items;
+
+//    // Must initialise with one of the provided vertices rather than all 0s because 0 could be the largest or smallest value compared to the provided vertices
+//    box_coords.col1 = pts[0];
+//    box_coords.col2 = pts[0];
+//    Vector2d vertice = {0};
+//    for (size_t i = 1; i < vertices.count; i++)
+//    {
+//       vertice = pts[i];
+
+//       box_coords.col1.x = fminf(box_coords.col1.x, vertice.x);
+//       box_coords.col2.x = fmaxf(box_coords.col2.x, vertice.x);
+
+//       box_coords.col1.y = fminf(box_coords.col1.y, vertice.y);
+//       box_coords.col2.y = fmaxf(box_coords.col2.y, vertice.y);
+
+//       // // Check if x is a min or max
+//       // if (vertice.x > box_coords.col2.x)
+//       // {
+//       //    box_coords.col2.x = vertice.x;
+//       // }
+//       // else if (vertice.x < box_coords.col1.x)
+//       // {
+//       //    box_coords.col1.x = vertice.x;
+//       // }
+
+//       // // Check if y is a min or max
+//       // if (vertice.y > box_coords.col2.y)
+//       // {
+//       //    box_coords.col2.y = vertice.y;
+//       // }
+//       // else if (vertice.y < box_coords.col1.y)
+//       // {
+//       //    box_coords.col1.y = vertice.y;
+//       // }
+//    }
+//    return box_coords;
+// }
+
+Vector2d GetObjectCentre(Surface2d object_surface)
 {
-   Matrix2x2 box_coords = {0};
-   if (vertices.coll.count < 2)
+   Vector2d mid = {0};
+   if (object_surface.surface_vectors.items != NULL)
    {
-      return box_coords;
+      Matrix2x2 box_coords = GetBoxedCoords(&object_surface.surface_vectors);
+      float mid_x = (box_coords.col1.x + box_coords.col2.x) / 2;
+      float mid_y = (box_coords.col1.y + box_coords.col2.y) / 2;
+      mid.x = mid_x;
+      mid.y = mid_y;
    }
-   Vector2d *pts = vertices.coll.items;
 
-   // Must initialise with one of the provided vertices rather than all 0s because 0 could be the largest or smallest value compared to the provided vertices
-   box_coords.col1 = pts[0];
-   box_coords.col2 = pts[0];
-   Vector2d vertice = {0};
-   for (size_t i = 1; i < vertices.coll.count; i++)
-   {
-      vertice = pts[i];
-
-      box_coords.col1.x = fminf(box_coords.col1.x, vertice.x);
-      box_coords.col2.x = fmaxf(box_coords.col2.x, vertice.x);
-
-      box_coords.col1.y = fminf(box_coords.col1.y, vertice.y);
-      box_coords.col2.y = fmaxf(box_coords.col2.y, vertice.y);
-
-      // // Check if x is a min or max
-      // if (vertice.x > box_coords.col2.x)
-      // {
-      //    box_coords.col2.x = vertice.x;
-      // }
-      // else if (vertice.x < box_coords.col1.x)
-      // {
-      //    box_coords.col1.x = vertice.x;
-      // }
-
-      // // Check if y is a min or max
-      // if (vertice.y > box_coords.col2.y)
-      // {
-      //    box_coords.col2.y = vertice.y;
-      // }
-      // else if (vertice.y < box_coords.col1.y)
-      // {
-      //    box_coords.col1.y = vertice.y;
-      // }
-   }
-   return box_coords;
+   return mid;
 }

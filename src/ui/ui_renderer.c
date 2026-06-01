@@ -166,8 +166,8 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d camera)
     e->cached_box = box;
 
     // DRAW IT ... IF it's within the ranged coordinates of its parent
-    LArray *parent_verts = NewLArray(4, sizeof(Vector2d));
-    LArray *verts = NewLArray(4, sizeof(Vector2d));
+    LArray parent_verts = MakeLArray(4, sizeof(Vector2d));
+    LArray verts = MakeLArray(4, sizeof(Vector2d));
     for (size_t i = 0; i < 4; i++)
     {
         Vector2d parent_vert = (Vector2d){
@@ -176,13 +176,13 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d camera)
         Vector2d vert = (Vector2d){
             box.coords.x + (i == 1 || i == 2 ? box.dimensions.x : 0),
             box.coords.y + (i >= 2 ? box.dimensions.y : 0)};
-        LArray_Push(parent_verts, &parent_vert);
-        LArray_Push(verts, &vert);
+        LArray_Push(&parent_verts, &parent_vert);
+        LArray_Push(&verts, &vert);
     }
 
-    bool is_within_parent = ShapeFitsWithinShape(*verts, *parent_verts);
-    DisposeLinearArray(parent_verts);
-    DisposeLinearArray(verts);
+    bool is_within_parent = ShapeFitsWithinShape(&verts, &parent_verts);
+    ClearLArray(&parent_verts);
+    ClearLArray(&verts);
 
     // Don't draw it or any of its children
     if (!is_within_parent)

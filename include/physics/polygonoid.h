@@ -34,7 +34,7 @@ typedef struct Polygonoid {
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 Polygonoid CreatePolygonoid_Symmetric(int vertice_count, float radius, ColourRgba colour, size_t mass, Vector2d origin, Vector2d velocity, Vector2d acceleration);
-DynamicArray* GetPolygonoidSurfaceVectors_Symmetric (float radius, int vertice_count);
+LArray GetPolygonoidSurfaceVectors_Symmetric (float radius, int vertice_count);
 //DynamicArray* GenerateRectangloidSurfaceVectors (float length, float width,int vertices);
 //Circloid CreateCircloid_FromObject(NewtonObject2d newtOb, float radius, ColourRgba colour);
 //void Circloid_GetCollisionObjects(Circloid circ);

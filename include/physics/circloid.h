@@ -33,7 +33,7 @@ typedef struct {
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 Circloid CreateCircloid(float radius, ColourRgba colour, size_t mass, Vector2d position, Velocity2d velocity, Acceleration2d acceleration, Surface2d surface);
-DynamicArray* GenerateCircloidSurfaceVectors (Circloid *circloid, int vertices);
+LArray* GenerateCircloidSurfaceVectors (Circloid *circloid, int vertices);
 Circloid CreateCircloid_FromObject(NewtonObject2d newtOb, float radius, ColourRgba colour);
 //void Circloid_GetCollisionObjects(Circloid circ);
 #endif

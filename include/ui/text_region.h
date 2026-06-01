@@ -26,7 +26,7 @@ typedef struct TextField TextField;
 
 typedef struct TextFieldsContainer
 {
-    DynamicArray text_fields;
+    DArray text_fields;
     ColourRgba colour_border;
     ColourRgba colour_fill;
     Vector2d text_field_spacing;
