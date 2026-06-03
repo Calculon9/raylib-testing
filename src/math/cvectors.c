@@ -59,23 +59,6 @@ float VectorDot_2d(Vector2d a, Vector2d b)
     return (a.x * b.x) + (a.y * b.y);
 }
 
-// Ray Casting Algorithm: PIP Test
-bool IsPointInPolygon(Vector2d point, Vector2d *vertices, int count)
-{
-    bool inside = false;
-    for (int i = 0, j = count - 1; i < count; j = i++)
-    {
-        // Check if the ray crosses the edge between vertex i and vertex j
-        if (((vertices[i].y > point.y) != (vertices[j].y > point.y)) &&
-            (point.x < (vertices[j].x - vertices[i].x) * (point.y - vertices[i].y) /
-                               (vertices[j].y - vertices[i].y) +
-                           vertices[i].x))
-        {
-            inside = !inside; // Toggle the state
-        }
-    }
-    return inside;
-}
 
 // Basis2d BasisTransform_2d(Basis2d basis_to_change, Transform scalar)
 // {

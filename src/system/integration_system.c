@@ -154,22 +154,14 @@ void PipelineVectorToText(Vector2d input_vector, char *target_buffer, size_t tar
 }
 
 // Writes vector components as "x.y"
-void PipelineFloatToText(float input_float, char *target_buffer, size_t target_buffer_bytes) //, NewtonProperty object_property)
+void PipelineNumberToText(float input_float, int precision, char *target_buffer, size_t target_buffer_bytes) //, NewtonProperty object_property)
 {
     if (!target_buffer)
         return;
-    snprintf(target_buffer, target_buffer_bytes, "%.2f", input_float);
-    // PIPELINE STEP 1: Parse and validate based on your two formatting rules
-    // Format Style A: Check for parenthesized coordinate string "(x,y)"
-    // switch (object_property)
-    // {
-    // case MASS:
-    //     snprintf(target_buffer, target_buffer_bytes, "%.1f", input_float);
-    //     break;
-    // default:
-    //     snprintf(target_buffer, target_buffer_bytes, "%.0f", input_float);
-    //     break;
-    // }
+
+    char format_spec[16];
+    snprintf(format_spec, sizeof(format_spec), "%%.%df", precision);
+    snprintf(target_buffer, target_buffer_bytes, format_spec, input_float);
 }
 
 // snprintf(G_UIState.lpanel_properties_mass_str->string, sizeof(String64), "%.1f", mass);

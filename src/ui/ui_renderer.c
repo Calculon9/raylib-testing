@@ -61,7 +61,6 @@ void DrawTextArea(UIElement *e)
 
     // 3. Segmenting and Drawing
     // We'll draw row-by-row to save memory (no need for a massive 2D array)
-
     while (text_ptr[char_ptr] != '\0' && current_row < rows_that_fit)
     {
         char row_buffer[256] = {0}; // Local buffer for the current line
@@ -180,14 +179,14 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d camera)
         LArray_Push(&verts, &vert);
     }
 
-    bool is_within_parent = ShapeFitsWithinShape(&verts, &parent_verts);
+    bool is_within_parent = ShapeFitsWithinShape(&verts, &parent_verts,ZERO_VECTOR_2D, ZERO_VECTOR_2D);
     ClearLArray(&parent_verts);
     ClearLArray(&verts);
 
     // Don't draw it or any of its children
     if (!is_within_parent)
     {
-        frame_counter.total_frames % 300 == 0 ? printf("NOT DRAWING [%s] | NOT FULLY BOUNDED BY PARENT [%s]\n", GetElementTypeName(e->type), GetElementTypeName(e->parent->type)) : (void)0;
+        frame_counter.total_frames % 1800 == 0 ? printf("NOT DRAWING [%s] | NOT FULLY BOUNDED BY PARENT [%s]\n", GetElementTypeName(e->type), GetElementTypeName(e->parent->type)) : (void)0;
         return;
     }
 

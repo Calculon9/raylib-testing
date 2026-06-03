@@ -41,7 +41,7 @@ void AddObjectToWorld(World2d *world, Polygonoid *object)
 {
    // We can calculate the cell indices based on the object's coordinates and the coordinate space's basis vectors and resolution
    // For simplicity, let's assume the object's coords_origin is the point we will use to determine which cell it occupies
-   Vector2d object_coords = object->newtonian_properties.coords_origin; // These are the world coordinates of the object, which are the cell indices
+   Vector2d object_coords = object->newtonian_properties.coords_center; // These are the world coordinates of the object, which are the cell indices
    int cell_index = ((int)object_coords.y * (int)world->coord_space_grid.coord_space.resolution_ixj.x) + (int)object_coords.x;
 
    // Add the object's ID to the cell's object_ids array if there is space
@@ -111,20 +111,20 @@ void UpdateWorld(World2d *world, float delta_time)
             // obj->coords_origin.y = obj->coords_origin.y < 0 ? 0 : world->coord_space_grid.coord_space.resolution_ixj.y - 1; // Move the object back within bounds
          }
          // Recalc inverse_mass in case mass was changed
-         obj->inverseMass = obj->mass != 0 ? 1.0 / obj->mass : 0.0;
+         obj->inverse_mass = obj->mass != 0 ? 1.0 / obj->mass : 0.0;
          CalculateVectors(obj, delta_time); // Still update the object's vectors based on its acceleration and velocity so that it can move back into the bounds of the world
          continue;
       }
 
       // Add the object's ID to the cell's object_ids array if there is space
       Cell *target_cell = GetCellFromCoords(&world->coord_space_grid.coord_space, polygonoids[i].newtonian_properties.coords_center);
-      int cell_index = GetIndexFromCoords(&world->coord_space_grid.coord_space, target_cell->coords);
+      int cell_index = GetIndexFromCoords(&world->coord_space_grid.coord_space, target_cell->coords_origin);
 
       // Need assign an area of effect for the object based on its radius and update the occupancy of all cells that fall within that area, not just the cell that contains the object's origin coordinates, otherwise we won't detect collisions until the objects are already overlapping significantly, which can cause tunneling issues where fast moving objects pass through each other without detecting a collision. For simplicity, let's just use a square area of effect based on the object's radius, which will be easier to calculate than a circular area of effect. We can calculate the min and max cell indices in both x and y directions that fall within the object's area of effect and update the occupancy of all those cells accordingly.
 
       // Calculate the min and max cell indices in both x and y directions that fall within the object's area of effect based on box-shaped area of effect for simplicity
       // What I need is the max across and max down - this defines the area of effect. Then get the indexes of the cells that fall within that area and update their occupancy based on the object's ID. We can calculate the max across and max down based on the object's radius and the coordinate space's basis vectors, which will give us the dimensions of the area of effect in terms of how many cells it covers in each direction. Then we can loop through all the cells that fall within that area and update their occupancy accordingly.
-      Matrix2x2 box_coords = GetBoxedCoords(&obj->surface.surface_vectors);
+      Matrix2x2 box_coords = GetBoxedCoords(&obj->surface.surface_vectors, ZERO_VECTOR_2D);
       Vector2d min_coords = box_coords.col1;
       Vector2d max_coords = box_coords.col2;
       float obj_width = max_coords.x - min_coords.x;
@@ -142,7 +142,7 @@ void UpdateWorld(World2d *world, float delta_time)
       float obj_effect_width = end_x - start_x;
       float obj_effect_height = end_y - start_y;
       Vector2d area = (Vector2d){obj_effect_width, obj_effect_height};
-      Surface2d area_of_effect = CreateSurface_Rectangular(area);
+      Surface2d area_of_effect = CreateSurface_Rectangular(area, ZERO_VECTOR_2D);
       // Otherwise, ..
       // if(obj_width < world->coord_space_grid.coord_space.basis.u.x)
       // {
@@ -223,8 +223,8 @@ void UpdateWorld(World2d *world, float delta_time)
                if (colliding)
                {
                   // Apply momentum conservation to determine velocities of a and b
-                  float a_mom_1 = VectorMagnitude_2d(a->newtonian_properties.velocity) / a->newtonian_properties.inverseMass;
-                  float b_mom_1 = VectorMagnitude_2d(b->newtonian_properties.velocity) / b->newtonian_properties.inverseMass;
+                  float a_mom_1 = VectorMagnitude_2d(a->newtonian_properties.velocity) / a->newtonian_properties.inverse_mass;
+                  float b_mom_1 = VectorMagnitude_2d(b->newtonian_properties.velocity) / b->newtonian_properties.inverse_mass;
                   Vector2d a_b_vel = VectorSum_2d(a->newtonian_properties.velocity, VectorScale_2d(b->newtonian_properties.velocity, -1));
 
                   // Get the collision normal - just use A as the reference object
@@ -238,15 +238,15 @@ void UpdateWorld(World2d *world, float delta_time)
                   // Get the Impulse: $$j = \frac{-(1 + e)(\mathbf{v}_{rel} \cdot \mathbf{n})}{\frac{1}{m_a} + \frac{1}{m_b}}$$
                   // Calculate Impulse Scalar
                   float e = 1; // Coefficient of Restitution
-                  float j = -(1 + e) * a_b_vel_dot / (a->newtonian_properties.inverseMass + b->newtonian_properties.inverseMass);
+                  float j = -(1 + e) * a_b_vel_dot / (a->newtonian_properties.inverse_mass + b->newtonian_properties.inverse_mass);
 
                   // Apply the Impulse
                   // Turn that scalar back into a vector and update the velocities
                   Vector2d impulse_vector = VectorScale_2d(a_b_pos_normal, j);
 
                   // Apply the impulse vector to A and B to get velocities
-                  Vector2d a_vel_change = VectorScale_2d(impulse_vector, a->newtonian_properties.inverseMass);
-                  Vector2d b_vel_change = VectorScale_2d(impulse_vector, b->newtonian_properties.inverseMass);
+                  Vector2d a_vel_change = VectorScale_2d(impulse_vector, a->newtonian_properties.inverse_mass);
+                  Vector2d b_vel_change = VectorScale_2d(impulse_vector, b->newtonian_properties.inverse_mass);
 
                   a->newtonian_properties.velocity = VectorSum_2d(a->newtonian_properties.velocity, a_vel_change);
                   b->newtonian_properties.velocity = VectorSum_2d(b->newtonian_properties.velocity, VectorScale_2d(b_vel_change, -1));
@@ -470,8 +470,8 @@ bool CheckForCollision(NewtonObject2d a, NewtonObject2d b)
 {
    // 1 Get the boxed regions of both objects and check for overlap
    // 1.1 Find the max x and max y across all surface vectors
-   Matrix2x2 a_box_coords = GetBoxedCoords(&a.surface.surface_vectors);
-   Matrix2x2 b_box_coords = GetBoxedCoords(&b.surface.surface_vectors);
+   Matrix2x2 a_box_coords = GetBoxedCoords(&a.surface.surface_vectors, ZERO_VECTOR_2D);
+   Matrix2x2 b_box_coords = GetBoxedCoords(&b.surface.surface_vectors, ZERO_VECTOR_2D);
 
    // a_box_coords.col1 = VectorSum_2d(a_box_coords.col1,a.coords_origin);
    // a_box_coords.col2 = VectorSum_2d(a_box_coords.col2,a.coords_origin);

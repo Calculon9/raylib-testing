@@ -17,13 +17,13 @@
 //----------------------------------------------------------------------------------
 // Circloid CreatePolygonoid(Surface2d surface, ColourRgba colour, size_t mass, Vector2d position, Velocity2d velocity, Acceleration2d acceleration);
 
-Polygonoid CreatePolygonoid_Symmetric(int vertice_count, float radius, ColourRgba colour, size_t mass, Vector2d top_left, Vector2d velocity, Vector2d acceleration)
+Polygonoid CreatePolygonoid_Symmetric(int vertice_count, float radius, ColourRgba colour, size_t mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration)
 {
    Polygonoid newPol = {0};
    Surface2d surface = {0};
    LArray surface_vectors = GetPolygonoidSurfaceVectors_Symmetric(radius, vertice_count);
    surface.surface_vectors = surface_vectors;
-   NewtonObject2d newtOb = CreateNewtonObject2d(mass, top_left, velocity, acceleration, surface);
+   NewtonObject2d newtOb = CreateNewtonObject2d(mass, coords_center, velocity, acceleration, surface);
 
    // Initialize the NewtonObject2d properties here (e.g., set position, velocity, etc.)
    newPol.newtonian_properties = newtOb;

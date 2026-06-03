@@ -22,7 +22,8 @@ CIRCLOID MODULE
 
 typedef struct Cell
 {
-    Vector2d coords; // coordinates of the cell in world coordinates
+    Vector2d coords_origin; // Top-left coordinates of the cell in world coordinates
+    Vector2d coords_center; // Midpoint coordinates in world/local coordinates
     int object_ids[MAX_CELL_OCCUPANCY]; // array of object ids that are currently occupying this cell (if any)
     int occupancy;
     float value; // value representing the properties of the field at this cell (e.g., occupied, empty, etc.)

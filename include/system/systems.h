@@ -53,32 +53,36 @@ typedef struct UIElement UIElement;
 
 typedef struct
 {
-    UIElement *lpanel_properties_id_tbox;
-    String64 *lpanel_properties_id_str;
+    // OBJECT PROPERTIES UI
+    UIElement *lpanel_entity_state_id_tbox;
+    String64 *lpanel_entity_state_id_str;
+    UIElement *lpanel_entity_state_mass_tbox;
+    String64 *lpanel_entity_state_mass_str;
+    UIElement *lpanel_entity_state_pos_tbox;
+    String64 *lpanel_entity_state_pos_str;
+    UIElement *lpanel_entity_state_vel_tbox;
+    String64 *lpanel_entity_state_vel_str;
+    UIElement *lpanel_entity_state_accel_tbox;
+    String64 *lpanel_entity_state_accel_str;
+    UIElement *lpanel_entity_state_moment_tbox;
+    String64 *lpanel_entity_state_moment_str;
 
-    UIElement *lpanel_properties_mass_tbox;
-    String64 *lpanel_properties_mass_str;
-
-    UIElement *lpanel_properties_pos_tbox;
-    String64 *lpanel_properties_pos_str;
-
-    UIElement *lpanel_properties_vel_tbox;
-    String64 *lpanel_properties_vel_str;
-
-    UIElement *lpanel_properties_accel_tbox;
-    String64 *lpanel_properties_accel_str;
-
-    UIElement *lpanel_properties_moment_tbox;
-    String64 *lpanel_properties_moment_str;
-
+    // STATS UI
     String64 *lpanel_stats_polygs_str;
     String64 *lpanel_stats_fps_str;
     String64 *lpanel_stats_mem_str;
+
+    // CELL STATE UI
+    String64 *lpanel_cell_state_index_str;
+    String64 *lpanel_cell_state_occu_str;
+    String64 *lpanel_cell_state_value_str;
+    String64 *lpanel_cell_state_fill_str;
 
 } UIState;
 
 typedef struct
 {
+    CoordSpace2d_Grid *world_coord_space;
     Cell *selected_cell;
     Polygonoid *selected_object;
 
@@ -130,5 +134,5 @@ void DrawGameWorld(void);
 bool PipelineTextToVector(char *input_buffer, Vector2d *target_vector);
 bool PipelineTextToFloat(char *input_buffer, float *target_float);
 void PipelineVectorToText(Vector2d input_vector, char *target_buffer, size_t target_buffer_bytes);//, NewtonProperty object_property);
-void PipelineFloatToText(float input_float, char *target_buffer, size_t target_buffer_bytes);//, NewtonProperty object_property);
+void PipelineNumberToText(float input_float, int precision, char *target_buffer, size_t target_buffer_bytes);//, NewtonProperty object_property);
 #endif

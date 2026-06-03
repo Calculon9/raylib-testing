@@ -101,6 +101,5 @@ Matrix3x3 MatrixInvert_3x3(Matrix3x3 M);
 Vector2d BasisTransform_2d_Scale(Basis2d source, Basis2d destination);
 Matrix3x3 CoordSpaceTransform_2d(Basis2d source, Basis2d destination, Vector2d destination_origin);
 Vector2d MatrixMultiply_3x3_2x2(Matrix3x3 matrix_function, Vector2d vector_input);
-bool IsPointInPolygon(Vector2d point, Vector2d vertices[], int count);
-
+//bool IsPointInPolygon(Vector2d point, Vector2d *vertices, Vector2d vertice_offset, int vertice_count);
 #endif

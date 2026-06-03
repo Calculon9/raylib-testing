@@ -27,12 +27,12 @@ Vector2d tbox_default_padding = {0.04, 0.04};
 Vector2d tlabel_default_padding = {0.04, 0.04};
 ColourRgba tbox_default_colour_border = COLOUR_PANEL_DARK_1; // {150, 115, 70, 255};//MAROON_RGBA; //{128, 99, 42, 100};
 ColourRgba tbox_default_colour_fill = COLOUR_PANEL_LIGHT_3;  // COLOUR_PANEL_DARK_1;
-Vector2d tfield_default_dims = {6, 0.5};
-Vector2d tfield_default_padding = {0.08, 0.08};
+Vector2d tfield_default_dims = {6, 0.4};
+Vector2d tfield_default_padding = {0.04, 0.04};
 ColourRgba tfield_default_colour_fill = COLOURLESS_RGBA;
-Vector2d tcont_default_dims = {1, 0.45};
-Vector2d tcont_default_padding = {0.15, 0.15};
-Vector2d tcont_default_child_spacing = {0, 0.05};
+Vector2d tcont_default_dims = {1, 0.3};
+Vector2d tcont_default_padding = {0.1, 0.1};
+Vector2d tcont_default_child_spacing = {0, 0.03};
 ColourRgba tcont_default_colour_fill = COLOUR_PANEL_LIGHT_1;
 ColourRgba tcont_default_colour_border = COLOUR_PANEL_DARK_2; // {150, 115, 70, 255};//MAROON_RGBA; //{128, 99, 42, 100};
 
@@ -57,10 +57,13 @@ Vector2d lpanel_to_local_scale = {0};
 // UI Elements
 UIBox seed_box = {0}; // This is the box that will be used as the parent box for the root element of the panel, and all other elements will calculate their positions and dimensions based on this box, which represents the entire panel area in pixel coordinates
 UIElement *lpanel_root = {0};
-UIElement *lpanel_properties_tcont = {0};
 UIElement *lpanel_stats_tcont = {0};
-Vector2d lpanel_properties_tcont_offset = {0, 5};
 Vector2d lpanel_stats_tcont_offset = {0, 0};
+UIElement *lpanel_entity_state_tcont = {0};
+Vector2d lpanel_entity_state_tcont_offset = {0, 3};
+Vector2d lpanel_entity_state_tcont_dims = {1, 0.4};
+UIElement *lpanel_cell_state_tcont = {0};
+Vector2d lpanel_cell_state_tcont_offset = {0, 7};
 // - default text container props
 Vector2d lpanel_tcont_default_dims = {100, 40};
 Vector2d lpanel_tcont_default_padding = {0.05, 0.05};
@@ -70,22 +73,14 @@ Vector2d lpanel_tcont_default_padding = {0.05, 0.05};
 //----------------------------------------------------------------------------------
 void InitPanelTextContainers();
 void InitStatsContainer(void);
-void InitObjectPropsContainer(void);
+void InitCellStateContainer(void);
+void InitEntityStateContainer(void);
 void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d camera);
 void UpdatePanelRegion(int mouse_x, int mouse_y, bool cursor_in_panel);
 void UpdateGlobalUIState();
 
 void InitUI(void)
 {
-    // G_UIState.lpanel_properties_id_str;       // = NULL;
-    // G_UIState.lpanel_properties_pos_str;      // = NULL;
-    // G_UIState.lpanel_properties_mass_str;     // = NULL;
-    // G_UIState.lpanel_properties_vel_str;      // = NULL;
-    // G_UIState.lpanel_properties_accel_str;    // = NULL;
-    // G_UIState.lpanel_properties_moment_str;   // = NULL;
-    // G_UIState.lpanel_stats_polygs_str.string; //[0] = '\0';
-    // G_UIState.lpanel_stats_fps_str.string;    //[0] = '\0';
-    // G_UIState.lpanel_stats_mem_str.string;    //[0] = '\0';
     InitPanelSpace();
     InitPanelTextContainers();
 }
@@ -113,34 +108,35 @@ void InitPanelSpace(void)
 
 void InitPanelTextContainers(void)
 {
-    InitObjectPropsContainer();
+    InitEntityStateContainer();
+    InitCellStateContainer();
     InitStatsContainer();
     // 1. Create the Container (The Parent)
     // Note: We use an offset relative to lpanel_root, NOT an absolute origin.
 }
 
-void InitObjectPropsContainer(void)
+void InitEntityStateContainer(void)
 {
     // 1. Create the Container (The Parent)
     // Note: We use an offset relative to lpanel_root, NOT an absolute origin.
-    lpanel_properties_tcont = CreateTextFieldContainerInTree(
-        (Size){tcont_default_dims, SIZE_PERCENT},
+    lpanel_entity_state_tcont = CreateTextFieldContainerInTree(
+        (Size){lpanel_entity_state_tcont_dims, SIZE_PERCENT},
         lpanel_root,
-        (Offset){lpanel_properties_tcont_offset, OFFSET_FIXED}, // Relative to lpanel_root
+        (Offset){lpanel_entity_state_tcont_offset, OFFSET_FIXED}, // Relative to lpanel_root
         tcont_default_padding,
         tcont_default_child_spacing,
         tcont_default_colour_border,
         tcont_default_colour_fill);
-    lpanel_properties_tcont->is_draggable = true;
+    lpanel_entity_state_tcont->is_draggable = true;
 
     char *tbox_labels[] = {"OBJECT PROPERTIES", "ID.", "MASS.", "POS.XY", "VEL.XY", "ACCEL.XY", "MOMEN.XY"};
-    // String64 **state_map_str[] = {NULL, &G_UIState.lpanel_properties_id_str, &G_UIState.lpanel_properties_mass_str, &G_UIState.lpanel_properties_pos_str, &G_UIState.lpanel_properties_vel_str, &G_UIState.lpanel_properties_accel_str, &G_UIState.lpanel_properties_moment_str};
-    UIElement **state_map_tbox[] = {NULL, &G_UIState.lpanel_properties_id_tbox, &G_UIState.lpanel_properties_mass_tbox, &G_UIState.lpanel_properties_pos_tbox, &G_UIState.lpanel_properties_vel_tbox, &G_UIState.lpanel_properties_accel_tbox, &G_UIState.lpanel_properties_moment_tbox};
+    // String64 **state_map_str[] = {NULL, &G_UIState.lpanel_entity_state_id_str, &G_UIState.lpanel_entity_state_mass_str, &G_UIState.lpanel_entity_state_pos_str, &G_UIState.lpanel_entity_state_vel_str, &G_UIState.lpanel_entity_state_accel_str, &G_UIState.lpanel_entity_state_moment_str};
+    UIElement **state_map_tbox[] = {NULL, &G_UIState.lpanel_entity_state_id_tbox, &G_UIState.lpanel_entity_state_mass_tbox, &G_UIState.lpanel_entity_state_pos_tbox, &G_UIState.lpanel_entity_state_vel_tbox, &G_UIState.lpanel_entity_state_accel_tbox, &G_UIState.lpanel_entity_state_moment_tbox};
 
     // Create Title (Label)
     UIElement *title = CreateUIElementInTree(UI_ELEMENT_LABEL,
                                              (Size){tfield_default_dims, SIZE_FIXED},
-                                             lpanel_properties_tcont,
+                                             lpanel_entity_state_tcont,
                                              (Offset){ZERO_VECTOR_2D, OFFSET_FIXED},
                                              tfield_default_padding,
                                              COLOURLESS_RGBA, COLOURLESS_RGBA);
@@ -153,15 +149,15 @@ void InitObjectPropsContainer(void)
     {
         // 2. Calculate the local offset for this TextField within the container
         // Formula: (Spacing + Height) * index
-        float y_pos = lpanel_properties_tcont->child_spacing.y > 0 ? i * (lpanel_properties_tcont->child_spacing.y + tfield_default_dims.y) : i * lpanel_properties_tcont->child_spacing.y;
-        float x_pos = lpanel_properties_tcont->child_spacing.x > 0 ? i * (lpanel_properties_tcont->child_spacing.x + tfield_default_dims.x) : i * lpanel_properties_tcont->child_spacing.x;
+        float y_pos = lpanel_entity_state_tcont->child_spacing.y > 0 ? i * (lpanel_entity_state_tcont->child_spacing.y + tfield_default_dims.y) : i * lpanel_entity_state_tcont->child_spacing.y;
+        float x_pos = lpanel_entity_state_tcont->child_spacing.x > 0 ? i * (lpanel_entity_state_tcont->child_spacing.x + tfield_default_dims.x) : i * lpanel_entity_state_tcont->child_spacing.x;
 
         Vector2d tfield_offset = (Vector2d){x_pos, y_pos};
 
         // 3. Create the TextField
         UIElement *tfield = CreateTextFieldInTree(
             (Size){tfield_default_dims, SIZE_FIXED},
-            lpanel_properties_tcont,
+            lpanel_entity_state_tcont,
             (Offset){tfield_offset, OFFSET_FIXED},
             tfield_default_padding,
             tbox_tlabel_default_offset,
@@ -191,12 +187,14 @@ void InitObjectPropsContainer(void)
             input_child->type = UI_ELEMENT_TEXTBOX_SAFE_IO; // Will only save over previous text if ENTER is pressed
 
             // ID will be output-only
-            printf("[DEBUG CONTEXT] Address: %p | Raw Value: %d\n", (void*)&i, i);
-            if (i == 1){
+            printf("[DEBUG CONTEXT] Address: %p | Raw Value: %d\n", (void *)&i, i);
+            if (i == 1)
+            {
                 input_child->type = UI_ELEMENT_TEXTBOX_O;
                 input_child->data.textbox.data_type = FLOAT;
             }
-            if (i > 2){
+            if (i > 2)
+            {
                 input_child->data.textbox.data_type = VECTOR2D;
             }
             else
@@ -210,6 +208,86 @@ void InitObjectPropsContainer(void)
             {
                 // Dereference once (*) to overwrite the actual pointer inside G_UIState
                 *global_ptr_address = input_child;
+            }
+        }
+    }
+}
+
+void InitCellStateContainer(void)
+{
+    // 1. Create the Container (The Parent)
+    // Note: We use an offset relative to lpanel_root, NOT an absolute origin.
+    lpanel_cell_state_tcont = CreateTextFieldContainerInTree(
+        (Size){tcont_default_dims, SIZE_PERCENT},
+        lpanel_root,
+        (Offset){lpanel_cell_state_tcont_offset, OFFSET_FIXED}, // Relative to lpanel_root
+        tcont_default_padding,
+        tcont_default_child_spacing,
+        tcont_default_colour_border,
+        tcont_default_colour_fill);
+    lpanel_cell_state_tcont->is_draggable = true;
+
+    char *tbox_labels[] = {"CELL STATE", "INDEX", "OCCUP.", "VALUE", "FILL"};
+    String64 **state_map_str[] = {NULL, &G_UIState.lpanel_cell_state_index_str, &G_UIState.lpanel_cell_state_occu_str, &G_UIState.lpanel_cell_state_value_str, &G_UIState.lpanel_cell_state_fill_str};
+
+    // Create Title (Label)
+    UIElement *title = CreateUIElementInTree(UI_ELEMENT_LABEL,
+                                             (Size){tfield_default_dims, SIZE_FIXED},
+                                             lpanel_cell_state_tcont,
+                                             (Offset){ZERO_VECTOR_2D, OFFSET_FIXED},
+                                             tfield_default_padding,
+                                             COLOURLESS_RGBA, COLOURLESS_RGBA);
+    strncpy(title->data.label.text.string, tbox_labels[0], MAX_LABEL_CHARS - 1);
+    title->data.label.text.string[MAX_LABEL_CHARS - 1] = '\0';
+    title->data.label.font = FONT_BASIC;
+    title->is_draggable = true;
+
+    for (int i = 1; i < 5; i++)
+    {
+        // 2. Calculate the local offset for this TextField within the container
+        // Formula: (Spacing + Height) * index
+        float y_pos = lpanel_cell_state_tcont->child_spacing.y > 0 ? i * (lpanel_cell_state_tcont->child_spacing.y + tfield_default_dims.y) : i * lpanel_cell_state_tcont->child_spacing.y;
+        float x_pos = lpanel_cell_state_tcont->child_spacing.x > 0 ? i * (lpanel_cell_state_tcont->child_spacing.x + tfield_default_dims.x) : i * lpanel_cell_state_tcont->child_spacing.x;
+
+        Vector2d tfield_offset = (Vector2d){x_pos, y_pos};
+
+        // 3. Create the TextField
+        UIElement *tfield = CreateTextFieldInTree(
+            (Size){tfield_default_dims, SIZE_FIXED},
+            lpanel_cell_state_tcont,
+            (Offset){tfield_offset, OFFSET_FIXED},
+            tfield_default_padding,
+            tbox_tlabel_default_offset,
+            COLOURLESS_RGBA, COLOURLESS_RGBA);
+        tfield->is_draggable = true;
+
+        // 4. Access Children via the Tree
+        UIElement *label_child = tfield->first_child;
+        UIElement *input_child = (label_child) ? label_child->next_sibling : NULL;
+
+        if (label_child && input_child)
+        {
+            // Configure Label
+            label_child->padding = tbox_default_padding;
+            label_child->colour_border = tbox_default_colour_border;
+            label_child->colour_fill = tbox_default_colour_fill;
+            label_child->data.label.font = FONT_BASIC;
+
+            strncpy(label_child->data.label.text.string, tbox_labels[i], MAX_LABEL_CHARS - 1);
+            label_child->data.label.text.string[MAX_LABEL_CHARS - 1] = '\0';
+
+            // Configure TextBox
+            input_child->padding = tbox_default_padding;
+            input_child->colour_border = tbox_default_colour_border;
+            input_child->colour_fill = tbox_default_colour_fill;
+            input_child->data.textbox.font = FONT_BASIC;
+            input_child->type = UI_ELEMENT_TEXTBOX_O; // Will only save over previous text if ENTER is pressed
+            String64 **global_ptr_address = state_map_str[i];
+            // UIElement **global_ptr_address = state_map_str[i];
+            if (global_ptr_address != NULL)
+            {
+                // Dereference once (*) to overwrite the actual pointer inside G_UIState
+                *global_ptr_address = &input_child->data.textbox.text;
             }
         }
     }
@@ -231,7 +309,6 @@ void InitStatsContainer(void)
 
     char *tbox_labels[] = {"STATISTICS", "POLYOIDS.", "FPS.", "MEM."};
     String64 **state_map_str[] = {NULL, &G_UIState.lpanel_stats_polygs_str, &G_UIState.lpanel_stats_fps_str, &G_UIState.lpanel_stats_mem_str};
-    // UIElement **state_map_tbox[] = {NULL, &G_UIState.lpanel_properties_id_tbox, &G_UIState.lpanel_properties_mass_tbox, &G_UIState.lpanel_properties_pos_tbox, &G_UIState.lpanel_properties_vel_tbox, &G_UIState.lpanel_properties_accel_tbox, &G_UIState.lpanel_properties_moment_tbox};
 
     // Create Title (Label)
     UIElement *title = CreateUIElementInTree(UI_ELEMENT_LABEL,
@@ -320,6 +397,7 @@ void UpdateGlobalUIState()
     float mbytes = bytes / (1024.0f * 1024.0f); // Force floating point division
     int polygs = GetPolygonoidCount();
 
+    // Only update every 30 frames, unnecessary to do every frame
     if (frame_counter.total_frames % 30 == 0)
     {
         snprintf(G_UIState.lpanel_stats_fps_str->string, sizeof(String64), "%.1f", fps);
@@ -327,15 +405,18 @@ void UpdateGlobalUIState()
         snprintf(G_UIState.lpanel_stats_polygs_str->string, sizeof(String64), "%d", polygs);
     }
 
-    if (frame_counter.total_frames % 500 == 0)
+    // DEBUG----
+    if (frame_counter.total_frames % 900 == 0)
     {
-        printf("[Telemetry Update] FPS: %s | MEM: %s | POLY: %s\n",
+        printf("[Telemetry Update] FPS: %s | MEM: %0.1f | POLY: %s\n",
                G_UIState.lpanel_stats_fps_str->string,
+               mbytes * 1024,
                G_UIState.lpanel_stats_mem_str->string,
                G_UIState.lpanel_stats_polygs_str->string);
     }
+    // ----DEBUG //
 
-    // UPDATE SELECTED OBJECT PROPERTIES
+    // COLLECT & UPDATE SELECTED ENTITY PROPERTIES
     Polygonoid *obj = G_WorldState.selected_object;
     if (obj)
     {
@@ -347,56 +428,64 @@ void UpdateGlobalUIState()
         Vector2d mom = obj->newtonian_properties.momentum;
 
         // Bind selected_object data to the Object Properties TextBoxes
-        G_UIState.lpanel_properties_id_tbox->data.textbox.data_bind = &obj->id;
-        G_UIState.lpanel_properties_mass_tbox->data.textbox.data_bind = &obj->newtonian_properties.mass;
-        G_UIState.lpanel_properties_pos_tbox->data.textbox.data_bind = &obj->newtonian_properties.coords_origin;
-        G_UIState.lpanel_properties_vel_tbox->data.textbox.data_bind = &obj->newtonian_properties.velocity;
-        G_UIState.lpanel_properties_accel_tbox->data.textbox.data_bind = &obj->newtonian_properties.acceleration;
-        G_UIState.lpanel_properties_moment_tbox->data.textbox.data_bind = &obj->newtonian_properties.momentum;
+        G_UIState.lpanel_entity_state_id_tbox->data.textbox.data_bind = &obj->id;
+        G_UIState.lpanel_entity_state_mass_tbox->data.textbox.data_bind = &obj->newtonian_properties.mass;
+        G_UIState.lpanel_entity_state_pos_tbox->data.textbox.data_bind = &obj->newtonian_properties.coords_origin;
+        G_UIState.lpanel_entity_state_vel_tbox->data.textbox.data_bind = &obj->newtonian_properties.velocity;
+        G_UIState.lpanel_entity_state_accel_tbox->data.textbox.data_bind = &obj->newtonian_properties.acceleration;
+        G_UIState.lpanel_entity_state_moment_tbox->data.textbox.data_bind = &obj->newtonian_properties.momentum;
 
         size_t str_64 = sizeof(String64);
 
         // PIPELINE data to text only when the element is NOT focused
         // so that editing of the text by the user doesn't keep getting overwritten with the value stored in the object
-        if (!G_UIState.lpanel_properties_id_tbox->is_focused)
-        {
-            PipelineFloatToText(id, G_UIState.lpanel_properties_id_tbox->data.textbox.text.string, str_64);
-        }
-        if (!G_UIState.lpanel_properties_mass_tbox->is_focused)
-        {
-            PipelineFloatToText(mass, G_UIState.lpanel_properties_mass_tbox->data.textbox.text.string, str_64);
-        }
-        if (!G_UIState.lpanel_properties_pos_tbox->is_focused)
-        {
-            PipelineVectorToText(pos, G_UIState.lpanel_properties_pos_tbox->data.textbox.text.string, str_64);
-        }
-        if (!G_UIState.lpanel_properties_vel_tbox->is_focused)
-        {
-            PipelineVectorToText(vel, G_UIState.lpanel_properties_vel_tbox->data.textbox.text.string, str_64);
-        }
-        if (!G_UIState.lpanel_properties_accel_tbox->is_focused)
-        {
-            PipelineVectorToText(acc, G_UIState.lpanel_properties_accel_tbox->data.textbox.text.string, str_64);
-        }
-        if (!G_UIState.lpanel_properties_moment_tbox->is_focused)
-        {
-            PipelineVectorToText(mom, G_UIState.lpanel_properties_moment_tbox->data.textbox.text.string, str_64);
-        }
+        if (!G_UIState.lpanel_entity_state_id_tbox->is_focused)
+            PipelineNumberToText(id, 0, G_UIState.lpanel_entity_state_id_tbox->data.textbox.text.string, str_64);
+        if (!G_UIState.lpanel_entity_state_mass_tbox->is_focused)
+            PipelineNumberToText(mass, 2, G_UIState.lpanel_entity_state_mass_tbox->data.textbox.text.string, str_64);
+        if (!G_UIState.lpanel_entity_state_pos_tbox->is_focused)
+            PipelineVectorToText(pos, G_UIState.lpanel_entity_state_pos_tbox->data.textbox.text.string, str_64);
+        if (!G_UIState.lpanel_entity_state_vel_tbox->is_focused)
+            PipelineVectorToText(vel, G_UIState.lpanel_entity_state_vel_tbox->data.textbox.text.string, str_64);
+        if (!G_UIState.lpanel_entity_state_accel_tbox->is_focused)
+            PipelineVectorToText(acc, G_UIState.lpanel_entity_state_accel_tbox->data.textbox.text.string, str_64);
+        if (!G_UIState.lpanel_entity_state_moment_tbox->is_focused)
+            PipelineVectorToText(mom, G_UIState.lpanel_entity_state_moment_tbox->data.textbox.text.string, str_64);
     }
-    else // Reset their output buffers AND unbind
+    else // Reset the bounded textbox output buffers AND unbind
     {
-        G_UIState.lpanel_properties_id_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_properties_mass_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_properties_pos_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_properties_vel_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_properties_accel_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_properties_moment_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_properties_id_tbox->data.textbox.data_bind = NULL;
-        G_UIState.lpanel_properties_mass_tbox->data.textbox.data_bind = NULL;
-        G_UIState.lpanel_properties_pos_tbox->data.textbox.data_bind = NULL;
-        G_UIState.lpanel_properties_vel_tbox->data.textbox.data_bind = NULL;
-        G_UIState.lpanel_properties_accel_tbox->data.textbox.data_bind = NULL;
-        G_UIState.lpanel_properties_moment_tbox->data.textbox.data_bind = NULL;
+        G_UIState.lpanel_entity_state_id_tbox->data.textbox.text.string[0] = '\0';
+        G_UIState.lpanel_entity_state_mass_tbox->data.textbox.text.string[0] = '\0';
+        G_UIState.lpanel_entity_state_pos_tbox->data.textbox.text.string[0] = '\0';
+        G_UIState.lpanel_entity_state_vel_tbox->data.textbox.text.string[0] = '\0';
+        G_UIState.lpanel_entity_state_accel_tbox->data.textbox.text.string[0] = '\0';
+        G_UIState.lpanel_entity_state_moment_tbox->data.textbox.text.string[0] = '\0';
+        G_UIState.lpanel_entity_state_id_tbox->data.textbox.data_bind = NULL;
+        G_UIState.lpanel_entity_state_mass_tbox->data.textbox.data_bind = NULL;
+        G_UIState.lpanel_entity_state_pos_tbox->data.textbox.data_bind = NULL;
+        G_UIState.lpanel_entity_state_vel_tbox->data.textbox.data_bind = NULL;
+        G_UIState.lpanel_entity_state_accel_tbox->data.textbox.data_bind = NULL;
+        G_UIState.lpanel_entity_state_moment_tbox->data.textbox.data_bind = NULL;
+    }
+
+    // COLLECT & UPDATE SELECTED CELL PROPERTIES
+    Cell *cell = G_WorldState.selected_cell;
+    if (cell)
+    {
+        int index = GetIndexFromCoords(&G_WorldState.world_coord_space->coord_space, cell->coords_center);
+        int occu = cell->occupancy;
+        float val = cell->value;
+        float fill = 0; // set to 0 for now
+
+        // Write to selected_cell data to the Cell State TextBoxes via Global State
+        snprintf(G_UIState.lpanel_cell_state_index_str->string, sizeof(String64), "%d", index);
+        snprintf(G_UIState.lpanel_cell_state_occu_str->string, sizeof(String64), "%d", occu);
+        snprintf(G_UIState.lpanel_cell_state_value_str->string, sizeof(String64), "%0.1f", val);
+        snprintf(G_UIState.lpanel_cell_state_fill_str->string, sizeof(String64), "%0.1f", fill);
+    }
+    else // TODO: Reset the bounded textbox output buffers AND unbind
+    {
+        // Setup like in the Entity State output
     }
 }
 
@@ -460,12 +549,12 @@ void UpdatePanelRegion(int mouse_x, int mouse_y, bool cursor_in_region)
     // offset += snprintf(log + offset, sizeof(log) - offset, "Region: Panel (%.1f, %.1f) --> Cell %d (%.1f, %.1f) --> ", lpanel_pixel_origin.x, lpanel_pixel_origin.y, cell_index, cell.coords.x, cell.coords.y);
 
     // Loop through all properties text boxes and apply focus if the clicked_coords are within a text_box, otherwise set focus --> false
-    // UIElement **tfields = (UIElement **)lpanel_properties_tcont->children.items; //.coll;
+    // UIElement **tfields = (UIElement **)lpanel_entity_state_tcont->children.items; //.coll;
     // UIElement *e = NULL;
-    // int tfield_count = lpanel_properties_tcont->children.count;
+    // int tfield_count = lpanel_entity_state_tcont->children.count;
     // Vector2d vertices[4] = {0};
     // bool any_focus = false;
-    // if (lpanel_properties_tcont->children.count > 0)
+    // if (lpanel_entity_state_tcont->children.count > 0)
     // {
     //     for (int i = 0; i < tfield_count; i++)
     //     {
@@ -480,7 +569,7 @@ void UpdatePanelRegion(int mouse_x, int mouse_y, bool cursor_in_region)
     //             any_focus = true;
     //             offset += snprintf(log + offset, sizeof(log) - offset, "Element: TextBox (%.1f, %.1f)", click_panel_coords.x, click_panel_coords.y);
     //             break;
-    //             // printf("Clicked on object properties text box! Text box properties - Position: (%.1f, %.1f), Dimensions: (%.1f, %.1f)\n", lpanel_properties_tbox.origin.x, lpanel_properties_tbox.origin.y, lpanel_properties_tbox.width, lpanel_properties_tbox.height);
+    //             // printf("Clicked on object properties text box! Text box properties - Position: (%.1f, %.1f), Dimensions: (%.1f, %.1f)\n", lpanel_entity_state_tbox.origin.x, lpanel_entity_state_tbox.origin.y, lpanel_entity_state_tbox.width, lpanel_entity_state_tbox.height);
     //         }
     //     }
     // }
@@ -505,7 +594,7 @@ void UpdatePanelRegion(int mouse_x, int mouse_y, bool cursor_in_region)
     //             any_focus = true;
     //             offset += snprintf(log + offset, sizeof(log) - offset, "Element: TextBox (%.1f, %.1f)", click_panel_coords.x, click_panel_coords.y);
     //             break;
-    //             // printf("Clicked on object properties text box! Text box properties - Position: (%.1f, %.1f), Dimensions: (%.1f, %.1f)\n", lpanel_properties_tbox.origin.x, lpanel_properties_tbox.origin.y, lpanel_properties_tbox.width, lpanel_properties_tbox.height);
+    //             // printf("Clicked on object properties text box! Text box properties - Position: (%.1f, %.1f), Dimensions: (%.1f, %.1f)\n", lpanel_entity_state_tbox.origin.x, lpanel_entity_state_tbox.origin.y, lpanel_entity_state_tbox.width, lpanel_entity_state_tbox.height);
     //         }
     //     }
     // }

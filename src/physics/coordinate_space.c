@@ -30,7 +30,7 @@ CoordSpace2d_Grid NewCoordSpace2d_Grid(Vector2d origin, Vector2d resolution_ixj,
    space_obj.colour_line = colour_line;
    space_obj.colour_fill = colour_fill;
 
-   Surface2d surface = CreateSurface_Rectangular(resolution_ixj);
+   Surface2d surface = CreateSurface_Rectangular(resolution_ixj, ZERO_VECTOR_2D);
 
    space_obj.object = CreateNewtonObject2d_Static(origin, surface);
    return space_obj;
@@ -96,8 +96,6 @@ void InitUnitCells(CoordSpace2d *space)
    {
       int i = k / stepsU; // Row index (based on horizontal lines)
       int j = k % stepsU; // Column index (based on vertical lines)
-      // Cell *cell = (Cell *)((char *)cells->items + (k * cells->elemSize));
-      // Vector2d cell_coords = cell->coords;
 
       Cell cell = {0}; // Create a new cell and initialize it to zero
 
@@ -107,11 +105,11 @@ void InitUnitCells(CoordSpace2d *space)
       Vector2d displacement = {scaled_u.x + scaled_v.x, scaled_u.y + scaled_v.y};
 
       // Add the displacement vector to the origin to get the coordinates of the cell
-      cell.coords.x = coords_origin.x + displacement.x;
-      cell.coords.y = coords_origin.y + displacement.y;
-
-      // cell.value = 0.0f;  // Initialize the cell value to 0
-      // cell.occupancy = 0; // Initialize the cell occupancy to 0
+      cell.coords_origin.x = coords_origin.x + displacement.x;
+      cell.coords_origin.y = coords_origin.y + displacement.y;
+      // Centre will always be 0.5 basis units since a cell is by definition the object representing the 2 basis vectors
+      cell.coords_center.x = cell.coords_origin.x + (0.5 * (space->basis.u.x + space->basis.v.x)); 
+      cell.coords_center.y = cell.coords_origin.y + (0.5 * (space->basis.u.y + space->basis.v.y));
 
       // Write the cell to the array
       Cell *address = (Cell *)((char *)cells->items + (k * cells->elem_bytes));
@@ -141,7 +139,7 @@ Cell *GetCellFromCoords(CoordSpace2d *space, Vector2d coords)
 Matrix2x2 GetObjectFootprint_AsBox(Basis2d coord_space_basis, Surface2d object_surface)
 {
    // Min area of effect will be the cell in the middle + all bordering cells - this will apply if the obj width and height are < cell width and height
-   Matrix2x2 obj_box = GetBoxedCoords(&object_surface.surface_vectors);
+   Matrix2x2 obj_box = GetBoxedCoords(&object_surface.surface_vectors, ZERO_VECTOR_2D);
    float cell_w = coord_space_basis.u.x + coord_space_basis.v.x;
    float cell_h = coord_space_basis.u.y + coord_space_basis.v.y;
 
@@ -161,7 +159,7 @@ Matrix2x2 GetObjectFootprint_AsBox(Basis2d coord_space_basis, Surface2d object_s
 Surface2d GetObjectFootprint_AsSurface(Basis2d coord_space_basis, Surface2d object_surface)
 {
    // Min area of effect will be the cell in the middle + all bordering cells - this will apply if the obj width and height are < cell width and height
-   Vector2d obj_midpoint = GetObjectCentre(object_surface);
+   Vector2d obj_midpoint = GetGeometricCentre_FromSurface(object_surface, ZERO_VECTOR_2D);
    float cell_w = coord_space_basis.u.x + coord_space_basis.v.x;
    float cell_h = coord_space_basis.u.y + coord_space_basis.v.y;
 

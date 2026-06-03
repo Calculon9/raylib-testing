@@ -16,18 +16,18 @@
 // Functions Definition
 //----------------------------------------------------------------------------------
 
-NewtonObject2d CreateNewtonObject2d(size_t mass, Vector2d origin, Vector2d velocity, Vector2d acceleration, Surface2d surface)
+NewtonObject2d CreateNewtonObject2d(size_t mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration, Surface2d surface)
 {
    NewtonObject2d newtOb = {0};
    // Initialize the NewtonObject2d properties here (e.g., set world_position, velocity, etc.)
    newtOb.mass = mass;
-   newtOb.inverseMass = 1.0f / mass;
-   newtOb.coords_origin = origin;
+   newtOb.inverse_mass = 1.0f / mass;
+   //newtOb.coords_origin = coords_center;
    newtOb.velocity = velocity;
    newtOb.acceleration = acceleration;
    newtOb.surface = surface;
    newtOb.boxed_dimensions = GetBoxedDimensions(&surface.surface_vectors);
-   newtOb.coords_center = (Vector2d){origin.x + (newtOb.boxed_dimensions.x / 2), origin.y + (newtOb.boxed_dimensions.y / 2)};
+   newtOb.coords_center = coords_center;// (Vector2d){origin.x + (newtOb.boxed_dimensions.x / 2), origin.y + (newtOb.boxed_dimensions.y / 2)};
    // Initialize momentum based on mass and velocity
    printf("CREATED OBJECT BOX: Top-Left (%.2f, %.2f) Bottom-Right (%.2f, %.2f)\n",
           newtOb.coords_origin.x,
@@ -38,14 +38,14 @@ NewtonObject2d CreateNewtonObject2d(size_t mass, Vector2d origin, Vector2d veloc
 }
 
 // Creates an immobile, massless NewtonObject at the assigned world_position
-NewtonObject2d CreateNewtonObject2d_Static(Vector2d origin, Surface2d surface)
+NewtonObject2d CreateNewtonObject2d_Static(Vector2d coords_center, Surface2d surface)
 {
    NewtonObject2d newtOb = {0};
    // Initialize the NewtonObject2d properties here (e.g., set world_position, velocity, etc.)
    newtOb.mass = 0.0;
-   newtOb.inverseMass = 0.0;
-   newtOb.coords_origin = origin;
-   newtOb.coords_center = origin; // For now we will assume the center is the same as the world_position, but this can be adjusted later if we want to define the world_position of the object based on its surface or some other point
+   newtOb.inverse_mass = 0.0;
+   //newtOb.coords_origin = origin;
+   newtOb.coords_center = coords_center;
    newtOb.surface = surface;
    // newtOb.id = id;
 
@@ -72,39 +72,6 @@ void CalculateVectors(NewtonObject2d *object, float deltaTime)
    // }
 }
 
-// Creates surface vectors with an offset of 0. Apply to an object's coords to associate the returned surface with it.
-// 4----3
-// |    |
-// 1----2
-Surface2d CreateSurface_Rectangular(Vector2d dimensions)
-{
-   Surface2d surf = {0};
-   surf.surface_vectors.items = calloc(4, sizeof(Vector2d));
-   surf.surface_vectors.capacity = 4;
-   surf.surface_vectors.count = 0;
-   surf.surface_vectors.elem_bytes = sizeof(Vector2d);
-
-   // Calculate the half-extents
-   float hx = dimensions.x / 2.0f;
-   float hy = dimensions.y / 2.0f;
-
-   // Define the 4 corners relative to a center point of (0,0)
-   // Typically ordered clockwise or counter-clockwise
-   Vector2d vertices[4] = {
-      { -hx, -hy }, // Top-Left corner
-      {  hx, -hy }, // Top-Right corner
-      {  hx,  hy }, // Bottom-Right corner
-      { -hx,  hy }  // Bottom-Left corner
-   };
-
-   // Push the centered vertices into the dynamic array
-   for (int i = 0; i < 4; i++)
-   {
-      LArray_Push(&surf.surface_vectors, &vertices[i]);
-   }
-
-   return surf;
-}
 
 // Vector2d CalculateCenterRelativeToOrigin_Fast(NewtonObject2d *object)
 // {
@@ -159,17 +126,3 @@ Surface2d CreateSurface_Rectangular(Vector2d dimensions)
 //    return box_coords;
 // }
 
-Vector2d GetObjectCentre(Surface2d object_surface)
-{
-   Vector2d mid = {0};
-   if (object_surface.surface_vectors.items != NULL)
-   {
-      Matrix2x2 box_coords = GetBoxedCoords(&object_surface.surface_vectors);
-      float mid_x = (box_coords.col1.x + box_coords.col2.x) / 2;
-      float mid_y = (box_coords.col1.y + box_coords.col2.y) / 2;
-      mid.x = mid_x;
-      mid.y = mid_y;
-   }
-
-   return mid;
-}

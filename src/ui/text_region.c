@@ -22,7 +22,7 @@ void DrawChar(char c, Vector2d origin_coords, int scale, Bitmap_Font font, Colou
 bool IsFocused(Vector2d pixel_coords, Vector2d *vertices, int vertex_count)
 {
     // Vector2d *vertices = polygon->vertices.coll.items;
-    return IsPointInPolygon(pixel_coords, vertices, vertex_count);
+    return IsPointInPolygon(pixel_coords, vertices, ZERO_VECTOR_2D, vertex_count);
 }
 
 // Ensure the dimensions and label_tbox_offset values are the same SIZE_MODE (e.g., fixed, percentage)

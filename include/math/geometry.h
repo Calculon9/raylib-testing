@@ -23,11 +23,10 @@ typedef struct {
     LArray vertices;
 } Polygon;
 
-// typedef struct Matrix2d {
-//      DynamicArray *items; // The flat array of data
-//      int cols;        // Number of columns
-//      int rows;        // Number of rows
-//  } Matrix2d;
+// 2D Surface Properties
+typedef struct Surface2d {
+    LArray surface_vectors; // Sorted vectors (vector[i] connects to vector[i+1]) defining the points & shape of the object's surface
+} Surface2d;
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
@@ -36,13 +35,18 @@ typedef struct {
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-Matrix2x2 GetBoxedCoords(LArray *vertices);
+Surface2d CreateSurface_Rectangular(Vector2d dimensions, Vector2d vertice_offset);
+Matrix2x2 GetBoxedCoords(LArray *vertices, Vector2d vertice_offset);
 Vector2d GetBoxedDimensions(LArray *vertices);
 Vector2d GetCenteredBoxOffset(Vector2d box_a_dimensions, Vector2d box_b_dimensions);
+Vector2d GetGeometricCentre_FromBox(Matrix2x2 box_coords);
+Vector2d GetGeometricCentre_FromSurface(Surface2d object_surface, Vector2d vertice_offset);
 void CenterVerticesToExtents(LArray *points);
 void NormaliseVerticesToLocal(LArray *points);
-bool IsPointInPolygon(Vector2d point, Vector2d* vertices, int count);
-bool ShapeFitsWithinShape(LArray *shape1_vertices, LArray *shape2_vertices);
+bool IsPointInPolygon(Vector2d point, Vector2d *polygon_vertices, Vector2d vertice_offset, int vertice_count);
+bool ShapeFitsWithinShape(LArray *shape1_vertices, LArray *shape2_vertices, Vector2d shape1_vertice_offset, Vector2d shape2_vertice_offset);
 bool BoxFitsWithinBox(Matrix2x2 box1, Matrix2x2 box2);
+Matrix2x2 BoxIntersectionPointsWithBox(Matrix2x2 box1, Matrix2x2 box2);
+LArray ShapeAVerticesInShapeB(LArray *shape1_vertices, LArray *shape2_vertices, Vector2d shape1_vertice_offset, Vector2d shape2_vertice_offset);
 
 #endif

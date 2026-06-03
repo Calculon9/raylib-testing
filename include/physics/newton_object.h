@@ -41,11 +41,6 @@ typedef struct Momentum2d {
     float magnitude;
 } Momentum2d;
 
-// 2D Surface Properties
-typedef struct Surface2d {
-    LArray surface_vectors; // Sorted vectors (vector[i] connects to vector[i+1]) defining the points & shape of the object's surface
-} Surface2d;
-
 typedef struct Box2d {
     Vector2d coords;      // Top-Left or Center Origin (We will assume Top-Left here)
     Vector2d dimensions;  // Width (x) and Height (y)
@@ -62,7 +57,7 @@ typedef struct NewtonObject2d {
     Surface2d surface;
     Surface2d footprint;
     float mass;
-    float inverseMass;
+    float inverse_mass;
 } NewtonObject2d;
 
 typedef struct NewtonObject2d_Static {
@@ -70,7 +65,7 @@ typedef struct NewtonObject2d_Static {
     Vector2d coords_origin;
     Surface2d surface; 
     float mass;
-    float inverseMass;
+    float inverse_mass;
 } NewtonObject2d_Static;
 
 typedef enum {
@@ -91,11 +86,10 @@ typedef enum {
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 
-NewtonObject2d CreateNewtonObject2d(size_t mass, Vector2d origin, Vector2d velocity, Vector2d acceleration, Surface2d surface);
-NewtonObject2d CreateNewtonObject2d_Static(Vector2d origin, Surface2d surface);
-Surface2d CreateSurface_Rectangular(Vector2d resolution);
+NewtonObject2d CreateNewtonObject2d(size_t mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration, Surface2d surface);
+NewtonObject2d CreateNewtonObject2d_Static(Vector2d coords_center, Surface2d surface);
 void CalculateVectors(NewtonObject2d *object, float deltaTime);
-Matrix2x2 FindBoxedCoords(DArray vertices);
-Vector2d GetObjectCentre(Surface2d object_surface);
+//Matrix2x2 FindBoxedCoords(DArray vertices);
+//Vector2d GetObjectCentre(Surface2d object_surface);
 
 #endif
