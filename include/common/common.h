@@ -15,6 +15,7 @@ COMMON MODULE
 #include <stddef.h>
 #include <stdint.h>
 #include <math.h>
+#include <time.h>
 #include "memory/cmemory.h"
 #include "math/cvectors.h"
 #include "collections/dynamic_array.h"

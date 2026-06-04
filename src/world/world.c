@@ -17,14 +17,14 @@
 // Physical state variables
 static int next_id = 1;      // Global variable to keep track of the next available ID for NewtonObjects
 static float gravity = 9.8f; // Gravitational acceleration (m/s^2)
-//static float field = {0};
+// static float field = {0};
 
 //----------------------------------------------------------------------------------
 // Functions Definition
 //----------------------------------------------------------------------------------
 bool CheckForCollision(NewtonObject2d a, NewtonObject2d b);
-//void UpdateWorldState(Collection *objects, CoordSpace2d *space, float delta_time);
-// void UpdateObjectVectors(Collection *objects, float delta_time);
+// void UpdateWorldState(Collection *objects, CoordSpace2d *space, float delta_time);
+//  void UpdateObjectVectors(Collection *objects, float delta_time);
 
 World2d CreateWorld(CoordSpace2d_Grid space_obj, float gravity)
 {
@@ -44,30 +44,32 @@ void AddObjectToWorld(World2d *world, Polygonoid *object)
    Vector2d object_coords = object->newtonian_properties.coords_center; // These are the world coordinates of the object, which are the cell indices
    int cell_index = ((int)object_coords.y * (int)world->coord_space_grid.coord_space.resolution_ixj.x) + (int)object_coords.x;
 
-   // Add the object's ID to the cell's object_ids array if there is space
+   // Add the object's ID to the cell's object_ids array if there is space, and update the object's footprint based on its surface and the coordinate space's basis vectors.
+   //  We also need to update the occupancy of the cell and ensure that we don't exceed the maximum
    Cell *cells = world->coord_space_grid.coord_space.cells.items;
    Cell *target_cell = &cells[cell_index];
-
    if (target_cell->occupancy < MAX_CELL_OCCUPANCY)
    {
       object->id = world->next_object_id++;
       target_cell->object_ids[target_cell->occupancy] = object->id;
       target_cell->occupancy++;
+      object->newtonian_properties.footprint = CalculateSnappedAABB(world->coord_space_grid.coord_space.basis, object->newtonian_properties.surface, ZERO_VECTOR_2D);
    }
    else
    {
       printf("WARNING: Cell %d full. ID %d not tracked spatially.\n", cell_index, object->id);
       return;
-   }
+   }//0xcf7aa90
 
    // Add the newton_object to the world's objects array
    LArray_Push(&world->objects, object);
 
-   printf("CREATED OBJECT (ID %d): Cell %d (%.1f, %.1f)\n", object->id, cell_index, object_coords.x, object_coords.y);
+   printf("CREATED OBJECT (ID %d): Cell %d : Center(%.1f, %.1f)\n", object->id, cell_index, object_coords.x, object_coords.y);
 }
 
 void UpdateWorld(World2d *world, float delta_time)
 {
+   return;
    LArray objects = world->objects; //.items;
    int obj_count = objects.count;
    // 1. Update Object state first
@@ -115,7 +117,7 @@ void UpdateWorld(World2d *world, float delta_time)
          CalculateVectors(obj, delta_time); // Still update the object's vectors based on its acceleration and velocity so that it can move back into the bounds of the world
          continue;
       }
-
+      
       // Add the object's ID to the cell's object_ids array if there is space
       Cell *target_cell = GetCellFromCoords(&world->coord_space_grid.coord_space, polygonoids[i].newtonian_properties.coords_center);
       int cell_index = GetIndexFromCoords(&world->coord_space_grid.coord_space, target_cell->coords_origin);
@@ -130,28 +132,25 @@ void UpdateWorld(World2d *world, float delta_time)
       float obj_width = max_coords.x - min_coords.x;
       float obj_height = max_coords.y - min_coords.y;
 
-      float obj_cell_width_ratio = obj_width/world->coord_space_grid.coord_space.basis.u.x;
-      float obj_cell_height_ratio = obj_width/world->coord_space_grid.coord_space.basis.v.y;
+      // Get cell indices (snapped to them when the object center oords are the offset for CalculateSnappedAABB)
+      Surface2d snapped_aabb = CalculateSnappedAABB(world->coord_space_grid.coord_space.basis, obj->surface, obj->coords_center);
+      Now get array segments corresponding to all the row segments of cells the object is in.
+      //float obj_cell_width_ratio = obj_width / world->coord_space_grid.coord_space.basis.u.x;
+      //float obj_cell_height_ratio = obj_width / world->coord_space_grid.coord_space.basis.v.y;
 
       // Min area of effect will be the cell in the middle + all bordering cells - this will apply if the obj width and height are < cell width and height
-      float start_x = min_coords.x - 1;
-      float end_x = max_coords.x + 1;
-      float start_y = min_coords.y - 1;
-      float end_y = max_coords.y + 1;
 
-      float obj_effect_width = end_x - start_x;
-      float obj_effect_height = end_y - start_y;
-      Vector2d area = (Vector2d){obj_effect_width, obj_effect_height};
-      Surface2d area_of_effect = CreateSurface_Rectangular(area, ZERO_VECTOR_2D);
+      //Vector2d area = (Vector2d){obj_effect_width, obj_effect_height};
+      //Surface2d area_of_effect = CreateSurface_Rectangular(area, ZERO_VECTOR_2D);
       // Otherwise, ..
       // if(obj_width < world->coord_space_grid.coord_space.basis.u.x)
       // {
 
       // }
-      //float min_cell_x = min_coords.x;
-      //float max_cell_x = max_coords.x;
-      //float min_cell_y = min_coords.y;
-      //float max_cell_y = max_coords.y;
+      // float min_cell_x = min_coords.x;
+      // float max_cell_x = max_coords.x;
+      // float min_cell_y = min_coords.y;
+      // float max_cell_y = max_coords.y;
 
       // int start_i = GetIndexFromCoords(&world->coord_space_grid.coord_space, (Vector2d){min_cell_x + obj->coords_origin.x, min_cell_y + obj->coords_origin.y});
       // int end_i = GetIndexFromCoords(&world->coord_space_grid.coord_space, (Vector2d){max_cell_x + obj->coords_origin.x, max_cell_y + obj->coords_origin.y});
@@ -392,64 +391,64 @@ void UpdateWorld(World2d *world, float delta_time)
 //    // UpdateWorldState(objs, &world->coord_space_grid.coord_space, delta_time);
 // }
 
-//void UpdateWorldState(Collection *polygonoids, CoordSpace2d *space, float delta_time)
+// void UpdateWorldState(Collection *polygonoids, CoordSpace2d *space, float delta_time)
 //{
-   // // 1. Update Object state first
-   // // 1.1 Update Grid cells while we're here
-   // if (polygonoids->count < 1)
-   //    return;
+//  // 1. Update Object state first
+//  // 1.1 Update Grid cells while we're here
+//  if (polygonoids->count < 1)
+//     return;
 
-   // // Zero out the occupancy and object_ids of all cells in the grid before we update them based on the new positions of the objects
-   // Cell *cells = space->cells.coll.items;
-   // for (size_t i = 0; i < space->cells.coll.count; i++)
-   // {
-   //    cells[i].occupancy = 0;
-   //    memset(cells[i].object_ids, 0, sizeof(cells[i].object_ids));
-   // }
+// // Zero out the occupancy and object_ids of all cells in the grid before we update them based on the new positions of the objects
+// Cell *cells = space->cells.coll.items;
+// for (size_t i = 0; i < space->cells.coll.count; i++)
+// {
+//    cells[i].occupancy = 0;
+//    memset(cells[i].object_ids, 0, sizeof(cells[i].object_ids));
+// }
 
-   // Polygonoid *pts = (Polygonoid *)polygonoids->items;
-   // for (size_t i = 0; i < polygonoids->count; i++)
-   // {
-   //    // NO COPYING. Point directly to the source in the heap.
-   //    CalculateVectors(&pts[i].newtonian_properties, delta_time);
-   //    // Add the object's ID to the cell's object_ids array if there is space
+// Polygonoid *pts = (Polygonoid *)polygonoids->items;
+// for (size_t i = 0; i < polygonoids->count; i++)
+// {
+//    // NO COPYING. Point directly to the source in the heap.
+//    CalculateVectors(&pts[i].newtonian_properties, delta_time);
+//    // Add the object's ID to the cell's object_ids array if there is space
 
-   //    Cell *target_cell = GetCellFromCoords(space, pts[i].newtonian_properties.coords_origin);
+//    Cell *target_cell = GetCellFromCoords(space, pts[i].newtonian_properties.coords_origin);
 
-   //    if (target_cell != NULL && target_cell->occupancy < MAX_CELL_OCCUPANCY)
-   //    {
-   //       object->id = world->next_object_id++;
-   //       target_cell->object_ids[target_cell->occupancy] = object->id;
-   //       target_cell->occupancy++;
-   //    }
-   //    else
-   //    {
-   //       printf("WARNING: Cell %d full. ID %d not tracked spatially.\n", cell_index, object->id);
-   //       return;
-   //    }
-   // }
+//    if (target_cell != NULL && target_cell->occupancy < MAX_CELL_OCCUPANCY)
+//    {
+//       object->id = world->next_object_id++;
+//       target_cell->object_ids[target_cell->occupancy] = object->id;
+//       target_cell->occupancy++;
+//    }
+//    else
+//    {
+//       printf("WARNING: Cell %d full. ID %d not tracked spatially.\n", cell_index, object->id);
+//       return;
+//    }
+// }
 
-   // // 2. Check for collisions
-   // if (polygonoids->count < 2)
-   //    return;
+// // 2. Check for collisions
+// if (polygonoids->count < 2)
+//    return;
 
-   // for (size_t i = 0; i < polygonoids->count; i++)
-   // {
-   //    for (size_t j = i + 1; j < polygonoids->count; j++) // Optimized j loop
-   //    {
-   //       Polygonoid *a = &pts[i];
-   //       Polygonoid *b = &pts[j];
+// for (size_t i = 0; i < polygonoids->count; i++)
+// {
+//    for (size_t j = i + 1; j < polygonoids->count; j++) // Optimized j loop
+//    {
+//       Polygonoid *a = &pts[i];
+//       Polygonoid *b = &pts[j];
 
-   //       bool colliding = CheckForCollision(a->newtonian_properties, b->newtonian_properties);
+//       bool colliding = CheckForCollision(a->newtonian_properties, b->newtonian_properties);
 
-   //       printf("COLLISION CHECK for A(%.0f,%.0f) B(%.0f,%.0f) = %s\n",
-   //              a->newtonian_properties.coords_origin.x,
-   //              a->newtonian_properties.coords_origin.y,
-   //              b->newtonian_properties.coords_origin.x,
-   //              b->newtonian_properties.coords_origin.y,
-   //              colliding ? "TRUE" : "FALSE");
-   //    }
-   // }
+//       printf("COLLISION CHECK for A(%.0f,%.0f) B(%.0f,%.0f) = %s\n",
+//              a->newtonian_properties.coords_origin.x,
+//              a->newtonian_properties.coords_origin.y,
+//              b->newtonian_properties.coords_origin.x,
+//              b->newtonian_properties.coords_origin.y,
+//              colliding ? "TRUE" : "FALSE");
+//    }
+// }
 //}
 
 // void UpdateObjectsAndGrid(Collection *polygonoids, float delta_time)

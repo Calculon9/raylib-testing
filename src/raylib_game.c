@@ -84,6 +84,9 @@ int main(void)
     InitGameplayScreen();
 
     frame_counter = InitFrameCounter();
+    
+    // Seed the random number generator using the current time
+    srand(time(NULL));
 
     // Setup and init first screen
     // currentScreen = LOGO;

@@ -22,13 +22,15 @@ NewtonObject2d CreateNewtonObject2d(size_t mass, Vector2d coords_center, Vector2
    // Initialize the NewtonObject2d properties here (e.g., set world_position, velocity, etc.)
    newtOb.mass = mass;
    newtOb.inverse_mass = 1.0f / mass;
-   //newtOb.coords_origin = coords_center;
    newtOb.velocity = velocity;
    newtOb.acceleration = acceleration;
    newtOb.surface = surface;
    newtOb.boxed_dimensions = GetBoxedDimensions(&surface.surface_vectors);
    newtOb.coords_center = coords_center;// (Vector2d){origin.x + (newtOb.boxed_dimensions.x / 2), origin.y + (newtOb.boxed_dimensions.y / 2)};
+   newtOb.coords_origin = (Vector2d){newtOb.coords_center.x - (newtOb.boxed_dimensions.x / 2), newtOb.coords_center.y - (newtOb.boxed_dimensions.y / 2)};
    // Initialize momentum based on mass and velocity
+   newtOb.momentum.x = newtOb.mass * newtOb.velocity.x;
+   newtOb.momentum.y = newtOb.mass * newtOb.velocity.y;
    printf("CREATED OBJECT BOX: Top-Left (%.2f, %.2f) Bottom-Right (%.2f, %.2f)\n",
           newtOb.coords_origin.x,
           newtOb.coords_origin.y,

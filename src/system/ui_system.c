@@ -394,23 +394,22 @@ void UpdateGlobalUIState()
     // UPDATE STATISTICS
     float fps = frame_counter.fps;
     float bytes = GetCurrentMemoryAllocated();
-    float mbytes = bytes / (1024.0f * 1024.0f); // Force floating point division
+    float kbytes = bytes / (1024.0f);// * 1024.0f);
     int polygs = GetPolygonoidCount();
 
     // Only update every 30 frames, unnecessary to do every frame
     if (frame_counter.total_frames % 30 == 0)
     {
         snprintf(G_UIState.lpanel_stats_fps_str->string, sizeof(String64), "%.1f", fps);
-        snprintf(G_UIState.lpanel_stats_mem_str->string, sizeof(String64), "%.2f", mbytes);
+        snprintf(G_UIState.lpanel_stats_mem_str->string, sizeof(String64), "%.1f", kbytes);
         snprintf(G_UIState.lpanel_stats_polygs_str->string, sizeof(String64), "%d", polygs);
     }
 
     // DEBUG----
     if (frame_counter.total_frames % 900 == 0)
     {
-        printf("[Telemetry Update] FPS: %s | MEM: %0.1f | POLY: %s\n",
+        printf("[Telemetry Update] FPS: %s | MEM: %sKB | POLY: %s\n",
                G_UIState.lpanel_stats_fps_str->string,
-               mbytes * 1024,
                G_UIState.lpanel_stats_mem_str->string,
                G_UIState.lpanel_stats_polygs_str->string);
     }

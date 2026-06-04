@@ -108,7 +108,7 @@ void InitUnitCells(CoordSpace2d *space)
       cell.coords_origin.x = coords_origin.x + displacement.x;
       cell.coords_origin.y = coords_origin.y + displacement.y;
       // Centre will always be 0.5 basis units since a cell is by definition the object representing the 2 basis vectors
-      cell.coords_center.x = cell.coords_origin.x + (0.5 * (space->basis.u.x + space->basis.v.x)); 
+      cell.coords_center.x = cell.coords_origin.x + (0.5 * (space->basis.u.x + space->basis.v.x));
       cell.coords_center.y = cell.coords_origin.y + (0.5 * (space->basis.u.y + space->basis.v.y));
 
       // Write the cell to the array
@@ -140,8 +140,10 @@ Matrix2x2 GetObjectFootprint_AsBox(Basis2d coord_space_basis, Surface2d object_s
 {
    // Min area of effect will be the cell in the middle + all bordering cells - this will apply if the obj width and height are < cell width and height
    Matrix2x2 obj_box = GetBoxedCoords(&object_surface.surface_vectors, ZERO_VECTOR_2D);
-   float cell_w = coord_space_basis.u.x + coord_space_basis.v.x;
-   float cell_h = coord_space_basis.u.y + coord_space_basis.v.y;
+   float cell_w = sqrtf(coord_space_basis.u.x * coord_space_basis.u.x +
+                        coord_space_basis.u.y * coord_space_basis.u.y);
+   float cell_h = sqrtf(coord_space_basis.v.x * coord_space_basis.v.x +
+                        coord_space_basis.v.y * coord_space_basis.v.y);
 
    Vector2d obj_midpoint = (Vector2d){(obj_box.col1.x + obj_box.col2.x) / 2, (obj_box.col1.y + obj_box.col2.y) / 2};
    // Each vertice when either their x or y pos is fixed, can move along the variable dimension and therefore partially enter the 2 neighbouring cells on that axis while still having its midpoint in the original cell
@@ -156,57 +158,113 @@ Matrix2x2 GetObjectFootprint_AsBox(Basis2d coord_space_basis, Surface2d object_s
    return obj_box;
 }
 
-Surface2d GetObjectFootprint_AsSurface(Basis2d coord_space_basis, Surface2d object_surface)
+// This function creates a footprint surface that represents the area of effect of an object based on its surface and the coordinate space's basis vectors.
+// It calculates the bounding box of the object's surface in world coordinates, determines which cells in the coordinate space it overlaps with, and then creates a rectangular surface that encompasses all those cells.
+// The object offset parameter allows you to specify the world coordinates of the object's center, which is necessary to correctly position the footprint in the coordinate space. Provide a zero vector if the object's surface vertices are already in world coordinates.
+Surface2d CalculateSnappedAABB(Basis2d coord_space_basis, Surface2d object_surface, Vector2d object_offset)
 {
-   // Min area of effect will be the cell in the middle + all bordering cells - this will apply if the obj width and height are < cell width and height
-   Vector2d obj_midpoint = GetGeometricCentre_FromSurface(object_surface, ZERO_VECTOR_2D);
-   float cell_w = coord_space_basis.u.x + coord_space_basis.v.x;
-   float cell_h = coord_space_basis.u.y + coord_space_basis.v.y;
+   // Correctly extract the physical grid cell size from the basis
+   float cell_w = sqrtf(coord_space_basis.u.x * coord_space_basis.u.x +
+                        coord_space_basis.u.y * coord_space_basis.u.y);
+   float cell_h = sqrtf(coord_space_basis.v.x * coord_space_basis.v.x +
+                        coord_space_basis.v.y * coord_space_basis.v.y);
 
-   // Go through each vertice and add/subtract
-   Surface2d footprint = {0};
-   //LArray *footprint_vectors = NewLArray(object_surface.surface_vectors.count, sizeof(Vector2d));
-   footprint.surface_vectors.items = calloc(object_surface.surface_vectors.count, sizeof(Vector2d));
-   footprint.surface_vectors.capacity = 4;
-   footprint.surface_vectors.count = 0;
-   footprint.surface_vectors.elem_bytes = sizeof(Vector2d);
+   if (object_surface.surface_vectors.count == 0)
+   {
+      return (Surface2d){0};
+   }
 
-   // Each vertice when either their x or y pos is fixed, can move along the variable dimension and therefore partially enter the 2 neighbouring cells on that axis while still having its midpoint in the original cell
-   // the footprint will therefore be +/- 1 cell applied to each of the object's vertices
+   Vector2d *vertices = (Vector2d *)object_surface.surface_vectors.items;
+
+   float min_x = INFINITY, max_x = -INFINITY;
+   float min_y = INFINITY, max_y = -INFINITY;
+
+   // Convert vertices to absolute world positions to find the global AABB limits
    for (size_t i = 0; i < object_surface.surface_vectors.count; i++)
    {
-      Vector2d obj_vertice = ((Vector2d *)(object_surface.surface_vectors.items))[i]; // the [i] is the dereference
-      Vector2d footprint_vertice = obj_vertice;
-      if (obj_vertice.x <= obj_midpoint.x)
-      {
-         footprint_vertice.x -= cell_w;
-      }
-      else
-      {
-         footprint_vertice.x += cell_w;
-      }
-      if (obj_vertice.y <= obj_midpoint.y)
-      {
-         footprint_vertice.y -= cell_h;
-      }
-      else
-      {
-         footprint_vertice.y += cell_h;
-      }
-      printf("OBJ VERTICE: (%.2f, %.2f) -> FOOTPRINT VERTICE: (%.2f, %.2f)\n", obj_vertice.x, obj_vertice.y, footprint_vertice.x, footprint_vertice.y);
-      DArray_Push(footprint.surface_vectors.items, &footprint_vertice);
-   }
-   return footprint;
-   // float start_x = min_coords.x - 1;
-   // float end_x = max_coords.x + 1;
-   // float start_y = min_coords.y - 1;
-   // float end_y = max_coords.y + 1;
+      float world_x = vertices[i].x + object_offset.x;
+      float world_y = vertices[i].y + object_offset.y;
 
-   // float obj_effect_width = end_x - start_x;
-   // float obj_effect_height = end_y - start_y;
-   // Vector2d area = (Vector2d){obj_effect_width, obj_effect_height};
-   // Surface2d area_of_effect = CreateSurface_Rectangular(area);
+      if (world_x < min_x)
+         min_x = world_x;
+      if (world_x > max_x)
+         max_x = world_x;
+      if (world_y < min_y)
+         min_y = world_y;
+      if (world_y > max_y)
+         max_y = world_y;
+   }
+
+   // Convert the spatial bounding extremes directly to integer cell index spans
+   float start_cell_x = floorf(min_x / cell_w);
+   float end_cell_x = ceilf(max_x / cell_w);
+   float start_cell_y = floorf(min_y / cell_h);
+   float end_cell_y = ceilf(max_y / cell_h);
+
+   // Create a 4-corner bounding rectangle that perfectly encapsulates
+   // every single cell the object is partially or fully occupying.
+   Surface2d footprint = {0};
+   footprint.surface_vectors = MakeLArray(4, sizeof(Vector2d));
+
+   // Map the bounding indexes back to absolute spatial coordinates
+   Vector2d footprint_box[4] = {
+       {start_cell_x, start_cell_y}, // Bottom-Left Cell Boundary
+       {end_cell_x, start_cell_y},   // Bottom-Right Cell Boundary
+       {end_cell_x, end_cell_y},     // Top-Right Cell Boundary
+       {start_cell_x, end_cell_y}};  // Top-Left Cell Boundary
+
+   for (int i = 0; i < 4; i++)
+   {
+      // Convert back to local offset form relative to the object center if required by your renderer
+      footprint_box[i].x -= object_offset.x;
+      footprint_box[i].y -= object_offset.y;
+      LArray_Push(&footprint.surface_vectors, &footprint_box[i]);
+
+      // printf("OBJ VERTICE: (%.2f, %.2f) -> FOOTPRINT VERTICE: (%.2f, %.2f)\n", obj_vertice.x, obj_vertice.y, footprint_vertice.x, footprint_vertice.y);
+   }
+
+   return footprint;
 }
+
+// Surface2d GetObjectFootprint_AsSurface(Basis2d coord_space_basis, Surface2d object_surface)
+// {
+//    // Min area of effect will be the cell in the middle + all bordering cells - this will apply if the obj width and height are < cell width and height
+//    Vector2d obj_midpoint = GetGeometricCentre_FromSurface(object_surface, ZERO_VECTOR_2D);
+//    float cell_w = coord_space_basis.u.x + coord_space_basis.v.x;
+//    float cell_h = coord_space_basis.u.y + coord_space_basis.v.y;
+
+//    // Go through each vertice and add/subtract
+//    Surface2d footprint = {0};
+//    //LArray *footprint_vectors = NewLArray(object_surface.surface_vectors.count, sizeof(Vector2d));
+//    footprint.surface_vectors = MakeLArray(object_surface.surface_vectors.count, sizeof(Vector2d));
+
+//    // Each vertice when either their x or y pos is fixed, can move along the variable dimension and therefore partially enter the 2 neighbouring cells on that axis while still having its midpoint in the original cell
+//    // the footprint will therefore be +/- 1 cell applied to each of the object's vertices
+//    for (size_t i = 0; i < object_surface.surface_vectors.count; i++)
+//    {
+//       Vector2d obj_vertice = ((Vector2d *)(object_surface.surface_vectors.items))[i]; // the [i] is the dereference
+//       Vector2d footprint_vertice = obj_vertice;
+//       if (obj_vertice.x <= obj_midpoint.x)
+//       {
+//          footprint_vertice.x -= cell_w;
+//       }
+//       else
+//       {
+//          footprint_vertice.x += cell_w;
+//       }
+//       if (obj_vertice.y <= obj_midpoint.y)
+//       {
+//          footprint_vertice.y -= cell_h;
+//       }
+//       else
+//       {
+//          footprint_vertice.y += cell_h;
+//       }
+//       printf("OBJ VERTICE: (%.2f, %.2f) -> FOOTPRINT VERTICE: (%.2f, %.2f)\n", obj_vertice.x, obj_vertice.y, footprint_vertice.x, footprint_vertice.y);
+//       LArray_Push(footprint.surface_vectors.items, &footprint_vertice);
+//    }
+//    return footprint;
+// }
 
 // Calculate coordinate space lines relative to the space's world position
 // void CalculateLineSegmentVectors(CoordSpace2d *coordinate_space)

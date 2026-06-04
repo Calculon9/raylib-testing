@@ -28,6 +28,18 @@ typedef struct Surface2d {
     LArray surface_vectors; // Sorted vectors (vector[i] connects to vector[i+1]) defining the points & shape of the object's surface
 } Surface2d;
 
+typedef enum {
+    SHAPE_LAYOUT_REGULAR,   // Mathematically perfect, balanced shapes (even vertex distributions)
+    SHAPE_LAYOUT_COMPLEX,   // Hand-crafted, asymmetric, or irregular vertex layouts
+} ShapeLayoutType;
+
+typedef enum {
+    SHAPE_MATH_EQUIDISTANT, // A Primitive shape with uniform radius (Circles, regular hexagons, squares)
+    SHAPE_PRIMITIVE_CIRCLE,
+    SHAPE_PRIMITIVE_BOX,
+    SHAPE_MATH_POLY_HULL    // Asymmetric/Irregular shapes requiring full vertex-edge checking loops. Tells the collision resolver: "Use the SAT/GJK loop!"
+} ShapeType;
+
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
 //----------------------------------------------------------------------------------
@@ -48,5 +60,6 @@ bool ShapeFitsWithinShape(LArray *shape1_vertices, LArray *shape2_vertices, Vect
 bool BoxFitsWithinBox(Matrix2x2 box1, Matrix2x2 box2);
 Matrix2x2 BoxIntersectionPointsWithBox(Matrix2x2 box1, Matrix2x2 box2);
 LArray ShapeAVerticesInShapeB(LArray *shape1_vertices, LArray *shape2_vertices, Vector2d shape1_vertice_offset, Vector2d shape2_vertice_offset);
-
+LArray CreateVertices_Symmetric (int vertice_count, float radius);
+LArray CreateVertices_Irregular (int vertice_count, float min_radius, float max_radius);
 #endif

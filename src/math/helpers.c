@@ -1,0 +1,16 @@
+#include "math/cvectors.h"
+#include <time.h>
+
+float GetRandomFloat(float min, float max)
+{
+    float r = 0.0;
+
+    int r_a = rand();
+    int r_b = rand();
+    float r_frac = (float)r_a / (float)r_b;
+    if (r_frac > 1.0)
+        r_frac = 1.0 / r_frac;
+    
+    r = min + r_frac * (max - min);
+    return r;
+}

@@ -10,7 +10,7 @@
 bool GrowLinearArray(LArray *da);
 
 // Create a new linear array with specified element size and count, returns a LArray pointer (you must dispose BOTH the array struct AND the internal buffer holding the elements)
-LArray *AllocLArray(int elem_count, size_t elem_bytes) 
+LArray *AllocLArray(int elem_count, size_t elem_bytes)
 {
     // Allocate memory for the DynamicArray struct itself
     LArray *a = AllocateBytes(sizeof(LArray));
@@ -33,7 +33,7 @@ LArray *AllocLArray(int elem_count, size_t elem_bytes)
 }
 
 // Create a new linear array with specified element size and count, returns LArray directly (you must dispose the internal buffer holding the elements)
-LArray MakeLArray(int elem_count, size_t elem_bytes) 
+LArray MakeLArray(int elem_count, size_t elem_bytes)
 {
     // Allocate memory for the DynamicArray struct itself
     LArray a = {0};
@@ -121,23 +121,34 @@ bool GrowLinearArray(LArray *a)
         fprintf(stderr, "Invalid element size %zu in GrowLinearArray! Must be greater than 0.\n", a->elem_bytes);
         return false;
     }
+    // FOR DEBUGGING, the increment is 1
+    int new_capacity = (a->capacity == 0) ? 1 : a->capacity + 1; // * 2;
 
-    int new_capacity = (a->capacity == 0) ? 4 : a->capacity * 2;
-    // Note: We use malloc here because we are manually re-ordering,
-    // so we don't need realloc to copy the "old" scrambled order.
     void *new_items = AllocateBytes(new_capacity * a->elem_bytes);
-
     if (new_items == NULL)
     {
         fprintf(stderr, "Failed to allocate memory for growing array to new capacity %d!\n", new_capacity);
         return false;
     }
 
-    memcpy(new_items, a->items, new_capacity * a->elem_bytes);
+    // Check for Buffer Overflow (trying to copy too much to a smaller-sized memory segment)
+    if(a->items != NULL && new_capacity >= a->capacity)
+    {
+        memcpy(new_items, a->items, a->capacity * a->elem_bytes);
+        free(a->items); // Get rid of the old, scrambled buffer
+    }
+    else
+    {
+        fprintf(stderr, "Avoided buffer overflow in GrowLinearArray! The new destination array's capacity (%zu) must be greater than source array's (%zu).\n", new_capacity, a->capacity);
+        return false;
+    }  
 
     a->items = new_items;
     a->capacity = new_capacity;
-    a->front = 0;       // Start is now at the beginning
+    a->front = 0; // Start is now at the beginning
+
+    // ----DEBUG----//
+    printf("Grew array to new capacity %d.\n", a->capacity);
 
     return true;
 }
@@ -204,8 +215,9 @@ void DisposeLArray(LArray *a)
 // Clears internal heap data buffers without freeing the header struct container itself
 void ClearLArray(LArray *a)
 {
-    if (a == NULL) return;
-    
+    if (a == NULL)
+        return;
+
     if (a->items != NULL)
     {
         DeallocateShallow(&a->items, a->capacity * a->elem_bytes);
