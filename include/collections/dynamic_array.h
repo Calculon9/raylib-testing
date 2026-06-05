@@ -53,6 +53,7 @@ DArray *AllocDArray(int elem_count, size_t elem_bytes);
 DArray MakeDArray(int elem_count, size_t elem_bytes);
 DArray *DArray_Push(DArray *da, void *item);
 DArray *DArray_Pop(DArray *da, void *outItem);
+void *DArray_Get(DArray *a, int index);
 void *Enumerate(DArray *da);
 void ResetEnumerator(DArray *da);
 // size_t GetElementCount(DynamicArray *da);

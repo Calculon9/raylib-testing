@@ -75,7 +75,7 @@ CoordSpace2d_Grid NewCoordSpace2d_Grid(Vector2d origin, Vector2d resolution_ixj,
 CoordSpace2d NewCoordSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d basis);
 Cell* GetCellFromCoords(CoordSpace2d *space, Vector2d coords);
 int GetIndexFromCoords(CoordSpace2d *space, Vector2d space_coords);
-Surface2d CalculateSnappedAABB(Basis2d coord_space_basis, Surface2d object_surface, Vector2d object_offset);
+Surface2d CalcSnappedAABB(Basis2d coord_space_basis, Surface2d object_surface, Vector2d object_offset);
 //Matrix2x2 GetObjectFootprint_AsBox(Basis2d coord_space_basis, Surface2d object_surface);
 // CoordinateSpace2d CreateCoordinateSpace(Rectangloid object, int rows, int columns, ColourRgba lineColour);
 

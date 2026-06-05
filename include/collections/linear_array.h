@@ -22,10 +22,9 @@ typedef struct LArray
     size_t elem_bytes;   // Size of one element (e.g., sizeof(int))
     void *items;       // Raw memory block
     int capacity;      // Total space allocated
-    int front;
     int count;         // Number of items currently stored
-    int enumeratorIndex; // Index used for enumeration
-    int enumerationCount; // Count of items enumerated so far (for safety check)
+    //int enumeratorIndex; // Index used for enumeration
+    //int enumerationCount; // Count of items enumerated so far (for safety check)
 } LArray;
 
 // typedef struct {

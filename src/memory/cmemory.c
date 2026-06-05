@@ -50,10 +50,15 @@ void *AllocateBytes(size_t bytes)
         return NULL;
     }
 
-    void *ptr = calloc(1, bytes);
+    // If a signed integer calculation went deeply negative before casting to size_t, 
+    // it will show up as a staggeringly huge value (like 18 exabytes).
+    if (bytes > 0x7FFFFFFFFFFFFFFFUL) 
+    {
+        fprintf(stderr, "FATAL ERROR: Ridiculous allocation size detected (%zu bytes). Potential integer overflow!\n", bytes);
+        return NULL;
+    }
 
-    // Zero-initialize the allocated memory - not needed as calloc does this
-    // memset(ptr, 0, total_size);
+    void *ptr = calloc(1, bytes);
 
     ValidateAllocation(ptr, bytes);
 
@@ -63,7 +68,7 @@ void *AllocateBytes(size_t bytes)
 }
 
 // Deallocates memory for anything and updates bytes in use.
-size_t DeallocateShallow(void **ptr, size_t bytes)
+size_t Deallocate(void **ptr, size_t bytes)
 {
     // If the pointer-to-pointer is NULL, or the pointer itself is already NULL,
     // do nothing. This prevents subtracting from bytes_in_use twice.
@@ -87,10 +92,10 @@ size_t DeallocateShallow(void **ptr, size_t bytes)
 }
 
 // Deallocates memory for a SINGLE ALLOCATION generic array and updates bytes in use.
-void DeallocateArrayShallow(void **array, size_t element_count, size_t element_bytes)
-{
-    DeallocateShallow(array, element_count * element_bytes);
-}
+// void DeallocateArrayShallow(void **array, size_t element_count, size_t element_bytes)
+// {
+//     DeallocateShallow(array, element_count * element_bytes);
+// }
 
 // Deallocates memory for anything and updates bytes in use. Use for deep deallocation, i.e., if the memory constitutes pointers.
 // void deallocate_deep(void **ptr, size_t bytes)

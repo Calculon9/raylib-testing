@@ -9,29 +9,31 @@
 // Global Variables Definition (local to this module)
 bool GrowDynamicArray(DArray *a);
 
-
 // Create a new dynamic array with specified element size and count
 DArray *AllocDArray(int elem_count, size_t elem_bytes)
 {
     // Allocate memory for the DynamicArray struct itself
     DArray *a = AllocateBytes(sizeof(DArray));
+    if (a == NULL)
+    {
+        fprintf(stderr, "Failed to allocate memory for Dynamic Array!\n");
+        return NULL;
+    }
     a->elem_bytes = elem_bytes;
     a->capacity = elem_count;
     a->count = 0;
     a->enumeratorIndex = 0;
     a->enumerationCount = 0;
     a->items = AllocateBytes(elem_bytes * elem_count);
-    
-    // Simple safety check
-    if (a == NULL)// || a->coll == NULL)
+    if (a->items == NULL)
     {
         fprintf(stderr, "Failed to allocate memory for Dynamic Array!\n");
-        a->items = NULL; // Ensure nothing can done on the collection if allocation failed
+        a->capacity = 0;
     }
     return a;
 }
 
-DArray MakeDArray(int elem_count, size_t elem_bytes) 
+DArray MakeDArray(int elem_count, size_t elem_bytes)
 {
     // Allocate memory for the DynamicArray struct itself
     DArray a = {0};
@@ -45,25 +47,37 @@ DArray MakeDArray(int elem_count, size_t elem_bytes)
     // Simple safety check
     if (a.items == NULL)
     {
-        fprintf(stderr, "Failed to allocate memory for Linear Array!\n");
+        fprintf(stderr, "Failed to allocate memory for Dynamic Array!\n");
         a.capacity = 0; // Ensure nothing can be pushed
-        return a;
     }
     return a;
 }
 
-// Provide the address of the DynamicArray and the address of the item to push.
-DArray *DArray_Push(DArray *a, void *item)
-{   
-    if (a == NULL)
+void *DArray_Get(DArray *a, int index)
+{
+    if (a == NULL) return NULL;
+    if (index < 0 || index >= a->count)
     {
-        fprintf(stderr, "The provided DynamicArray is NULL.\n");
-        return NULL; 
+        fprintf(stderr, "Index %d out of bounds for Circular DArray of count %d!\n", index, a->count);
+        return NULL;
     }
 
-    // 1. Check for growth FIRST
-    // We use -> to access the REAL ata, not a copy
-    if (a->count >= a->capacity)
+    // Map the logical index to the physical wrapped ring position
+    int actual_physical_index = (a->front + index) % a->capacity;
+    
+    return (char *)a->items + (actual_physical_index * a->elem_bytes);
+}
+
+// Provide the address of the DynamicArray and the address of the item to push.
+DArray *DArray_Push(DArray *a, void *item)
+{
+    if (a == NULL || item == NULL)
+    {
+        fprintf(stderr, "The provided DynamicArray or element is NULL.\n");
+        return NULL;
+    }
+
+    if (a->count >= a->capacity) // Check for growth FIRST
     {
         if (!GrowDynamicArray(a))
         {
@@ -72,14 +86,10 @@ DArray *DArray_Push(DArray *a, void *item)
         }
     }
 
-    // 2. Calculate the target address using the ACTUAL live ata
-    // Note: We use a->coll.items because GrowDynamicArray might have changed it!
     void *target = (char *)a->items + (a->rear * a->elem_bytes);
-
-    // 3. Copy the ata
     memcpy(target, item, a->elem_bytes);
 
-    // 4. Upate the REAL state
+    // Upate state
     a->rear = (a->rear + 1) % a->capacity;
     a->count++;
 
@@ -88,7 +98,7 @@ DArray *DArray_Push(DArray *a, void *item)
 
 DArray *DArray_Pop(DArray *a, void *outItem)
 {
-    if (a == NULL)// || a->coll == NULL)
+    if (a == NULL) // || a->coll == NULL)
     {
         fprintf(stderr, "The provided collection is NULL. Cannot pop item.\n");
         return a; // Keep the return consistent with the signature
@@ -108,6 +118,9 @@ DArray *DArray_Pop(DArray *a, void *outItem)
         memcpy(outItem, source, a->elem_bytes);
     }
 
+    // Zero-out the popped slot so ghost data doesn't persist in memory
+    memset(source, 0, a->elem_bytes);
+
     // Upate the front index (Wrap around if it hits capacity)
     a->front = (a->front + 1) % a->capacity;
     a->enumeratorIndex = a->front; // Reset enumerator to the new front after a pop
@@ -117,47 +130,54 @@ DArray *DArray_Pop(DArray *a, void *outItem)
 }
 
 // Increase the capacity of the array by a specified factor (e.g., double the capacity)
-bool GrowDynamicArray(DArray *a) 
+bool GrowDynamicArray(DArray *a)
 {
     if (a == NULL)
         return false;
 
     if (a->elem_bytes < 1)
     {
-        fprintf(stderr, "Invalid element size %zu in GrowCollection! Must be greater than 0.\n", a->elem_bytes);
+        fprintf(stderr, "Invalid element size %zu in GrowDynamicArray!\n", a->elem_bytes);
         return false;
     }
 
-    int newCapacity = (a->capacity == 0) ? 4 : a->capacity * 2;
-    // Note: We use malloc here because we are manually re-ordering,
-    // so we don't need realloc to copy the "old" scrambled order.
-    void *newItems = AllocateCollection(newCapacity, a->elem_bytes);
+    // Explicitly guarantee capacity expands significantly
+    int new_capacity = (a->capacity == 0) ? 4 : (int)(a->capacity * 1.4f) + 1;
 
-    if (newItems == NULL)
+    // Allocate the fresh buffer block safely
+    void *new_items = AllocateBytes(new_capacity * a->elem_bytes);
+    if (new_items == NULL)
     {
-        fprintf(stderr, "Failed to allocate memory for growing collection to new capacity %d!\n", newCapacity);
+        fprintf(stderr, "Failed to allocate memory for growing array to new capacity %d!\n", new_capacity);
         return false;
     }
 
-    if (a->count > 0)
+    // SAFELY UNWRAP CIRCULAR DATA:
+    // Instead of doing error-prone slice math with memcpy, march through the active count elements
+    if (a->items != NULL)
     {
-        // 1. Copy from 'front' to the physical end of the old buffer
-        int firstPartCount = a->capacity - a->front;
-        memcpy(newItems, (char *)a->items + (a->front * a->elem_bytes), firstPartCount * a->elem_bytes);
-
-        // 2. Copy the wrapped part (from 0 to rear) to immediately after the first part
-        if (a->front > 0) // Only need this if we actually wrapped
+        int current_index = a->front;
+        for (int i = 0; i < a->count; i++)
         {
-            memcpy((char *)newItems + (firstPartCount * a->elem_bytes), a->items, a->rear * a->elem_bytes);
+            void *source = (char *)a->items + (current_index * a->elem_bytes);
+            void *dest = (char *)new_items + (i * a->elem_bytes);
+
+            memcpy(dest, source, a->elem_bytes);
+
+            // Advance the source pointer index along the old ring layout
+            current_index = (current_index + 1) % a->capacity;
         }
+
+        // Fix: Use your custom tracking Deallocate tool to match AllocateBytes!
+        size_t old_bytes = a->capacity * a->elem_bytes;
+        Deallocate((void **)&a->items, old_bytes);
     }
 
-    free(a->items); // Get rid of the old, scrambled buffer
-
-    a->items = newItems;
-    a->capacity = newCapacity;
-    a->front = 0;       // Start is now at the beginning
-    a->rear = a->count; // Next empty slot is at the end of the ata
+    // Re-anchor state cleanly
+    a->items = new_items;
+    a->capacity = new_capacity;
+    a->front = 0;
+    a->rear = a->count;
 
     return true;
 }
@@ -165,26 +185,28 @@ bool GrowDynamicArray(DArray *a)
 // Dispose of the array and free its memory
 void DisposeDArray(DArray *a)
 {
-    if(a == NULL) return;
+    if (a == NULL)
+        return;
     if (a->items != NULL)
     {
-        DeallocateShallow(&a->items, a->capacity * a->elem_bytes);
+        Deallocate(&a->items, a->capacity * a->elem_bytes);
         a->items = NULL;
     }
     a->count = 0;
     a->capacity = 0;
 
-    DeallocateShallow((void **)&a, sizeof(DArray));
+    Deallocate((void **)&a, sizeof(DArray));
 }
 
 // Clears internal heap ata buffers without freeing the header struct container itself
 void ClearDArray(DArray *a)
 {
-    if (a == NULL) return;
-    
+    if (a == NULL)
+        return;
+
     if (a->items != NULL)
     {
-        DeallocateShallow(&a->items, a->capacity * a->elem_bytes);
+        Deallocate(&a->items, a->capacity * a->elem_bytes);
         a->items = NULL;
     }
     a->count = 0;
@@ -272,12 +294,12 @@ void ResetEnumerator(DArray *a)
 //     // Reset enumerator to the front
 //     if (a != NULL) {
 //         a->enumeratorIndex = a->front;
-//     } 
+//     }
 // }
 
 // // Get the current number of elements in the array
 // size_t GetElementCount(DynamicArray *a)
-// {   
+// {
 //     if (a == NULL) return 0;
 //     return a->count;
 // }

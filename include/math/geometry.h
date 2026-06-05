@@ -48,17 +48,17 @@ typedef enum {
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 Surface2d CreateSurface_Rectangular(Vector2d dimensions, Vector2d vertice_offset);
-Matrix2x2 GetBoxedCoords(LArray *vertices, Vector2d vertice_offset);
-Vector2d GetBoxedDimensions(LArray *vertices);
-Vector2d GetCenteredBoxOffset(Vector2d box_a_dimensions, Vector2d box_b_dimensions);
-Vector2d GetGeometricCentre_FromBox(Matrix2x2 box_coords);
-Vector2d GetGeometricCentre_FromSurface(Surface2d object_surface, Vector2d vertice_offset);
+Matrix2x2 CalcAABBCoords_Tight(LArray *vertices, Vector2d vertice_offset);
+Vector2d CalcAABBDimensions(LArray *vertices);
+Vector2d CalcCenteredBoxOffset(Vector2d box_a_dimensions, Vector2d box_b_dimensions);
+Vector2d CalcGeometricCentre_FromBox(Matrix2x2 box_coords);
+Vector2d CalcGeometricCentre_FromSurface(Surface2d object_surface, Vector2d vertice_offset);
 void CenterVerticesToExtents(LArray *points);
 void NormaliseVerticesToLocal(LArray *points);
 bool IsPointInPolygon(Vector2d point, Vector2d *polygon_vertices, Vector2d vertice_offset, int vertice_count);
 bool ShapeFitsWithinShape(LArray *shape1_vertices, LArray *shape2_vertices, Vector2d shape1_vertice_offset, Vector2d shape2_vertice_offset);
 bool BoxFitsWithinBox(Matrix2x2 box1, Matrix2x2 box2);
-Matrix2x2 BoxIntersectionPointsWithBox(Matrix2x2 box1, Matrix2x2 box2);
+Matrix2x2 CalcBoxOverlapWithBox(Matrix2x2 box1, Matrix2x2 box2);
 LArray ShapeAVerticesInShapeB(LArray *shape1_vertices, LArray *shape2_vertices, Vector2d shape1_vertice_offset, Vector2d shape2_vertice_offset);
 LArray CreateVertices_Symmetric (int vertice_count, float radius);
 LArray CreateVertices_Irregular (int vertice_count, float min_radius, float max_radius);

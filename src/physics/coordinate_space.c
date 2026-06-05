@@ -129,7 +129,10 @@ int GetIndexFromCoords(CoordSpace2d *space, Vector2d space_coords)
 Cell *GetCellFromCoords(CoordSpace2d *space, Vector2d coords)
 {
    int cell_index = GetIndexFromCoords(space, coords);
-
+   if (cell_index < 0 || cell_index >= space->cells.count)
+   {
+      return NULL;
+   }
    Cell *cells = space->cells.items;
    Cell *target_cell = &cells[cell_index];
 
@@ -139,7 +142,7 @@ Cell *GetCellFromCoords(CoordSpace2d *space, Vector2d coords)
 Matrix2x2 GetObjectFootprint_AsBox(Basis2d coord_space_basis, Surface2d object_surface)
 {
    // Min area of effect will be the cell in the middle + all bordering cells - this will apply if the obj width and height are < cell width and height
-   Matrix2x2 obj_box = GetBoxedCoords(&object_surface.surface_vectors, ZERO_VECTOR_2D);
+   Matrix2x2 obj_box = CalcAABBCoords_Tight(&object_surface.surface_vectors, ZERO_VECTOR_2D);
    float cell_w = sqrtf(coord_space_basis.u.x * coord_space_basis.u.x +
                         coord_space_basis.u.y * coord_space_basis.u.y);
    float cell_h = sqrtf(coord_space_basis.v.x * coord_space_basis.v.x +
@@ -161,7 +164,7 @@ Matrix2x2 GetObjectFootprint_AsBox(Basis2d coord_space_basis, Surface2d object_s
 // This function creates a footprint surface that represents the area of effect of an object based on its surface and the coordinate space's basis vectors.
 // It calculates the bounding box of the object's surface in world coordinates, determines which cells in the coordinate space it overlaps with, and then creates a rectangular surface that encompasses all those cells.
 // The object offset parameter allows you to specify the world coordinates of the object's center, which is necessary to correctly position the footprint in the coordinate space. Provide a zero vector if the object's surface vertices are already in world coordinates.
-Surface2d CalculateSnappedAABB(Basis2d coord_space_basis, Surface2d object_surface, Vector2d object_offset)
+Surface2d CalcSnappedAABB(Basis2d coord_space_basis, Surface2d object_surface, Vector2d object_offset)
 {
    // Correctly extract the physical grid cell size from the basis
    float cell_w = sqrtf(coord_space_basis.u.x * coord_space_basis.u.x +
@@ -216,8 +219,8 @@ Surface2d CalculateSnappedAABB(Basis2d coord_space_basis, Surface2d object_surfa
    for (int i = 0; i < 4; i++)
    {
       // Convert back to local offset form relative to the object center if required by your renderer
-      footprint_box[i].x -= object_offset.x;
-      footprint_box[i].y -= object_offset.y;
+      // footprint_box[i].x -= object_offset.x;
+      // footprint_box[i].y -= object_offset.y;
       LArray_Push(&footprint.surface_vectors, &footprint_box[i]);
 
       // printf("OBJ VERTICE: (%.2f, %.2f) -> FOOTPRINT VERTICE: (%.2f, %.2f)\n", obj_vertice.x, obj_vertice.y, footprint_vertice.x, footprint_vertice.y);

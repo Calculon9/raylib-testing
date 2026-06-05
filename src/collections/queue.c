@@ -126,11 +126,11 @@ void DisposeQueue(Queue *q)
 
     if (q->items != NULL)
     {
-        DeallocateShallow(&q->items, q->capacity * q->elem_bytes);
+        Deallocate(&q->items, q->capacity * q->elem_bytes);
         q->items = NULL;
     }
     q->count = 0;
     q->capacity = 0;
 
-    DeallocateShallow((void **)&q, sizeof(Queue));
+    Deallocate((void **)&q, sizeof(Queue));
 }

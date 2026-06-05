@@ -1,63 +1,36 @@
 /**********************************************************************************************
 *
-COMMON MODULE
+QUEUE MODULE
 *
 **********************************************************************************************/
-
-#ifndef COMMON_H
-#define COMMON_H
-
-// 1. External dependencies
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <string.h>
+#ifndef FLAT_MAP_H
+#define FLAT_MAP_H
 #include <stddef.h>
-#include <stdint.h>
-#include <math.h>
-#include <time.h>
-#include "memory/cmemory.h"
-#include "math/cvectors.h"
-#include "collections/dynamic_array.h"
-#include "collections/linear_array.h"
-#include "associations/flat_map.h"
-
-// 2. Global Math Constants
-#ifndef PI
-    #define PI 3.14159265358979323846f
-#endif
-#define EPSILON 0.00001f
-
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
-//#define NEW_CIRCLOID() AllocateBytes(sizeof(Circloid))
-//#define NEW_CIRCLOID() allocate_block(sizeof(Circloid))
+// #define NEW_ARRAY(count, type) NewArray(count, sizeof(type))
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
-typedef struct String32
-{
-    char string[32];
-} String32;
 
-typedef struct String64
+// Individual slot node
+typedef struct FlatMapIntEntry
 {
-    char string[64];
-} String64;
+    int key;       // Native integer ID key
+    int value;     // Associated integer value
+    bool occupied; // Slot state tracker
+} FlatMapIntEntry;
 
-typedef struct String128
+// Master Hash Map structure
+typedef struct FlatMapInt
 {
-    char string[128];
-} String128;
-
-typedef struct String256
-{
-    char string[256];
-} String256;
-
+    FlatMapIntEntry *slots; // An array of pointers to HashEntries
+    int capacity;           // Total number of slots/buckets
+    int count;              // Number of active items currently stored
+} FlatMapInt;
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
@@ -66,4 +39,13 @@ typedef struct String256
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
+FlatMapInt *AllocFlatMapInt(int capacity);
+bool FlatMapInt_InsertOrUpdate(FlatMapInt *m, int key, int value);
+FlatMapInt MakeFlatMapInt(int capacity);
+bool FlatMapInt_Get(FlatMapInt *m, int key, int *out_value);
+void DisposeFlatMapInt(FlatMapInt *m);
+void ClearFlatMapInt(FlatMapInt *m);
+// void* Enumerate(DynamicArray *da);
+// void* ResetEnumerator(DynamicArray *da);
+
 #endif

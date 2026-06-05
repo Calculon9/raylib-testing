@@ -419,7 +419,7 @@ void UpdateGlobalUIState()
     Polygonoid *obj = G_WorldState.selected_object;
     if (obj)
     {
-        int id = obj->id;
+        int id = obj->newtonian_properties.id;
         float mass = obj->newtonian_properties.mass;
         Vector2d pos = obj->newtonian_properties.coords_origin;
         Vector2d vel = obj->newtonian_properties.velocity;

@@ -23,6 +23,7 @@ static float gravity = 9.8f; // Gravitational acceleration (m/s^2)
 // Functions Definition
 //----------------------------------------------------------------------------------
 bool CheckForCollision(NewtonObject2d a, NewtonObject2d b);
+void MapEntityToASpace(CoordSpace2d *space, NewtonObject2d *object, Matrix2x2 snapped_aabb_box, FlatMapInt *O_entity_to_space_index_map);
 // void UpdateWorldState(Collection *objects, CoordSpace2d *space, float delta_time);
 //  void UpdateObjectVectors(Collection *objects, float delta_time);
 
@@ -40,47 +41,50 @@ World2d CreateWorld(CoordSpace2d_Grid space_obj, float gravity)
 void AddObjectToWorld(World2d *world, Polygonoid *object)
 {
    // We can calculate the cell indices based on the object's coordinates and the coordinate space's basis vectors and resolution
-   // For simplicity, let's assume the object's coords_origin is the point we will use to determine which cell it occupies
-   Vector2d object_coords = object->newtonian_properties.coords_center; // These are the world coordinates of the object, which are the cell indices
-   int cell_index = ((int)object_coords.y * (int)world->coord_space_grid.coord_space.resolution_ixj.x) + (int)object_coords.x;
+   // For simplicity, let's assume the object's coords_center is the point we will use to determine which cell it occupies
+   Vector2d local_coords = object->newtonian_properties.coords_center; // These are the world coordinates of the object, which are the cell indices
+   int cell_index = ((int)local_coords.y * (int)world->coord_space_grid.coord_space.resolution_ixj.x) + (int)local_coords.x;
+
+   if (local_coords.x < 0 || local_coords.y < 0 ||
+       local_coords.x >= world->coord_space_grid.coord_space.resolution_ixj.x || local_coords.y >= world->coord_space_grid.coord_space.resolution_ixj.y)
+   {
+      // Click is outside the structural world viewport boundaries! Avoid resolving cell.
+      return;
+   }
 
    // Add the object's ID to the cell's object_ids array if there is space, and update the object's footprint based on its surface and the coordinate space's basis vectors.
-   //  We also need to update the occupancy of the cell and ensure that we don't exceed the maximum
+   // We also need to update the occupancy of the cell and ensure that we don't exceed the maximum
    Cell *cells = world->coord_space_grid.coord_space.cells.items;
    Cell *target_cell = &cells[cell_index];
    if (target_cell->occupancy < MAX_CELL_OCCUPANCY)
    {
-      object->id = world->next_object_id++;
-      target_cell->object_ids[target_cell->occupancy] = object->id;
+      object->newtonian_properties.id = world->next_object_id++;
+      target_cell->object_ids[target_cell->occupancy] = object->newtonian_properties.id;
       target_cell->occupancy++;
-      object->newtonian_properties.footprint = CalculateSnappedAABB(world->coord_space_grid.coord_space.basis, object->newtonian_properties.surface, ZERO_VECTOR_2D);
+      // object->newtonian_properties.footprint = CalcSnappedAABB(world->coord_space_grid.coord_space.basis, object->newtonian_properties.surface, ZERO_VECTOR_2D);
    }
    else
    {
       printf("WARNING: Cell %d full. ID %d not tracked spatially.\n", cell_index, object->id);
       return;
-   }//0xcf7aa90
+   }
 
    // Add the newton_object to the world's objects array
    LArray_Push(&world->objects, object);
 
-   printf("CREATED OBJECT (ID %d): Cell %d : Center(%.1f, %.1f)\n", object->id, cell_index, object_coords.x, object_coords.y);
+   printf("CREATED OBJECT (ID %d): Cell %d : Center(%.1f, %.1f)\n", object->id, cell_index, local_coords.x, local_coords.y);
 }
 
 void UpdateWorld(World2d *world, float delta_time)
 {
-   return;
-   LArray objects = world->objects; //.items;
-   int obj_count = objects.count;
-   // 1. Update Object state first
-   // 1.1 Update Grid cells while we're here
+   int obj_count = world->objects.count;
+
    if (obj_count < 1)
       return;
 
    // Zero out the occupancy and object_ids of all cells in the grid before we update them based on the new positions of the objects
    Cell *cells = world->coord_space_grid.coord_space.cells.items;
    int cell_count = world->coord_space_grid.coord_space.cells.count;
-
    for (size_t i = 0; i < cell_count; i++)
    {
       Cell *target_cell = &cells[i];
@@ -88,103 +92,59 @@ void UpdateWorld(World2d *world, float delta_time)
       memset(&cells[i].object_ids, 0, sizeof(cells[i].object_ids));
    }
 
-   LArray tally_arr = MakeLArray(cell_count, sizeof(short));
-   short *tally = (short *)(tally_arr.items); //->items;
-   Polygonoid *polygonoids = objects.items;
+   Polygonoid *polygonoids = (Polygonoid *)world->objects.items;
+   Matrix2x2 min_coord_space = {0};
+   int starting_flatmap_capacity = 2 + (int)(cell_count / 5);
+   FlatMapInt entity_space_map = MakeFlatMapInt(starting_flatmap_capacity);
    for (size_t i = 0; i < obj_count; i++)
    {
       NewtonObject2d *obj = &polygonoids[i].newtonian_properties;
 
       // Ensure the object isn't outside the bounds of the world before we try to get the cell it's in, otherwise we could get an out of bounds error when we try to access the cell's object_ids array. We can just skip updating the cell for this object if it's out of bounds, but we should still update its vectors based on its acceleration and velocity so that it can move back into the bounds of the world.
-      if (obj->coords_origin.x < 0 || obj->coords_origin.x >= world->coord_space_grid.coord_space.resolution_ixj.x ||
-          obj->coords_origin.y < 0 || obj->coords_origin.y >= world->coord_space_grid.coord_space.resolution_ixj.y)
+      if (obj->coords_origin.x < 0 || obj->coords_origin.x >= world->coord_space_grid.coord_space.resolution_ixj.x || obj->coords_origin.y < 0 || obj->coords_origin.y >= world->coord_space_grid.coord_space.resolution_ixj.y)
       {
          printf("WARNING: Object ID %d is out of bounds at coordinates (%.1f, %.1f). Skipping cell update.\n", polygonoids[i].id, obj->coords_origin.x, obj->coords_origin.y);
 
-         // Need to calculate a collision response to push the object back into the bounds of the world here, otherwise it will just keep moving out of bounds and we won't be able to track it anymore. For simplicity, let's just reverse the velocity of the object when it hits the boundary of the world, which will create a bouncing effect. We can also apply a damping factor to the velocity to simulate energy loss during the collision, which will prevent the object from bouncing indefinitely.
+         // Need to calculate a collision response to push the object back into the bounds of the world here, otherwise it will just keep moving out of bounds and we won't be able to track it anymore.
          if (obj->coords_origin.x < 0 || obj->coords_origin.x >= world->coord_space_grid.coord_space.resolution_ixj.x)
          {
-            obj->velocity.x = -obj->velocity.x; // Reverse and dampen the x velocity
+            obj->velocity.x = -obj->velocity.x; // Reverse
             // obj->coords_origin.x = obj->coords_origin.x < 0 ? 0 : world->coord_space_grid.coord_space.resolution_ixj.x - 1; // Move the object back within bounds
          }
          if (obj->coords_origin.y < 0 || obj->coords_origin.y >= world->coord_space_grid.coord_space.resolution_ixj.y)
          {
-            obj->velocity.y = -obj->velocity.y; // Reverse and dampen the y velocity
+            obj->velocity.y = -obj->velocity.y; // Reverse
             // obj->coords_origin.y = obj->coords_origin.y < 0 ? 0 : world->coord_space_grid.coord_space.resolution_ixj.y - 1; // Move the object back within bounds
          }
          // Recalc inverse_mass in case mass was changed
          obj->inverse_mass = obj->mass != 0 ? 1.0 / obj->mass : 0.0;
-         CalculateVectors(obj, delta_time); // Still update the object's vectors based on its acceleration and velocity so that it can move back into the bounds of the world
-         continue;
       }
-      
-      // Add the object's ID to the cell's object_ids array if there is space
-      Cell *target_cell = GetCellFromCoords(&world->coord_space_grid.coord_space, polygonoids[i].newtonian_properties.coords_center);
-      int cell_index = GetIndexFromCoords(&world->coord_space_grid.coord_space, target_cell->coords_origin);
 
-      // Need assign an area of effect for the object based on its radius and update the occupancy of all cells that fall within that area, not just the cell that contains the object's origin coordinates, otherwise we won't detect collisions until the objects are already overlapping significantly, which can cause tunneling issues where fast moving objects pass through each other without detecting a collision. For simplicity, let's just use a square area of effect based on the object's radius, which will be easier to calculate than a circular area of effect. We can calculate the min and max cell indices in both x and y directions that fall within the object's area of effect and update the occupancy of all those cells accordingly.
+      // Need assign an area of effect for the object based on its radius and update the occupancy of all cells that fall within that area, not just the cell that contains the object's origin coordinates,
+      // otherwise we won't detect collisions until the objects are already overlapping significantly, which can cause tunneling issues where fast moving objects pass through each other without detecting a collision.
+      // For simplicity, use a square area of effect based on AABB
+      Surface2d snapped_aabb = CalcSnappedAABB(world->coord_space_grid.coord_space.basis, obj->surface, obj->coords_center);
+      Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(&snapped_aabb.surface_vectors, ZERO_VECTOR_2D);
+      MapEntityToASpace(&world->coord_space_grid.coord_space, obj, snapped_aabb_box, &entity_space_map);
 
-      // Calculate the min and max cell indices in both x and y directions that fall within the object's area of effect based on box-shaped area of effect for simplicity
-      // What I need is the max across and max down - this defines the area of effect. Then get the indexes of the cells that fall within that area and update their occupancy based on the object's ID. We can calculate the max across and max down based on the object's radius and the coordinate space's basis vectors, which will give us the dimensions of the area of effect in terms of how many cells it covers in each direction. Then we can loop through all the cells that fall within that area and update their occupancy accordingly.
-      Matrix2x2 box_coords = GetBoxedCoords(&obj->surface.surface_vectors, ZERO_VECTOR_2D);
-      Vector2d min_coords = box_coords.col1;
-      Vector2d max_coords = box_coords.col2;
-      float obj_width = max_coords.x - min_coords.x;
-      float obj_height = max_coords.y - min_coords.y;
-
-      // Get cell indices (snapped to them when the object center oords are the offset for CalculateSnappedAABB)
-      Surface2d snapped_aabb = CalculateSnappedAABB(world->coord_space_grid.coord_space.basis, obj->surface, obj->coords_center);
-      Now get array segments corresponding to all the row segments of cells the object is in.
-      //float obj_cell_width_ratio = obj_width / world->coord_space_grid.coord_space.basis.u.x;
-      //float obj_cell_height_ratio = obj_width / world->coord_space_grid.coord_space.basis.v.y;
-
-      // Min area of effect will be the cell in the middle + all bordering cells - this will apply if the obj width and height are < cell width and height
-
-      //Vector2d area = (Vector2d){obj_effect_width, obj_effect_height};
-      //Surface2d area_of_effect = CreateSurface_Rectangular(area, ZERO_VECTOR_2D);
-      // Otherwise, ..
-      // if(obj_width < world->coord_space_grid.coord_space.basis.u.x)
-      // {
-
-      // }
-      // float min_cell_x = min_coords.x;
-      // float max_cell_x = max_coords.x;
-      // float min_cell_y = min_coords.y;
-      // float max_cell_y = max_coords.y;
-
-      // int start_i = GetIndexFromCoords(&world->coord_space_grid.coord_space, (Vector2d){min_cell_x + obj->coords_origin.x, min_cell_y + obj->coords_origin.y});
-      // int end_i = GetIndexFromCoords(&world->coord_space_grid.coord_space, (Vector2d){max_cell_x + obj->coords_origin.x, max_cell_y + obj->coords_origin.y});
-
-      // for (int i = start_i; i <= end_i; i++)
-      // {
-      //    if (target_cell != NULL && target_cell->occupancy < MAX_CELL_OCCUPANCY)
-      //    {
-      //       target_cell->object_ids[target_cell->occupancy] = polygonoids[i].id;
-      //       target_cell->occupancy++;
-      //       tally[cell_index]++;
-      //       frame_counter.total_frames % 60 == 0 ? printf("CELL INDEX %d now has %d occupancy\n", cell_index, tally[cell_index]) : (void)0;
-      //    }
-      //    else
-      //    {
-      //       printf("WARNING: Cell (%d,%d) full. ID %d not tracked spatially.\n", target_cell->coords.x, target_cell->coords.y, polygonoids[i].id);
-      //       return;
-      //    }
-      // }
-
-      // Update the object's vectors based on its current acceleration, velocity, and position, and the elapsed time since the last update
-      CalculateVectors(obj, delta_time);
+      CalcVectors(obj, delta_time);
    }
-   // 2. Check for collisions
-   if (obj_count < 2)
+
+   // Check for collisions
+   if (obj_count < 2) // early return
+   {
+      ClearFlatMapInt(&entity_space_map);
       return;
+   }
 
    // i is the index of the first object in the collision check, and j is the index of the second object.
    // We can start j at i + 1 to avoid checking the same pair of objects twice and to avoid checking an object against itself.
    for (size_t i = 0; i < cell_count; i++)
    {
       // The index actually encodes the cell index value, e.g. i = 2 is the cell at index 2 in the cells array, which we can get the coordinates of from the cell's coords field, and we can also get the object IDs of the objects occupying that cell from the cell's object_ids array, and then we can use those IDs to find the corresponding objects in the world's objects array to check for collisions between them.
-      short cell_occ = tally[i];
-      if (cell_occ > 1)
+      int cell_occ = 0;
+      FlatMapInt_Get(&entity_space_map, i, &cell_occ);
+      if (cell_occ > 2)
       {
          // Implement some factorial stuff and check each possible interaction between occupying objects
          int max_collisions = (cell_occ * (cell_occ - 1)) / 2; // nC2 combinations of objects in the cell to check for collisions
@@ -234,10 +194,18 @@ void UpdateWorld(World2d *world, float delta_time)
                   // Velocity along the Normal (The Dot Product)
                   float a_b_vel_dot = VectorDot_2d(a_b_vel, a_b_pos_normal);
 
+                  float total_inverse_mass = a->newtonian_properties.inverse_mass + b->newtonian_properties.inverse_mass;
+                  if (total_inverse_mass <= 0.0f) // We have 2 immovable/static objects so just continue to the next collision
+                  {
+                     printf("WARNING: Both objects in this collision have infinite mass (0 inverse mass). No collision response applied.\n");
+                     continue;
+                  }
+
                   // Get the Impulse: $$j = \frac{-(1 + e)(\mathbf{v}_{rel} \cdot \mathbf{n})}{\frac{1}{m_a} + \frac{1}{m_b}}$$
                   // Calculate Impulse Scalar
                   float e = 1; // Coefficient of Restitution
-                  float j = -(1 + e) * a_b_vel_dot / (a->newtonian_properties.inverse_mass + b->newtonian_properties.inverse_mass);
+                  float j = -(1 + e) * a_b_vel_dot / total_inverse_mass;
+                  // Apply impulse safely...
 
                   // Apply the Impulse
                   // Turn that scalar back into a vector and update the velocities
@@ -262,10 +230,59 @@ void UpdateWorld(World2d *world, float delta_time)
          }
       }
    }
-   ClearLArray(&tally_arr);
-   // UpdateObjectVectors(objs, delta_time);
-   // UpdateWorldState(objs, &world->coord_space_grid.coord_space, delta_time);
+   ClearFlatMapInt(&entity_space_map);
 }
+
+// Associates the Entity to the Space through object->space-cell mapping. Best used when Entity count << Space Cell count.
+void MapEntityToASpace(CoordSpace2d *space, NewtonObject2d *object, Matrix2x2 snapped_aabb_box, FlatMapInt *O_entity_to_space_index_map)
+{
+   // Get the entity's footprint in terms of cell index coverage and map entity (via its ID) to the corresponding Cell (retireved via its index) (store entity ID as a cell occupant)
+   float snapped_w = (snapped_aabb_box.col2.x - snapped_aabb_box.col1.x);
+   float snapped_h = (snapped_aabb_box.col2.y - snapped_aabb_box.col1.y);
+   Vector2d snapped_t_left = snapped_aabb_box.col1;
+   Vector2d snapped_b_right = snapped_aabb_box.col2;
+   // Cell *cells = (Cell *)space->cells.items;
+   for (size_t y = 0; y < snapped_h; y++)
+   {
+      for (size_t x = 0; x < snapped_w; x++)
+      {
+         Vector2d cell_coords = (Vector2d){snapped_t_left.x + x, snapped_t_left.y + y};
+         int cell_i = GetIndexFromCoords(space, cell_coords);
+         Cell *cell = GetCellFromCoords(space, cell_coords);
+         if (cell == NULL)
+         {
+            // printf("WARNING: Cell index %d out of bounds for object ID %d at coordinates (%.1f, %.1f). Skipping cell update for this cell.\n", cell_i, object->id, object->coords_center.x, object->coords_center.y);
+            printf("WARNING: Cell not found in MapEntityToASpace. Skipping this object-->cell mapping.\n");
+            continue;
+         }
+
+         // Map object ID to the cell
+         if (cell->occupancy < MAX_CELL_OCCUPANCY)
+         {
+            cell->object_ids[cell->occupancy] = object->id;
+            cell->occupancy++;
+
+            // Increment the number of objects in this cell
+            if (O_entity_to_space_index_map != NULL)
+            {
+               int cell_occu = 0;
+               FlatMapInt_InsertOrUpdate(O_entity_to_space_index_map, cell_i, cell->occupancy);
+               FlatMapInt_Get(O_entity_to_space_index_map, cell_i, &cell_occu);
+               frame_counter.total_frames % 60 == 0 ? printf("ENTITY (ID:%d) mapped to CELL %d | CELL now has %d occupancy\n", object->id, cell_i, cell_occu) : (void)0;
+            }
+         }
+         else
+         {
+            printf("WARNING: Cell index %d full. ID %d not tracked spatially.\n", cell_i, object->id);
+            continue;
+         }
+      }
+   }
+}
+
+// Need assign an area of effect (footprint), i.e. Snapped AABB, for the object based on its radius and update the occupancy of all cells that fall within that area
+// otherwise we won't detect collisions until the objects are already overlapping significantly, which can cause tunneling issues where fast moving objects pass through each other without detecting a collision.
+// Surface2d snapped_aabb = CalculateSnappedAABB(space->basis, object->surface, object->coords_center);
 
 // void UpdateWorld(World2d *world, float delta_time)
 // {
@@ -469,8 +486,8 @@ bool CheckForCollision(NewtonObject2d a, NewtonObject2d b)
 {
    // 1 Get the boxed regions of both objects and check for overlap
    // 1.1 Find the max x and max y across all surface vectors
-   Matrix2x2 a_box_coords = GetBoxedCoords(&a.surface.surface_vectors, ZERO_VECTOR_2D);
-   Matrix2x2 b_box_coords = GetBoxedCoords(&b.surface.surface_vectors, ZERO_VECTOR_2D);
+   Matrix2x2 a_box_coords = CalcAABBCoords_Tight(&a.surface.surface_vectors, ZERO_VECTOR_2D);
+   Matrix2x2 b_box_coords = CalcAABBCoords_Tight(&b.surface.surface_vectors, ZERO_VECTOR_2D);
 
    // a_box_coords.col1 = VectorSum_2d(a_box_coords.col1,a.coords_origin);
    // a_box_coords.col2 = VectorSum_2d(a_box_coords.col2,a.coords_origin);

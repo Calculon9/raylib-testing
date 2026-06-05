@@ -58,9 +58,9 @@ static float gravity = 10;
 static int next_object_id = 1; // Global variable to keep track of the next available ID for NewtonObjects
 static ColourRgba polygonoid_line_colour = {155, 0, 0, 255};
 static ColourRgba polygonoid_text_colour = {64, 64, 64, 255};
-static float polygonoid_radius_default = 0.5;
+static float polygonoid_radius_default = 1.0;
 static float polygonoid_mass_default = 1.0;
-static Vector2d polygonoid_velocity_default = {1.40, 0.60};
+static Vector2d polygonoid_velocity_default = {1.0, 1.0};
 static Vector2d polygonoid_acceleration_default = {0.0, 0.0f};
 static int initObjectCount = 1;
 
@@ -135,16 +135,16 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
         // float v = 40.5;
         // unsigned char *check = (unsigned char *)&v;
         // LArray_Push(test, &v);
-        // printf("Expected Hex: %02X %02X %02X %02X\n", check[0], check[1], check[2], check[3]); 
+        // printf("Expected Hex: %02X %02X %02X %02X\n", check[0], check[1], check[2], check[3]);
 
         // 1. Add a new polygonoid to the state with the position of the mouse click - give an initial velocity
         // 1.1 Convert mouse pixel coords to world coords
         Vector2d click_pixel_coords = {mouse_x, mouse_y};
         Vector2d click_world_coords = TransformCoordinates(camera_world.dest_to_source_mtx, click_pixel_coords);
 
-        float radius = polygonoid_radius_default;
-        float mass = polygonoid_mass_default;
-        Vector2d velocity = polygonoid_velocity_default;
+        float radius = GetRandomFloat(0, polygonoid_radius_default * 2);
+        float mass = GetRandomFloat(0, polygonoid_mass_default * 10);
+        Vector2d velocity = {.x = GetRandomFloat(0, polygonoid_velocity_default.x * 5), .y = GetRandomFloat(0, polygonoid_velocity_default.y * 5)};
         Vector2d acceleration = polygonoid_acceleration_default;
         ColourRgba colour = polygonoid_line_colour;
         // CreateAddPolygonoid(radius, SHAPE_MATH_EQUIDISTANT, mass, colour, click_world_coords, velocity, acceleration);
@@ -173,8 +173,13 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
     Vector2d click_pixel_coords = {mouse_x, mouse_y};                                                        // This is in pixel coordinates relative to the top left of the screen, so we need to convert it to world coordinates before we can compare it to object coordinates which are relative to the world origin
     Vector2d click_local_coords = TransformCoordinates(camera_world.dest_to_source_mtx, click_pixel_coords); // This is relative to the world origin, so we can use it directly to compare to object coordinates which are also relative to the world origin
 
-    Polygonoid *polygonoids = world.objects.items;
     int cell_index = ((int)click_local_coords.y * (int)world_resolution.x) + (int)click_local_coords.x;
+    if (click_local_coords.x < 0 || click_local_coords.y < 0 ||
+        click_local_coords.x >= world_resolution.x || click_local_coords.y >= world_resolution.y)
+    {
+        // Click is outside the structural world viewport boundaries! Avoid resolving cell.
+        return;
+    }
 
     // Check if there are any objects in that cell and print info about those objects if so
     Cell *cells = world.coord_space_grid.coord_space.cells.items;
@@ -194,21 +199,22 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
     Polygonoid *p_closest = NULL;
     for (int i = 0; i < cell.occupancy; i++)
     {
-        int id = cell.object_ids[i];
-        if (id == 0)
+        int cell_id = cell.object_ids[i];
+        if (cell_id == 0)
         {
             // No object Id  at this index yet (still at initialised value).
             continue;
         }
-        if (id < 0)
+        if (cell_id < 0)
         {
-            printf("ERROR. Object Id stored in Cell is < 0 (%.1f)\n", id);
+            printf("ERROR. Object Id stored in Cell is < 0 (%.1f)\n", cell_id);
             continue;
         }
 
-        Polygonoid *p = &objs[id - 1]; // Minus 1 because the Id starts at 1, not 0;
+        Polygonoid *p = &objs[cell_id - 1]; // Minus 1 because the Id starts at 1, not 0;
+        int obj_id = p->newtonian_properties.id;
         // It SHOULD equal the object ID...
-        if (p->id == cell.object_ids[i])
+        if (obj_id == cell_id)
         {
             Vector2d click_to_obj_dist_i = VectorSum_2d(VectorScale_2d(p->newtonian_properties.coords_center, -1), click_local_coords);
             float click_to_obj_mag_i = fabs(VectorMagnitude_2d(click_to_obj_dist_i));
@@ -223,7 +229,7 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
         }
         else
         {
-            printf("ERROR. Object Id stored in Cell doesn't match the Id in the object OR the array index-object Id no longer match. ID in CELL = %d. ID in ENTITY = %d.\n", id, p->id);
+            printf("ERROR. Object Id stored in Cell doesn't match the Id in the object OR the array index-object Id no longer match. ID in CELL = %d. ID in ENTITY = %d.\n", cell_id, obj_id);
             continue;
         }
     }
@@ -273,7 +279,7 @@ void CreateAddPolygonoid(float radius, ShapeType shape_type, float mass, ColourR
         break;
     }
 
-    if (new_polygonoid.radius > 0)
+    if (new_polygonoid.radius > 0.0)
         AddObjectToWorld(&world, &new_polygonoid);
 
     // Array_Push(polygonoids, &newPolygonoid);
@@ -422,8 +428,9 @@ void DrawPolygonoids(LArray *polygonoids)
         ClearLArray(&obj_box_surface.surface_vectors);
 
         // ----DEBUG-----  draw the footprint box of the polygonoid to check it is correct
-        Surface2d footprint_surface = CalculateSnappedAABB(camera_world.source_basis, polygonoid.newtonian_properties.surface, obj_center_coords);
-        DrawObjectVertices(footprint_surface.surface_vectors, obj_center_coords, camera_world, polygonoid.colourRgba);
+        Surface2d footprint_surface = CalcSnappedAABB(camera_world.source_basis, polygonoid.newtonian_properties.surface, obj_center_coords);
+        Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(&footprint_surface.surface_vectors, ZERO_VECTOR_2D);
+        DrawObjectVertices(footprint_surface.surface_vectors, ZERO_VECTOR_2D, camera_world, polygonoid.colourRgba); // No object offset needed as its vertices have been snapped using object center coords
         ClearLArray(&footprint_surface.surface_vectors);
 
         // float cell_index = ((int)local_origin_coords.y * world_resolution.x) + (int)local_origin_coords.x; // - 1; ((screen_origin.x - 1) * world_resolution.y) + screen_origin.y;
@@ -438,16 +445,17 @@ void DrawPolygonoids(LArray *polygonoids)
 }
 
 // Provide the boxed coords of the object and the object's vertices to render the vertices within the box
-void DrawObjectVertices(LArray local_vertices, Vector2d coords_center, Camera2d camera, ColourRgba line_colour)
+void DrawObjectVertices(LArray local_vertices, Vector2d offset, Camera2d camera, ColourRgba line_colour)
 {
     Vector2d vertice_start = *((Vector2d *)local_vertices.items);
-    vertice_start = VectorSum_2d(vertice_start, coords_center); // apply positional offset
+    vertice_start = VectorSum_2d(vertice_start, offset); // apply positional offset
     vertice_start = TransformCoordinates(camera_world.source_to_dest_mtx, vertice_start);
     Vector2d vertice_start_cache = vertice_start;
     for (int i = 1; i < local_vertices.count; i++)
     {
-        Vector2d vertice_end = *(Vector2d *)((char *)local_vertices.items + (i * sizeof(Vector2d)));
-        vertice_end = VectorSum_2d(vertice_end, coords_center);
+        // Vector2d vertice_end = *(Vector2d *)((char *)local_vertices.items + (i * sizeof(Vector2d)));
+        Vector2d vertice_end = *(Vector2d *)LArray_Get(&local_vertices, i);
+        vertice_end = VectorSum_2d(vertice_end, offset);
         vertice_end = TransformCoordinates(camera_world.source_to_dest_mtx, vertice_end);
         DrawLine(vertice_start.x, vertice_start.y, vertice_end.x, vertice_end.y, (Color){line_colour.r, line_colour.g, line_colour.b, line_colour.a});
 
@@ -458,8 +466,6 @@ void DrawObjectVertices(LArray local_vertices, Vector2d coords_center, Camera2d 
     // Draw the line from vertice[0] to vertice[count-1];
     DrawLine(vertice_start.x, vertice_start.y, vertice_start_cache.x, vertice_start_cache.y, (Color){polygonoid_line_colour.r, polygonoid_line_colour.g, polygonoid_line_colour.b, polygonoid_line_colour.a});
 }
-
-
 
 int GetPolygonoidCount(void)
 {

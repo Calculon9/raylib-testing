@@ -1,5 +1,9 @@
 #include "math/geometry.h"
 #include "math/helpers.h"
+
+
+
+
 LArray CreateVertices_Symmetric(int vertice_count, float radius)
 {
      if (vertice_count < 0)
@@ -93,7 +97,7 @@ Surface2d CreateSurface_Rectangular(Vector2d dimensions, Vector2d vertice_offset
 }
 
 // Returns the boxed coords from a collection of vertice vectors with an offset applied to the vertices (e.g. to account for the position of the shape in world space, rather than just the local vertices)
-Matrix2x2 GetBoxedCoords(LArray *vertices, Vector2d vertice_offset)
+Matrix2x2 CalcAABBCoords_Tight(LArray *vertices, Vector2d vertice_offset)
 {
     Matrix2x2 box_coords = {0};
     if (vertices->count < 2)
@@ -119,9 +123,9 @@ Matrix2x2 GetBoxedCoords(LArray *vertices, Vector2d vertice_offset)
     return box_coords;
 }
 
-Vector2d GetBoxedDimensions(LArray *vertices)
+Vector2d CalcAABBDimensions(LArray *vertices)
 {
-    Matrix2x2 box_coords = GetBoxedCoords(vertices, ZERO_VECTOR_2D);
+    Matrix2x2 box_coords = CalcAABBCoords_Tight(vertices, ZERO_VECTOR_2D);
 
     Vector2d box_dims = (Vector2d){box_coords.col2.x - box_coords.col1.x, box_coords.col2.y - box_coords.col1.y};
 
@@ -141,7 +145,7 @@ bool BoxFitsWithinBox(Matrix2x2 box1, Matrix2x2 box2)
 }
 
 // Returns the coordinates of the intersection box between box1 and box2, or an empty box if there is no intersection
-Matrix2x2 BoxIntersectionPointsWithBox(Matrix2x2 box1, Matrix2x2 box2)
+Matrix2x2 CalcBoxOverlapWithBox(Matrix2x2 box1, Matrix2x2 box2)
 {
     // Calculate the coordinates of the intersection box
     Matrix2x2 intersection;
@@ -173,8 +177,8 @@ bool ShapeFitsWithinShape(LArray *shape1_vertices, LArray *shape2_vertices, Vect
     Vector2d *pts2 = shape2_vertices->items;
 
     // Must initialise with one of the provided vertices rather than all 0s because 0 could be the largest or smallest value compared to the provided vertices
-    Matrix2x2 box1_coords = GetBoxedCoords(shape1_vertices, shape1_vertice_offset);
-    Matrix2x2 box2_coords = GetBoxedCoords(shape2_vertices, shape2_vertice_offset);
+    Matrix2x2 box1_coords = CalcAABBCoords_Tight(shape1_vertices, shape1_vertice_offset);
+    Matrix2x2 box2_coords = CalcAABBCoords_Tight(shape2_vertices, shape2_vertice_offset);
 
     // Check if box1 is completely contained within box2
     if (BoxFitsWithinBox(box1_coords, box2_coords))
@@ -185,7 +189,7 @@ bool ShapeFitsWithinShape(LArray *shape1_vertices, LArray *shape2_vertices, Vect
 }
 
 // Returns the adjusted offset for Box B so it is perfectly centered inside Box A
-Vector2d GetCenteredBoxOffset(Vector2d box_a_dimensions, Vector2d box_b_dimensions)
+Vector2d CalcCenteredBoxOffset(Vector2d box_a_dimensions, Vector2d box_b_dimensions)
 {
     Vector2d centered_coords;
 
@@ -292,7 +296,7 @@ bool IsPointInPolygon(Vector2d point, Vector2d *polygon_vertices, Vector2d verti
     return inside;
 }
 
-Vector2d GetGeometricCentre_FromBox(Matrix2x2 box_coords)
+Vector2d CalcGeometricCentre_FromBox(Matrix2x2 box_coords)
 {
     // First check that the provided box coords have valid dimensions (i.e. col2 is greater than col1 in both axes)
     if (box_coords.col2.x < box_coords.col1.x || box_coords.col2.y < box_coords.col1.y)
@@ -309,7 +313,7 @@ Vector2d GetGeometricCentre_FromBox(Matrix2x2 box_coords)
     return mid;
 }
 
-Vector2d GetGeometricCentre_FromSurface(Surface2d object_surface, Vector2d vertice_offset)
+Vector2d CalcGeometricCentre_FromSurface(Surface2d object_surface, Vector2d vertice_offset)
 {
     // First check that the provided box coords have valid dimensions (i.e. col2 is greater than col1 in both axes)
     if (object_surface.surface_vectors.items == NULL || object_surface.surface_vectors.count < 1)
@@ -317,8 +321,8 @@ Vector2d GetGeometricCentre_FromSurface(Surface2d object_surface, Vector2d verti
         printf("WARNING: Surface vectors provided to GetGeometricCentre_FromSurface are NULL or contain no items. Returning (0,0) as default value.\n");
         return ZERO_VECTOR_2D; // Invalid box, return (0,0) as a default value
     }
-    Matrix2x2 box_coords = GetBoxedCoords(&object_surface.surface_vectors, vertice_offset);
-    return GetGeometricCentre_FromBox(box_coords);
+    Matrix2x2 box_coords = CalcAABBCoords_Tight(&object_surface.surface_vectors, vertice_offset);
+    return CalcGeometricCentre_FromBox(box_coords);
 }
 
 // Returns true if shape1 fits within shape2
@@ -332,8 +336,8 @@ float ShapeOverlapWithShape(LArray *shape1_vertices, LArray *shape2_vertices, Ve
     Vector2d *pts2 = shape2_vertices->items;
 
     // Must initialise with one of the provided vertices rather than all 0s because 0 could be the largest or smallest value compared to the provided vertices
-    Matrix2x2 box1_coords = GetBoxedCoords(shape1_vertices, shape1_vertice_offset);
-    Matrix2x2 box2_coords = GetBoxedCoords(shape2_vertices, shape2_vertice_offset);
+    Matrix2x2 box1_coords = CalcAABBCoords_Tight(shape1_vertices, shape1_vertice_offset);
+    Matrix2x2 box2_coords = CalcAABBCoords_Tight(shape2_vertices, shape2_vertice_offset);
 
     // Check if box1 is completely contained within box2
     if (BoxFitsWithinBox(box1_coords, box2_coords))
@@ -354,18 +358,18 @@ LArray ShapeAVerticesInShapeB(LArray *shape1_vertices, LArray *shape2_vertices, 
     Vector2d *pts1 = shape1_vertices->items;
     Vector2d *pts2 = shape2_vertices->items;
 
-    Matrix2x2 box1_coords = GetBoxedCoords(shape1_vertices, shape1_vertice_offset);
-    Matrix2x2 box2_coords = GetBoxedCoords(shape2_vertices, shape2_vertice_offset);
+    Matrix2x2 box1_coords = CalcAABBCoords_Tight(shape1_vertices, shape1_vertice_offset);
+    Matrix2x2 box2_coords = CalcAABBCoords_Tight(shape2_vertices, shape2_vertice_offset);
 
     // Get the segment (another box) of box A that is overlapping with box B
-    Matrix2x2 box_coords_overlap = BoxIntersectionPointsWithBox(box1_coords, box2_coords);
+    Matrix2x2 box_coords_overlap = CalcBoxOverlapWithBox(box1_coords, box2_coords);
 
     // Get the dimensions to determine if the returned box is non-zero
     Vector2d overlap_dims = (Vector2d){(box_coords_overlap.col2.x - box_coords_overlap.col1.x), (box_coords_overlap.col2.y - box_coords_overlap.col1.y)};
     LArray shape1_vertices_in_overlap = MakeLArray(shape1_vertices->count, sizeof(Vector2d));
     if (overlap_dims.x * overlap_dims.y > 0)
     {
-        Vector2d box_coords_overlap_center = GetGeometricCentre_FromBox(box_coords_overlap);
+        Vector2d box_coords_overlap_center = CalcGeometricCentre_FromBox(box_coords_overlap);
         Surface2d box_overlap_surface = CreateSurface_Rectangular(overlap_dims, box_coords_overlap_center);
         for (size_t i = 0; i < shape1_vertices->count; i++)
         {
