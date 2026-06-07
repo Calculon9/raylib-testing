@@ -83,15 +83,14 @@ typedef struct Matrix2x2
 
 Vector2d VectorSumArray_2d(Vector2d *array, size_t count);
 Vector2d VectorSum_2d(Vector2d a, Vector2d b);
-Vector2d *VectorSumArray_2d_Dynamic(Vector2d *array, size_t count);
 Vector2d VectorScale_2d(Vector2d vector, float scalar);
 Polar2d PolarForm_2d(Vector2d vector);
 float VectorMagnitude_2d(Vector2d vector);
 float VectorBox_2d(Vector2d vector);
 float VectorDot_2d(Vector2d a, Vector2d b);
 float VectorRadians_2d(Vector2d vector);
+Vector2d VectorComponents_2d(float magnitude, float radians);
 Vector3d VectorSumArray_3d(Vector3d *array, size_t count);
-Vector3d *VectorSumArray_3d_Dynamic(Vector3d *array, size_t count);
 // Matrix3x3 VectorTransform_Scale_Rotate_2d(Vector2d origin, float scale_u, float scale_v, float radians_u, float radians_v);
 float MatrixDeterminant_2x2(Matrix2x2 M);
 Matrix3x3 MatrixMultiply_3x3_3x3(Matrix3x3 A, Matrix3x3 B);

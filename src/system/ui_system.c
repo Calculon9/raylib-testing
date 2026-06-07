@@ -59,14 +59,16 @@ UIBox seed_box = {0}; // This is the box that will be used as the parent box for
 UIElement *lpanel_root = {0};
 UIElement *lpanel_stats_tcont = {0};
 Vector2d lpanel_stats_tcont_offset = {0, 0};
+Vector2d lpanel_stats_tcont_dims = {1, 0.27};
 UIElement *lpanel_entity_state_tcont = {0};
-Vector2d lpanel_entity_state_tcont_offset = {0, 3};
+Vector2d lpanel_entity_state_tcont_offset = {0, 2.55};
 Vector2d lpanel_entity_state_tcont_dims = {1, 0.4};
 UIElement *lpanel_cell_state_tcont = {0};
-Vector2d lpanel_cell_state_tcont_offset = {0, 7};
+Vector2d lpanel_cell_state_tcont_offset = {0, 6.15};
+Vector2d lpanel_cell_state_dims = {1, 0.27};
 // - default text container props
-Vector2d lpanel_tcont_default_dims = {100, 40};
-Vector2d lpanel_tcont_default_padding = {0.05, 0.05};
+// Vector2d lpanel_tcont_default_dims = {1, 0.3}; //percentage of parent container dimensions
+// Vector2d lpanel_tcont_default_padding = {0.05, 0.05};
 
 //----------------------------------------------------------------------------------
 // Gameplay Screen Functions Definition
@@ -218,7 +220,7 @@ void InitCellStateContainer(void)
     // 1. Create the Container (The Parent)
     // Note: We use an offset relative to lpanel_root, NOT an absolute origin.
     lpanel_cell_state_tcont = CreateTextFieldContainerInTree(
-        (Size){tcont_default_dims, SIZE_PERCENT},
+        (Size){lpanel_cell_state_dims, SIZE_PERCENT},
         lpanel_root,
         (Offset){lpanel_cell_state_tcont_offset, OFFSET_FIXED}, // Relative to lpanel_root
         tcont_default_padding,
@@ -295,10 +297,10 @@ void InitCellStateContainer(void)
 
 void InitStatsContainer(void)
 {
-    // 1. Create the Container (The Parent)
+    // Create the Container (The Parent)
     // Note: We use an offset relative to lpanel_root, NOT an absolute origin.
     lpanel_stats_tcont = CreateTextFieldContainerInTree(
-        (Size){tcont_default_dims, SIZE_PERCENT},
+        (Size){lpanel_stats_tcont_dims, SIZE_PERCENT},
         lpanel_root,
         (Offset){lpanel_stats_tcont_offset, OFFSET_FIXED}, // Relative to lpanel_root
         tcont_default_padding,
@@ -307,8 +309,8 @@ void InitStatsContainer(void)
         tcont_default_colour_fill);
     lpanel_stats_tcont->is_draggable = true;
 
-    char *tbox_labels[] = {"STATISTICS", "POLYOIDS.", "FPS.", "MEM."};
-    String64 **state_map_str[] = {NULL, &G_UIState.lpanel_stats_polygs_str, &G_UIState.lpanel_stats_fps_str, &G_UIState.lpanel_stats_mem_str};
+    char *tbox_labels[] = {"STATISTICS", "POLYOIDS", "MEM.", "FPS.", "F.TIME"};
+    String64 **state_map_str[] = {NULL, &G_UIState.lpanel_stats_polygs_str, &G_UIState.lpanel_stats_mem_str, &G_UIState.lpanel_stats_fps_str, &G_UIState.lpanel_stats_ftime_str};
 
     // Create Title (Label)
     UIElement *title = CreateUIElementInTree(UI_ELEMENT_LABEL,
@@ -322,16 +324,16 @@ void InitStatsContainer(void)
     title->data.label.font = FONT_BASIC;
     title->is_draggable = true;
 
-    for (int i = 1; i < 4; i++)
+    for (int i = 1; i < 5; i++)
     {
-        // 2. Calculate the local offset for this TextField within the container
+        // Calculate the local offset for this TextField within the container
         // Formula: (Spacing + Height) * index
         float y_pos = lpanel_stats_tcont->child_spacing.y > 0 ? i * (lpanel_stats_tcont->child_spacing.y + tfield_default_dims.y) : i * lpanel_stats_tcont->child_spacing.y;
         float x_pos = lpanel_stats_tcont->child_spacing.x > 0 ? i * (lpanel_stats_tcont->child_spacing.x + tfield_default_dims.x) : i * lpanel_stats_tcont->child_spacing.x;
 
         Vector2d tfield_offset = (Vector2d){x_pos, y_pos};
 
-        // 3. Create the TextField
+        // Create the TextField
         UIElement *tfield = CreateTextFieldInTree(
             (Size){tfield_default_dims, SIZE_FIXED},
             lpanel_stats_tcont,
@@ -393,23 +395,25 @@ void UpdateGlobalUIState()
 {
     // UPDATE STATISTICS
     float fps = frame_counter.fps;
-    float bytes = GetCurrentMemoryAllocated();
-    float kbytes = bytes / (1024.0f);// * 1024.0f);
+    float ftime = frame_counter.delta_time * 1000;
+    float bytes = GetCurrentMemoryAllocated() / 1024.0f;
     int polygs = GetPolygonoidCount();
 
-    // Only update every 30 frames, unnecessary to do every frame
-    if (frame_counter.total_frames % 30 == 0)
+    // Only update every 20 frames, unnecessary to do every frame
+    if (frame_counter.total_frames % 20 == 0)
     {
         snprintf(G_UIState.lpanel_stats_fps_str->string, sizeof(String64), "%.1f", fps);
-        snprintf(G_UIState.lpanel_stats_mem_str->string, sizeof(String64), "%.1f", kbytes);
+        snprintf(G_UIState.lpanel_stats_mem_str->string, sizeof(String64), "%.1f", bytes);
         snprintf(G_UIState.lpanel_stats_polygs_str->string, sizeof(String64), "%d", polygs);
+        snprintf(G_UIState.lpanel_stats_ftime_str->string, sizeof(String64), "%.1f", ftime);
     }
 
     // DEBUG----
     if (frame_counter.total_frames % 900 == 0)
     {
-        printf("[Telemetry Update] FPS: %s | MEM: %sKB | POLY: %s\n",
+        printf("[Telemetry Update] FPS: %s  | F.TIME: %s | MEM: %sKB | POLY: %s\n",
                G_UIState.lpanel_stats_fps_str->string,
+               G_UIState.lpanel_stats_ftime_str->string,
                G_UIState.lpanel_stats_mem_str->string,
                G_UIState.lpanel_stats_polygs_str->string);
     }
@@ -427,7 +431,7 @@ void UpdateGlobalUIState()
         Vector2d mom = obj->newtonian_properties.momentum;
 
         // Bind selected_object data to the Object Properties TextBoxes
-        G_UIState.lpanel_entity_state_id_tbox->data.textbox.data_bind = &obj->id;
+        G_UIState.lpanel_entity_state_id_tbox->data.textbox.data_bind = &obj->newtonian_properties.id;
         G_UIState.lpanel_entity_state_mass_tbox->data.textbox.data_bind = &obj->newtonian_properties.mass;
         G_UIState.lpanel_entity_state_pos_tbox->data.textbox.data_bind = &obj->newtonian_properties.coords_origin;
         G_UIState.lpanel_entity_state_vel_tbox->data.textbox.data_bind = &obj->newtonian_properties.velocity;

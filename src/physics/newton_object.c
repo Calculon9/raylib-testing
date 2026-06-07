@@ -16,27 +16,28 @@
 // Functions Definition
 //----------------------------------------------------------------------------------
 
-NewtonObject2d CreateNewtonObject2d(size_t mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration, Surface2d surface)
+NewtonObject2d CreateNewtonObject2d(float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration, Surface2d surface)
 {
    NewtonObject2d newtOb = {0};
+   newtOb.coords_center = coords_center;
    newtOb.mass = mass;
    newtOb.inverse_mass = 1.0f / mass;
    newtOb.velocity = velocity;
    newtOb.acceleration = acceleration;
    newtOb.surface = surface;
    newtOb.boxed_dimensions = CalcAABBDimensions(&surface.surface_vectors);
-   newtOb.coords_center = coords_center;// (Vector2d){origin.x + (newtOb.boxed_dimensions.x / 2), origin.y + (newtOb.boxed_dimensions.y / 2)};
-   newtOb.coords_origin = (Vector2d){newtOb.coords_center.x - (newtOb.boxed_dimensions.x / 2), newtOb.coords_center.y - (newtOb.boxed_dimensions.y / 2)};
-   
+   newtOb.coords_origin = (Vector2d){newtOb.coords_center.x - (newtOb.boxed_dimensions.x / 2.0), newtOb.coords_center.y - (newtOb.boxed_dimensions.y / 2.0)};
+   newtOb.radius = (newtOb.boxed_dimensions.x  > newtOb.boxed_dimensions.y) ? newtOb.boxed_dimensions.x : newtOb.boxed_dimensions.y;
+
    // Initialize momentum based on mass and velocity
    newtOb.momentum.x = newtOb.mass * newtOb.velocity.x;
    newtOb.momentum.y = newtOb.mass * newtOb.velocity.y;
 
-   printf("CREATED OBJECT BOX: Top-Left (%.2f, %.2f) Bottom-Right (%.2f, %.2f)\n",
-          newtOb.coords_origin.x,
-          newtOb.coords_origin.y,
-          newtOb.coords_origin.x + newtOb.boxed_dimensions.x,
-          newtOb.coords_origin.y + newtOb.boxed_dimensions.y);
+   // printf("CREATED OBJECT BOX: Top-Left (%.2f, %.2f) Bottom-Right (%.2f, %.2f)\n",
+   //        newtOb.coords_origin.x,
+   //        newtOb.coords_origin.y,
+   //        newtOb.coords_origin.x + newtOb.boxed_dimensions.x,
+   //        newtOb.coords_origin.y + newtOb.boxed_dimensions.y);
    return newtOb;
 }
 
@@ -47,36 +48,39 @@ NewtonObject2d CreateNewtonObject2d_Static(Vector2d coords_center, Surface2d sur
    // Initialize the NewtonObject2d properties here (e.g., set world_position, velocity, etc.)
    newtOb.mass = 0.0;
    newtOb.inverse_mass = 0.0;
-   //newtOb.coords_origin = origin;
+   newtOb.boxed_dimensions = CalcAABBDimensions(&surface.surface_vectors);
    newtOb.coords_center = coords_center;
    newtOb.surface = surface;
-   // newtOb.id = id;
+   newtOb.coords_origin = (Vector2d){newtOb.coords_center.x - (newtOb.boxed_dimensions.x / 2.0), newtOb.coords_center.y - (newtOb.boxed_dimensions.y / 2.0)};
+   newtOb.radius = (newtOb.boxed_dimensions.x  > newtOb.boxed_dimensions.y) ? newtOb.boxed_dimensions.x : newtOb.boxed_dimensions.y;
 
    return newtOb;
 }
 
 void CalcVectors(NewtonObject2d *object, float deltaTime)
 {
-   // Update velocity based on acceleration and time
+   // Recalc inverse_mass up front in case gameplay code mutated mass this frame
+   object->inverse_mass = (object->mass != 0.0f) ? (1.0f / object->mass) : 0.0f;
+
+   // Compute the exact positional displacement using the kinematic formula:
+   // displacement = (v * dt) + (0.5 * a * dt^2)
+   // This perfectly accounts for acceleration happening during the frame!
+   Vector2d displacement;
+   displacement.x = (object->velocity.x * deltaTime) + (0.5f * object->acceleration.x * deltaTime * deltaTime);
+   displacement.y = (object->velocity.y * deltaTime) + (0.5f * object->acceleration.y * deltaTime * deltaTime);
+
+   // Displace reference systems 
+   object->coords_origin = VectorSum_2d(object->coords_origin, displacement);
+   object->coords_center = VectorSum_2d(object->coords_center, displacement);
+
+   // Now update velocity based on acceleration for the next frame's baseline
    object->velocity.x += object->acceleration.x * deltaTime;
    object->velocity.y += object->acceleration.y * deltaTime;
 
-   // Update momentum based on mass and velocity
+   // Keep momentum synchronized with the newly updated velocity
    object->momentum.x = object->mass * object->velocity.x;
    object->momentum.y = object->mass * object->velocity.y;
-
-   // Update world_position based on velocity and time
-   object->coords_origin.x += object->velocity.x * deltaTime;
-   object->coords_origin.y += object->velocity.y * deltaTime;
-   object->coords_center.x += object->velocity.x * deltaTime;
-   object->coords_center.y += object->velocity.y * deltaTime;
-
-   // if (object->acceleration.x != 0)
-   // {
-   //    printf("DEBUG: Acceleration is NOT zero! It is: %f\n", object->acceleration.x);
-   // }
 }
-
 
 // Vector2d CalculateCenterRelativeToOrigin_Fast(NewtonObject2d *object)
 // {
@@ -130,4 +134,3 @@ void CalcVectors(NewtonObject2d *object, float deltaTime)
 //    }
 //    return box_coords;
 // }
-

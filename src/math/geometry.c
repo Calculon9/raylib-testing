@@ -107,8 +107,8 @@ Matrix2x2 CalcAABBCoords_Tight(LArray *vertices, Vector2d vertice_offset)
     Vector2d *pts = vertices->items;
 
     // Must initialise with one of the provided vertices rather than all 0s because 0 could be the largest or smallest value compared to the provided vertices
-    box_coords.col1 = pts[0];
-    box_coords.col2 = pts[0];
+    box_coords.col1 = VectorSum_2d(vertice_offset, pts[0]);
+    box_coords.col2 = VectorSum_2d(vertice_offset, pts[0]);
     Vector2d vertice = {0};
     for (size_t i = 1; i < vertices->count; i++)
     {

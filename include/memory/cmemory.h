@@ -39,5 +39,5 @@ size_t CurrBytesAllocated();
 // Returns the cumulative memory freed since the program started. Useful for tracking total deallocations over time.
 size_t TotalBytesFreed();
 size_t TotalBytesAllocated();
-
+void PrintCurrentBytesAlloc();
 #endif // CMEMORY_H

@@ -24,4 +24,5 @@ MEMORY MANAGEMENT MODULE
 //----------------------------------------------------------------------------------
 
 float GetRandomFloat(float min, float max);
+unsigned long CalcHashFromInts(int a, int b);
 #endif

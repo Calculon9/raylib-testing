@@ -23,6 +23,10 @@ static float gravity = 9.8f; // Gravitational acceleration (m/s^2)
 // Functions Definition
 //----------------------------------------------------------------------------------
 bool CheckForCollision(NewtonObject2d a, NewtonObject2d b);
+void ResolveCollision(NewtonObject2d *a, NewtonObject2d *b);
+void ResolveCollision_ContainerRect(NewtonObject2d *entity, NewtonObject2d *container);
+void ResolvePenetration(NewtonObject2d *a, NewtonObject2d *b);
+void ResolveVelocity(NewtonObject2d *a, NewtonObject2d *b);
 void MapEntityToASpace(CoordSpace2d *space, NewtonObject2d *object, Matrix2x2 snapped_aabb_box, FlatMapInt *O_entity_to_space_index_map);
 // void UpdateWorldState(Collection *objects, CoordSpace2d *space, float delta_time);
 //  void UpdateObjectVectors(Collection *objects, float delta_time);
@@ -38,20 +42,18 @@ World2d CreateWorld(CoordSpace2d_Grid space_obj, float gravity)
    return world;
 }
 
-void AddObjectToWorld(World2d *world, Polygonoid *object)
+void AddObjectToWorld(World2d *world, Polygonoid *object, int parent_id)
 {
    // We can calculate the cell indices based on the object's coordinates and the coordinate space's basis vectors and resolution
    // For simplicity, let's assume the object's coords_center is the point we will use to determine which cell it occupies
    Vector2d local_coords = object->newtonian_properties.coords_center; // These are the world coordinates of the object, which are the cell indices
-   int cell_index = ((int)local_coords.y * (int)world->coord_space_grid.coord_space.resolution_ixj.x) + (int)local_coords.x;
-
-   if (local_coords.x < 0 || local_coords.y < 0 ||
-       local_coords.x >= world->coord_space_grid.coord_space.resolution_ixj.x || local_coords.y >= world->coord_space_grid.coord_space.resolution_ixj.y)
+   object->newtonian_properties.parent_id = parent_id;
+   if (local_coords.x < 0 || local_coords.y < 0 || local_coords.x >= world->coord_space_grid.coord_space.resolution_ixj.x || local_coords.y >= world->coord_space_grid.coord_space.resolution_ixj.y)
    {
-      // Click is outside the structural world viewport boundaries! Avoid resolving cell.
-      return;
+      return; // Click is outside the structural world viewport boundaries! Avoid resolving cell.
    }
 
+   int cell_index = ((int)local_coords.y * (int)world->coord_space_grid.coord_space.resolution_ixj.x) + (int)local_coords.x;
    // Add the object's ID to the cell's object_ids array if there is space, and update the object's footprint based on its surface and the coordinate space's basis vectors.
    // We also need to update the occupancy of the cell and ensure that we don't exceed the maximum
    Cell *cells = world->coord_space_grid.coord_space.cells.items;
@@ -65,18 +67,19 @@ void AddObjectToWorld(World2d *world, Polygonoid *object)
    }
    else
    {
-      printf("WARNING: Cell %d full. ID %d not tracked spatially.\n", cell_index, object->id);
+      printf("WARNING: Cell %d full. ID %d not tracked spatially.\n", cell_index, object->newtonian_properties.id);
       return;
    }
 
    // Add the newton_object to the world's objects array
    LArray_Push(&world->objects, object);
 
-   printf("CREATED OBJECT (ID %d): Cell %d : Center(%.1f, %.1f)\n", object->id, cell_index, local_coords.x, local_coords.y);
+   printf("CREATED OBJECT (ID %d): Cell %d : Center(%.1f, %.1f)\n", object->newtonian_properties.id, cell_index, local_coords.x, local_coords.y);
 }
 
 void UpdateWorld(World2d *world, float delta_time)
 {
+   // PrintCurrentBytesAlloc();
    int obj_count = world->objects.count;
 
    if (obj_count < 1)
@@ -91,137 +94,98 @@ void UpdateWorld(World2d *world, float delta_time)
       target_cell->occupancy = 0;
       memset(&cells[i].object_ids, 0, sizeof(cells[i].object_ids));
    }
-
+   // PrintCurrentBytesAlloc();
    Polygonoid *polygonoids = (Polygonoid *)world->objects.items;
    Matrix2x2 min_coord_space = {0};
-   int starting_flatmap_capacity = 2 + (int)(cell_count / 5);
+   int starting_flatmap_capacity = 1 + (int)(cell_count / 4); // Start with a smaller capacity than the number of cells since we won't have an object in every cell, but we can resize if needed
    FlatMapInt entity_space_map = MakeFlatMapInt(starting_flatmap_capacity);
+
    for (size_t i = 0; i < obj_count; i++)
    {
       NewtonObject2d *obj = &polygonoids[i].newtonian_properties;
+      Matrix2x2 obj_aabb = CalcAABBCoords_Tight(&obj->surface.surface_vectors, obj->coords_center);
+      Matrix2x2 space_aabb = CalcSpaceAABB(&world->coord_space_grid.coord_space);
+      bool is_bounded = BoxFitsWithinBox(obj_aabb, space_aabb);
 
-      // Ensure the object isn't outside the bounds of the world before we try to get the cell it's in, otherwise we could get an out of bounds error when we try to access the cell's object_ids array. We can just skip updating the cell for this object if it's out of bounds, but we should still update its vectors based on its acceleration and velocity so that it can move back into the bounds of the world.
-      if (obj->coords_origin.x < 0 || obj->coords_origin.x >= world->coord_space_grid.coord_space.resolution_ixj.x || obj->coords_origin.y < 0 || obj->coords_origin.y >= world->coord_space_grid.coord_space.resolution_ixj.y)
+      // RESOLVE ENTITY-CONTAINER COLLISIONS
+      if (obj->parent_id == world->coord_space_grid.object.id)
       {
-         printf("WARNING: Object ID %d is out of bounds at coordinates (%.1f, %.1f). Skipping cell update.\n", polygonoids[i].id, obj->coords_origin.x, obj->coords_origin.y);
 
-         // Need to calculate a collision response to push the object back into the bounds of the world here, otherwise it will just keep moving out of bounds and we won't be able to track it anymore.
-         if (obj->coords_origin.x < 0 || obj->coords_origin.x >= world->coord_space_grid.coord_space.resolution_ixj.x)
-         {
-            obj->velocity.x = -obj->velocity.x; // Reverse
-            // obj->coords_origin.x = obj->coords_origin.x < 0 ? 0 : world->coord_space_grid.coord_space.resolution_ixj.x - 1; // Move the object back within bounds
-         }
-         if (obj->coords_origin.y < 0 || obj->coords_origin.y >= world->coord_space_grid.coord_space.resolution_ixj.y)
-         {
-            obj->velocity.y = -obj->velocity.y; // Reverse
-            // obj->coords_origin.y = obj->coords_origin.y < 0 ? 0 : world->coord_space_grid.coord_space.resolution_ixj.y - 1; // Move the object back within bounds
-         }
-         // Recalc inverse_mass in case mass was changed
-         obj->inverse_mass = obj->mass != 0 ? 1.0 / obj->mass : 0.0;
+         // Need assign an area of effect for the object based on its radius and update the occupancy of all cells that fall within that area, not just the cell that contains the object's origin coordinates,
+         // otherwise we won't detect collisions until the objects are already overlapping significantly, which can cause tunneling issues where fast moving objects pass through each other without detecting a collision.
+         // For simplicity, use a square area of effect based on AABB
+         LArray snapped_aabb_verts = CalcSnappedAABB(world->coord_space_grid.coord_space.basis, obj->surface.surface_vectors, obj->coords_center);
+         Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(&snapped_aabb_verts, ZERO_VECTOR_2D);
+
+         // MAP ENTITY TO WORLD SPACE + UPDATE STATE
+         CalcVectors(obj, delta_time);
+         MapEntityToASpace(&world->coord_space_grid.coord_space, obj, snapped_aabb_box, &entity_space_map);
+         ClearLArray(&snapped_aabb_verts);
+
+         // Entity lives in the world - make sure it doesn't leave
+         ResolveCollision_ContainerRect(obj, &world->coord_space_grid.object);
       }
-
-      // Need assign an area of effect for the object based on its radius and update the occupancy of all cells that fall within that area, not just the cell that contains the object's origin coordinates,
-      // otherwise we won't detect collisions until the objects are already overlapping significantly, which can cause tunneling issues where fast moving objects pass through each other without detecting a collision.
-      // For simplicity, use a square area of effect based on AABB
-      Surface2d snapped_aabb = CalcSnappedAABB(world->coord_space_grid.coord_space.basis, obj->surface, obj->coords_center);
-      Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(&snapped_aabb.surface_vectors, ZERO_VECTOR_2D);
-      MapEntityToASpace(&world->coord_space_grid.coord_space, obj, snapped_aabb_box, &entity_space_map);
-
-      CalcVectors(obj, delta_time);
    }
 
    // Check for collisions
    if (obj_count < 2) // early return
    {
       ClearFlatMapInt(&entity_space_map);
+      // PrintCurrentBytesAlloc();
       return;
    }
 
-   // i is the index of the first object in the collision check, and j is the index of the second object.
-   // We can start j at i + 1 to avoid checking the same pair of objects twice and to avoid checking an object against itself.
-   for (size_t i = 0; i < cell_count; i++)
+   // RESOLVE ENTITY-ENTITY COLLISIONS
+   // Track object-object collions that have been resolved
+   FlatMapInt resolved_collisions = MakeFlatMapInt(1 + (int)(entity_space_map.count / 2)); // Start with a smaller capacity than the entity_space_map since we won't have a collision for every cell that has an object in it, but we can resize if needed
+   for (size_t i = 0; i < entity_space_map.capacity; i++)
    {
-      // The index actually encodes the cell index value, e.g. i = 2 is the cell at index 2 in the cells array, which we can get the coordinates of from the cell's coords field, and we can also get the object IDs of the objects occupying that cell from the cell's object_ids array, and then we can use those IDs to find the corresponding objects in the world's objects array to check for collisions between them.
+      if (entity_space_map.slots[i].key == 0 && entity_space_map.slots[i].value == 0)
+         continue;
+
+      int cell_i = entity_space_map.slots[i].key;
       int cell_occ = 0;
-      FlatMapInt_Get(&entity_space_map, i, &cell_occ);
-      if (cell_occ > 2)
+      FlatMapInt_GetValue(&entity_space_map, cell_i, &cell_occ);
+
+      Cell *cell = &cells[cell_i];
+      if (cell_occ >= 2)
       {
-         // Implement some factorial stuff and check each possible interaction between occupying objects
          int max_collisions = (cell_occ * (cell_occ - 1)) / 2; // nC2 combinations of objects in the cell to check for collisions
          int checked_collisions = 0;
-         Cell *cell = &cells[i];
+         Cell *cell = &cells[cell_i];
          for (size_t m = 0; m < cell_occ; m++)
          {
+            // Check against all possible object pairings out of all object occupants in this cell
             for (size_t n = m + 1; n < cell_occ; n++)
             {
                int obj_id_a = cell->object_ids[m];
                int obj_id_b = cell->object_ids[n];
 
-               // Get the indices of the objects in the world's objects array based on their IDs
-               int index_a = -1;
-               int index_b = -1;
-               for (size_t k = 0; k < obj_count; k++)
+               if (obj_id_a >= world->next_object_id || obj_id_b >= world->next_object_id || obj_id_a < 1 || obj_id_b < 1)
                {
-                  if (polygonoids[k].id == obj_id_a)
-                     index_a = k;
-                  if (polygonoids[k].id == obj_id_b)
-                     index_b = k;
-                  if (index_a != -1 && index_b != -1)
-                     break;
-               }
-               if (index_a == -1 || index_b == -1)
-               {
-                  printf("ERROR: Could not find objects with IDs %d and %d in the world's objects array.\n", obj_id_a, obj_id_b);
+                  printf("ERROR: Could not find objects with IDs %d and %d in Cell (index = %d).\n", obj_id_a, obj_id_b, cell_i);
                   continue;
                }
-
-               Polygonoid *a = &polygonoids[index_a];
-               Polygonoid *b = &polygonoids[index_b];
+               // Check whether this object-pair has been resolved already
+               unsigned long obj_pair_hash_key = CalcHashFromInts(obj_id_a, obj_id_b);
+               short is_resolved = 0;
+               if (FlatMapInt_GetValue(&resolved_collisions, obj_pair_hash_key, (int *)&is_resolved))
+                  continue;
+               if (obj_id_a < 1 || obj_id_b < 1)
+                  continue; // Early safety rejection
+               Polygonoid *a = &polygonoids[obj_id_a - 1];
+               Polygonoid *b = &polygonoids[obj_id_b - 1];
 
                bool colliding = CheckForCollision(a->newtonian_properties, b->newtonian_properties);
                if (colliding)
                {
-                  // Apply momentum conservation to determine velocities of a and b
-                  float a_mom_1 = VectorMagnitude_2d(a->newtonian_properties.velocity) / a->newtonian_properties.inverse_mass;
-                  float b_mom_1 = VectorMagnitude_2d(b->newtonian_properties.velocity) / b->newtonian_properties.inverse_mass;
-                  Vector2d a_b_vel = VectorSum_2d(a->newtonian_properties.velocity, VectorScale_2d(b->newtonian_properties.velocity, -1));
+                  ResolveCollision(&a->newtonian_properties, &b->newtonian_properties);
 
-                  // Get the collision normal - just use A as the reference object
-                  // For simplicity, we'll assume the normal is in the direction that starts at A's origin and points to B's origin
-                  Vector2d a_b_pos = VectorSum_2d(a->newtonian_properties.coords_origin, VectorScale_2d(b->newtonian_properties.coords_origin, -1));
-                  Vector2d a_b_pos_normal = VectorScale_2d(a_b_pos, 1 / VectorMagnitude_2d(a_b_pos));
-
-                  // Velocity along the Normal (The Dot Product)
-                  float a_b_vel_dot = VectorDot_2d(a_b_vel, a_b_pos_normal);
-
-                  float total_inverse_mass = a->newtonian_properties.inverse_mass + b->newtonian_properties.inverse_mass;
-                  if (total_inverse_mass <= 0.0f) // We have 2 immovable/static objects so just continue to the next collision
-                  {
-                     printf("WARNING: Both objects in this collision have infinite mass (0 inverse mass). No collision response applied.\n");
-                     continue;
-                  }
-
-                  // Get the Impulse: $$j = \frac{-(1 + e)(\mathbf{v}_{rel} \cdot \mathbf{n})}{\frac{1}{m_a} + \frac{1}{m_b}}$$
-                  // Calculate Impulse Scalar
-                  float e = 1; // Coefficient of Restitution
-                  float j = -(1 + e) * a_b_vel_dot / total_inverse_mass;
-                  // Apply impulse safely...
-
-                  // Apply the Impulse
-                  // Turn that scalar back into a vector and update the velocities
-                  Vector2d impulse_vector = VectorScale_2d(a_b_pos_normal, j);
-
-                  // Apply the impulse vector to A and B to get velocities
-                  Vector2d a_vel_change = VectorScale_2d(impulse_vector, a->newtonian_properties.inverse_mass);
-                  Vector2d b_vel_change = VectorScale_2d(impulse_vector, b->newtonian_properties.inverse_mass);
-
-                  a->newtonian_properties.velocity = VectorSum_2d(a->newtonian_properties.velocity, a_vel_change);
-                  b->newtonian_properties.velocity = VectorSum_2d(b->newtonian_properties.velocity, VectorScale_2d(b_vel_change, -1));
+                  // Add object pair's key to hash map of resolved collisions
+                  FlatMapInt_InsertOrUpdate(&resolved_collisions, obj_pair_hash_key, 1); // a value of 1 means resolved
                }
 
-               frame_counter.total_frames % 300 == 0 ? printf("COLLISION CHECK for A(%.0f,%.0f) B(%.0f,%.0f) = %s\n",
-                                                              a->newtonian_properties.coords_origin.x,
-                                                              a->newtonian_properties.coords_origin.y,
+               frame_counter.total_frames % 300 == 0 ? printf("COLLISION CHECK for A(%.0f,%.0f) B(%.0f,%.0f) = %s\n", a->newtonian_properties.coords_origin.x, a->newtonian_properties.coords_origin.y,
                                                               b->newtonian_properties.coords_origin.x,
                                                               b->newtonian_properties.coords_origin.y,
                                                               colliding ? "TRUE" : "FALSE")
@@ -230,7 +194,289 @@ void UpdateWorld(World2d *world, float delta_time)
          }
       }
    }
+   ClearFlatMapInt(&resolved_collisions);
    ClearFlatMapInt(&entity_space_map);
+}
+
+bool CheckForCollision(NewtonObject2d a, NewtonObject2d b)
+{
+   // Quick elimination check based on bounding circle
+   Vector2d diff = VectorSum_2d(a.coords_center, VectorScale_2d(b.coords_center, -1.0f));
+   float dist_sqr = VectorDot_2d(diff, diff); // this is the same as getting the magnitude & multiplying them, i.e. squaring
+   float total_radius = a.radius + b.radius;
+   if (dist_sqr > (total_radius * total_radius))
+   {
+      return false; // Fast broadphase rejection!
+   }
+   // 1 Get the boxed regions of both objects and check for overlap
+   float a_min_x = a.coords_origin.x;
+   float a_max_x = a.coords_origin.x + a.boxed_dimensions.x;
+   float a_min_y = a.coords_origin.y;
+   float a_max_y = a.coords_origin.y + a.boxed_dimensions.y;
+
+   float b_min_x = b.coords_origin.x;
+   float b_max_x = b.coords_origin.x + b.boxed_dimensions.x;
+   float b_min_y = b.coords_origin.y;
+   float b_max_y = b.coords_origin.y + b.boxed_dimensions.y;
+
+   // RULE OUT BASED ON POSITION
+   if (a_max_x < b_min_x || a_min_x > b_max_x)
+      return false; // Separation on X
+   if (a_max_y < b_min_y || a_min_y > b_max_y)
+      return false; // Separation on Y
+   // If the execution passes all positional and velocity checks, a collision is happening!
+   // return true;
+
+   // printf("Objects A and B are OVERLAPPING\nA Box Coords: Top Left (%.1f, %.1f) Bottom Right (%.1f, %.1f)\n", a_top_left.x, a_top_left.y, a_top_left.x + a_width, a_top_left.y + a_height);
+   // printf("B Box Coords: Top Left (%.1f, %.1f) Bottom Right (%.1f, %.1f)\n", b_top_left.x, b_top_left.y, b_top_left.x + b_width, b_top_left.y + b_height);
+   return true;
+   // 2 Check if the x is overlapping
+   // if (a_box_coords.)
+   // 1.2 Find the overall max x and max y across both boxes, use this as a localised coord space
+   // Matrix2x2 local_subspace = FindBoxedCoords
+   // 1.2 Check for overlap
+   // 1.2.1 Calculate world area - (a + b area) combined area and get difference between entire world area and a + b area,
+   // Vector2d a_box =
+}
+
+void ResolveCollision(NewtonObject2d *a, NewtonObject2d *b)
+{
+   // COMMON DATA FOR PENETRATION & VELOCITY RESOLUTIONS
+   //Vector2d a_b_vel_diff = VectorSum_2d(a->velocity, VectorScale_2d(b->velocity, -1));              // relative velocity, or velocity felt by a
+   //Vector2d a_b_pos_diff = VectorSum_2d(a->coords_center, VectorScale_2d(b->coords_center, -1.0f)); // distance vector between centers (From B to A)
+   //float a_b_pos_diff_mag = VectorMagnitude_2d(a_b_pos_diff);                                       // actual distance when just touching
+   //float a_b_min_diff_mag = a->radius + b->radius;
+   float total_inv_mass = a->inverse_mass + b->inverse_mass;
+   if (total_inv_mass <= 0.0f) return; // Both are static immovable objects, skip
+
+   // 1. Calculate half-extents
+   float a_half_w = a->boxed_dimensions.x * 0.5f;
+   float a_half_h = a->boxed_dimensions.y * 0.5f;
+   float b_half_w = b->boxed_dimensions.x * 0.5f;
+   float b_half_h = b->boxed_dimensions.y * 0.5f;
+
+   // Vector pointing from A's center to B's center
+   Vector2d distance_vec = VectorSum_2d(b->coords_center, VectorScale_2d(a->coords_center, -1.0f));
+
+   // Calculate absolute overlap on both axes
+   float x_overlap = (a_half_w + b_half_w) - fabsf(distance_vec.x);
+   float y_overlap = (a_half_h + b_half_h) - fabsf(distance_vec.y);
+
+   // If either overlap is negative, they aren't actually colliding
+   if (x_overlap <= 0.0f || y_overlap <= 0.0f) return;
+
+   Vector2d normal = {0.0f, 0.0f};
+   float penetration_depth = 0.0f;
+
+   // CHOOSE THE AXIS OF MINIMUM OVERLAP
+   if (x_overlap < y_overlap)
+   {
+      penetration_depth = x_overlap;
+      // Normal points from A towards B along X axis
+      normal = (distance_vec.x > 0.0f) ? (Vector2d){1.0f, 0.0f} : (Vector2d){-1.0f, 0.0f};
+   }
+   else
+   {
+      penetration_depth = y_overlap;
+      // Normal points from A towards B along Y axis
+      normal = (distance_vec.y > 0.0f) ? (Vector2d){0.0f, 1.0f} : (Vector2d){0.0f, -1.0f};
+   }
+
+   // RESOLVE PENETRATION (DE-PENETRATION)
+   float a_move_fraction = a->inverse_mass / total_inv_mass;
+   float b_move_fraction = b->inverse_mass / total_inv_mass;
+
+   // Total resolution vector required
+   Vector2d separation_vector = VectorScale_2d(normal, penetration_depth);
+
+   // A moves backward away from the normal, B moves forward with it
+   a->coords_center = VectorSum_2d(a->coords_center, VectorScale_2d(separation_vector, -a_move_fraction));
+   a->coords_origin = VectorSum_2d(a->coords_origin, VectorScale_2d(separation_vector, -a_move_fraction));
+
+   b->coords_center = VectorSum_2d(b->coords_center, VectorScale_2d(separation_vector, b_move_fraction));
+   b->coords_origin = VectorSum_2d(b->coords_origin, VectorScale_2d(separation_vector, b_move_fraction));
+
+   // RESOLVE VELOCITY (IMPULSE RESPONSE)
+   // Relative velocity: v_rel = v_a - v_b
+   Vector2d a_b_vel_diff = VectorSum_2d(a->velocity, VectorScale_2d(b->velocity, -1.0f));
+
+   // AABB perpendicular contact normal
+   float a_b_vel_dot = VectorDot_2d(a_b_vel_diff, normal); 
+
+   // Only apply impulse if objects are actively moving toward each other
+   // (Since normal points from A to B, a positive dot means they are approaching)
+   if (a_b_vel_dot > 0.0f)
+   {
+      float e = 1.0f; // Coefficient of Restitution (Fully Elastic)
+      float j = -(1.0f + e) * a_b_vel_dot / total_inv_mass;
+
+      Vector2d impulse_vector = VectorScale_2d(normal, j);
+
+      // Apply the impulse vector to velocities weighted by inverse mass
+      a->velocity = VectorSum_2d(a->velocity, VectorScale_2d(impulse_vector, a->inverse_mass));
+      b->velocity = VectorSum_2d(b->velocity, VectorScale_2d(impulse_vector, -b->inverse_mass));
+   }
+}
+
+void ResolveCollision_ContainerRect(NewtonObject2d *entity, NewtonObject2d *container)
+{
+   // COMMON DATA FOR PENETRATION & VELOCITY RESOLUTIONS
+   // Distance vector from Container center to Entity center
+   // Guard: Ensure there is an actual parent-child containment relationship to resolve
+   if (entity->parent_id != container->id)
+      return;
+
+   // Because coordinates are relative, the parent container's inner space starts at (0,0)
+   float c_min_x = 0.0f;
+   float c_min_y = 0.0f;
+   float c_max_x = container->boxed_dimensions.x;
+   float c_max_y = container->boxed_dimensions.y;
+
+   // The entity's boundaries relative to the container space
+   float e_min_x = entity->coords_origin.x;
+   float e_min_y = entity->coords_origin.y;
+   float e_max_x = entity->coords_origin.x + entity->boxed_dimensions.x;
+   float e_max_y = entity->coords_origin.y + entity->boxed_dimensions.y;
+
+   float penetration_depth = 0.0f;
+   Vector2d inward_normal = {0.0f, 0.0f};
+
+   // --- CHECK HORIZONTAL BOUNDS (X-AXIS) ---
+   if (e_min_x < c_min_x) // Breached Left Wall
+   {
+      penetration_depth = c_min_x - e_min_x;
+      inward_normal = (Vector2d){1.0f, 0.0f}; // Push right
+   }
+   else if (e_max_x > c_max_x) // Breached Right Wall
+   {
+      penetration_depth = e_max_x - c_max_x;
+      inward_normal = (Vector2d){-1.0f, 0.0f}; // Push left
+   }
+
+   // --- CHECK VERTICAL BOUNDS (Y-AXIS) ---
+   if (e_min_y < c_min_y) // Breached Top Wall
+   {
+      penetration_depth = c_min_y - e_min_y;
+      inward_normal = (Vector2d){0.0f, 1.0f}; // Push down
+   }
+   else if (e_max_y > c_max_y) // Breached Bottom Wall
+   {
+      penetration_depth = e_max_y - c_max_y;
+      inward_normal = (Vector2d){0.0f, -1.0f}; // Push up
+   }
+
+   // --- RESOLVE IF PENETRATION OCCURRED ---
+   if (penetration_depth > 0.0f)
+   {
+      float total_inv_mass = entity->inverse_mass + container->inverse_mass;
+      if (total_inv_mass <= 0.0f)
+         return;
+
+      float entity_move_fraction = entity->inverse_mass / total_inv_mass;
+      Vector2d separation_vector = VectorScale_2d(inward_normal, penetration_depth);
+
+      // Resolve Position: Push entity center back inside bounds
+      entity->coords_center = VectorSum_2d(entity->coords_center, VectorScale_2d(separation_vector, entity_move_fraction));
+      // Sync origin back up with shifted center position
+      entity->coords_origin = VectorSum_2d(entity->coords_origin, VectorScale_2d(separation_vector, entity_move_fraction));
+
+      // Resolve Velocity (Impulse Response)
+      // Account for container's velocity baseline to keep impulse math absolute
+      Vector2d c_e_vel_diff = VectorSum_2d(entity->velocity, VectorScale_2d(container->velocity, -1.0f));
+      float c_e_vel_dot = VectorDot_2d(c_e_vel_diff, inward_normal);
+
+      // Only bounce if the entity is aggressively tracking outward past the wall
+      if (c_e_vel_dot < 0.0f)
+      {
+         float e = 1.0f; // Coefficient of Restitution
+         float j = -(1.0f + e) * c_e_vel_dot / total_inv_mass;
+
+         Vector2d impulse_vector = VectorScale_2d(inward_normal, j);
+         entity->velocity = VectorSum_2d(entity->velocity, VectorScale_2d(impulse_vector, entity->inverse_mass));
+      }
+   }
+}
+
+void ResolvePenetration(NewtonObject2d *a, NewtonObject2d *b)
+{
+   // COMMON DATA FOR PENETRATION & VELOCITY RESOLUTIONS
+   Vector2d a_b_vel_diff = VectorSum_2d(a->velocity, VectorScale_2d(b->velocity, -1));              // relative velocity, or velocity felt by a
+   Vector2d a_b_pos_diff = VectorSum_2d(a->coords_center, VectorScale_2d(b->coords_center, -1.0f)); // distance vector between centers (From B to A)
+   float a_b_pos_diff_mag = VectorMagnitude_2d(a_b_pos_diff);                                       // actual distance when just touching
+   float a_b_min_diff_mag = a->radius + b->radius;                                                  // target distance when just touching
+
+   // RESOLVE PENETRATION
+   if (a_b_pos_diff_mag < a_b_min_diff_mag)
+   {
+      // Calc scalar penetration depth
+      float penetration_depth = a_b_min_diff_mag - a_b_pos_diff_mag;
+
+      // Calc the collision normal unit vector
+      Vector2d normal = {0.0f, 0.0f};
+      if (a_b_pos_diff_mag > 0.0f)
+      {
+         normal = VectorScale_2d(a_b_pos_diff, 1.0f / a_b_pos_diff_mag);
+      }
+      else
+      {
+         // Edge case: Objects are perfectly stacked on top of each other. Pick an arbitrary up normal to push them apart.
+         normal = (Vector2d){0.0f, -1.0f};
+      }
+      // Distribute the overlapping vector between A and B to shift their positions (weighted inversely to their mass)
+      float total_inv_mass = a->inverse_mass + b->inverse_mass;
+      if (total_inv_mass <= 0.0f)
+         return; // both are static immovable objects, skip push out
+
+      // Calc Resolution Shifting Multipliers
+      float a_move_fraction = a->inverse_mass / total_inv_mass;
+      float b_move_fraction = b->inverse_mass / total_inv_mass;
+
+      // Total resolution vector required
+      Vector2d separation_vector = VectorScale_2d(normal, penetration_depth);
+
+      // A moves forward along the normal vector direction, B moves backward along the normal vector direction
+      a->coords_center = VectorSum_2d(a->coords_center, VectorScale_2d(separation_vector, a_move_fraction));
+      b->coords_center = VectorSum_2d(b->coords_center, VectorScale_2d(separation_vector, -b_move_fraction));
+   }
+}
+
+void ResolveVelocity(NewtonObject2d *a, NewtonObject2d *b)
+{
+   // COMMON DATA FOR PENETRATION & VELOCITY RESOLUTIONS
+   Vector2d a_b_vel_diff = VectorSum_2d(a->velocity, VectorScale_2d(b->velocity, -1));              // relative velocity, or velocity felt by a
+   Vector2d a_b_pos_diff = VectorSum_2d(a->coords_center, VectorScale_2d(b->coords_center, -1.0f)); // distance vector between centers (From B to A)
+   float a_b_pos_diff_mag = VectorMagnitude_2d(a_b_pos_diff);                                       // actual distance when just touching
+   float a_b_min_diff_mag = a->radius + b->radius;                                                  // target distance when just touching
+
+   // RESOLVE VELOCITY
+   float total_inverse_mass = a->inverse_mass + b->inverse_mass;
+   if (total_inverse_mass <= 0.0f) // We have 2 immovable/static objects so just continue to the next collision
+   {
+      printf("WARNING: Both objects in this collision have infinite mass (0 inverse mass). No collision response applied.\n");
+      return;
+   }
+   // Apply momentum conservation to determine velocities of a and b
+   float a_mom_1 = VectorMagnitude_2d(a->velocity) / a->inverse_mass;
+   float b_mom_1 = VectorMagnitude_2d(b->velocity) / b->inverse_mass;
+   // For simplicity, we'll assume the normal is in the direction that starts at A's origin and points to B's origin
+   Vector2d a_b_pos_normal = VectorScale_2d(a_b_pos_diff, 1 / VectorMagnitude_2d(a_b_pos_diff)); // this is the unit-direction
+   float a_b_vel_dot = VectorDot_2d(a_b_vel_diff, a_b_pos_normal);                               // Velocity along the Normal (The Dot Product)
+
+   // Get the Impulse: $$j = \frac{-(1 + e)(\mathbf{v}_{rel} \cdot \mathbf{n})}{\frac{1}{m_a} + \frac{1}{m_b}}$$
+   // Calculate Impulse Scalar
+   float e = 1; // Coefficient of Restitution
+   float j = -(1 + e) * a_b_vel_dot / total_inverse_mass;
+
+   // Apply the Impulse
+   // Turn that scalar back into a vector and update the velocities
+   Vector2d impulse_vector = VectorScale_2d(a_b_pos_normal, j);
+
+   // Apply the impulse vector to A and B to get velocities
+   Vector2d a_vel_change = VectorScale_2d(impulse_vector, a->inverse_mass);
+   Vector2d b_vel_change = VectorScale_2d(impulse_vector, b->inverse_mass);
+
+   a->velocity = VectorSum_2d(a->velocity, a_vel_change);
+   b->velocity = VectorSum_2d(b->velocity, VectorScale_2d(b_vel_change, -1));
 }
 
 // Associates the Entity to the Space through object->space-cell mapping. Best used when Entity count << Space Cell count.
@@ -249,10 +495,11 @@ void MapEntityToASpace(CoordSpace2d *space, NewtonObject2d *object, Matrix2x2 sn
          Vector2d cell_coords = (Vector2d){snapped_t_left.x + x, snapped_t_left.y + y};
          int cell_i = GetIndexFromCoords(space, cell_coords);
          Cell *cell = GetCellFromCoords(space, cell_coords);
-         if (cell == NULL)
+         bool out_of_bounds = VectorIsInSpace_2d(cell_coords, space);
+         if (cell == NULL || out_of_bounds == false)
          {
             // printf("WARNING: Cell index %d out of bounds for object ID %d at coordinates (%.1f, %.1f). Skipping cell update for this cell.\n", cell_i, object->id, object->coords_center.x, object->coords_center.y);
-            printf("WARNING: Cell not found in MapEntityToASpace. Skipping this object-->cell mapping.\n");
+            printf("WARNING: Cell (index %d) not found in MapEntityToASpace or its coordinates are out of bounds. Skipping this object-->cell mapping.\n", cell_i);
             continue;
          }
 
@@ -263,12 +510,12 @@ void MapEntityToASpace(CoordSpace2d *space, NewtonObject2d *object, Matrix2x2 sn
             cell->occupancy++;
 
             // Increment the number of objects in this cell
-            if (O_entity_to_space_index_map != NULL)
+            if (O_entity_to_space_index_map != NULL && cell->occupancy >= 1)
             {
                int cell_occu = 0;
                FlatMapInt_InsertOrUpdate(O_entity_to_space_index_map, cell_i, cell->occupancy);
-               FlatMapInt_Get(O_entity_to_space_index_map, cell_i, &cell_occu);
-               frame_counter.total_frames % 60 == 0 ? printf("ENTITY (ID:%d) mapped to CELL %d | CELL now has %d occupancy\n", object->id, cell_i, cell_occu) : (void)0;
+               FlatMapInt_GetValue(O_entity_to_space_index_map, cell_i, &cell_occu);
+               frame_counter.total_frames % 60 == 0 ? printf("ENTITY (ID:%d) mapped to CELL %d (now has %d occupancy)\n", object->id, cell_i, cell_occu) : (void)0;
             }
          }
          else
@@ -481,60 +728,6 @@ void MapEntityToASpace(CoordSpace2d *space, NewtonObject2d *object, Matrix2x2 sn
 //       CalculateVectors(&pts[i].newtonian_properties, delta_time);
 //    }
 // }
-
-bool CheckForCollision(NewtonObject2d a, NewtonObject2d b)
-{
-   // 1 Get the boxed regions of both objects and check for overlap
-   // 1.1 Find the max x and max y across all surface vectors
-   Matrix2x2 a_box_coords = CalcAABBCoords_Tight(&a.surface.surface_vectors, ZERO_VECTOR_2D);
-   Matrix2x2 b_box_coords = CalcAABBCoords_Tight(&b.surface.surface_vectors, ZERO_VECTOR_2D);
-
-   // a_box_coords.col1 = VectorSum_2d(a_box_coords.col1,a.coords_origin);
-   // a_box_coords.col2 = VectorSum_2d(a_box_coords.col2,a.coords_origin);
-   Vector2d a_top_left = VectorSum_2d(a_box_coords.col2, a.coords_origin);
-   // b_box_coords.col1 = VectorSum_2d(b_box_coords.col1,b.coords_origin);
-   // b_box_coords.col2 = VectorSum_2d(b_box_coords.col2,b.coords_origin);
-   Vector2d b_top_left = VectorSum_2d(b_box_coords.col2, b.coords_origin);
-
-   // Rule out based on x position
-   float a_width = fabsf(a_box_coords.col2.x - a_box_coords.col1.x);
-   float b_width = fabsf(b_box_coords.col2.x - b_box_coords.col1.x);
-   if (a_top_left.x + a_width < b_top_left.x)
-   {
-      // printf("Object A is LEFT of Object B\n");
-      return false; // A is left of B
-   }
-   if (a_top_left.x > b_top_left.x + b_width)
-   {
-      // printf("Object A is RIGHT of Object B\n");
-      return false; // A is right of B
-   }
-
-   // Rule out based on y position
-   float a_height = fabsf(a_box_coords.col2.y - a_box_coords.col1.y);
-   float b_height = fabsf(b_box_coords.col2.y - b_box_coords.col1.y);
-   if (a_top_left.y + a_height < b_top_left.y)
-   {
-      // printf("Object A is ABOVE Object B\n");
-      return false; // A is above B
-   }
-   if (a_top_left.y > b_top_left.y + b_height)
-   {
-      // printf("Object A is BELOW Object B\n");
-      return false; // A is below B
-   }
-
-   printf("Objects A and B are OVERLAPPING\nA Box Coords: Top Left (%.1f, %.1f) Bottom Right (%.1f, %.1f)\n", a_top_left.x, a_top_left.y, a_top_left.x + a_width, a_top_left.y + a_height);
-   printf("B Box Coords: Top Left (%.1f, %.1f) Bottom Right (%.1f, %.1f)\n", b_top_left.x, b_top_left.y, b_top_left.x + b_width, b_top_left.y + b_height);
-   return true;
-   // 2 Check if the x is overlapping
-   // if (a_box_coords.)
-   // 1.2 Find the overall max x and max y across both boxes, use this as a localised coord space
-   // Matrix2x2 local_subspace = FindBoxedCoords
-   // 1.2 Check for overlap
-   // 1.2.1 Calculate world area - (a + b area) combined area and get difference between entire world area and a + b area,
-   // Vector2d a_box =
-}
 
 // World CalculateFieldLines(Field field);
 // World InitialiseFieldCells(Field field);

@@ -14,3 +14,11 @@ float GetRandomFloat(float min, float max)
     r = min + r_frac * (max - min);
     return r;
 }
+
+unsigned long CalcHashFromInts(int a, int b)
+{
+    // Scramble the integer bits so sequential IDs distribute beautifully
+    unsigned long hash = (unsigned long)a * 2654435761UL;
+    return hash % b;
+
+}

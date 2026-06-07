@@ -32,8 +32,8 @@ size_t memory_allocated = 0.0f;
 Font font = {0};
 Music music = {0};
 Sound fxCoin = {0};
-const int screenWidth = 1920;
-const int screenHeight = 1080;
+const int screenWidth = 1600;
+const int screenHeight = 900;
 
 //----------------------------------------------------------------------------------
 // Global Variables Definition (local to this module)

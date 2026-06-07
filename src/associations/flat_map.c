@@ -83,12 +83,12 @@ FlatMapInt MakeFlatMapInt(int capacity)
     return m;
 }
 
-bool FlatMapInt_Get(FlatMapInt *m, int key, int *out_value)
+bool FlatMapInt_GetValue(FlatMapInt *m, int key, int *out_value)
 {
-    // 1. Safety Guardrails
+    // Safety Guardrails
     if (m == NULL || out_value == NULL)
     {
-        fprintf(stderr, "ERROR: Invalid NULL parameter passed to FlatMapInt_Get.\n");
+        fprintf(stderr, "ERROR: Invalid NULL parameter passed to FlatMapInt_GetValue.\n");
         return false;
     }
 
@@ -117,6 +117,44 @@ bool FlatMapInt_Get(FlatMapInt *m, int key, int *out_value)
             break; // Searched full map array
         }
     }
+
+    return false;
+}
+
+bool FlatMapInt_GetKey(FlatMapInt *m, int value, int *out_key)
+{
+    // Safety Guardrails
+    // if (m == NULL || out_key == NULL)
+    // {
+    //     fprintf(stderr, "ERROR: Invalid NULL parameter passed to FlatMapInt_GetKey.\n");
+    //     return false;
+    // }
+
+    // if (m->capacity == 0 || m->count == 0)
+    // {
+    //     return false;
+    // }
+
+    // unsigned long index = CalcIntHash(key, m->capacity);
+    // unsigned long start_index = index;
+
+    // // Search until we hit an unoccupied slot
+    // while (m->slots[index].occupied)
+    // {
+    //     // Straight primitive integer matching (Blazing fast!)
+    //     if (m->slots[index].key == key)
+    //     {
+    //         *out_value = m->slots[index].value;
+    //         return true;
+    //     }
+
+    //     index = (index + 1) % m->capacity;
+
+    //     if (index == start_index)
+    //     {
+    //         break; // Searched full map array
+    //     }
+    // }
 
     return false;
 }

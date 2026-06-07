@@ -23,7 +23,7 @@ double GetPreciseTime();
 float GetFrameDeltaTime();
 
 void UpdateFrameCounter(FrameCounter *fc) {
-    double current_time = GetPreciseTime(); // Or your OS-specific high-res timer
+    double current_time = GetPreciseTime(); // Or OS-specific high-res timer
     fc->delta_time = (float)(current_time - fc->last_time);
     fc->last_time = current_time;
 

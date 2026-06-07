@@ -23,6 +23,7 @@
 void InitUnitCells(CoordSpace2d *coordinate_space);
 
 // Creates a local coordinate space with physical attributes that can be used to render it to the screen. Basis vectors in most cases (orthogonal dimensions) should be u = {1,0}, v = {0,1}.
+// The top-left is the origin (0,0)
 CoordSpace2d_Grid NewCoordSpace2d_Grid(Vector2d origin, Vector2d resolution_ixj, Basis2d basis, ColourRgba colour_fill, ColourRgba colour_line)
 {
    CoordSpace2d_Grid space_obj = {0};
@@ -32,11 +33,14 @@ CoordSpace2d_Grid NewCoordSpace2d_Grid(Vector2d origin, Vector2d resolution_ixj,
 
    Surface2d surface = CreateSurface_Rectangular(resolution_ixj, ZERO_VECTOR_2D);
 
-   space_obj.object = CreateNewtonObject2d_Static(origin, surface);
+   // Calc coords_center - this is required when creating new objects
+   Vector2d coords_center = (Vector2d){origin.x + (resolution_ixj.x / 2.0), origin.y + (resolution_ixj.y / 2.0)};
+   space_obj.object = CreateNewtonObject2d_Static(coords_center, surface);
    return space_obj;
 }
 
 // Creates a local coordinate space. Basis vectors in most cases (orthogonal dimensions) should be u = {1,0}, v = {0,1}. They can be other values if the space dimensions are not orthogonal.
+// The top-left is the origin (0,0)
 CoordSpace2d NewCoordSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d basis)
 {
    CoordSpace2d space = {0};
@@ -161,10 +165,23 @@ Matrix2x2 GetObjectFootprint_AsBox(Basis2d coord_space_basis, Surface2d object_s
    return obj_box;
 }
 
+Matrix2x2 CalcSpaceAABB(CoordSpace2d *space)
+{
+   Matrix2x2 u_v_extents = CalcSpaceExtents_2d(space);
+   Matrix2x2 aabb_box = {0};
+   aabb_box.col1.x = fminf(u_v_extents.col1.x, u_v_extents.col2.x);
+   aabb_box.col2.x = fmaxf(u_v_extents.col1.x, u_v_extents.col2.x);
+
+   aabb_box.col1.y = fminf(u_v_extents.col1.y, u_v_extents.col2.y);
+   aabb_box.col2.y = fmaxf(u_v_extents.col1.y, u_v_extents.col2.y);
+
+   return aabb_box;
+}
+
 // This function creates a footprint surface that represents the area of effect of an object based on its surface and the coordinate space's basis vectors.
 // It calculates the bounding box of the object's surface in world coordinates, determines which cells in the coordinate space it overlaps with, and then creates a rectangular surface that encompasses all those cells.
 // The object offset parameter allows you to specify the world coordinates of the object's center, which is necessary to correctly position the footprint in the coordinate space. Provide a zero vector if the object's surface vertices are already in world coordinates.
-Surface2d CalcSnappedAABB(Basis2d coord_space_basis, Surface2d object_surface, Vector2d object_offset)
+LArray CalcSnappedAABB(Basis2d coord_space_basis, LArray object_surface_vertices, Vector2d object_offset)
 {
    // Correctly extract the physical grid cell size from the basis
    float cell_w = sqrtf(coord_space_basis.u.x * coord_space_basis.u.x +
@@ -172,42 +189,55 @@ Surface2d CalcSnappedAABB(Basis2d coord_space_basis, Surface2d object_surface, V
    float cell_h = sqrtf(coord_space_basis.v.x * coord_space_basis.v.x +
                         coord_space_basis.v.y * coord_space_basis.v.y);
 
-   if (object_surface.surface_vectors.count == 0)
+   if (object_surface_vertices.count == 0)
    {
-      return (Surface2d){0};
+      return (LArray){0};
    }
 
-   Vector2d *vertices = (Vector2d *)object_surface.surface_vectors.items;
+   Vector2d *pts = (Vector2d *)object_surface_vertices.items;
+   Matrix2x2 box_coords = {0};
 
-   float min_x = INFINITY, max_x = -INFINITY;
-   float min_y = INFINITY, max_y = -INFINITY;
-
-   // Convert vertices to absolute world positions to find the global AABB limits
-   for (size_t i = 0; i < object_surface.surface_vectors.count; i++)
+   // Must initialise with one of the provided vertices rather than all 0s because 0 could be the largest or smallest value compared to the provided vertices
+   box_coords.col1 = VectorSum_2d(object_offset, pts[0]);
+   box_coords.col2 = VectorSum_2d(object_offset, pts[0]);
+   Vector2d vertice = {0};
+   for (size_t i = 1; i < object_surface_vertices.count; i++)
    {
-      float world_x = vertices[i].x + object_offset.x;
-      float world_y = vertices[i].y + object_offset.y;
+      vertice = VectorSum_2d(object_offset, pts[i]); // Convert vertices to absolute world positions to find the global AABB limits
 
-      if (world_x < min_x)
-         min_x = world_x;
-      if (world_x > max_x)
-         max_x = world_x;
-      if (world_y < min_y)
-         min_y = world_y;
-      if (world_y > max_y)
-         max_y = world_y;
+      box_coords.col1.x = fminf(box_coords.col1.x, vertice.x);
+      box_coords.col2.x = fmaxf(box_coords.col2.x, vertice.x);
+
+      box_coords.col1.y = fminf(box_coords.col1.y, vertice.y);
+      box_coords.col2.y = fmaxf(box_coords.col2.y, vertice.y);
    }
+   //float min_x = INFINITY, max_x = -INFINITY;
+   //float min_y = INFINITY, max_y = -INFINITY;
+
+   // for (size_t i = 0; i < object_surface_vertices.count; i++)
+   // {
+   //    float world_x = vertices[i].x + object_offset.x;
+   //    float world_y = vertices[i].y + object_offset.y;
+
+   //    if (world_x < min_x)
+   //       min_x = world_x;
+   //    if (world_x > max_x)
+   //       max_x = world_x;
+   //    if (world_y < min_y)
+   //       min_y = world_y;
+   //    if (world_y > max_y)
+   //       max_y = world_y;
+   // }
 
    // Convert the spatial bounding extremes directly to integer cell index spans
-   float start_cell_x = floorf(min_x / cell_w);
-   float end_cell_x = ceilf(max_x / cell_w);
-   float start_cell_y = floorf(min_y / cell_h);
-   float end_cell_y = ceilf(max_y / cell_h);
+   float start_cell_x = floorf(box_coords.col1.x / cell_w);
+   float end_cell_x = ceilf(box_coords.col2.x  / cell_w);
+   float start_cell_y = floorf(box_coords.col1.y / cell_h);
+   float end_cell_y = ceilf(box_coords.col2.y / cell_h);
 
    // Create a 4-corner bounding rectangle that perfectly encapsulates
    // every single cell the object is partially or fully occupying.
-   Surface2d footprint = {0};
-   footprint.surface_vectors = MakeLArray(4, sizeof(Vector2d));
+   LArray footprint_vertices = MakeLArray(4, sizeof(Vector2d));
 
    // Map the bounding indexes back to absolute spatial coordinates
    Vector2d footprint_box[4] = {
@@ -221,12 +251,36 @@ Surface2d CalcSnappedAABB(Basis2d coord_space_basis, Surface2d object_surface, V
       // Convert back to local offset form relative to the object center if required by your renderer
       // footprint_box[i].x -= object_offset.x;
       // footprint_box[i].y -= object_offset.y;
-      LArray_Push(&footprint.surface_vectors, &footprint_box[i]);
+      LArray_Push(&footprint_vertices, &footprint_box[i]);
 
       // printf("OBJ VERTICE: (%.2f, %.2f) -> FOOTPRINT VERTICE: (%.2f, %.2f)\n", obj_vertice.x, obj_vertice.y, footprint_vertice.x, footprint_vertice.y);
    }
 
-   return footprint;
+   return footprint_vertices;
+}
+
+bool VectorIsInSpace_2d(Vector2d vector, CoordSpace2d *space)
+{
+   // Check if the vector is within the bounds of the coordinate space defined by its origin and the extents of its basis vectors multiplied by their respective steps
+   Matrix2x2 extents = CalcSpaceExtents_2d(space);
+   Vector2d origin = space->coords_origin;
+   float min_x = origin.x;
+   float max_x = origin.x + extents.col1.x + extents.col2.x;
+   float min_y = origin.y;
+   float max_y = origin.y + extents.col2.y + extents.col2.y;
+
+   return (vector.x >= min_x && vector.x < max_x && vector.y >= min_y && vector.y < max_y);
+}
+
+// This function calculates the spatial extents of a coordinate space based on its origin and the extents of its basis vectors multiplied by their respective steps.
+// It returns a 2x2 matrix where col1 is the vector from the origin to the far corner along the u direction, and col2 is the vector from the origin to the far corner along the v direction.
+Matrix2x2 CalcSpaceExtents_2d(CoordSpace2d *space)
+{
+   // Check if the vector is within the bounds of the coordinate space defined by its origin and the extents of its basis vectors multiplied by their respective steps
+   Vector2d u_extent = {space->basis.u.x * space->stepsU, space->basis.u.y * space->stepsU};
+   Vector2d v_extent = {space->basis.v.x * space->stepsV, space->basis.v.y * space->stepsV};
+
+   return (Matrix2x2){u_extent, v_extent};
 }
 
 // Surface2d GetObjectFootprint_AsSurface(Basis2d coord_space_basis, Surface2d object_surface)

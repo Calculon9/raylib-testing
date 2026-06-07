@@ -45,7 +45,7 @@ static Cell *selectedCell = NULL;         // Pointer to the currently selected c
 // Visual Properties
 static ColourRgba world_text_colour = BROWN_1_RGBA_4; //{55, 97, 0, 200};
 static ColourRgba world_fill_colour = WHITE_RGBA;     //{48, 104, 68, 70}; // MAROON_RGBA;// {150, 255, 220,180};//DARKGREEN_RGBA;
-static ColourRgba world_line_colour = YELLOW_RGBA;    //{128, 99, 42, 100};
+static ColourRgba world_line_colour = LIGHTGRAY_RGBA; //{128, 99, 42, 100};
 // Coordinate Space Properties
 World2d world = {0};
 Vector2d world_origin, world_end = {0};
@@ -62,7 +62,7 @@ static float polygonoid_radius_default = 1.0;
 static float polygonoid_mass_default = 1.0;
 static Vector2d polygonoid_velocity_default = {1.0, 1.0};
 static Vector2d polygonoid_acceleration_default = {0.0, 0.0f};
-static int initObjectCount = 1;
+static int initObjectCount = 4;
 
 // Logical->pixel-space conversion properties
 // static Vector2d screen_game_origin, screen_game_end = {0};
@@ -77,7 +77,6 @@ LArray *test = NULL;
 //----------------------------------------------------------------------------------
 // Gameplay Screen Functions Definition
 //----------------------------------------------------------------------------------
-// void InitCoordinateSpaceProperties();
 void InitPanelTextContainers();
 void DrawPolygonoids(LArray *polygonoids);
 void DrawObjectVertices(LArray local_vertices, Vector2d coords_center, Camera2d camera, ColourRgba line_colour);
@@ -85,7 +84,6 @@ void DrawWorldRegion(World2d *world, Camera2d world_camera);
 void DrawWorldCoordinateGrid();
 void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region);
 void CreateAddPolygonoid(float radius, ShapeType shape_type, float mass, ColourRgba colour, Vector2d coords_center, Vector2d velocity, Vector2d acceleration);
-// Vector2d WorldToScreenCoordinates(Matrix3x3 screen_basis_transform, Vector2d world_coordinates);
 
 // FIRST: Initialisation of Gameplay Screen
 void InitGameWorld(void)
@@ -102,6 +100,7 @@ void InitGameWorld(void)
     LArray objects = MakeLArray(initObjectCount, sizeof(Polygonoid));
     // 3.2 Create the space then world
     CoordSpace2d_Grid space_g = NewCoordSpace2d_Grid(world_origin, world_resolution, world_basis, world_fill_colour, world_line_colour);
+    space_g.object.id = 0; // Parent object is 0
     world = CreateWorld(space_g, gravity);
     world.objects = objects;
     G_WorldState.world_coord_space = &world.coord_space_grid;
@@ -125,7 +124,17 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
     bool keyDown = IsKeyDown(KEY_LEFT_CONTROL);
     if (keyDown)
     {
+        // PrintCurrentBytesAlloc();
         UpdateWorld(&world, frame_counter.delta_time);
+        // PrintCurrentBytesAlloc();
+    }
+    // DEBUGGING - 1 Frame setp-through
+    bool keyPressed = IsKeyPressed(KEY_LEFT_SHIFT);
+    if (keyPressed)
+    {
+        // PrintCurrentBytesAlloc();
+        UpdateWorld(&world, frame_counter.delta_time);
+        // PrintCurrentBytesAlloc();
     }
 
     // Draw a circle where the mouse clicks and add it to the state
@@ -139,17 +148,18 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
 
         // 1. Add a new polygonoid to the state with the position of the mouse click - give an initial velocity
         // 1.1 Convert mouse pixel coords to world coords
+        // PrintCurrentBytesAlloc();
         Vector2d click_pixel_coords = {mouse_x, mouse_y};
         Vector2d click_world_coords = TransformCoordinates(camera_world.dest_to_source_mtx, click_pixel_coords);
 
-        float radius = GetRandomFloat(0, polygonoid_radius_default * 2);
-        float mass = GetRandomFloat(0, polygonoid_mass_default * 10);
-        Vector2d velocity = {.x = GetRandomFloat(0, polygonoid_velocity_default.x * 5), .y = GetRandomFloat(0, polygonoid_velocity_default.y * 5)};
+        float radius = GetRandomFloat(0.1, polygonoid_radius_default * 0.1);
+        float mass = radius * polygonoid_mass_default; 
+        Vector2d velocity = {.x = GetRandomFloat(polygonoid_velocity_default.x * -8, polygonoid_velocity_default.x * 8), .y = GetRandomFloat(polygonoid_velocity_default.y * 8, polygonoid_velocity_default.y * -8)};
         Vector2d acceleration = polygonoid_acceleration_default;
         ColourRgba colour = polygonoid_line_colour;
         // CreateAddPolygonoid(radius, SHAPE_MATH_EQUIDISTANT, mass, colour, click_world_coords, velocity, acceleration);
         CreateAddPolygonoid(radius, SHAPE_MATH_POLY_HULL, mass, colour, click_world_coords, velocity, acceleration);
-
+        // PrintCurrentBytesAlloc();
         finishScreen = 1;
         // PlaySound(fxCoin);
     }
@@ -216,16 +226,21 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
         // It SHOULD equal the object ID...
         if (obj_id == cell_id)
         {
+            // Check if the click was within p_closest
+            Surface2d surface = p->newtonian_properties.surface;
+            Vector2d vertice_offset = p->newtonian_properties.coords_center;
+            bool click_in_object = IsPointInPolygon(click_local_coords, (Vector2d *)surface.surface_vectors.items, vertice_offset, surface.surface_vectors.count);
+
             Vector2d click_to_obj_dist_i = VectorSum_2d(VectorScale_2d(p->newtonian_properties.coords_center, -1), click_local_coords);
             float click_to_obj_mag_i = fabs(VectorMagnitude_2d(click_to_obj_dist_i));
-            if (click_to_obj_mag_i < shortest_dist)
+            if (click_to_obj_mag_i < shortest_dist && click_in_object)
             {
                 shortest_dist = click_to_obj_mag_i;
                 p_closest = p;
             }
 
             // ----DEBUG--- //
-            offset += snprintf(log + offset, sizeof(log) - offset, "[ID:%d POS:%.1f,%.1f] ", i + 1, p->id, p->newtonian_properties.coords_center.x, p->newtonian_properties.coords_center.y);
+            offset += snprintf(log + offset, sizeof(log) - offset, "[ID:%d POS:%.1f,%.1f] ", i + 1, obj_id, p->newtonian_properties.coords_center.x, p->newtonian_properties.coords_center.y);
         }
         else
         {
@@ -236,22 +251,9 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
 
     if (p_closest)
     {
-        // Check if the click was within p_closest
-        Surface2d surface = p_closest->newtonian_properties.surface;
-        Vector2d vertice_offset = p_closest->newtonian_properties.coords_center;
-        bool click_in_object = IsPointInPolygon(click_local_coords, (Vector2d *)surface.surface_vectors.items, vertice_offset, surface.surface_vectors.count);
-        if (click_in_object)
-        {
-            G_WorldState.selected_object = p_closest;
-            // ----DEBUG---- //
-            offset += snprintf(log + offset, sizeof(log) - offset, "--> SELECTED ENTITY: ID:%d", p_closest->id);
-        }
-        else
-        {
-            G_WorldState.selected_object = NULL;
-            // ----DEBUG---- //
-            offset += snprintf(log + offset, sizeof(log) - offset, "--> SELECTED ENTITY: NULL");
-        }
+        G_WorldState.selected_object = p_closest;
+        // ----DEBUG---- //
+        offset += snprintf(log + offset, sizeof(log) - offset, "--> SELECTED ENTITY: ID:%d", p_closest->newtonian_properties.id);
     }
     else
     {
@@ -280,7 +282,7 @@ void CreateAddPolygonoid(float radius, ShapeType shape_type, float mass, ColourR
     }
 
     if (new_polygonoid.radius > 0.0)
-        AddObjectToWorld(&world, &new_polygonoid);
+        AddObjectToWorld(&world, &new_polygonoid, world.coord_space_grid.object.id);
 
     // Array_Push(polygonoids, &newPolygonoid);
 }
@@ -428,10 +430,10 @@ void DrawPolygonoids(LArray *polygonoids)
         ClearLArray(&obj_box_surface.surface_vectors);
 
         // ----DEBUG-----  draw the footprint box of the polygonoid to check it is correct
-        Surface2d footprint_surface = CalcSnappedAABB(camera_world.source_basis, polygonoid.newtonian_properties.surface, obj_center_coords);
-        Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(&footprint_surface.surface_vectors, ZERO_VECTOR_2D);
-        DrawObjectVertices(footprint_surface.surface_vectors, ZERO_VECTOR_2D, camera_world, polygonoid.colourRgba); // No object offset needed as its vertices have been snapped using object center coords
-        ClearLArray(&footprint_surface.surface_vectors);
+       //LArray footprint_vertices = CalcSnappedAABB(camera_world.source_basis, polygonoid.newtonian_properties.surface.surface_vectors, obj_center_coords);
+        //Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(&footprint_vertices, ZERO_VECTOR_2D);
+        //DrawObjectVertices(footprint_vertices, ZERO_VECTOR_2D, camera_world, polygonoid.colourRgba); // No object offset needed as its vertices have been snapped using object center coords
+        //ClearLArray(&footprint_vertices);
 
         // float cell_index = ((int)local_origin_coords.y * world_resolution.x) + (int)local_origin_coords.x; // - 1; ((screen_origin.x - 1) * world_resolution.y) + screen_origin.y;
         // const char *display_text = TextFormat("%.0f", cell_index);

@@ -17,7 +17,7 @@
 //----------------------------------------------------------------------------------
 // Circloid CreatePolygonoid(Surface2d surface, ColourRgba colour, size_t mass, Vector2d position, Velocity2d velocity, Acceleration2d acceleration);
 
-Polygonoid CreatePolygonoid_Symmetric(int vertice_count, float radius, ColourRgba colour, size_t mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration)
+Polygonoid CreatePolygonoid_Symmetric(int vertice_count, float radius, ColourRgba colour, float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration)
 {
    Polygonoid newPol = {0};
    Surface2d surface = {0};
@@ -33,7 +33,7 @@ Polygonoid CreatePolygonoid_Symmetric(int vertice_count, float radius, ColourRgb
    return newPol;
 }
 
-Polygonoid CreatePolygonoid_Irregular(int vertice_count, float min_radius, float max_radius, ColourRgba colour, size_t mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration)
+Polygonoid CreatePolygonoid_Irregular(int vertice_count, float min_radius, float max_radius, ColourRgba colour, float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration)
 {
    Polygonoid newPol = {0};
    Surface2d surface = {0};

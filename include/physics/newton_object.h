@@ -60,10 +60,12 @@ typedef struct NewtonObject2d
     Vector2d acceleration;
     Vector2d momentum;
     Surface2d surface;
-    Surface2d footprint;
+    float radius; // Bounding circle radius
+    //Surface2d footprint;
     float mass;
     float inverse_mass;
     int id;
+    int parent_id;
 } NewtonObject2d;
 
 typedef struct NewtonObject2d_Static
@@ -74,6 +76,7 @@ typedef struct NewtonObject2d_Static
     float mass;
     float inverse_mass;
     int id;
+    int parent_id;
 } NewtonObject2d_Static;
 
 typedef enum
@@ -95,7 +98,7 @@ typedef enum
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 
-NewtonObject2d CreateNewtonObject2d(size_t mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration, Surface2d surface);
+NewtonObject2d CreateNewtonObject2d(float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration, Surface2d surface);
 NewtonObject2d CreateNewtonObject2d_Static(Vector2d coords_center, Surface2d surface);
 void CalcVectors(NewtonObject2d *object, float deltaTime);
 // Matrix2x2 FindBoxedCoords(DArray vertices);

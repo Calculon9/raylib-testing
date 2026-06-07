@@ -42,7 +42,8 @@ typedef struct FlatMapInt
 FlatMapInt *AllocFlatMapInt(int capacity);
 bool FlatMapInt_InsertOrUpdate(FlatMapInt *m, int key, int value);
 FlatMapInt MakeFlatMapInt(int capacity);
-bool FlatMapInt_Get(FlatMapInt *m, int key, int *out_value);
+bool FlatMapInt_GetValue(FlatMapInt *m, int key, int *out_value);
+bool FlatMapInt_GetKey(FlatMapInt *m, int value, int *out_key);
 void DisposeFlatMapInt(FlatMapInt *m);
 void ClearFlatMapInt(FlatMapInt *m);
 // void* Enumerate(DynamicArray *da);

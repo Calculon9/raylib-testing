@@ -27,19 +27,19 @@ void ValidateAllocation(void *pMemory, size_t bytes)
 }
 
 // Allocates memory for a generic array and updates bytes in use. Cast the returned generic ptr to required type by caller.
-void *AllocateArray(size_t element_count, size_t element_bytes)
-{
-    return AllocateCollection(element_count, element_bytes);
-}
+// void *AllocateArray(size_t element_count, size_t element_bytes)
+// {
+//     return AllocateCollection(element_count, element_bytes);
+// }
 
 // Allocates memory for a generic collection and updates bytes in use. Cast the returned generic ptr to required type by caller.
-void *AllocateCollection(size_t element_count, size_t element_bytes)
-{
-    // Multiply count by size to get total bytes
-    size_t total_bytes = element_count * element_bytes;
+// void *AllocateCollection(size_t element_count, size_t element_bytes)
+// {
+//     // Multiply count by size to get total bytes
+//     size_t total_bytes = element_count * element_bytes;
 
-    return AllocateBytes(total_bytes);
-}
+//     return AllocateBytes(total_bytes);
+// }
 
 // Allocates memory for a single object and updates bytes in use. Cast the returned generic ptr to required type by caller.
 void *AllocateBytes(size_t bytes)
@@ -117,7 +117,6 @@ size_t CurrBytesAllocated()
     {
         return 0; // Ensure we never return a negative value
     }
-    return bytesAllocated;
 }
 
 // Returns the cumulative memory freed since the program started. Useful for tracking total deallocations over time.
@@ -145,7 +144,6 @@ size_t TotalBytesAllocated()
     {
         return 0; // Ensure we never return a negative value
     }
-    return cumulativeBytesAllocated;
 }
 
 // Returns the consumed memory in bytes out of the total allocated bytes. Useful for tracking how much of the allocated memory is actually in use.
@@ -159,5 +157,9 @@ size_t CurrBytesConsumed()
     {
         return 0; // Ensure we never return a negative value
     }
-    return cumulativeBytesAllocated;
+}
+
+void PrintCurrentBytesAlloc()
+{
+    printf("TOTAL BYTES ALLOC: %0.2lf kbytes\n", (double)(bytesAllocated/1024.0));
 }

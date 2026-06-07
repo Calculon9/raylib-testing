@@ -34,7 +34,7 @@ extern World2d world_1;
 //----------------------------------------------------------------------------------
 World2d CreateWorld(CoordSpace2d_Grid space, float gravity);
 void UpdateWorld(World2d *world, float delta_time);;
-void AddObjectToWorld(World2d *world, Polygonoid *object);
+void AddObjectToWorld(World2d *world, Polygonoid *object, int parent_id);
 //Vector2d GetCellIndicesFromCoordinates(Vector2d origin_coordinates, Vector2d input_coordinates, Basis2d basis);
 //Field UpdateFieldCellValues(Field field);
 

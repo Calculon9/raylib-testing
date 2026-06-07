@@ -70,6 +70,7 @@ typedef struct
     // STATS UI
     String64 *lpanel_stats_polygs_str;
     String64 *lpanel_stats_fps_str;
+    String64 *lpanel_stats_ftime_str;
     String64 *lpanel_stats_mem_str;
 
     // CELL STATE UI

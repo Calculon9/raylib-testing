@@ -43,6 +43,14 @@ float VectorRadians_2d(Vector2d vector)
     return atan2f(vector.y, vector.x);
 }
 
+Vector2d VectorComponents_2d(float magnitude, float radians)
+{
+    Vector2d result = {0.0f, 0.0f};
+    result.x = magnitude * cosf(radians); // Use . because it's a contiguous array of structs
+    result.y = magnitude * sinf(radians);
+    return result;
+}
+
 Polar2d PolarForm_2d(Vector2d vector)
 {
     Polar2d polar = {0.0f};
