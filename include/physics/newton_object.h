@@ -60,8 +60,16 @@ typedef struct NewtonObject2d
     Vector2d acceleration;
     Vector2d momentum;
     Surface2d surface;
-    float radius; // Bounding circle radius
-    //Surface2d footprint;
+    Vector2d local_axis_x;  // object's Forward/Right arrow is pointing     // Pre-computed (cos(rotation), sin(rotation))
+    Vector2d local_axis_y;  // object's Up arrow is pointing
+    float rotation;         // The raw angle in radians
+    float angular_velocity; // Spin speed (radians per second)
+    float torque;           // Angular force accumulator
+    float inertia;          // Resistance to rotational acceleration (like mass)
+    float inverse_inertia;  // 1.0f / inertia (0.0f if rotationally static)
+    float radius;           // Bounding circle radius
+
+    // Surface2d footprint;
     float mass;
     float inverse_mass;
     int id;
@@ -101,6 +109,7 @@ typedef enum
 NewtonObject2d CreateNewtonObject2d(float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration, Surface2d surface);
 NewtonObject2d CreateNewtonObject2d_Static(Vector2d coords_center, Surface2d surface);
 void CalcVectors(NewtonObject2d *object, float deltaTime);
+Vector2d RotateVertex(Vector2d local_vertex, Vector2d local_axis);
 // Matrix2x2 FindBoxedCoords(DArray vertices);
 // Vector2d GetObjectCentre(Surface2d object_surface);
 

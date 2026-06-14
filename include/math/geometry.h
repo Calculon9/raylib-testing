@@ -11,7 +11,7 @@ GEOMETRY MODULE
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
-
+#define MAX_SHAPE_VERTICES 512
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
@@ -59,6 +59,7 @@ bool IsPointInPolygon(Vector2d point, Vector2d *polygon_vertices, Vector2d verti
 bool ShapeFitsWithinShape(LArray *shape1_vertices, LArray *shape2_vertices, Vector2d shape1_vertice_offset, Vector2d shape2_vertice_offset);
 bool BoxFitsWithinBox(Matrix2x2 box1, Matrix2x2 box2);
 Matrix2x2 CalcBoxOverlapWithBox(Matrix2x2 box1, Matrix2x2 box2);
+void CalcBoxVertices(Vector2d dimensions, Vector2d coords_center, Vector2d out_vertices[4]);
 LArray ShapeAVerticesInShapeB(LArray *shape1_vertices, LArray *shape2_vertices, Vector2d shape1_vertice_offset, Vector2d shape2_vertice_offset);
 LArray CreateVertices_Symmetric (int vertice_count, float radius);
 LArray CreateVertices_Irregular (int vertice_count, float min_radius, float max_radius);

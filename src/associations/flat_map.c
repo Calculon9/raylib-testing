@@ -256,7 +256,7 @@ bool GrowFlatMapInt(FlatMapInt *m)
     m->slots = new_slots;
     m->capacity = new_capacity;
 
-    printf("Flat Map grew cleanly to capacity %d\n", m->capacity);
+    //printf("Flat Map grew cleanly to capacity %d\n", m->capacity);
     return true;
 }
 

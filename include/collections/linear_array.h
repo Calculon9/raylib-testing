@@ -51,6 +51,7 @@ void *LArray_Get(LArray *la, int index);
 bool LArray_RemoveAt(LArray *la, int index);
 void DisposeLArray(LArray *la);
 void ClearLArray(LArray *la);
+bool LArray_ResizeAndReset(LArray *a, int new_capacity);
 // void* Enumerate(DynamicArray *da);
 // void* ResetEnumerator(DynamicArray *da);
 // size_t GetElementCount(DynamicArray *da);

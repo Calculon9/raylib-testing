@@ -26,8 +26,8 @@ LArray *AllocLArray(int elem_count, size_t elem_bytes)
     a->elem_bytes = elem_bytes;
     a->capacity = elem_count;
     a->count = 0;
-    //a->enumeratorIndex = 0;
-    //a->enumerationCount = 0;
+    // a->enumeratorIndex = 0;
+    // a->enumerationCount = 0;
     a->items = AllocateBytes(elem_bytes * elem_count);
 
     if (a->items == NULL)
@@ -45,8 +45,8 @@ LArray MakeLArray(int elem_count, size_t elem_bytes)
     a.elem_bytes = elem_bytes;
     a.capacity = elem_count;
     a.count = 0;
-    //a.enumeratorIndex = 0;
-    //a.enumerationCount = 0;
+    // a.enumeratorIndex = 0;
+    // a.enumerationCount = 0;
     a.items = AllocateBytes(elem_bytes * elem_count);
 
     // Simple safety check
@@ -87,7 +87,8 @@ bool LArray_Push(LArray *a, void *item)
 
 void *LArray_Pop(LArray *a, void *out_item)
 {
-    if (a == NULL || a->count == 0) return NULL;
+    if (a == NULL || a->count == 0)
+        return NULL;
 
     // Calcuate the address using the current FRONT index
     void *source = (char *)a->items + ((a->count - 1) * a->elem_bytes);
@@ -221,6 +222,53 @@ void ClearLArray(LArray *a)
     }
     a->count = 0;
     a->capacity = 0;
+}
+
+bool LArray_ResizeAndReset(LArray *a, int new_capacity)
+{
+    if (a == NULL)
+    {
+        fprintf(stderr, "The provided Linear Array is NULL. Cannot resize.\n");
+        return false;
+    }
+
+    size_t old_bytes = (size_t)a->capacity * a->elem_bytes;
+    size_t new_bytes = (size_t)new_capacity * a->elem_bytes;
+
+    // Reallocate safely using a temporary pointer
+    void *temp_items = realloc(a->items, new_bytes);
+    if (temp_items == NULL && new_bytes > 0)
+    {
+        fprintf(stderr, "Failed to reallocate memory to new capacity %d!\n", new_capacity);
+        return false;
+    }
+
+    // Assign the newly allocated/resized block
+    a->items = temp_items;
+
+    // If we GREW the array, zero out only the new memory block at the end
+    // Zero out just the brand-new segment
+    memset(a->items, 0, new_bytes);
+    // if (new_capacity > a->capacity)
+    // {
+    //     // Get a pointer to where the old data ends and the new memory begins
+    //     unsigned char *new_memory_start = (unsigned char *)a->items + old_bytes;
+    //     size_t extra_bytes = new_bytes - old_bytes;
+
+    //     // Zero out just the brand-new segment
+    //     memset(new_memory_start, 0, extra_bytes);
+    // }
+
+    // Update the capacity tracking
+    a->capacity = new_capacity;
+    a->count = 0;
+    // If we SHRUNK the array, clamp the item count so it doesn't overflow bounds
+    // if (a->count > new_capacity)
+    // {
+    //     a->count = new_capacity;
+    // }
+
+    return true;
 }
 
 // Queue *pop(Queue *q, void *outItem)

@@ -8,9 +8,11 @@ SYSTEMS MODULE
 #include "common/common.h"
 #include "math/coordinate_space.h"
 #include "colour/colour.h"
+#include "camera/camera.h"
 #include "raylib.h"
 #include "system/utility_system.h"
 #include "physics/polygonoid.h"
+#include "world/world.h"
 //#include "ui/ui.h"
 
 //----------------------------------------------------------------------------------
@@ -58,8 +60,10 @@ typedef struct
     String64 *lpanel_entity_state_id_str;
     UIElement *lpanel_entity_state_mass_tbox;
     String64 *lpanel_entity_state_mass_str;
-    UIElement *lpanel_entity_state_pos_tbox;
-    String64 *lpanel_entity_state_pos_str;
+    UIElement *lpanel_entity_state_pos_tl_tbox;
+    String64 *lpanel_entity_state_pos_tl_str;
+    UIElement *lpanel_entity_state_pos_c_tbox;
+    String64 *lpanel_entity_state_pos_c_str;
     UIElement *lpanel_entity_state_vel_tbox;
     String64 *lpanel_entity_state_vel_str;
     UIElement *lpanel_entity_state_accel_tbox;
@@ -128,6 +132,7 @@ void UpdateWorldSystem(int mouse_x, int mouse_y);
 int GetPolygonoidCount(void);
 void InitGameWorld(void);
 void DrawGameWorld(void);
+void DrawWorldRegion(World2d *world, Camera2d *world_camera);
 
 //----------------------------------------------------------------------------------
 // Integration Functions Declaration

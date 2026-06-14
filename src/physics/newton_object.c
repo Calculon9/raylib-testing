@@ -15,6 +15,7 @@
 //----------------------------------------------------------------------------------
 // Functions Definition
 //----------------------------------------------------------------------------------
+float CalculateInertia_Polygon(float mass, LArray *surface_vectors);
 
 NewtonObject2d CreateNewtonObject2d(float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration, Surface2d surface)
 {
@@ -27,11 +28,20 @@ NewtonObject2d CreateNewtonObject2d(float mass, Vector2d coords_center, Vector2d
    newtOb.surface = surface;
    newtOb.boxed_dimensions = CalcAABBDimensions(&surface.surface_vectors);
    newtOb.coords_origin = (Vector2d){newtOb.coords_center.x - (newtOb.boxed_dimensions.x / 2.0), newtOb.coords_center.y - (newtOb.boxed_dimensions.y / 2.0)};
-   newtOb.radius = (newtOb.boxed_dimensions.x  > newtOb.boxed_dimensions.y) ? newtOb.boxed_dimensions.x : newtOb.boxed_dimensions.y;
+   newtOb.radius = (newtOb.boxed_dimensions.x > newtOb.boxed_dimensions.y) ? newtOb.boxed_dimensions.x : newtOb.boxed_dimensions.y;
+
+   newtOb.inertia = CalculateInertia_Polygon(mass, &surface.surface_vectors);
+   newtOb.inverse_inertia = (newtOb.inertia != 0.0f) ? (1.0f / newtOb.inertia) : 0.0f;
 
    // Initialize momentum based on mass and velocity
    newtOb.momentum.x = newtOb.mass * newtOb.velocity.x;
    newtOb.momentum.y = newtOb.mass * newtOb.velocity.y;
+
+   newtOb.torque = 0.0f;                         // Initialize torque accumulator to zero
+   newtOb.rotation = 0.0f;                       // Initial rotation angle in radians
+   newtOb.angular_velocity = 0.0f;               // Initial angular velocity
+   newtOb.local_axis_x = (Vector2d){1.0f, 0.0f}; // Initial local x axis pointing "forward" along the x-axis
+   newtOb.local_axis_y = (Vector2d){0.0f, 0.0f}; // Initial local y axis, n pointing "forward" along the y-axis
 
    // printf("CREATED OBJECT BOX: Top-Left (%.2f, %.2f) Bottom-Right (%.2f, %.2f)\n",
    //        newtOb.coords_origin.x,
@@ -52,36 +62,113 @@ NewtonObject2d CreateNewtonObject2d_Static(Vector2d coords_center, Surface2d sur
    newtOb.coords_center = coords_center;
    newtOb.surface = surface;
    newtOb.coords_origin = (Vector2d){newtOb.coords_center.x - (newtOb.boxed_dimensions.x / 2.0), newtOb.coords_center.y - (newtOb.boxed_dimensions.y / 2.0)};
-   newtOb.radius = (newtOb.boxed_dimensions.x  > newtOb.boxed_dimensions.y) ? newtOb.boxed_dimensions.x : newtOb.boxed_dimensions.y;
+   newtOb.radius = (newtOb.boxed_dimensions.x > newtOb.boxed_dimensions.y) ? newtOb.boxed_dimensions.x : newtOb.boxed_dimensions.y;
 
+   newtOb.inertia = 0.0f; // Infinite inertia for static objects
+   newtOb.inverse_inertia = 0.0f;
+
+   newtOb.torque = 0.0f;           // Initialize torque accumulator to zero
+   newtOb.rotation = 0.0f;         // Initial rotation angle in radians
+   newtOb.angular_velocity = 0.0f; // Initial angular velocity
    return newtOb;
 }
 
 void CalcVectors(NewtonObject2d *object, float deltaTime)
 {
-   // Recalc inverse_mass up front in case gameplay code mutated mass this frame
-   object->inverse_mass = (object->mass != 0.0f) ? (1.0f / object->mass) : 0.0f;
+   // 1. Dynamic Mass/Inertia Safety Pass 
+   // Recalc inverses up front in case gameplay code mutated mass or bounds this frame
+   if (object->mass != 0.0f)
+   {
+      object->inverse_mass = 1.0f / object->mass;
+      
+      // If mass changed, re-evaluate box inertia baseline 
+      // I = (1/12) * m * (w^2 + h^2)
+      object->inertia = (1.0f / 12.0f) * object->mass * (object->boxed_dimensions.x * object->boxed_dimensions.x + 
+                         object->boxed_dimensions.y * object->boxed_dimensions.y);
+      object->inverse_inertia = 1.0f / object->inertia;
+   }
+   else
+   {
+      object->inverse_mass = 0.0f;
+      object->inertia = 0.0f;
+      object->inverse_inertia = 0.0f; // Infinite resistance to rotation
+   }
 
-   // Compute the exact positional displacement using the kinematic formula:
-   // displacement = (v * dt) + (0.5 * a * dt^2)
-   // This perfectly accounts for acceleration happening during the frame!
+   // 2. Linear Kinematics (Linear Integration)
    Vector2d displacement;
    displacement.x = (object->velocity.x * deltaTime) + (0.5f * object->acceleration.x * deltaTime * deltaTime);
    displacement.y = (object->velocity.y * deltaTime) + (0.5f * object->acceleration.y * deltaTime * deltaTime);
 
-   // Displace reference systems 
+   // Displace tracking origins
    object->coords_origin = VectorSum_2d(object->coords_origin, displacement);
    object->coords_center = VectorSum_2d(object->coords_center, displacement);
 
-   // Now update velocity based on acceleration for the next frame's baseline
+   // Update linear velocity and state vectors for next frame
    object->velocity.x += object->acceleration.x * deltaTime;
    object->velocity.y += object->acceleration.y * deltaTime;
-
-   // Keep momentum synchronized with the newly updated velocity
+   
    object->momentum.x = object->mass * object->velocity.x;
    object->momentum.y = object->mass * object->velocity.y;
+
+   // 3. Angular Kinematics (Rotational Integration)
+   float angular_acceleration = object->torque * object->inverse_inertia;
+
+   // Update raw rotation angle scalar and spin speed
+   object->rotation += (object->angular_velocity * deltaTime) + (0.5f * angular_acceleration * deltaTime * deltaTime);
+   object->angular_velocity += angular_acceleration * deltaTime;
+
+   // 4. Matrix Sync Pass: Re-bake local coordinate framework
+   object->local_axis_x.x = cosf(object->rotation);
+   object->local_axis_x.y = sinf(object->rotation);
+   object->local_axis_y.x = -object->local_axis_x.y;
+   object->local_axis_y.y =  object->local_axis_x.x;
+
+   // Reset accumulation registers for forces/forces of rotation
+   object->torque = 0.0f;
 }
 
+float CalculateInertia_Polygon(float mass, LArray *surface_vectors)
+{
+   if (mass <= 0.0f || surface_vectors->count < 3)
+      return 0.0f;
+
+   float total_accumulated_numerator = 0.0f;
+   float total_accumulated_denominator = 0.0f;
+   int num_vertices = surface_vectors->count;
+   Vector2d *verts = (Vector2d *)surface_vectors->items;
+
+   for (int i = 0; i < num_vertices; i++)
+   {
+      // Get current vertex and wrap around to the next one to close the edge loop
+      Vector2d p1 = verts[i];
+      Vector2d p2 = verts[(i + 1) % num_vertices];
+
+      // 2D Cross Product acts as the area scalar component (parallelogram area)
+      float cross_product_area = fabsf(p1.x * p2.y - p2.x * p1.y);
+
+      // Calculate the geometry distribution factor for this triangle wedge
+      float geometry_factor = (VectorDot_2d(p1, p1) + VectorDot_2d(p1, p2) + VectorDot_2d(p2, p2));
+
+      total_accumulated_numerator += cross_product_area * geometry_factor;
+      total_accumulated_denominator += cross_product_area;
+   }
+
+   // Combine components to yield the final absolute structural mass moment scalar
+   float structural_inertia = total_accumulated_numerator / (6.0f * total_accumulated_denominator);
+
+   // Scale it uniformly by the actual physical mass of the object
+   return mass * structural_inertia;
+}
+
+Vector2d RotateVertex(Vector2d local_vertex, Vector2d local_axis)
+{
+   Vector2d rotated;
+   // Standard 2D Rotation Matrix layout using our pre-computed local_axis vector:
+   // cos(theta) is local_axis.x, sin(theta) is local_axis.y
+   rotated.x = local_vertex.x * local_axis.x - local_vertex.y * local_axis.y;
+   rotated.y = local_vertex.x * local_axis.y + local_vertex.y * local_axis.x;
+   return rotated;
+}
 // Vector2d CalculateCenterRelativeToOrigin_Fast(NewtonObject2d *object)
 // {
 //    // Update velocity based on acceleration and time

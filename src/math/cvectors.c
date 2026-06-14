@@ -46,7 +46,7 @@ float VectorRadians_2d(Vector2d vector)
 Vector2d VectorComponents_2d(float magnitude, float radians)
 {
     Vector2d result = {0.0f, 0.0f};
-    result.x = magnitude * cosf(radians); // Use . because it's a contiguous array of structs
+    result.x = magnitude * cosf(radians);
     result.y = magnitude * sinf(radians);
     return result;
 }
@@ -67,6 +67,16 @@ float VectorDot_2d(Vector2d a, Vector2d b)
     return (a.x * b.x) + (a.y * b.y);
 }
 
+// float VectorDot_2d(Polar2d a, Polar2d b)
+// {
+//     return (a.x * b.x) + (a.y * b.y);
+// }
+
+// Matrix2x2 MatrixRotate90_2x2(Matrix2x2 M)
+// {
+//     // 
+//     float 
+// }
 
 // Basis2d BasisTransform_2d(Basis2d basis_to_change, Transform scalar)
 // {
@@ -183,7 +193,6 @@ float VectorBox_2d(Vector2d vector)
 
 float MatrixDeterminant_2x2(Matrix2x2 M)
 {
-    // 1. Calculate the Determinant
     float det = (M.col1.x * M.col2.y) + (M.col2.x * M.col1.y);
 
     return det;
@@ -223,6 +232,25 @@ Vector2d BasisTransform_2d_Scale(Basis2d source, Basis2d destination)
         return (Vector2d){1.0, 1.0};
 
     return (Vector2d){magDestU / magSourceU, magDestV / magSourceV};
+}
+
+Vector2d VectorTransform_2x2(Matrix2x2 matrix_function, Vector2d vector_input)
+{
+    Vector2d vector_result;
+
+    // 1. Get the "transformation" or "mapping" basis to go from world to screen.
+    // 2. Get the scaling factor to go from world basis magnitude to screen basis magnitude.
+
+    // Since we are using a 3x  matrix for 2D, we treat the 2D point as a 3D vector where z=1. This is a trick called Homogeneous Coordinates that allows the matrix to move (translate) the point, not just rotate or scale it.
+    //  Multiply: (Row 1 * WorldColumn)
+    //  screenX = (m0 * x) + (m3 * y) + m6
+    vector_result.x = (vector_input.x * matrix_function.col1.x) + (vector_input.y * matrix_function.col2.x);
+
+    // Multiply: (Row 2 * WorldColumn)
+    // screenY = (m1 * x) + (m4 * y) + m7
+    vector_result.y = (vector_input.y * matrix_function.col2.y) + (vector_input.x * matrix_function.col1.y);
+
+    return vector_result;
 }
 
 Vector2d MatrixMultiply_3x3_2x2(Matrix3x3 matrix_function, Vector2d vector_input)

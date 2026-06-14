@@ -50,6 +50,7 @@ COLOURS MODULE
 #define YELLOW_WARNING_RGBA (ColourRgba){ 255, 255, 176, 255 }
 
 // OLIVE GARDEN
+#define OLIVE_GARDEN_GREEN_XL (ColourRgba){ 96, 108, 56, 100 }
 #define OLIVE_GARDEN_GREEN_L (ColourRgba){ 96, 108, 56, 255 }
 #define OLIVE_GARDEN_GREEN_D (ColourRgba){ 40, 54, 24, 255 }
 #define OLIVE_GARDEN_CREAM (ColourRgba){ 254, 250, 224, 255 }

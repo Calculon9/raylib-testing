@@ -11,7 +11,10 @@ MEMORY MANAGEMENT MODULE
 // Macros and Defines
 //----------------------------------------------------------------------------------
 #define ZERO_VECTOR_2D (Vector2d){0, 0}
+#define INFINITY_VECTOR_2D (Vector2d){INFINITY, INFINITY}
+#define INFINITY_MATRIX_2x2 (Matrix2x2){INFINITY_VECTOR_2D, INFINITY_VECTOR_2D}
 #define ZERO_VECTOR_3D (Vector3d){0, 0, 0}
+#define INFINITY_VECTOR_3D (Vector2d){INFINITY, INFINITY, INFINITY}
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
@@ -90,9 +93,11 @@ float VectorBox_2d(Vector2d vector);
 float VectorDot_2d(Vector2d a, Vector2d b);
 float VectorRadians_2d(Vector2d vector);
 Vector2d VectorComponents_2d(float magnitude, float radians);
+Vector2d VectorTransform_2x2(Matrix2x2 matrix_function, Vector2d vector_input);
 Vector3d VectorSumArray_3d(Vector3d *array, size_t count);
 // Matrix3x3 VectorTransform_Scale_Rotate_2d(Vector2d origin, float scale_u, float scale_v, float radians_u, float radians_v);
 float MatrixDeterminant_2x2(Matrix2x2 M);
+
 Matrix3x3 MatrixMultiply_3x3_3x3(Matrix3x3 A, Matrix3x3 B);
 Matrix3x3 MatrixInvert_3x3(Matrix3x3 M);
 // For transforming coordinates from one basis to another, we can create a basis transform matrix that represents the transformation from the source basis to the destination basis, and then apply this matrix to the coordinates we want to transform. The destination origin is needed to account for any translation between the two bases.
