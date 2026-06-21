@@ -93,7 +93,7 @@ Surface2d CreateSurface_Rectangular(Vector2d dimensions, Vector2d vertice_offset
     return surf;
 }
 
-void CalcBoxVertices(Vector2d dimensions, Vector2d coords_center, Vector2d out_vertices[4])
+void CalcBoxVertices(Vector2d dimensions, Vector2d coords_center, Vector2d *out_vertices)
 {
     // Calculate the half-extents
     float hx = dimensions.x / 2.0f;
@@ -107,22 +107,21 @@ void CalcBoxVertices(Vector2d dimensions, Vector2d coords_center, Vector2d out_v
 }
 
 // Returns the boxed coords from a collection of vertice vectors with an offset applied to the vertices (e.g. to account for the position of the shape in world space, rather than just the local vertices)
-Matrix2x2 CalcAABBCoords_Tight(LArray *vertices, Vector2d vertice_offset)
+Matrix2x2 CalcAABBCoords_Tight(Vector2d *vertices, int vertice_count, Vector2d vertice_offset)
 {
     Matrix2x2 box_coords = {0};
-    if (vertices->count < 2)
+    if (vertice_count < 2)
     {
         return box_coords;
     }
-    Vector2d *pts = vertices->items;
 
     // Must initialise with one of the provided vertices rather than all 0s because 0 could be the largest or smallest value compared to the provided vertices
-    box_coords.col1 = VectorSum_2d(vertice_offset, pts[0]);
-    box_coords.col2 = VectorSum_2d(vertice_offset, pts[0]);
+    box_coords.col1 = VectorSum_2d(vertice_offset, vertices[0]);
+    box_coords.col2 = VectorSum_2d(vertice_offset, vertices[0]);
     Vector2d vertice = {0};
-    for (size_t i = 1; i < vertices->count; i++)
+    for (size_t i = 1; i < vertice_count; i++)
     {
-        vertice = VectorSum_2d(vertice_offset, pts[i]);
+        vertice = VectorSum_2d(vertice_offset, vertices[i]);
 
         box_coords.col1.x = fminf(box_coords.col1.x, vertice.x);
         box_coords.col2.x = fmaxf(box_coords.col2.x, vertice.x);
@@ -130,12 +129,32 @@ Matrix2x2 CalcAABBCoords_Tight(LArray *vertices, Vector2d vertice_offset)
         box_coords.col1.y = fminf(box_coords.col1.y, vertice.y);
         box_coords.col2.y = fmaxf(box_coords.col2.y, vertice.y);
     }
+    // if (vertices->count < 2)
+    // {
+    //     return box_coords;
+    // }
+    // Vector2d *pts = vertices->items;
+
+    // // Must initialise with one of the provided vertices rather than all 0s because 0 could be the largest or smallest value compared to the provided vertices
+    // box_coords.col1 = VectorSum_2d(vertice_offset, pts[0]);
+    // box_coords.col2 = VectorSum_2d(vertice_offset, pts[0]);
+    // Vector2d vertice = {0};
+    // for (size_t i = 1; i < vertices->count; i++)
+    // {
+    //     vertice = VectorSum_2d(vertice_offset, pts[i]);
+
+    //     box_coords.col1.x = fminf(box_coords.col1.x, vertice.x);
+    //     box_coords.col2.x = fmaxf(box_coords.col2.x, vertice.x);
+
+    //     box_coords.col1.y = fminf(box_coords.col1.y, vertice.y);
+    //     box_coords.col2.y = fmaxf(box_coords.col2.y, vertice.y);
+    // }
     return box_coords;
 }
 
-Vector2d CalcAABBDimensions(LArray *vertices)
+Vector2d CalcAABBDimensions(Vector2d *vertices, int vertice_count)
 {
-    Matrix2x2 box_coords = CalcAABBCoords_Tight(vertices, ZERO_VECTOR_2D);
+    Matrix2x2 box_coords = CalcAABBCoords_Tight(vertices, vertice_count, ZERO_VECTOR_2D);
 
     Vector2d box_dims = (Vector2d){box_coords.col2.x - box_coords.col1.x, box_coords.col2.y - box_coords.col1.y};
 
@@ -187,8 +206,8 @@ bool ShapeFitsWithinShape(LArray *shape1_vertices, LArray *shape2_vertices, Vect
     Vector2d *pts2 = shape2_vertices->items;
 
     // Must initialise with one of the provided vertices rather than all 0s because 0 could be the largest or smallest value compared to the provided vertices
-    Matrix2x2 box1_coords = CalcAABBCoords_Tight(shape1_vertices, shape1_vertice_offset);
-    Matrix2x2 box2_coords = CalcAABBCoords_Tight(shape2_vertices, shape2_vertice_offset);
+    Matrix2x2 box1_coords = CalcAABBCoords_Tight(shape1_vertices->items, shape1_vertices->count, shape1_vertice_offset);
+    Matrix2x2 box2_coords = CalcAABBCoords_Tight(shape2_vertices->items, shape2_vertices->count, shape2_vertice_offset);
 
     // Check if box1 is completely contained within box2
     if (BoxFitsWithinBox(box1_coords, box2_coords))
@@ -331,72 +350,72 @@ Vector2d CalcGeometricCentre_FromSurface(Surface2d object_surface, Vector2d vert
         printf("WARNING: Surface vectors provided to GetGeometricCentre_FromSurface are NULL or contain no items. Returning (0,0) as default value.\n");
         return ZERO_VECTOR_2D; // Invalid box, return (0,0) as a default value
     }
-    Matrix2x2 box_coords = CalcAABBCoords_Tight(&object_surface.surface_vectors, vertice_offset);
+    Matrix2x2 box_coords = CalcAABBCoords_Tight(object_surface.surface_vectors.items, object_surface.surface_vectors.count, vertice_offset);
     return CalcGeometricCentre_FromBox(box_coords);
 }
 
 // Returns true if shape1 fits within shape2
-float ShapeOverlapWithShape(LArray *shape1_vertices, LArray *shape2_vertices, Vector2d shape1_vertice_offset, Vector2d shape2_vertice_offset)
-{
-    if (shape1_vertices->count < 2 && shape2_vertices->count < 2)
-    {
-        return false;
-    }
-    Vector2d *pts1 = shape1_vertices->items;
-    Vector2d *pts2 = shape2_vertices->items;
+// float ShapeOverlapWithShape(LArray *shape1_vertices, LArray *shape2_vertices, Vector2d shape1_vertice_offset, Vector2d shape2_vertice_offset)
+// {
+//     if (shape1_vertices->count < 2 && shape2_vertices->count < 2)
+//     {
+//         return false;
+//     }
+//     Vector2d *pts1 = shape1_vertices->items;
+//     Vector2d *pts2 = shape2_vertices->items;
 
-    // Must initialise with one of the provided vertices rather than all 0s because 0 could be the largest or smallest value compared to the provided vertices
-    Matrix2x2 box1_coords = CalcAABBCoords_Tight(shape1_vertices, shape1_vertice_offset);
-    Matrix2x2 box2_coords = CalcAABBCoords_Tight(shape2_vertices, shape2_vertice_offset);
+//     // Must initialise with one of the provided vertices rather than all 0s because 0 could be the largest or smallest value compared to the provided vertices
+//     Matrix2x2 box1_coords = CalcAABBCoords_Tight(shape1_vertices, shape1_vertice_offset);
+//     Matrix2x2 box2_coords = CalcAABBCoords_Tight(shape2_vertices, shape2_vertice_offset);
 
-    // Check if box1 is completely contained within box2
-    if (BoxFitsWithinBox(box1_coords, box2_coords))
-    {
-        return true;
-    }
-    return false;
-}
+//     // Check if box1 is completely contained within box2
+//     if (BoxFitsWithinBox(box1_coords, box2_coords))
+//     {
+//         return true;
+//     }
+//     return false;
+// }
 
 // Returns the Surface chunks of Shape A, including the first Shape A points lying outside Shape B, until the first point of Shape A that lies back inside Shape B.
 // This gives us the vertices of the section of Shape A that is spanning outside Shape B, which we can use to calculate the area of this section and therefore how much of Shape A is spanning outside Shape B.
-LArray ShapeAVerticesInShapeB(LArray *shape1_vertices, LArray *shape2_vertices, Vector2d shape1_vertice_offset, Vector2d shape2_vertice_offset)
-{
-    if (shape1_vertices->count < 1 && shape2_vertices->count < 1)
-    {
-        return MakeLArray(0, sizeof(Vector2d));
-    }
-    Vector2d *pts1 = shape1_vertices->items;
-    Vector2d *pts2 = shape2_vertices->items;
+// LArray ShapeAVerticesInShapeB(LArray *shape1_vertices, LArray *shape2_vertices, Vector2d shape1_vertice_offset, Vector2d shape2_vertice_offset)
+// {
+//     if (shape1_vertices->count < 1 && shape2_vertices->count < 1)
+//     {
+//         return MakeLArray(0, sizeof(Vector2d));
+//     }
+//     Vector2d *pts1 = shape1_vertices->items;
+//     Vector2d *pts2 = shape2_vertices->items;
 
-    Matrix2x2 box1_coords = CalcAABBCoords_Tight(shape1_vertices, shape1_vertice_offset);
-    Matrix2x2 box2_coords = CalcAABBCoords_Tight(shape2_vertices, shape2_vertice_offset);
+//     Matrix2x2 box1_coords = CalcAABBCoords_Tight(shape1_vertices, shape1_vertice_offset);
+//     Matrix2x2 box2_coords = CalcAABBCoords_Tight(shape2_vertices, shape2_vertice_offset);
 
-    // Get the segment (another box) of box A that is overlapping with box B
-    Matrix2x2 box_coords_overlap = CalcBoxOverlapWithBox(box1_coords, box2_coords);
+//     // Get the segment (another box) of box A that is overlapping with box B
+//     Matrix2x2 box_coords_overlap = CalcBoxOverlapWithBox(box1_coords, box2_coords);
 
-    // Get the dimensions to determine if the returned box is non-zero
-    Vector2d overlap_dims = (Vector2d){(box_coords_overlap.col2.x - box_coords_overlap.col1.x), (box_coords_overlap.col2.y - box_coords_overlap.col1.y)};
-    LArray shape1_vertices_in_overlap = MakeLArray(shape1_vertices->count, sizeof(Vector2d));
-    if (overlap_dims.x * overlap_dims.y > 0)
-    {
-        Vector2d box_coords_overlap_center = CalcGeometricCentre_FromBox(box_coords_overlap);
-        Surface2d box_overlap_surface = CreateSurface_Rectangular(overlap_dims, box_coords_overlap_center);
-        for (size_t i = 0; i < shape1_vertices->count; i++)
-        {
-            Vector2d shape1_point = VectorSum_2d(((Vector2d *)shape1_vertices->items)[i], shape2_vertice_offset);
-            if (IsPointInPolygon(shape1_point, (Vector2d *)box_overlap_surface.surface_vectors.items, box_coords_overlap_center, box_overlap_surface.surface_vectors.count))
-            {
-                LArray_Push(&shape1_vertices_in_overlap, &shape1_point);
-            }
-        }
-    }
+//     // Get the dimensions to determine if the returned box is non-zero
+//     Vector2d overlap_dims = (Vector2d){(box_coords_overlap.col2.x - box_coords_overlap.col1.x), (box_coords_overlap.col2.y - box_coords_overlap.col1.y)};
+//     LArray shape1_vertices_in_overlap = MakeLArray(shape1_vertices->count, sizeof(Vector2d));
+//     if (overlap_dims.x * overlap_dims.y > 0)
+//     {
+//         Vector2d box_coords_overlap_center = CalcGeometricCentre_FromBox(box_coords_overlap);
+//         Surface2d box_overlap_surface = CreateSurface_Rectangular(overlap_dims, box_coords_overlap_center);
+//         for (size_t i = 0; i < shape1_vertices->count; i++)
+//         {
+//             Vector2d shape1_point = VectorSum_2d(((Vector2d *)shape1_vertices->items)[i], shape2_vertice_offset);
+//             if (IsPointInPolygon(shape1_point, (Vector2d *)box_overlap_surface.surface_vectors.items, box_coords_overlap_center, box_overlap_surface.surface_vectors.count))
+//             {
+//                 LArray_Push(&shape1_vertices_in_overlap, &shape1_point);
+//             }
+//         }
+//     }
 
-    return shape1_vertices_in_overlap;
-    // Loop through Shape B vertices & find Shape A chunks within Shape B
-    // Surface2d shape_a_chunk = {0};
-    // bool first_before_in = false;
-    // bool first_after_out = false;
-    // for (size_t i = 0; i < shape2_vertices->count; i++)
-    // {
-    // }
-}
+//     return shape1_vertices_in_overlap;
+//     // Loop through Shape B vertices & find Shape A chunks within Shape B
+//     // Surface2d shape_a_chunk = {0};
+//     // bool first_before_in = false;
+//     // bool first_after_out = false;
+//     // for (size_t i = 0; i < shape2_vertices->count; i++)
+//     // {
+//     // }
+// }

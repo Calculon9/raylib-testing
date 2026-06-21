@@ -39,7 +39,6 @@ COLOURS MODULE
 #define BLACK_RGBA      (ColourRgba){ 0, 0, 0, 255 }         // Black
 #define BLANK_RGBA      (ColourRgba){ 0, 0, 0, 0 }           // Blank (Transparent)
 #define MAGENTA_RGBA    (ColourRgba){ 255, 0, 255, 255 }     // Magenta
-#define RED_ERROR_RGBA (ColourRgba){ 0, 0, 0, 255 }  
 #define YELLOW_WARNING_RGBA (ColourRgba){ 255, 255, 176, 255 }
 
 #define WHITE_RGBA      (ColourRgba){ 255, 255, 255, 255 }   // White

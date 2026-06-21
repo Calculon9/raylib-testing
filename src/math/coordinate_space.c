@@ -7,9 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
-#include "physics/rectangloid.h"
-#include "physics/circloid.h"
-#include "physics/newton_object.h"
+#include "physics/newtonoid.h"
 #include "math/coordinate_space.h"
 
 //----------------------------------------------------------------------------------
@@ -35,7 +33,7 @@ CoordSpace2d_Grid NewCoordSpace2d_Grid(Vector2d origin, Vector2d resolution_ixj,
 
    // Calc coords_center - this is required when creating new objects
    Vector2d coords_center = (Vector2d){origin.x + (resolution_ixj.x / 2.0), origin.y + (resolution_ixj.y / 2.0)};
-   space_obj.object = CreateNewtonObject2d_Static(coords_center, surface);
+   space_obj.object = CreateNewtonoid2d_Static(coords_center, surface);
    return space_obj;
 }
 
@@ -121,7 +119,7 @@ void InitUnitCells(CoordSpace2d *space)
       count++;
    }
    cells->count = stepsU * stepsV;
-   printf("Initialised %d cells\n", count);
+   LOG_INFO("Initialised %d cells\n", count);
 }
 
 int GetIndexFromCoords(CoordSpace2d *space, Vector2d space_coords)
@@ -143,27 +141,6 @@ Cell *GetCellFromCoords(CoordSpace2d *space, Vector2d coords)
    return target_cell;
 }
 
-Matrix2x2 GetObjectFootprint_AsBox(Basis2d coord_space_basis, Surface2d object_surface)
-{
-   // Min area of effect will be the cell in the middle + all bordering cells - this will apply if the obj width and height are < cell width and height
-   Matrix2x2 obj_box = CalcAABBCoords_Tight(&object_surface.surface_vectors, ZERO_VECTOR_2D);
-   float cell_w = sqrtf(coord_space_basis.u.x * coord_space_basis.u.x +
-                        coord_space_basis.u.y * coord_space_basis.u.y);
-   float cell_h = sqrtf(coord_space_basis.v.x * coord_space_basis.v.x +
-                        coord_space_basis.v.y * coord_space_basis.v.y);
-
-   Vector2d obj_midpoint = (Vector2d){(obj_box.col1.x + obj_box.col2.x) / 2, (obj_box.col1.y + obj_box.col2.y) / 2};
-   // Each vertice when either their x or y pos is fixed, can move along the variable dimension and therefore partially enter the 2 neighbouring cells on that axis while still having its midpoint in the original cell
-   // the footprint will therefore be +/- 1 cell applied to each of the object's vertices
-
-   // For the min coords (col1) we add -1 and max coords (col2) we add +1
-   obj_box.col1.x -= cell_w;
-   obj_box.col1.y -= cell_h;
-   obj_box.col2.x += cell_w;
-   obj_box.col2.y += cell_h;
-
-   return obj_box;
-}
 
 Matrix2x2 CalcSpaceAABB(CoordSpace2d *space)
 {
@@ -181,7 +158,7 @@ Matrix2x2 CalcSpaceAABB(CoordSpace2d *space)
 // This function creates a footprint surface that represents the area of effect of an object based on its surface and the coordinate space's basis vectors.
 // It calculates the bounding box of the object's surface in world coordinates, determines which cells in the coordinate space it overlaps with, and then creates a rectangular surface that encompasses all those cells.
 // The object offset parameter allows you to specify the world coordinates of the object's center, which is necessary to correctly position the footprint in the coordinate space. Provide a zero vector if the object's surface vertices are already in world coordinates.
-LArray CalcSnappedAABB(Basis2d coord_space_basis, LArray object_surface_vertices, Vector2d object_offset)
+void CalcSnappedAABB_Vertices(Vector2d *object_surface_vertices, int object_surface_vertices_count, Vector2d object_offset, Basis2d coord_space_basis, Vector2d out_vertices[4])
 {
    // Correctly extract the physical grid cell size from the basis
    float cell_w = sqrtf(coord_space_basis.u.x * coord_space_basis.u.x +
@@ -189,21 +166,20 @@ LArray CalcSnappedAABB(Basis2d coord_space_basis, LArray object_surface_vertices
    float cell_h = sqrtf(coord_space_basis.v.x * coord_space_basis.v.x +
                         coord_space_basis.v.y * coord_space_basis.v.y);
 
-   if (object_surface_vertices.count == 0)
+   if (object_surface_vertices_count == 0)
    {
-      return (LArray){0};
+      return;
    }
 
-   Vector2d *pts = (Vector2d *)object_surface_vertices.items;
    Matrix2x2 box_coords = {0};
 
    // Must initialise with one of the provided vertices rather than all 0s because 0 could be the largest or smallest value compared to the provided vertices
-   box_coords.col1 = VectorSum_2d(object_offset, pts[0]);
-   box_coords.col2 = VectorSum_2d(object_offset, pts[0]);
+   box_coords.col1 = VectorSum_2d(object_offset, object_surface_vertices[0]);
+   box_coords.col2 = VectorSum_2d(object_offset, object_surface_vertices[0]);
    Vector2d vertice = {0};
-   for (size_t i = 1; i < object_surface_vertices.count; i++)
+   for (size_t i = 1; i < object_surface_vertices_count; i++)
    {
-      vertice = VectorSum_2d(object_offset, pts[i]); // Convert vertices to absolute world positions to find the global AABB limits
+      vertice = VectorSum_2d(object_offset, object_surface_vertices[i]); // Convert vertices to absolute world positions to find the global AABB limits
 
       box_coords.col1.x = fminf(box_coords.col1.x, vertice.x);
       box_coords.col2.x = fmaxf(box_coords.col2.x, vertice.x);
@@ -211,23 +187,6 @@ LArray CalcSnappedAABB(Basis2d coord_space_basis, LArray object_surface_vertices
       box_coords.col1.y = fminf(box_coords.col1.y, vertice.y);
       box_coords.col2.y = fmaxf(box_coords.col2.y, vertice.y);
    }
-   //float min_x = INFINITY, max_x = -INFINITY;
-   //float min_y = INFINITY, max_y = -INFINITY;
-
-   // for (size_t i = 0; i < object_surface_vertices.count; i++)
-   // {
-   //    float world_x = vertices[i].x + object_offset.x;
-   //    float world_y = vertices[i].y + object_offset.y;
-
-   //    if (world_x < min_x)
-   //       min_x = world_x;
-   //    if (world_x > max_x)
-   //       max_x = world_x;
-   //    if (world_y < min_y)
-   //       min_y = world_y;
-   //    if (world_y > max_y)
-   //       max_y = world_y;
-   // }
 
    // Convert the spatial bounding extremes directly to integer cell index spans
    float start_cell_x = floorf(box_coords.col1.x / cell_w);
@@ -237,26 +196,13 @@ LArray CalcSnappedAABB(Basis2d coord_space_basis, LArray object_surface_vertices
 
    // Create a 4-corner bounding rectangle that perfectly encapsulates
    // every single cell the object is partially or fully occupying.
-   LArray footprint_vertices = MakeLArray(4, sizeof(Vector2d));
+   //LArray footprint_vertices = MakeLArray(4, sizeof(Vector2d));
 
    // Map the bounding indexes back to absolute spatial coordinates
-   Vector2d footprint_box[4] = {
-       {start_cell_x, start_cell_y}, // Bottom-Left Cell Boundary
-       {end_cell_x, start_cell_y},   // Bottom-Right Cell Boundary
-       {end_cell_x, end_cell_y},     // Top-Right Cell Boundary
-       {start_cell_x, end_cell_y}};  // Top-Left Cell Boundary
-
-   for (int i = 0; i < 4; i++)
-   {
-      // Convert back to local offset form relative to the object center if required by your renderer
-      // footprint_box[i].x -= object_offset.x;
-      // footprint_box[i].y -= object_offset.y;
-      LArray_Push(&footprint_vertices, &footprint_box[i]);
-
-      // printf("OBJ VERTICE: (%.2f, %.2f) -> FOOTPRINT VERTICE: (%.2f, %.2f)\n", obj_vertice.x, obj_vertice.y, footprint_vertice.x, footprint_vertice.y);
-   }
-
-   return footprint_vertices;
+   out_vertices[0] = (Vector2d){start_cell_x, start_cell_y}; // Bottom-Left Cell Boundary
+   out_vertices[1] = (Vector2d){end_cell_x, start_cell_y};   // Bottom-Right Cell Boundary
+   out_vertices[2] = (Vector2d){end_cell_x, end_cell_y};     // Top-Right Cell Boundary
+   out_vertices[3] = (Vector2d){start_cell_x, end_cell_y};   // Top-Left Cell Boundary
 }
 
 bool VectorIsInSpace_2d(Vector2d vector, CoordSpace2d *space)

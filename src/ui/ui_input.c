@@ -235,7 +235,7 @@ void RevertTextChanges(UIElement *e, Text_64_IOState *tbox_buffers)
 void HandleTextCommit(UIElement *element, Text_64_IOState *tbox_buffers)
 {
     // PIPELINE COMMITTED TEXT TO THE SELECTED OBJECT
-    Polygonoid *obj = G_WorldState.selected_object;
+    Newtonoid2d *obj = G_WorldState.selected_object;
     if (!element || !IsTextbox(element) || !obj)
     {
         RevertTextChanges(element, tbox_buffers);

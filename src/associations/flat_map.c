@@ -159,6 +159,44 @@ bool FlatMapInt_GetKey(FlatMapInt *m, int value, int *out_key)
     return false;
 }
 
+bool FlatMapInt_DeactivateSlot(FlatMapInt *m, int key)
+{
+    // Safety Guardrails
+    if (m == NULL)
+    {
+        fprintf(stderr, "ERROR: Invalid NULL parameter passed to FlatMapInt_GetValue.\n");
+        return false;
+    }
+
+    if (m->capacity == 0 || m->count == 0)
+    {
+        return false;
+    }
+
+    unsigned long index = CalcIntHash(key, m->capacity);
+    unsigned long start_index = index;
+
+    // Search until we hit an unoccupied slot
+    while (m->slots[index].occupied)
+    {
+        // Straight primitive integer matching (Blazing fast!)
+        if (m->slots[index].key == key)
+        {
+            m->slots[index].occupied = false; // Set the slot to unoccupied statem->slots[index].value;
+            return true;
+        }
+
+        index = (index + 1) % m->capacity;
+
+        if (index == start_index)
+        {
+            break; // Searched full map array
+        }
+    }
+
+    return false;
+}
+
 // Inserting or Updating an int only for now
 bool FlatMapInt_InsertOrUpdate(FlatMapInt *m, int key, int value)
 {
@@ -204,7 +242,7 @@ bool GrowFlatMapInt(FlatMapInt *m)
 {
     int old_capacity = m->capacity;
     // Cast explicitly back to integer to keep compiler calculations happy
-    int new_capacity = (int)(old_capacity * 1.6f);
+    int new_capacity = (int)(old_capacity * 1.6f) + 1;
 
     // Allocate the fresh expanded buffer block
     FlatMapIntEntry *new_slots = AllocateBytes(new_capacity * sizeof(FlatMapIntEntry));
@@ -256,13 +294,14 @@ bool GrowFlatMapInt(FlatMapInt *m)
     m->slots = new_slots;
     m->capacity = new_capacity;
 
-    //printf("Flat Map grew cleanly to capacity %d\n", m->capacity);
+    // printf("Flat Map grew cleanly to capacity %d\n", m->capacity);
     return true;
 }
 
 void DisposeFlatMapInt(FlatMapInt *m)
 {
-    if (!m) return;
+    if (!m)
+        return;
 
     // Clean internal structures via updated Clear tool
     ClearFlatMapInt(m);
@@ -273,7 +312,8 @@ void DisposeFlatMapInt(FlatMapInt *m)
 
 void ClearFlatMapInt(FlatMapInt *m)
 {
-    if (!m) return;
+    if (!m)
+        return;
 
     // We just drop the master data buffer block as one single fast transaction.
     if (m->slots != NULL)
@@ -282,7 +322,33 @@ void ClearFlatMapInt(FlatMapInt *m)
         Deallocate((void **)&m->slots, total_slots_bytes);
         m->slots = NULL;
     }
-    
+
     m->count = 0;
     m->capacity = 0;
+}
+
+void ResetFlatMapInt(FlatMapInt *m)
+{
+    if (!m)
+        return;
+
+    // We just drop the master data buffer block as one single fast transaction.
+    if (m->slots != NULL)
+    {
+        // Zero-out the new buffer occupancy states and values
+        FlatMapIntEntry *slots = (FlatMapIntEntry *)m->slots;
+        for (size_t i = 0; i < m->capacity; i++)
+        {
+            slots[i].key = 0;
+            slots[i].value = 0;
+            slots[i].occupied = false;
+        }
+
+        // size_t total_slots_bytes = m->capacity * sizeof(FlatMapIntEntry);
+        // Deallocate((void **)&m->slots, total_slots_bytes);
+        // m->slots = NULL;
+    }
+
+    m->count = 0;
+    // m->capacity = 0;
 }

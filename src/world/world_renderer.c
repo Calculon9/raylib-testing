@@ -16,7 +16,7 @@
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
 
-void DrawPolygonoids(LArray *polygonoids);
+void DrawNewtonoids(LArray *newtonoids);
 void DrawCollisions(LArray *collisions);
 // void DrawObjectVertices(LArray local_vertices, Vector2d coords_center, Camera2d camera, ColourRgba line_colour);
 void DrawObjectVertices(Vector2d *local_vertices, int vertices_count, Vector2d offset, Camera2d camera, ColourRgba line_colour);
@@ -28,8 +28,9 @@ void DrawWorldRegion(World2d *world, Camera2d *camera_world)
     // DEBUGGING - Draw the world coordinate space basis vectors to check they are correct
     DrawWorldCoordinateGrid(&world->coord_space_grid, camera_world);
     // Draw objects in the world (circloids, polygonoids, etc.)
-    DrawPolygonoids(&world->objects);
-    DrawCollisions(&world->collisions);
+    DrawNewtonoids(&world->objects);
+    DrawNewtonoids(&world->temp_objects);
+    // DrawCollisions(&world->collisions);
 }
 
 void DrawWorldCoordinateGrid(CoordSpace2d_Grid *coord_space_grid, Camera2d *camera_world)
@@ -133,27 +134,27 @@ void DrawWorldCoordinateGrid(CoordSpace2d_Grid *coord_space_grid, Camera2d *came
     // printf("Drew %d cells\n", count);
 }
 
-void DrawPolygonoids(LArray *polygonoids)
+void DrawNewtonoids(LArray *newtonoids)
 {
-    if (polygonoids == NULL)
+    if (newtonoids == NULL)
     {
         return; // Nothing to draw
     }
     // Collection *coll = &polygonoids->coll;
-    for (int i = 0; i < polygonoids->count; i++)
+    for (int i = 0; i < newtonoids->count; i++)
     {
-        Polygonoid polygonoid = *((Polygonoid *)((char *)polygonoids->items + (i * polygonoids->elem_bytes)));
-        Vector2d obj_center_coords = polygonoid.newtonian_properties.coords_center;
+        Newtonoid2d newtonoid = *((Newtonoid2d *)((char *)newtonoids->items + (i * newtonoids->elem_bytes)));
+        Vector2d obj_center_coords = newtonoid.coords_center;
+
+        // ----DEBUG----- draw the bounding box of the polygonoid to check it is correct
+        Surface2d obj_box_surface = CreateSurface_Rectangular(newtonoid.boxed_dimensions, ZERO_VECTOR_2D);
+        //DrawObjectVertices(obj_box_surface.surface_vectors.items, obj_box_surface.surface_vectors.count, obj_center_coords, camera_world, OLIVE_GARDEN_GREEN_XL);
+        ClearLArray(&obj_box_surface.surface_vectors);
 
         // Draw polygonoid THEN text so text is on top
         // Get origin-offset coordinates as they are only relative vectors with no origin offset
-        LArray surf_vectors = polygonoid.newtonian_properties.surface.surface_vectors;
-        DrawObjectVertices(surf_vectors.items,surf_vectors.count,  obj_center_coords, camera_world, polygonoid.colourRgba);
-
-        // ----DEBUG----- draw the bounding box of the polygonoid to check it is correct
-        Surface2d obj_box_surface = CreateSurface_Rectangular(polygonoid.newtonian_properties.boxed_dimensions, ZERO_VECTOR_2D);
-        DrawObjectVertices(obj_box_surface.surface_vectors.items, obj_box_surface.surface_vectors.count, obj_center_coords, camera_world, OLIVE_GARDEN_GREEN_XL);
-        ClearLArray(&obj_box_surface.surface_vectors);
+        LArray surf_vectors = newtonoid.surface.surface_vectors;
+        DrawObjectVertices(surf_vectors.items, surf_vectors.count, obj_center_coords, camera_world, newtonoid.line_colour);
 
         // ----DEBUG-----  draw the footprint box of the polygonoid to check it is correct
         // LArray footprint_vertices = CalcSnappedAABB(camera_world.source_basis, polygonoid.newtonian_properties.surface.surface_vectors, obj_center_coords);
@@ -186,9 +187,9 @@ void DrawCollisions(LArray *collisions)
         // ----DEBUG----- draw the collision box to check it is correct
         Vector2d collision_vertices[4] = {0};
         Vector2d dimensions = {collision_box.col2.x - collision_box.col1.x, collision_box.col2.y - collision_box.col1.y};
-        //Vector2d offset = {(collision_box.col1.x + collision_box.col2.x) * 0.5, (collision_box.col1.y + collision_box.col2.y) * 0.5}; // {collision_box.col1.x, collision_box.col1.y};
+        // Vector2d offset = {(collision_box.col1.x + collision_box.col2.x) * 0.5, (collision_box.col1.y + collision_box.col2.y) * 0.5}; // {collision_box.col1.x, collision_box.col1.y};
         Vector2d coords_center = CalcGeometricCentre_FromBox(collision_box);
-        CalcBoxVertices(dimensions,coords_center, collision_vertices);// {collision_box.col1, collision_box.col2, collision_box.col2, collision_box.col1}; // Create a rect from the box coords = CreateSurface_Rectangular(collision_box, ZERO_VECTOR_2D);
+        CalcBoxVertices(dimensions, coords_center, collision_vertices); // {collision_box.col1, collision_box.col2, collision_box.col2, collision_box.col1}; // Create a rect from the box coords = CreateSurface_Rectangular(collision_box, ZERO_VECTOR_2D);
         DrawObjectVertices(collision_vertices, 4, ZERO_VECTOR_2D, camera_world, OLIVE_GARDEN_GREEN_D);
     }
 }

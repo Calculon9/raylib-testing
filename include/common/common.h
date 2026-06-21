@@ -22,6 +22,7 @@ COMMON MODULE
 #include "collections/dynamic_array.h"
 #include "collections/linear_array.h"
 #include "associations/flat_map.h"
+#include <assert.h>
 
 // Check if DEBUG is defined (usually passed by your compiler/IDE)
 // ANSI Escape Codes for Colors (Works beautifully in modern terminals/cmd)

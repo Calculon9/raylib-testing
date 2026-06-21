@@ -1,29 +1,19 @@
 /**********************************************************************************************
 *
-CIRCLOID MODULE
+MEMORY MANAGEMENT MODULE
 *
 **********************************************************************************************/
-#ifndef CIRCLOID_H
-#define CIRCLOID_H
+#ifndef BITWISE_H
+#define BITWISE_H
 #include "common/common.h"
-#include "math/cvectors.h"
-#include "colour/colour.h"
-#include "physics/newton_object.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
-//#define NEW_CIRCLOID() AllocateBytes(sizeof(Circloid))
-//#define NEW_CIRCLOID() allocate_block(sizeof(Circloid))
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
-typedef struct {
-    NewtonObject2d newtonian_properties;
-    ColourRgba colourRgba;
-    float radius;
-} Circloid;
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
@@ -32,8 +22,8 @@ typedef struct {
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-Circloid CreateCircloid(float radius, ColourRgba colour, size_t mass, Vector2d position, Velocity2d velocity, Acceleration2d acceleration, Surface2d surface);
-LArray* GenerateCircloidSurfaceVectors (Circloid *circloid, int vertices);
-Circloid CreateCircloid_FromObject(NewtonObject2d newtOb, float radius, ColourRgba colour);
-//void Circloid_GetCollisionObjects(Circloid circ);
+
+int PackInts(int low, int high, int low_bits);
+int UnpackInts_Low(int packed_value, int low_bits);
+int UnpackInt_High(int packed_value, int low_bits);
 #endif

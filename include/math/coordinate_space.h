@@ -7,14 +7,13 @@ CIRCLOID MODULE
 #define COORDINATE_SPACE_H
 #include "common/common.h"
 #include "math/cvectors.h"
-#include "collections/dynamic_array.h"
-#include "physics/rectangloid.h"
+#include "colour/colour.h"
+#include "physics/newtonoid.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
 #define MAX_CELL_OCCUPANCY 12
-
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
@@ -22,8 +21,8 @@ CIRCLOID MODULE
 
 typedef struct Cell
 {
-    Vector2d coords_origin; // Top-left coordinates of the cell in world coordinates
-    Vector2d coords_center; // Midpoint coordinates in world/local coordinates
+    Vector2d coords_origin;             // Top-left coordinates of the cell in world coordinates
+    Vector2d coords_center;             // Midpoint coordinates in world/local coordinates
     int object_ids[MAX_CELL_OCCUPANCY]; // array of object ids that are currently occupying this cell (if any)
     int occupancy;
     float value; // value representing the properties of the field at this cell (e.g., occupied, empty, etc.)
@@ -39,10 +38,9 @@ typedef struct LineSegment2d
 typedef struct CoordSpace2d
 {
     Vector2d coords_origin;
-    // Vector2d coords_end;         // This can simply be calculated from the resolution
     Vector2d resolution_ixj;        // The dimensions of the coordinate space in terms of how many units it has in the i and j directions, which we can use to calculate the number of lines and cells needed to fill the space
     Basis2d basis;                  // basis vectors representing the direction and length of one step to the right and down respectively
-    DArray cells;            // the cells or field units within the coordinate space (in linear form) of field units
+    DArray cells;                   // the cells or field units within the coordinate space (in linear form) of field units
     float unitArea, stepsU, stepsV; // rows, columns; // number of rows and columns in the coordinate space
 } CoordSpace2d;
 
@@ -51,13 +49,11 @@ typedef struct CoordSpace2d_Grid
     CoordSpace2d coord_space;
     ColourRgba colour_fill;
     ColourRgba colour_line;
-    NewtonObject2d object;
-    //DynamicArray cells;            // the cells or field units within the coordinate space (in linear form) of field units
-    // DynamicArray lineSegments_u; // array of line segments representing the "horizontal" lines of the field (if applicable)
-    // DynamicArray lineSegments_v; // array of line segments representing the "vertical" lines of the field (if applicable)
+    Newtonoid2d object;
+    // DynamicArray cells;            // the cells or field units within the coordinate space (in linear form) of field units
+    //  DynamicArray lineSegments_u; // array of line segments representing the "horizontal" lines of the field (if applicable)
+    //  DynamicArray lineSegments_v; // array of line segments representing the "vertical" lines of the field (if applicable)
 } CoordSpace2d_Grid;
-
-
 
 // typedef struct WorldSpace {
 //     Vector2d position; // position of the cell in world coordinates
@@ -73,14 +69,14 @@ typedef struct CoordSpace2d_Grid
 //----------------------------------------------------------------------------------
 CoordSpace2d_Grid NewCoordSpace2d_Grid(Vector2d origin, Vector2d resolution_ixj, Basis2d basis, ColourRgba colour_fill, ColourRgba colour_line);
 CoordSpace2d NewCoordSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d basis);
-Cell* GetCellFromCoords(CoordSpace2d *space, Vector2d coords);
+Cell *GetCellFromCoords(CoordSpace2d *space, Vector2d coords);
 int GetIndexFromCoords(CoordSpace2d *space, Vector2d space_coords);
-LArray CalcSnappedAABB(Basis2d coord_space_basis, LArray object_surface_vertices, Vector2d object_offset);
+void CalcSnappedAABB_Vertices(Vector2d *object_surface_vertices, int object_surface_vertices_count, Vector2d object_offset, Basis2d coord_space_basis, Vector2d out_vertices[4]); // Returns the 4 vertices of the AABB of the object in world coordinates
 Matrix2x2 CalcSpaceExtents_2d(CoordSpace2d *space);
 Matrix2x2 CalcSpaceAABB(CoordSpace2d *space);
 bool VectorIsInSpace_2d(Vector2d vector, CoordSpace2d *space);
-//Matrix2x2 GetObjectFootprint_AsBox(Basis2d coord_space_basis, Surface2d object_surface);
-// CoordinateSpace2d CreateCoordinateSpace(Rectangloid object, int rows, int columns, ColourRgba lineColour);
+// Matrix2x2 GetObjectFootprint_AsBox(Basis2d coord_space_basis, Surface2d object_surface);
+//  CoordinateSpace2d CreateCoordinateSpace(Rectangloid object, int rows, int columns, ColourRgba lineColour);
 
 // Vector2d GetCellIndicesFromCoordinates(Vector2d input_coordinates, Basis2d basis);
 //  void UpdateUnitCellValues(CoordinateSpace2d *coordinate_space);

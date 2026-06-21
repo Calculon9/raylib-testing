@@ -5,7 +5,6 @@
  **********************************************************************************************/
 #include "common/common.h"
 #include "physics/polygonoid.h"
-#include "physics/newton_object.h"
 #include "math/geometry.h"
 
 //----------------------------------------------------------------------------------
@@ -23,7 +22,7 @@ Polygonoid CreatePolygonoid_Symmetric(int vertice_count, float radius, ColourRgb
    Surface2d surface = {0};
    LArray surface_vectors = CreateVertices_Symmetric(vertice_count, radius);
    surface.surface_vectors = surface_vectors;
-   NewtonObject2d newtOb = CreateNewtonObject2d(mass, coords_center, velocity, acceleration, surface);
+   Newtonoid2d newtOb = CreateNewtonoid2d(mass, coords_center, velocity, acceleration, surface);
 
    // Initialize the NewtonObject2d properties here (e.g., set position, velocity, etc.)
    newPol.newtonian_properties = newtOb;
@@ -39,7 +38,7 @@ Polygonoid CreatePolygonoid_Irregular(int vertice_count, float min_radius, float
    Surface2d surface = {0};
    LArray surface_vectors = CreateVertices_Irregular(vertice_count, min_radius, max_radius);
    surface.surface_vectors = surface_vectors;
-   NewtonObject2d newtOb = CreateNewtonObject2d(mass, coords_center, velocity, acceleration, surface);
+   Newtonoid2d newtOb = CreateNewtonoid2d(mass, coords_center, velocity, acceleration, surface);
 
    // Initialize the NewtonObject2d properties here (e.g., set position, velocity, etc.)
    newPol.newtonian_properties = newtOb;

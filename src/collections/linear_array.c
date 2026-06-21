@@ -192,6 +192,33 @@ bool LArray_RemoveAt(LArray *a, int index)
     return true;
 }
 
+bool LArray_SwapPopAt(LArray *a, int index)
+{
+    if (a == NULL)
+    {
+        fprintf(stderr, "The provided Linear Array is NULL. Cannot remove item.\n");
+        return false;
+    }
+    if (index < 0 || index >= a->count)
+    {
+        fprintf(stderr, "Index %d is out of bounds for Linear Array of count %d. Cannot remove item.\n", index, a->count);
+        return false;
+    }
+
+    // Calcuate the address of the item to remove
+    void *target = (char *)a->items + (index * a->elem_bytes);
+
+    // If it's not the last element, move the last element to where the removed element was
+    if (index < a->count - 1)
+    {
+        void *last_element = (char *)target + (a->count - 1) * a->elem_bytes;
+        memmove(target, last_element, a->elem_bytes);
+    }
+
+    a->count--;
+    return true;
+}
+
 // Dispose of the array and free its memory
 void DisposeLArray(LArray *a)
 {
@@ -267,6 +294,30 @@ bool LArray_ResizeAndReset(LArray *a, int new_capacity)
     // {
     //     a->count = new_capacity;
     // }
+
+    return true;
+}
+
+bool LArray_Reset(LArray *a)
+{
+    if (a == NULL || a->items == NULL)
+    {
+        fprintf(stderr, "The provided Linear Array is NULL. Cannot reset.\n");
+        return false;
+    }
+
+    size_t bytes = (size_t)a->capacity * a->elem_bytes;
+
+    if (bytes == 0)
+    {
+        fprintf(stderr, "The provided Linear Array has a capacity of %d and element size of %d. Cannot reset.\n", a->capacity, a->elem_bytes);
+        return false;
+    }
+
+    memset(a->items, 0, bytes);
+    
+    // Update the capacity tracking
+    a->count = 0;
 
     return true;
 }

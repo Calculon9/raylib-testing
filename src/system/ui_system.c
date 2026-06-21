@@ -11,6 +11,7 @@
 #include "ui/ui.h"
 #include "ui/text_region.h"
 #include "system/ui_system.h"
+#include "world/world.h"
 #include "system/systems.h"
 #include "system/utility_system.h"
 
@@ -424,25 +425,25 @@ void UpdateGlobalUIState()
     // ----DEBUG //
 
     // COLLECT & UPDATE SELECTED ENTITY PROPERTIES
-    Polygonoid *obj = G_WorldState.selected_object;
+    Newtonoid2d *obj = G_WorldState.selected_object;
     if (obj)
     {
-        int id = obj->newtonian_properties.id;
-        float mass = obj->newtonian_properties.mass;
-        Vector2d pos_tl = obj->newtonian_properties.coords_origin;
-        Vector2d pos_c = obj->newtonian_properties.coords_center;
-        Vector2d vel = obj->newtonian_properties.velocity;
-        Vector2d acc = obj->newtonian_properties.acceleration;
-        Vector2d mom = obj->newtonian_properties.momentum;
+        int id = obj->id;
+        float mass = obj->mass;
+        Vector2d pos_tl = obj->coords_origin;
+        Vector2d pos_c = obj->coords_center;
+        Vector2d vel = obj->velocity;
+        Vector2d acc = obj->acceleration;
+        Vector2d mom = obj->momentum;
 
         // Bind selected_object data to the Object Properties TextBoxes
-        G_UIState.lpanel_entity_state_id_tbox->data.textbox.data_bind = &obj->newtonian_properties.id;
-        G_UIState.lpanel_entity_state_mass_tbox->data.textbox.data_bind = &obj->newtonian_properties.mass;
-        G_UIState.lpanel_entity_state_pos_tl_tbox->data.textbox.data_bind = &obj->newtonian_properties.coords_origin;
-        G_UIState.lpanel_entity_state_pos_c_tbox->data.textbox.data_bind = &obj->newtonian_properties.coords_center;
-        G_UIState.lpanel_entity_state_vel_tbox->data.textbox.data_bind = &obj->newtonian_properties.velocity;
-        G_UIState.lpanel_entity_state_accel_tbox->data.textbox.data_bind = &obj->newtonian_properties.acceleration;
-        G_UIState.lpanel_entity_state_moment_tbox->data.textbox.data_bind = &obj->newtonian_properties.momentum;
+        G_UIState.lpanel_entity_state_id_tbox->data.textbox.data_bind = &obj->id;
+        G_UIState.lpanel_entity_state_mass_tbox->data.textbox.data_bind = &obj->mass;
+        G_UIState.lpanel_entity_state_pos_tl_tbox->data.textbox.data_bind = &obj->coords_origin;
+        G_UIState.lpanel_entity_state_pos_c_tbox->data.textbox.data_bind = &obj->coords_center;
+        G_UIState.lpanel_entity_state_vel_tbox->data.textbox.data_bind = &obj->velocity;
+        G_UIState.lpanel_entity_state_accel_tbox->data.textbox.data_bind = &obj->acceleration;
+        G_UIState.lpanel_entity_state_moment_tbox->data.textbox.data_bind = &obj->momentum;
 
         size_t str_64 = sizeof(String64);
 
@@ -485,7 +486,7 @@ void UpdateGlobalUIState()
     Cell *cell = G_WorldState.selected_cell;
     if (cell)
     {
-        int index = GetIndexFromCoords(&G_WorldState.world_coord_space->coord_space, cell->coords_center);
+        int index = GetIndexFromCoords(&G_WorldState.world->coord_space_grid.coord_space, cell->coords_center);
         int occu = cell->occupancy;
         float val = cell->value;
         float fill = 0; // set to 0 for now

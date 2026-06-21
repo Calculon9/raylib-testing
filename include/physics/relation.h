@@ -41,9 +41,9 @@ typedef struct LineSegment2d {
 
 typedef struct CoordinateSpace {
     Basis2d basis; // basis vectors representing the direction and length of one step to the right and down respectively
-    DynamicArray *lineSegments_u; // array of line segments representing the "horizontal" lines of the field (if applicable)
-    DynamicArray *lineSegments_v; // array of line segments representing the "vertical" lines of the field (if applicable)
-    DynamicArray *cells; // the cells or field units within the coordinate space (in linear form) of field units
+    // DynamicArray *lineSegments_u; // array of line segments representing the "horizontal" lines of the field (if applicable)
+    // DynamicArray *lineSegments_v; // array of line segments representing the "vertical" lines of the field (if applicable)
+    // DynamicArray *cells; // the cells or field units within the coordinate space (in linear form) of field units
     float rows, columns; // number of rows and columns in the coordinate space
 } CoordinateSpace;
 

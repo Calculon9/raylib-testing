@@ -3,8 +3,8 @@
 QUEUE MODULE
 *
 **********************************************************************************************/
-#ifndef FLAT_MAP_H
-#define FLAT_MAP_H
+#ifndef EVENTS_H
+#define EVENTS_H
 #include <stddef.h>
 
 //----------------------------------------------------------------------------------
@@ -16,21 +16,28 @@ QUEUE MODULE
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
 
-// Individual slot node
-typedef struct FlatMapIntEntry
-{
-    int key;       // Native integer ID key
-    int value;     // Associated integer value
-    bool occupied; // Slot state tracker
-} FlatMapIntEntry;
+// Function signature type
+typedef void (*Action)(void);
+typedef void (*Func)(void *data_context);
 
-// Master Hash Map structure
-typedef struct FlatMapInt
+typedef struct
 {
-    FlatMapIntEntry *slots; // An array of pointers to HashEntries
-    int capacity;           // Total number of slots/buckets
-    int count;              // Number of active items currently stored
-} FlatMapInt;
+    Action function;     // The function to execute
+    int interval_frames; // How often to run it (e.g., 60 for once per 60 frames)
+    int run_count;       // Counts down or up to track the elapsed frames
+    int run_limit;
+    bool active; // Can toggle this schedule on or off
+} ScheduledAction;
+
+typedef struct
+{
+    Func function;       // The function to execute
+    void *data_context;  // The payload / input argument data
+    int interval_frames; // How often to run it (e.g., 60 for once per 60 frames)
+    int run_count;       // Counts down or up to track the elapsed frames
+    int run_limit;
+    bool active; // Can toggle this schedule on or off
+} ScheduledFunc;
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
@@ -39,16 +46,9 @@ typedef struct FlatMapInt
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-FlatMapInt *AllocFlatMapInt(int capacity);
-bool FlatMapInt_InsertOrUpdate(FlatMapInt *m, int key, int value);
-FlatMapInt MakeFlatMapInt(int capacity);
-bool FlatMapInt_GetValue(FlatMapInt *m, int key, int *out_value);
-bool FlatMapInt_GetKey(FlatMapInt *m, int value, int *out_key);
-bool FlatMapInt_DeactivateSlot(FlatMapInt *m, int key);
-void DisposeFlatMapInt(FlatMapInt *m);
-void ClearFlatMapInt(FlatMapInt *m);
-void ResetFlatMapInt(FlatMapInt *m);
-// void* Enumerate(DynamicArray *da);
-// void* ResetEnumerator(DynamicArray *da);
+ScheduledFunc CreateScheduledFunc(Func func, int interval, int run_limit);
+ScheduledAction CreateScheduledAction(Action func, int interval, int run_limit);
+void UpdateScheduledFunc(ScheduledFunc *task);
+void UpdateScheduledAction(ScheduledAction *task);
 
 #endif

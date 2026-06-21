@@ -8,7 +8,7 @@ CIRCLOID MODULE
 #include "common/common.h"
 #include "math/cvectors.h"
 #include "colour/colour.h"
-#include "physics/newton_object.h"
+#include "physics/newtonoid.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
@@ -20,7 +20,7 @@ CIRCLOID MODULE
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
 typedef struct Polygonoid {
-    NewtonObject2d newtonian_properties;
+    Newtonoid2d newtonian_properties;
     ColourRgba colourRgba;
     float radius;
 } Polygonoid;

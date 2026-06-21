@@ -8,6 +8,7 @@ WORLD MODULE
 #include "common/common.h"
 #include "math/cvectors.h"
 #include "camera/camera.h"
+#include "system/systems.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
@@ -57,6 +58,6 @@ extern Vector2d world_to_local_scale;
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-
+//void *GetEntityByID(WorldState *context, int entity_id);
 //UIElement *CreateTextField(float width, float height, Vector2d origin_coords, Vector2d parent_offset, Vector2d label_tbox_offset, Vector2d label_tbox_padding, char max_label_chars, char max_text_box_chars);
 #endif

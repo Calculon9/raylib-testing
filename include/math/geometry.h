@@ -48,8 +48,8 @@ typedef enum {
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 Surface2d CreateSurface_Rectangular(Vector2d dimensions, Vector2d vertice_offset);
-Matrix2x2 CalcAABBCoords_Tight(LArray *vertices, Vector2d vertice_offset);
-Vector2d CalcAABBDimensions(LArray *vertices);
+Matrix2x2 CalcAABBCoords_Tight(Vector2d *vertices, int vertice_count, Vector2d vertice_offset);
+Vector2d CalcAABBDimensions(Vector2d *vertices, int vertice_count);
 Vector2d CalcCenteredBoxOffset(Vector2d box_a_dimensions, Vector2d box_b_dimensions);
 Vector2d CalcGeometricCentre_FromBox(Matrix2x2 box_coords);
 Vector2d CalcGeometricCentre_FromSurface(Surface2d object_surface, Vector2d vertice_offset);

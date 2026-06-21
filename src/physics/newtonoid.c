@@ -5,7 +5,7 @@
  **********************************************************************************************/
 
 #include "common/common.h"
-#include "physics/newton_object.h"
+#include "physics/newtonoid.h"
 #include "math/cvectors.h"
 
 //----------------------------------------------------------------------------------
@@ -17,19 +17,20 @@
 //----------------------------------------------------------------------------------
 float CalculateInertia_Polygon(float mass, LArray *surface_vectors);
 
-NewtonObject2d CreateNewtonObject2d(float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration, Surface2d surface)
+Newtonoid2d CreateNewtonoid2d(float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration, Surface2d surface)
 {
-   NewtonObject2d newtOb = {0};
+   Newtonoid2d newtOb = {0};
    newtOb.coords_center = coords_center;
    newtOb.mass = mass;
    newtOb.inverse_mass = 1.0f / mass;
    newtOb.velocity = velocity;
    newtOb.acceleration = acceleration;
    newtOb.surface = surface;
-   newtOb.boxed_dimensions = CalcAABBDimensions(&surface.surface_vectors);
+   newtOb.boxed_dimensions = CalcAABBDimensions(surface.surface_vectors.items, surface.surface_vectors.count);
    newtOb.coords_origin = (Vector2d){newtOb.coords_center.x - (newtOb.boxed_dimensions.x / 2.0), newtOb.coords_center.y - (newtOb.boxed_dimensions.y / 2.0)};
    newtOb.radius = (newtOb.boxed_dimensions.x > newtOb.boxed_dimensions.y) ? newtOb.boxed_dimensions.x : newtOb.boxed_dimensions.y;
-
+   newtOb.line_colour = COLOUR_LINE_DEFAULT;
+   newtOb.fill_colour = COLOUR_FILL_DEFAULT;
    newtOb.inertia = CalculateInertia_Polygon(mass, &surface.surface_vectors);
    newtOb.inverse_inertia = (newtOb.inertia != 0.0f) ? (1.0f / newtOb.inertia) : 0.0f;
 
@@ -43,6 +44,10 @@ NewtonObject2d CreateNewtonObject2d(float mass, Vector2d coords_center, Vector2d
    newtOb.local_axis_x = (Vector2d){1.0f, 0.0f}; // Initial local x axis pointing "forward" along the x-axis
    newtOb.local_axis_y = (Vector2d){0.0f, 0.0f}; // Initial local y axis, n pointing "forward" along the y-axis
 
+   // Set default flags
+   newtOb.entity_layer = FLAG_TYPE_NEWTONOID;
+   newtOb.collision_mask = FLAG_TYPE_WALL | FLAG_TYPE_NEWTONOID;
+   newtOb.flags = FLAG_ATTR_RIGID | FLAG_STATUS_ALIVE;
    // printf("CREATED OBJECT BOX: Top-Left (%.2f, %.2f) Bottom-Right (%.2f, %.2f)\n",
    //        newtOb.coords_origin.x,
    //        newtOb.coords_origin.y,
@@ -52,39 +57,74 @@ NewtonObject2d CreateNewtonObject2d(float mass, Vector2d coords_center, Vector2d
 }
 
 // Creates an immobile, massless NewtonObject at the assigned world_position
-NewtonObject2d CreateNewtonObject2d_Static(Vector2d coords_center, Surface2d surface)
+Newtonoid2d CreateNewtonoid2d_Static(Vector2d coords_center, Surface2d surface)
 {
-   NewtonObject2d newtOb = {0};
+   Newtonoid2d newtOb = {0};
    // Initialize the NewtonObject2d properties here (e.g., set world_position, velocity, etc.)
    newtOb.mass = 0.0;
    newtOb.inverse_mass = 0.0;
-   newtOb.boxed_dimensions = CalcAABBDimensions(&surface.surface_vectors);
+   newtOb.boxed_dimensions = CalcAABBDimensions(surface.surface_vectors.items, surface.surface_vectors.count);
    newtOb.coords_center = coords_center;
    newtOb.surface = surface;
    newtOb.coords_origin = (Vector2d){newtOb.coords_center.x - (newtOb.boxed_dimensions.x / 2.0), newtOb.coords_center.y - (newtOb.boxed_dimensions.y / 2.0)};
    newtOb.radius = (newtOb.boxed_dimensions.x > newtOb.boxed_dimensions.y) ? newtOb.boxed_dimensions.x : newtOb.boxed_dimensions.y;
-
+   newtOb.line_colour = COLOUR_LINE_DEFAULT;
+   newtOb.fill_colour = COLOUR_FILL_DEFAULT;
    newtOb.inertia = 0.0f; // Infinite inertia for static objects
    newtOb.inverse_inertia = 0.0f;
 
    newtOb.torque = 0.0f;           // Initialize torque accumulator to zero
    newtOb.rotation = 0.0f;         // Initial rotation angle in radians
    newtOb.angular_velocity = 0.0f; // Initial angular velocity
+
+   // Set default flags
+   newtOb.entity_layer = FLAG_TYPE_NEWTONOID;
+   newtOb.collision_mask = FLAG_TYPE_WALL | FLAG_TYPE_NEWTONOID;
+   newtOb.flags = FLAG_ATTR_RIGID | FLAG_STATUS_ALIVE;
    return newtOb;
 }
 
-void CalcVectors(NewtonObject2d *object, float deltaTime)
+Newtonoid2d CreateNewtonoid2d_Symmetric(int vertice_count, float radius, ColourRgba colour, float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration)
 {
-   // 1. Dynamic Mass/Inertia Safety Pass 
+   Surface2d surface = {0};
+   LArray surface_vectors = CreateVertices_Symmetric(vertice_count, radius);
+   surface.surface_vectors = surface_vectors;
+   Newtonoid2d newtOb = CreateNewtonoid2d(mass, coords_center, velocity, acceleration, surface);
+
+   // Initialize the NewtonObject2d properties here (e.g., set position, velocity, etc.)
+   newtOb.radius = radius;
+   newtOb.line_colour = colour;
+   newtOb.fill_colour = colour;
+
+   return newtOb;
+}
+
+Newtonoid2d CreateNewtonoid2d_Irregular(int vertice_count, float min_radius, float max_radius, ColourRgba colour, float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration)
+{
+   Surface2d surface = {0};
+   LArray surface_vectors = CreateVertices_Irregular(vertice_count, min_radius, max_radius);
+   surface.surface_vectors = surface_vectors;
+   Newtonoid2d newtOb = CreateNewtonoid2d(mass, coords_center, velocity, acceleration, surface);
+
+   // Initialize the NewtonObject2d properties here (e.g., set position, velocity, etc.)
+   newtOb.line_colour = colour;
+   newtOb.fill_colour = colour;
+   newtOb.radius = max_radius;
+
+   return newtOb;
+}
+
+void CalcVectors(Newtonoid2d *object, float deltaTime)
+{
+   // 1. Dynamic Mass/Inertia Safety Pass
    // Recalc inverses up front in case gameplay code mutated mass or bounds this frame
    if (object->mass != 0.0f)
    {
       object->inverse_mass = 1.0f / object->mass;
-      
-      // If mass changed, re-evaluate box inertia baseline 
+
+      // If mass changed, re-evaluate box inertia baseline
       // I = (1/12) * m * (w^2 + h^2)
-      object->inertia = (1.0f / 12.0f) * object->mass * (object->boxed_dimensions.x * object->boxed_dimensions.x + 
-                         object->boxed_dimensions.y * object->boxed_dimensions.y);
+      object->inertia = (1.0f / 12.0f) * object->mass * (object->boxed_dimensions.x * object->boxed_dimensions.x + object->boxed_dimensions.y * object->boxed_dimensions.y);
       object->inverse_inertia = 1.0f / object->inertia;
    }
    else
@@ -106,7 +146,7 @@ void CalcVectors(NewtonObject2d *object, float deltaTime)
    // Update linear velocity and state vectors for next frame
    object->velocity.x += object->acceleration.x * deltaTime;
    object->velocity.y += object->acceleration.y * deltaTime;
-   
+
    object->momentum.x = object->mass * object->velocity.x;
    object->momentum.y = object->mass * object->velocity.y;
 
@@ -121,7 +161,7 @@ void CalcVectors(NewtonObject2d *object, float deltaTime)
    object->local_axis_x.x = cosf(object->rotation);
    object->local_axis_x.y = sinf(object->rotation);
    object->local_axis_y.x = -object->local_axis_x.y;
-   object->local_axis_y.y =  object->local_axis_x.x;
+   object->local_axis_y.y = object->local_axis_x.x;
 
    // Reset accumulation registers for forces/forces of rotation
    object->torque = 0.0f;
@@ -169,6 +209,7 @@ Vector2d RotateVertex(Vector2d local_vertex, Vector2d local_axis)
    rotated.y = local_vertex.x * local_axis.y + local_vertex.y * local_axis.x;
    return rotated;
 }
+
 // Vector2d CalculateCenterRelativeToOrigin_Fast(NewtonObject2d *object)
 // {
 //    // Update velocity based on acceleration and time

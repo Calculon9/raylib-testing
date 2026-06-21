@@ -11,9 +11,7 @@ SYSTEMS MODULE
 #include "camera/camera.h"
 #include "raylib.h"
 #include "system/utility_system.h"
-#include "physics/polygonoid.h"
-#include "world/world.h"
-//#include "ui/ui.h"
+// #include "ui/ui.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
@@ -52,7 +50,7 @@ typedef enum
 } DatatType;
 
 typedef struct UIElement UIElement;
-
+typedef struct World2d World2d;
 typedef struct
 {
     // OBJECT PROPERTIES UI
@@ -87,10 +85,12 @@ typedef struct
 
 typedef struct
 {
-    CoordSpace2d_Grid *world_coord_space;
+    Newtonoid2d *selected_object;
+    // CoordSpace2d_Grid *world_coord_space;
     Cell *selected_cell;
-    Polygonoid *selected_object;
-
+    World2d *world;
+    FlatMapInt *entity_world_index_registry;
+    LArray *collisions;
 } WorldState;
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
@@ -115,7 +115,7 @@ FrameCounter InitFrameCounter();
 void UpdateUtilities();
 void UpdateFrameCounter(FrameCounter *fc);
 size_t GetCurrentMemoryAllocated();
-
+void *GetEntityByID(WorldState *context, int entity_id);
 //----------------------------------------------------------------------------------
 // UI Functions Declaration
 //----------------------------------------------------------------------------------
@@ -139,6 +139,6 @@ void DrawWorldRegion(World2d *world, Camera2d *world_camera);
 //----------------------------------------------------------------------------------
 bool PipelineTextToVector(char *input_buffer, Vector2d *target_vector);
 bool PipelineTextToFloat(char *input_buffer, float *target_float);
-void PipelineVectorToText(Vector2d input_vector, char *target_buffer, size_t target_buffer_bytes);//, NewtonProperty object_property);
-void PipelineNumberToText(float input_float, int precision, char *target_buffer, size_t target_buffer_bytes);//, NewtonProperty object_property);
+void PipelineVectorToText(Vector2d input_vector, char *target_buffer, size_t target_buffer_bytes);            //, NewtonProperty object_property);
+void PipelineNumberToText(float input_float, int precision, char *target_buffer, size_t target_buffer_bytes); //, NewtonProperty object_property);
 #endif

@@ -6,24 +6,80 @@ WORLD MODULE
 #ifndef WORLD_H
 #define WORLD_H
 #include "common/common.h"
-#include "physics/polygonoid.h"
+#include "physics/physics.h"
 #include "math/coordinate_space.h"
+#include "events/events.h"
+#include "system/systems.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
+#define PACKED_INT_LOW_BITS 26
+#define PACKED_INT_HIGH_BITS 6
 
+#define PACK_INTS(low, high) \
+    (((high) & ((1 << PACKED_INT_HIGH_BITS) - 1)) << PACKED_INT_LOW_BITS) | ((low) & ((1 << PACKED_INT_LOW_BITS) - 1))
+
+#define UNPACK_INT_LOW(packed) \
+    ((packed) & ((1 << PACKED_INT_LOW_BITS) - 1))
+
+#define UNPACK_INT_HIGH(packed) \
+    (((packed) >> PACKED_INT_LOW_BITS) & ((1 << PACKED_INT_HIGH_BITS) - 1))
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
+typedef enum
+{
+    CMD_CLEAR_OBJECT_FLAG,
+    CMD_SET_OBJECT_FLAG,
+    CMD_DELETE_OBJECT,
+} WorldCmdType;
+
+typedef enum
+{
+    ARCHETYPE_INHABITANT = 0,
+    ARCHETYPE_CLOCKED = 1
+} ArchetypeID;
+
 typedef struct World2d
 {
     CoordSpace2d_Grid coord_space_grid; // The coordinate space of the world, containing the basis vectors and line segments for drawing the world (if applicable)
     LArray objects;
+    LArray temp_objects;
     LArray collisions;
     float gravity;
     int next_object_id; // Global variable to keep track of the next available ID for NewtonObjects
 } World2d;
+
+typedef struct
+{
+    WorldCmdType type;
+    int target_id;
+    int payload_value;   // Reuse this slot for flags, statuses, etc.
+    int interval_frames; // How often to run it (e.g., 60 for once per 60 frames)
+    int run_count;       // Counts down or up to track the elapsed frames
+    int run_limit;
+    int frame_count;
+    int initial_frame_delay;
+    bool active; // Can toggle this schedule on or off
+} WorldCommand;
+
+typedef struct
+{
+    int type_flag; // Which array is it in?
+    int index;     // What slot is it in inside that array?
+} EntityLocation;
+
+// typedef struct WorldContext
+// {
+//     FlatMapInt *entity_world_index_registry;
+//     LArray *inhabitant_objects;
+//     LArray *temp_objects;
+//     LArray *collisions;
+//     CoordSpace2d_Grid *space_entity;
+//     World2d *world;
+//     Vector2d world_origin;
+// } WorldContext;
 
 typedef struct AxisIntersectionRange2d
 {
@@ -33,15 +89,16 @@ typedef struct AxisIntersectionRange2d
 
 typedef struct CollisionResult_SAT
 {
-    Polar2d u_unit_axis;                     // normalized vector representing one of the potential separating axes (the "u" axis of entity A)
-    Polar2d v_unit_axis;                     // normalized vector representing one of the potential separating axes (the "v" axis of entity A)
-    Polar2d separating_unit_axis;            // either u_unit_axis or v_unit_axis, depending on which has the least penetration (smallest overlap distance)
-    Matrix2x2 collision_box;                 // The collision box of the two objects
-    float penetration_depth;                 // How much the objects are overlapping along the separating_unit_axis (the smaller this value, the less deep the collision is, and the easier it will be to resolve)
-    AxisIntersectionRange2d overlap_range_a; // The range along the separating axis where the vertices of object A are located (the "shadow" of object A on the separating axis)
-    AxisIntersectionRange2d overlap_range_b; // The range along the separating axis where the vertices of object B are located (the "shadow" of object B on the separating axis)
-    NewtonObject2d *entity_a;
-    NewtonObject2d *entity_b;
+    Polar2d u_unit_axis;          // normalized vector representing one of the potential separating axes (the "u" axis of entity A)
+    Polar2d v_unit_axis;          // normalized vector representing one of the potential separating axes (the "v" axis of entity A)
+    Polar2d separating_unit_axis; // either u_unit_axis or v_unit_axis, depending on which has the least penetration (smallest overlap distance)
+    Matrix2x2 collision_box;      // The collision box of the two objects
+    float penetration_depth;      // How much the objects are overlapping along the separating_unit_axis (the smaller this value, the less deep the collision is, and the easier it will be to resolve)
+    // AxisIntersectionRange2d overlap_range_a; // The range along the separating axis where the vertices of object A are located (the "shadow" of object A on the separating axis)
+    // AxisIntersectionRange2d overlap_range_b; // The range along the separating axis where the vertices of object B are located (the "shadow" of object B on the separating axis)
+    Newtonoid2d *entity_a;
+    Newtonoid2d *entity_b;
+    Newtonoid2d *penetrating_entity; // The entity that is actually penetrating the other
     bool is_colliding;
 } CollisionResult_SAT;
 
@@ -53,9 +110,9 @@ extern World2d world_1;
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-World2d CreateWorld(CoordSpace2d_Grid space, float gravity);
-void UpdateWorld(World2d *world, float delta_time);
-void AddObjectToWorld(World2d *world, Polygonoid *object, int parent_id);
+void CreateWorld(CoordSpace2d_Grid space_obj, float gravity, World2d *out_world);
+void UpdateWorld(WorldState *context, float delta_time);
+void AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id);
 // Vector2d GetCellIndicesFromCoordinates(Vector2d origin_coordinates, Vector2d input_coordinates, Basis2d basis);
 // Field UpdateFieldCellValues(Field field);
 

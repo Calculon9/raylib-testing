@@ -5,10 +5,8 @@
  **********************************************************************************************/
 #include "common/common.h"
 #include "world/world.h"
-#include "system/systems.h"
-#include "physics/rectangloid.h"
-#include "physics/field.h"
-#include "physics/polygonoid.h"
+#include "events/events.h"
+#include "physics/physics.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -17,138 +15,198 @@
 // Physical state variables
 static int next_id = 1;      // Global variable to keep track of the next available ID for NewtonObjects
 static float gravity = 9.8f; // Gravitational acceleration (m/s^2)
-// static float field = {0};
+static int initObjectCount = 4;
+static FlatMapInt entity_space_map = {0};
+static FlatMapInt resolved_collisions = {0};
+static LArray scheduled_world_cmds = {0}; // List of scheduled updates to be applied to the world
+static FlatMapInt entity_world_index_registry = {0};
+// static WorldState world_context = {0};
 
 //----------------------------------------------------------------------------------
 // Functions Definition
 //----------------------------------------------------------------------------------
-bool CheckForCollision(NewtonObject2d a, NewtonObject2d b);
-CollisionResult_SAT CheckForCollision_SAT(NewtonObject2d *a, NewtonObject2d *b);
-Matrix2x2 CalcProjectedPoints_SAT(LArray vertices_arr, Vector2d vertice_offset, Vector2d u_unit_axis, Vector2d v_unit_axis);
-AxisIntersectionRange2d GetAxisCollisionRange(float min_a, float max_a, float min_b, float max_b, Vector2d unit_axis);
-void ResolveCollision(NewtonObject2d *a, NewtonObject2d *b);
-// void ResolveCollision_SAT(NewtonObject2d *a, NewtonObject2d *b);
-void ResolveCollision_ContainerRect(NewtonObject2d *entity, NewtonObject2d *container);
-// void ResolvePenetration(NewtonObject2d *a, NewtonObject2d *b);
-// void ResolveVelocity(NewtonObject2d *a, NewtonObject2d *b);
-void MapEntityToASpace(CoordSpace2d *space, NewtonObject2d *object, Matrix2x2 snapped_aabb_box, FlatMapInt *O_entity_to_space_index_map);
+bool CheckForCollision_AABB(Newtonoid2d a, Newtonoid2d b);
+CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b);
+void ResolveCollision(Newtonoid2d *a, Newtonoid2d *b);
+void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container);
+void MapEntityToASpace(CoordSpace2d *space, Newtonoid2d *object, Matrix2x2 snapped_aabb_box, FlatMapInt *O_entity_to_space_index_map);
 void PrintVerticeCoords(LArray *vertices_arr, Vector2d offset);
-// void UpdateWorldState(Collection *objects, CoordSpace2d *space, float delta_time);
-//  void UpdateObjectVectors(Collection *objects, float delta_time);
+void UpdateEntityWorldRegistry(FlatMapInt *entity_world_index_registry, int entity_id, int type_flag, int entity_arr_index);
+void SetObjectFlag(WorldState *context, int object_id, int flag_to_update);
+void ClearObjectFlag(WorldState *context, int object_id, int flag_to_update);
+void ScheduleEntityFlagSet(LArray *scheduled_events, int object_id, int flag_to_set, int initial_frame_delay, int interval_frames, int run_limit);
+void RegisterEntity(WorldState *context, Newtonoid2d *entity);
+void DeregisterEntity(WorldState *context, int object_id);
+void ScheduleEntityFlagClear(LArray *scheduled_events, int object_id, int flag_to_set, int initial_frame_delay, int interval_frames, int run_limit);
+void RunScheduledWorldCmds(LArray *scheduled_cmds, WorldState *context);
+void StickEntity(WorldState *context, Newtonoid2d *child, Newtonoid2d *parent);
+// void AddScheduledWorldUpdate(LArray *scheduled_events, Func func_to_run, void *new_func_data);
+// void RunScheduledWorldUpdates(LArray scheduled_events);
+// Vector2d ResolveEntityWorldCoords(Newtonoid2d *a, WorldState context);
 
-World2d CreateWorld(CoordSpace2d_Grid space_obj, float gravity)
+void CreateWorld(CoordSpace2d_Grid space_obj, float gravity, World2d *out_world)
 {
-   World2d world = {0};
-   world.coord_space_grid = space_obj;
-   // world.objects = objects;
-   world.gravity = gravity;
-   world.next_object_id = 1; // Initialize the next available ID for NewtonObjects
+   // World2d world = {0};
+   out_world->coord_space_grid = space_obj;
+   out_world->gravity = gravity;
+   out_world->next_object_id = 1; // Initialize the next available ID for NewtonObjects
+   out_world->objects = MakeLArray(initObjectCount, sizeof(Newtonoid2d));
+   out_world->collisions = MakeLArray(initObjectCount, sizeof(Matrix2x2));
+   out_world->temp_objects = MakeLArray(initObjectCount, sizeof(Newtonoid2d));
 
-   return world;
+   // INTIT STATE
+   entity_space_map = MakeFlatMapInt(1 + (int)(space_obj.coord_space.cells.count / 5)); // Start with a smaller capacity than the number of cells since we won't have an object in every cell, but we can resize if needed
+   // Track object-object collisions that have been resolved
+   resolved_collisions = MakeFlatMapInt(1 + (int)(entity_space_map.count / 2)); // Start with a smaller capacity than the entity_space_map since we won't have a collision for every cell that has an object in it, but we can resize if needed
+   entity_world_index_registry = MakeFlatMapInt(1 + (int)(entity_space_map.count / 2));
+   scheduled_world_cmds = MakeLArray(initObjectCount, sizeof(WorldCommand));
+   G_WorldState.entity_world_index_registry = &entity_world_index_registry;
+   G_WorldState.collisions = &out_world->collisions;
+   G_WorldState.world = out_world;
+   // return world;
 }
 
-void AddObjectToWorld(World2d *world, Polygonoid *object, int parent_id)
+void AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id)
 {
    // We can calculate the cell indices based on the object's coordinates and the coordinate space's basis vectors and resolution
    // For simplicity, let's assume the object's coords_center is the point we will use to determine which cell it occupies
-   Vector2d local_coords = object->newtonian_properties.coords_center; // These are the world coordinates of the object, which are the cell indices
-   object->newtonian_properties.parent_id = parent_id;
+   Vector2d local_coords = object->coords_center; // These are the world coordinates of the object, which are the cell indices
+   object->parent_id = parent_id;
    if (local_coords.x < 0 || local_coords.y < 0 || local_coords.x >= world->coord_space_grid.coord_space.resolution_ixj.x || local_coords.y >= world->coord_space_grid.coord_space.resolution_ixj.y)
    {
-      printf("WARNING: Desired spawn point (%0.2f,%0.2f) out of bounds. Cannot add entity to the world.\n", local_coords.x, local_coords.y);
+      LOG_WARN("Desired spawn point (%0.2f,%0.2f) out of bounds. Cannot add entity to the world.\n", local_coords.x, local_coords.y);
       return; // Click is outside the structural world viewport boundaries! Avoid resolving cell.
    }
 
-   int cell_index = ((int)local_coords.y * (int)world->coord_space_grid.coord_space.resolution_ixj.x) + (int)local_coords.x;
-   // Add the object's ID to the cell's object_ids array if there is space, and update the object's footprint based on its surface and the coordinate space's basis vectors.
-   // We also need to update the occupancy of the cell and ensure that we don't exceed the maximum
-   Cell *cells = world->coord_space_grid.coord_space.cells.items;
-   Cell *target_cell = &cells[cell_index];
-   if (target_cell->occupancy < MAX_CELL_OCCUPANCY)
-   {
-      object->newtonian_properties.id = world->next_object_id++;
-      target_cell->object_ids[target_cell->occupancy] = object->newtonian_properties.id;
-      target_cell->occupancy++;
-      // object->newtonian_properties.footprint = CalcSnappedAABB(world->coord_space_grid.coord_space.basis, object->newtonian_properties.surface, ZERO_VECTOR_2D);
-   }
-   else
-   {
-      printf("WARNING: Cell %d full. ID %d not tracked spatially.\n", cell_index, object->newtonian_properties.id);
-      return;
-   }
-
    // Add the newton_object to the world's objects array
-   LArray_Push(&world->objects, object);
+   RegisterEntity(&G_WorldState, object);
 
-   printf("CREATED OBJECT (ID %d): Cell %d : Center(%.1f, %.1f)\n", object->newtonian_properties.id, cell_index, local_coords.x, local_coords.y);
+   // Solid objects are collision-enabled, need to be tracked spacially
+   int cell_index = -1;
+   if (!(object->entity_layer & FLAG_TYPE_EFFECT))
+   {
+      cell_index = ((int)local_coords.y * (int)world->coord_space_grid.coord_space.resolution_ixj.x) + (int)local_coords.x;
+      // Add the object's ID to the cell's object_ids array if there is space, and update the object's footprint based on its surface and the coordinate space's basis vectors.
+      // We also need to update the occupancy of the cell and ensure that we don't exceed the maximum
+      Cell *cells = world->coord_space_grid.coord_space.cells.items;
+      Cell *target_cell = &cells[cell_index];
+      if (target_cell->occupancy < MAX_CELL_OCCUPANCY)
+      {
+         target_cell->object_ids[target_cell->occupancy] = object->id;
+         target_cell->occupancy++;
+         // object->newtonian_properties.footprint = CalcSnappedAABB(world->coord_space_grid.coord_space.basis, object->newtonian_properties.surface, ZERO_VECTOR_2D);
+      }
+      else
+      {
+         LOG_WARN("Cell %d full. ID %d not tracked spatially.\n", cell_index, object->id);
+         return;
+      }
+   }
+
+   // object->id = world->next_object_id++;
+   // LArray_Push(&world->objects, object);
+
+   LOG_INFO("CREATED OBJECT (ID %d): Cell %d : Center(%.1f, %.1f)\n", object->id, cell_index, local_coords.x, local_coords.y);
 }
 
-void UpdateWorld(World2d *world, float delta_time)
+void UpdateWorld(WorldState *context, float delta_time)
 {
    // PrintCurrentBytesAlloc();
-   int obj_count = world->objects.count;
-
+   LArray *objects = &context->world->objects;
+   int obj_count = objects->count;
    if (obj_count < 1)
       return;
+   CoordSpace2d_Grid *space_entity = &context->world->coord_space_grid;
+   CoordSpace2d *space = &space_entity->coord_space;
+
+   // RESET TRACKING-STATE - Zero out
+   Vector2d *collisions = context->collisions->items;
+   LArray_Reset(context->collisions);
+   ResetFlatMapInt(&entity_space_map);
+   ResetFlatMapInt(&resolved_collisions);
 
    // Zero out the occupancy and object_ids of all cells in the grid before we update them based on the new positions of the objects
-   Vector2d *collisions = world->collisions.items;
-   LArray_ResizeAndReset(&world->collisions, world->objects.count + 1);
-
-   // Zero out the occupancy and object_ids of all cells in the grid before we update them based on the new positions of the objects
-   Cell *cells = world->coord_space_grid.coord_space.cells.items;
-   int cell_count = world->coord_space_grid.coord_space.cells.count;
+   Cell *cells = space_entity->coord_space.cells.items;
+   int cell_count = space->cells.count;
    for (size_t i = 0; i < cell_count; i++)
    {
       Cell *target_cell = &cells[i];
       target_cell->occupancy = 0;
       memset(&cells[i].object_ids, 0, sizeof(cells[i].object_ids));
    }
-   // PrintCurrentBytesAlloc();
-   Polygonoid *polygonoids = (Polygonoid *)world->objects.items;
-   Matrix2x2 min_coord_space = {0};
-   int starting_flatmap_capacity = 1 + (int)(cell_count / 4); // Start with a smaller capacity than the number of cells since we won't have an object in every cell, but we can resize if needed
-   FlatMapInt entity_space_map = MakeFlatMapInt(starting_flatmap_capacity);
 
+   // RUN SCHEDULED WORLD EVENTS
+   //RunScheduledWorldCmds(&scheduled_world_cmds, context);
+
+   Newtonoid2d *newtonoids = (Newtonoid2d *)objects->items;
+   Matrix2x2 space_aabb = CalcSpaceAABB(space);
+   // PASS 1: Simulating Independent Physics
    // Update object positions based on their velocity and acceleration, then update the cells they occupy in the coordinate space grid as well as the entity_space_map which tracks how many objects occupy each cell (for collision checking later)
    for (size_t i = 0; i < obj_count; i++)
    {
-      NewtonObject2d *obj = &polygonoids[i].newtonian_properties;
-      Matrix2x2 obj_aabb = CalcAABBCoords_Tight(&obj->surface.surface_vectors, obj->coords_center);
-      Matrix2x2 space_aabb = CalcSpaceAABB(&world->coord_space_grid.coord_space);
-      bool is_bounded = BoxFitsWithinBox(obj_aabb, space_aabb);
+      Newtonoid2d *obj = &newtonoids[i];
 
-      // RESOLVE ENTITY-CONTAINER COLLISIONS
-      if (obj->parent_id == world->coord_space_grid.object.id)
+      // Skip dead objects, non-spacially tracked objects or objects that have a parent object (other than the world itself, which is ID = 0)
+      if (!(obj->flags & FLAG_STATUS_ALIVE) || (obj->entity_layer & FLAG_TYPE_EFFECT) || obj->parent_id != space_entity->object.id)
+         continue;
+
+      // OBJECT IS IN THE CONTAINER: RESOLVE ENTITY-CONTAINER COLLISIONS - Entity lives in the world - make sure it doesn't leave
+      if (obj->parent_id == space_entity->object.id)
       {
-
          // Need assign an area of effect for the object based on its radius and update the occupancy of all cells that fall within that area, not just the cell that contains the object's origin coordinates,
          // otherwise we won't detect collisions until the objects are already overlapping significantly, which can cause tunneling issues where fast moving objects pass through each other without detecting a collision.
          // For simplicity, use a square area of effect based on AABB
-         LArray snapped_aabb_verts = CalcSnappedAABB(world->coord_space_grid.coord_space.basis, obj->surface.surface_vectors, obj->coords_center);
-         Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(&snapped_aabb_verts, ZERO_VECTOR_2D);
+         Vector2d snapped_aabb_verts[4] = {0};
+         CalcSnappedAABB_Vertices(obj->surface.surface_vectors.items, obj->surface.surface_vectors.count, obj->coords_center, space->basis, snapped_aabb_verts);
+         Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
 
          // MAP ENTITY TO WORLD SPACE + UPDATE STATE
          CalcVectors(obj, delta_time);
-         MapEntityToASpace(&world->coord_space_grid.coord_space, obj, snapped_aabb_box, &entity_space_map);
-         ClearLArray(&snapped_aabb_verts);
-
-         // Entity lives in the world - make sure it doesn't leave
-         ResolveCollision_ContainerRect(obj, &world->coord_space_grid.object);
+         MapEntityToASpace(space, obj, snapped_aabb_box, &entity_space_map);
+         ResolveCollision_ContainerRect(obj, &space_entity->object);
       }
    }
 
+   LArray *temp_objects = &context->world->temp_objects;
+   // PASS 2: Resolving Attachment Hierarchies
+   for (size_t i = 0; i < obj_count; i++)
+   {
+      Newtonoid2d *child = &newtonoids[i];
+
+      if (!(child->flags & FLAG_STATUS_ALIVE) || child->parent_id == space_entity->object.id)
+         continue;
+
+      // Look up where the parent currently lives in memory using the registry
+      int parent_packed_loc = 0;
+      if (!FlatMapInt_GetValue(&entity_world_index_registry, child->parent_id, &parent_packed_loc))
+      {
+         // The parent was likely deleted! Detach or kill the child so it doesn't crash
+         child->parent_id = -1;
+         continue;
+      }
+
+      // Unpack the routing info to pull the parent out of the correct array
+      int parent_type = UNPACK_INT_HIGH(parent_packed_loc);
+      int parent_idx = UNPACK_INT_LOW(parent_packed_loc);
+      LArray *parent_array = (parent_type == ARCHETYPE_CLOCKED) ? temp_objects : objects;
+
+      Newtonoid2d *parent = (Newtonoid2d *)LArray_Get(parent_array, parent_idx);
+
+      // Glue the child's world position to the parent's new position + offset
+      child->coords_center = VectorSum_2d(parent->coords_center, child->local_offset);
+      child->coords_origin = VectorSum_2d(parent->coords_origin, child->coords_origin);
+   }
    // Check for collisions
    if (obj_count < 2) // early return
    {
-      ClearFlatMapInt(&entity_space_map);
+      // ClearFlatMapInt(&entity_space_map);
       // PrintCurrentBytesAlloc();
       return;
    }
 
+   World2d *world = context->world;
+
    // RESOLVE ENTITY-ENTITY COLLISIONS
-   // Track object-object collions that have been resolved
-   FlatMapInt resolved_collisions = MakeFlatMapInt(1 + (int)(entity_space_map.count / 2)); // Start with a smaller capacity than the entity_space_map since we won't have a collision for every cell that has an object in it, but we can resize if needed
    for (size_t i = 0; i < entity_space_map.capacity; i++)
    {
       if (entity_space_map.slots[i].key == 0 && entity_space_map.slots[i].value == 0)
@@ -184,41 +242,54 @@ void UpdateWorld(World2d *world, float delta_time)
                   continue;
                if (obj_id_a < 1 || obj_id_b < 1)
                   continue; // Early safety rejection
-               Polygonoid *a = &polygonoids[obj_id_a - 1];
-               Polygonoid *b = &polygonoids[obj_id_b - 1];
+               Newtonoid2d *a = &newtonoids[obj_id_a - 1];
+               Newtonoid2d *b = &newtonoids[obj_id_b - 1];
 
-               // bool colliding = CheckForCollision(a->newtonian_properties, b->newtonian_properties);
-               CollisionResult_SAT collision_result = CheckForCollision_SAT(&a->newtonian_properties, &b->newtonian_properties);
+               // Check collision flags for collision compatiibility
+               if (!(a->collision_mask & b->entity_layer) || !(b->collision_mask & a->entity_layer))
+                  continue;
+
+               CollisionResult_SAT collision_result = CheckForCollision_SAT(a, b);
                if (collision_result.is_colliding == true)
                {
-                  LOG_INFO("COLLISION detected between Object ID %d and Object ID %d Coord Box Range: [%0.2f,%0.2f] [%0.2f,%0.2f] \n", obj_id_a, obj_id_b, collision_result.collision_box.col1.x, collision_result.collision_box.col1.y, collision_result.collision_box.col2.x, collision_result.collision_box.col2.y);
                   LArray_Push(&world->collisions, &collision_result.collision_box);
-                  // ResolveCollision(&a->newtonian_properties, &b->newtonian_properties);
-
+                  LOG_INFO("COLLISION detected between Object ID %d and Object ID %d Coord Box Range: [%0.2f,%0.2f] [%0.2f,%0.2f] \n", obj_id_a, obj_id_b, collision_result.collision_box.col1.x, collision_result.collision_box.col1.y, collision_result.collision_box.col2.x, collision_result.collision_box.col2.y);
+                  ResolveCollision(a, b);
                   // Add object pair's key to hash map of resolved collisions
                   FlatMapInt_InsertOrUpdate(&resolved_collisions, obj_pair_hash_key, 1); // a value of 1 means resolved
+
+                  // For debugging, create a temporary object at the collision center with the dimensions of the collision box to visualize the collision area and the entity that is penetrating the other
+                  Newtonoid2d *penetrating_entity = collision_result.penetrating_entity;
+                  Matrix2x2 collision_box = collision_result.collision_box;
+                  Vector2d collision_center = CalcGeometricCentre_FromBox(collision_box);
+                  Vector2d dimensions = {collision_box.col2.x - collision_box.col1.x, collision_box.col2.y - collision_box.col1.y};
+                  LArray collision_vertices_arr = MakeLArray(4, sizeof(Vector2d));
+                  collision_vertices_arr.count = 4;
+                  CalcBoxVertices(dimensions, collision_center, collision_vertices_arr.items);               
+                  Newtonoid2d collision_obj = CreateNewtonoid2d(0.00001f, collision_center, penetrating_entity->velocity, penetrating_entity->acceleration, (Surface2d){.surface_vectors = collision_vertices_arr});
+                  collision_obj.entity_layer = FLAG_TYPE_EFFECT;
+                  collision_obj.flags = FLAG_LIFETIME_CLOCKED;
+                  StickEntity(&G_WorldState, &collision_obj, penetrating_entity);
+                  AddObjectToWorld(G_WorldState.world, &collision_obj, penetrating_entity->parent_id);
+                  //Newtonoid2d *collision_obj_ptr = GetEntityByID(&G_WorldState, collision_obj.id);               
+                  //RegisterEntity(&G_WorldState, &collision_obj);
+                  // LArray_Push(&world->temp_objects, &collision_obj);
+
+                  // Create a scheduled update to flag the collision object for removal
+                  // EntityUpdate_WorldState ctx = {.world_objects = &world->temp_objects, .object_id = penetrating_entity->id, .flag_to_update = FLAG_ALIVE};
+                  ScheduleEntityFlagClear(&scheduled_world_cmds, penetrating_entity->id, FLAG_STATUS_ALIVE, 240, 1, 1);
+                  // AddScheduledWorldUpdate(&scheduled_world_updates, ClearObjectFlag, &ctx);
                }
-               // if (colliding)
-               // {
-               //    ResolveCollision(&a->newtonian_properties, &b->newtonian_properties);
-
-               //    // Add object pair's key to hash map of resolved collisions
-               //    FlatMapInt_InsertOrUpdate(&resolved_collisions, obj_pair_hash_key, 1); // a value of 1 means resolved
-               // }
-
-               // frame_counter.total_frames % 300 == 0 ? printf("COLLISION CHECK for A(%.0f,%.0f) B(%.0f,%.0f) = %s\n", a->newtonian_properties.coords_origin.x, a->newtonian_properties.coords_origin.y,
-               //                                                b->newtonian_properties.coords_origin.x, b->newtonian_properties.coords_origin.y,
-               //                                                colliding_sat ? "TRUE" : "FALSE")
-               //                                       : (void)0;
             }
          }
       }
    }
-   ClearFlatMapInt(&resolved_collisions);
-   ClearFlatMapInt(&entity_space_map);
+
+   // ClearFlatMapInt(&resolved_collisions);
+   // ClearFlatMapInt(&entity_space_map);
 }
 // Figure out how to return the vertice of the line/axis that is colliding..actually might not work if it's in between vertices where the collision occurs
-CollisionResult_SAT CheckForCollision_SAT(NewtonObject2d *a, NewtonObject2d *b)
+CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b)
 {
    CollisionResult_SAT result = {0};
    result.is_colliding = false;
@@ -274,8 +345,8 @@ CollisionResult_SAT CheckForCollision_SAT(NewtonObject2d *a, NewtonObject2d *b)
    int normal_owner = 0;
 
    // ----SAT with A----(Testing A's edges, checking B's vertices)
-   LOG_INFO("A VERTICES\n");
-   PrintVerticeCoords(&a_vertices_arr, a->coords_center);
+   // LOG_INFO("A VERTICES\n");
+   // PrintVerticeCoords(&a_vertices_arr, a->coords_center);
    for (size_t i = 0; i < a_count; i++)
    {
       Vector2d p1_world = a_vertices[i];
@@ -329,8 +400,8 @@ CollisionResult_SAT CheckForCollision_SAT(NewtonObject2d *a, NewtonObject2d *b)
    }
 
    // -----SAT with B-----(Testing B's edges, checking A's vertices)
-   //printf("B VERTICES\n");
-   //PrintVerticeCoords(&b_vertices_arr, b->coords_center);
+   // printf("B VERTICES\n");
+   // PrintVerticeCoords(&b_vertices_arr, b->coords_center);
    for (size_t i = 0; i < b_vertices_arr.count; i++)
    {
       Vector2d p1_world = b_world[i];
@@ -399,6 +470,7 @@ CollisionResult_SAT CheckForCollision_SAT(NewtonObject2d *a, NewtonObject2d *b)
    Vector2d deepest_vertex = {0};
    if (normal_owner == 1)
    {
+      result.penetrating_entity = b;
       // The edge belongs to A, so search OBJECT B for the penetrating vertex
       float min_proj = INFINITY;
       for (size_t v = 0; v < b_count; v++)
@@ -413,6 +485,7 @@ CollisionResult_SAT CheckForCollision_SAT(NewtonObject2d *a, NewtonObject2d *b)
    }
    else // normal_owner == 2
    {
+      result.penetrating_entity = a;
       // The edge belongs to B, so search OBJECT A for the penetrating vertex
       // Note: Because final_u_axis points from A to B, we look for the MAX projection on A
       float max_proj = -INFINITY;
@@ -433,50 +506,8 @@ CollisionResult_SAT CheckForCollision_SAT(NewtonObject2d *a, NewtonObject2d *b)
    return result;
 }
 
-AxisIntersectionRange2d GetAxisCollisionRange(float min_a, float max_a, float min_b, float max_b, Vector2d unit_axis)
+bool CheckForCollision_AABB(Newtonoid2d a, Newtonoid2d b)
 {
-   // Even though u and v axis live in world space, the scalar results (minA, maxA) do not retain their independent X and Y identities.
-   // Once you perform the dot product operation, we have flattened a 2D coordinate into a single 1D number line
-   // You cannot reverse-engineer that single number back into a unique 2D point because you have discarded the perpendicular information.
-   // We need to convert the 1D scalar overlap region into the global X and Y world space axis from the u_unit_axis and v_unit_axis
-   // To get back to 2D world space coordinates, we aren't changing coordinate systems or multiplying by an inverse basis matrix.
-   // We are simply taking that 1D scalar boundary (d_start, d_end) line segment and un-flattening it back along the global vector direction: e.g., P_start = d_start * u_axis.
-   AxisIntersectionRange2d global_range = {0};
-
-   // Find the 1D scalar overlap region on the separating axis (u_axis or v_axis from SAT)
-   // The overlap starts at the maximum of the two minimums
-   float overlap_start = (min_a > min_b) ? min_a : min_b;
-   // The overlap ends at the minimum of the two maximums
-   float overlap_end = (max_b < max_b) ? max_b : max_b;
-
-   // If start >= end, there is no actual overlap happening on this axis
-   if (overlap_start >= overlap_end)
-   {
-      return global_range;
-   }
-
-   // Transform the 1D scalars back into 2D World Coordinate Space
-   // Since the axis vector is already in world space, we just scale it
-   global_range.start.x = overlap_start * unit_axis.x;
-   global_range.start.y = overlap_start * unit_axis.y;
-
-   global_range.end.x = overlap_end * unit_axis.x;
-   global_range.end.y = overlap_end * unit_axis.y;
-
-   return global_range;
-}
-
-bool CheckForCollision(NewtonObject2d a, NewtonObject2d b)
-{
-   // Quick elimination check based on bounding circle
-   // Vector2d diff = VectorSum_2d(a.coords_center, VectorScale_2d(b.coords_center, -1.0f));
-   // float dist_sqr = VectorDot_2d(diff, diff); // this is the same as getting the magnitude & multiplying them, i.e. squaring
-   // float total_radius = a.radius + b.radius;
-   // if (dist_sqr > (total_radius * total_radius))
-   // {
-   //    return false; // Fast broadphase rejection!
-   // }
-   // 1 Get the boxed regions of both objects and check for overlap
    float a_min_x = a.coords_origin.x;
    float a_max_x = a.coords_origin.x + a.boxed_dimensions.x;
    float a_min_y = a.coords_origin.y;
@@ -492,25 +523,16 @@ bool CheckForCollision(NewtonObject2d a, NewtonObject2d b)
       return false; // Separation on X
    if (a_max_y < b_min_y || a_min_y > b_max_y)
       return false; // Separation on Y
-   // If the execution passes all positional and velocity checks, a collision is happening!
-   // return true;
 
    // printf("Objects A and B are OVERLAPPING\nA Box Coords: Top Left (%.1f, %.1f) Bottom Right (%.1f, %.1f)\n", a_top_left.x, a_top_left.y, a_top_left.x + a_width, a_top_left.y + a_height);
    // printf("B Box Coords: Top Left (%.1f, %.1f) Bottom Right (%.1f, %.1f)\n", b_top_left.x, b_top_left.y, b_top_left.x + b_width, b_top_left.y + b_height);
    return true;
-   // 2 Check if the x is overlapping
-   // if (a_box_coords.)
-   // 1.2 Find the overall max x and max y across both boxes, use this as a localised coord space
-   // Matrix2x2 local_subspace = FindBoxedCoords
-   // 1.2 Check for overlap
-   // 1.2.1 Calculate world area - (a + b area) combined area and get difference between entire world area and a + b area,
-   // Vector2d a_box =
 }
 
 // We need to convert the 1D scalar overlap region into the global X and Y world space axis from the u_unit_axis and v_unit_axis
 // This function takes the provided points and calculates new points that lie on the provided unit_axis,
 
-void ResolveCollision(NewtonObject2d *a, NewtonObject2d *b)
+void ResolveCollision(Newtonoid2d *a, Newtonoid2d *b)
 {
    // COMMON DATA FOR PENETRATION & VELOCITY RESOLUTIONS
    // Vector2d a_b_vel_diff = VectorSum_2d(a->velocity, VectorScale_2d(b->velocity, -1));              // relative velocity, or velocity felt by a
@@ -591,7 +613,7 @@ void ResolveCollision(NewtonObject2d *a, NewtonObject2d *b)
    }
 }
 
-void ResolveCollision_ContainerRect(NewtonObject2d *entity, NewtonObject2d *container)
+void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container)
 {
    // COMMON DATA FOR PENETRATION & VELOCITY RESOLUTIONS
    // Distance vector from Container center to Entity center
@@ -671,7 +693,7 @@ void ResolveCollision_ContainerRect(NewtonObject2d *entity, NewtonObject2d *cont
 }
 
 // Associates the Entity to the Space through object->space-cell mapping. Best used when Entity count << Space Cell count.
-void MapEntityToASpace(CoordSpace2d *space, NewtonObject2d *object, Matrix2x2 snapped_aabb_box, FlatMapInt *O_entity_to_space_index_map)
+void MapEntityToASpace(CoordSpace2d *space, Newtonoid2d *object, Matrix2x2 snapped_aabb_box, FlatMapInt *O_entity_to_space_index_map)
 {
    // Get the entity's footprint in terms of cell index coverage and map entity (via its ID) to the corresponding Cell (retireved via its index) (store entity ID as a cell occupant)
    float snapped_w = (snapped_aabb_box.col2.x - snapped_aabb_box.col1.x);
@@ -762,7 +784,316 @@ void PrintVerticeCoords(LArray *vertices_arr, Vector2d offset)
    LOG_INFO("%s\n", y_buffer);
 }
 
-// Matrix2x2 CalcProjectedPoints_SAT(LArray vertices_arr, Vector2d vertice_offset, Vector2d u_unit_axis, Vector2d v_unit_axis) // NewtonObject2d *a, NewtonObject2d *b)
+// THINKING OF HOW WE CAN USE SCHEDULING OR EVENTS OR QUEUES AND SEGREGATING THE COLLISION DRAWINGS THAT NEED TO PERSIST ACROSS X FRAMES RATHER THAN EVERY FRAME OR JUST 1 FRAME
+// BITWISE OPERATIONS??
+void ScheduleEntityFlagSet(LArray *scheduled_events, int object_id, int flag_to_set, int initial_frame_delay, int interval_frames, int run_limit)
+{
+   WorldCommand cmd = {
+       .type = CMD_SET_OBJECT_FLAG,
+       .target_id = object_id,
+       .payload_value = flag_to_set,
+       .interval_frames = interval_frames,
+       .run_limit = run_limit,
+       .frame_count = initial_frame_delay,
+       .initial_frame_delay = initial_frame_delay,
+       .active = true};
+   LArray_Push(scheduled_events, &cmd);
+}
+
+void ScheduleEntityFlagClear(LArray *scheduled_events, int object_id, int flag_to_set, int initial_frame_delay, int interval_frames, int run_limit)
+{
+   WorldCommand cmd = {
+       .type = CMD_CLEAR_OBJECT_FLAG,
+       .target_id = object_id,
+       .payload_value = flag_to_set,
+       .interval_frames = interval_frames,
+       .run_limit = run_limit,
+       .frame_count = initial_frame_delay,
+       .initial_frame_delay = initial_frame_delay,
+       .active = true};
+   LArray_Push(scheduled_events, &cmd);
+}
+
+void RunScheduledWorldCmds(LArray *scheduled_cmds, WorldState *context)
+{
+   WorldCommand *cmds = (WorldCommand *)scheduled_cmds->items;
+   size_t i = 0;
+
+   // Use a while loop because we might be shifting items out of the queue mid-loop
+   while (i < scheduled_cmds->count)
+   {
+      // If it's not time yet, tick up the frame counter and skip executing it
+      if (cmds[i].frame_count % cmds[i].interval_frames != 0 || cmds[i].initial_frame_delay < cmds[i].frame_count)
+      {
+         cmds[i].frame_count++;
+         i++; // Move to next command in queue
+         continue;
+      }
+
+      // It hit 0. Execute it exactly like before
+      switch (cmds[i].type)
+      {
+      case CMD_SET_OBJECT_FLAG:
+         SetObjectFlag(context, cmds[i].target_id, cmds[i].payload_value);
+         break;
+      case CMD_CLEAR_OBJECT_FLAG:
+         ClearObjectFlag(context, cmds[i].target_id, cmds[i].payload_value);
+         break;
+      case CMD_DELETE_OBJECT:
+         DeregisterEntity(context, cmds[i].target_id);
+         break;
+      default:
+         LOG_ERROR("Unknown command type %d\n", cmds[i].type);
+         break;
+      }
+      cmds[i].run_count++;
+
+      if (cmds[i].run_count >= cmds[i].run_limit)
+      {
+         // Since this command is done, remove it from the schedule queue
+         // by swapping the last command into this slot (fast O(1) removal)
+         size_t last_idx = scheduled_cmds->count - 1;
+         if (i != last_idx)
+         {
+            cmds[i] = cmds[last_idx];
+         }
+         scheduled_cmds->count--; // Notice we DO NOT increment 'i' here, because a new un-processed command was just swapped into the current 'i' position!
+      }
+   }
+}
+
+void SetObjectFlag(WorldState *context, int object_id, int flag_to_update)
+{
+   // USE BITWISE OR (|) TO SET THE FLAG IN THE ENTITY'S FLAGS
+   // E.g.:
+   //    0100  (Current entity->flags: Poisoned)
+   // | 0001  (FLAG_GROUNDED: The flag we want to set)
+   //   ----
+   //   0101  (The new entity->flags value)
+   // int index = 0;
+   // FlatMapInt_GetValue(context.entity_world_index_registry, object_id, &index);
+
+   // Set the object's status flag
+   Newtonoid2d *object = GetEntityByID(context, object_id);
+   object->flags = (object->flags | flag_to_update);
+}
+void ClearObjectFlag(WorldState *context, int object_id, int flag_to_update)
+{
+   // USE BITWISE AND (&) WITH NOT (~) TO CLEAR THE FLAG IN THE ENTITY'S FLAGS
+   // E.g.:
+   //    0101  (Current entity->flags: Grounded & Poisoned)
+   // & 1011  (~FLAG_POISONED: Our inverted mask)
+   //   ----
+   //   0001  (The new entity->flags value!)
+   // int index = 0;
+   // FlatMapInt_GetValue(context.entity_world_index_registry, object_id, &index);
+
+   // Clear the object's status flag
+   Newtonoid2d *object = GetEntityByID(context, object_id);
+   int inverse_flag = ~flag_to_update; // Invert the bits of the flag we want to clear
+   object->flags = object->flags & inverse_flag;
+}
+
+void DeregisterEntity(WorldState *context, int entity_id)
+{
+   // Newtonoid2d *object = GetEntityByID(&context, entity_id);
+   int packed_value = 0;
+   if (!FlatMapInt_GetValue(context->entity_world_index_registry, entity_id, &packed_value))
+   {
+      return; // Entity ID doesn't exist
+   }
+
+   // Unpack the routing data
+   int type = UNPACK_INT_HIGH(packed_value);
+   int deleted_idx = UNPACK_INT_LOW(packed_value);
+
+   // Route to the correct array
+   LArray *world_objects = (type == ARCHETYPE_CLOCKED) ? &context->world->temp_objects : &context->world->objects;
+   size_t last_idx = world_objects->count - 1;
+   if (deleted_idx != last_idx)
+   {
+      // Grab the entity sitting at the very end that is about to be moved
+      Newtonoid2d *last_entity = (Newtonoid2d *)LArray_Get(world_objects, last_idx);
+
+      // Repack its new location (same array type, but moves into deleted_idx)
+      int repacked_new_loc = PACK_INTS(deleted_idx, type);
+      FlatMapInt_InsertOrUpdate(context->entity_world_index_registry, last_entity->id, repacked_new_loc);
+   }
+   int type_and_index_packed = -1;
+   LArray_SwapPopAt(world_objects, deleted_idx);
+   FlatMapInt_DeactivateSlot(context->entity_world_index_registry, entity_id);
+
+   LOG_INFO("Entity %d safely deregistered and removed from slot %d\n", entity_id, deleted_idx);
+}
+
+void UpdateEntityWorldRegistry(FlatMapInt *entity_world_index_registry, int entity_id, int type_flag, int entity_arr_index)
+{
+   // Calculate the maximum possible values based on the bit configurations
+   int max_type = (1 << PACKED_INT_HIGH_BITS) - 1; // e.g., (1 << 6) - 1 = 63
+   int max_index = (1 << PACKED_INT_LOW_BITS) - 1; // e.g., (1 << 26) - 1 = 67,108,863
+
+   assert(type_flag <= max_type && "Engine Error: type flag exceeds maximum capacity for high bits");
+   assert(entity_arr_index <= max_index && "Engine Error: Array index exceeds maximum capacity for low bits.");
+
+   int packed = PACK_INTS(entity_arr_index, type_flag);
+   FlatMapInt_InsertOrUpdate(entity_world_index_registry, entity_id, packed);
+}
+
+void RegisterEntity(WorldState *context, Newtonoid2d *entity)
+{
+   LArray *world_objects = NULL;
+   ArchetypeID array_type;
+
+   // Isolate the check, but assign a clean, small enum ID for packing
+   if (!(entity->flags & FLAG_LIFETIME_CLOCKED))
+   {
+      world_objects = &context->world->objects;
+      array_type = ARCHETYPE_INHABITANT; // Value is 0
+   }
+   else
+   {
+      world_objects = &context->world->temp_objects;
+      array_type = ARCHETYPE_CLOCKED; // Value is 1
+   }
+
+   // Assign global ID and add to the world
+   entity->id = context->world->next_object_id++;
+   LArray_Push(world_objects, entity);
+   int assigned_index = world_objects->count - 1;
+
+   // Update the registry using the clean enum ID (0 or 1), which easily passes asserts!
+   UpdateEntityWorldRegistry(context->entity_world_index_registry, entity->id, array_type, assigned_index);
+
+   LOG_INFO("Registered entity %d at index %d in array type %d", entity->id, assigned_index, array_type);
+}
+
+void StickEntity(WorldState *context, Newtonoid2d *child, Newtonoid2d *parent)
+{
+    child->parent_id = parent->id;
+    
+    // Calculate how far away the child is from the parent at the exact moment of impact
+    child->local_offset.x = child->coords_center.x - parent->coords_center.x;
+    child->local_offset.y = child->coords_center.y - parent->coords_center.y;
+    
+    // Clear out the child's velocity so it doesn't accumulate forces while stuck
+    child->velocity.x = 0;
+    child->velocity.y = 0;
+}
+// void DeregisterEntity(WorldState context, Newtonoid2d *entity)
+// {
+//    LArray *world_objects = NULL;
+//    int type_flag = entity->flags & FLAG_LIFETIME_SCHEDULED;
+//    if (type_flag == 0)
+//    {
+//       world_objects = context.inhabitant_objects;
+//    }
+//    else
+//    {
+//       world_objects = context.temp_objects;
+//    }
+//    FlatMapInt_DeactivateSlot(context.entity_world_index_registry, entity->id);
+//    LArray_Push(world_objects, entity);
+//    UpdateEntityWorldRegistry(context.entity_world_index_registry, entity->id, type_flag, world_objects->count - 1);
+// }
+
+void *GetEntityByID(WorldState *context, int entity_id)
+{
+   int packed_value = 0;
+
+   if (!FlatMapInt_GetValue(context->entity_world_index_registry, entity_id, &packed_value))
+   {
+      return NULL; // Entity ID doesn't exist
+   }
+
+   // Unpack the routing data
+   int type_flag = UNPACK_INT_HIGH(packed_value);
+   int index = UNPACK_INT_LOW(packed_value);
+
+   // Route to the correct array
+   switch (type_flag)
+   {
+   case FLAG_LIFETIME_CLOCKED:
+      return LArray_Get(&context->world->temp_objects, index);
+      break;
+   default:
+      return LArray_Get(&context->world->objects, index);
+   }
+
+   return NULL;
+}
+
+// Vector2d ResolveEntityWorldCoords(Newtonoid2d *a, WorldState context)
+// {
+//    // Base Case 1: If this object has no parent, its local coordinates are its world coordinates
+//    if (a->parent_id == 0)
+//    {
+//       return a->coords_center;
+//    }
+
+//    int parent_index = 0;
+//    FlatMapInt_GetValue(context.entity_world_index_registry, a->parent_id, &parent_index);
+
+//    // Base Case 2: Parent ID exists but can't be found/resolved in registry
+//    if (parent_index <= 0)
+//    {
+//       LOG_WARN("Parent object with ID %d could not be found in the entiy-world index registry in ResolveEntityWorldCoords.", a->parent_id);
+//       return a->coords_center;
+//    }
+
+//    Newtonoid2d *parent = (Newtonoid2d *)LArray_Get(context.world_objects, parent_index);
+//    if (parent == NULL)
+//    {
+//       return a->coords_center;
+//    }
+
+//    // Recursion --> Go find the parent's absolute world coordinates first
+//    Vector2d parent_world_coords = ResolveEntityWorldCoords(parent, context);
+
+//    // Unwinding: Add this object's local offset to the parent's world position
+//    return VectorSum_2d(parent_world_coords, a->coords_center);
+// }
+
+// void AddScheduledWorldUpdate(int event_data, Action update_action_to_run)
+// {
+//    ScheduledAction action = CreateScheduledAction(update_action_to_run, 1);
+
+//     // Execute the function that was passed in!
+//     update_action_to_run(event_data);
+
+// }
+// AxisIntersectionRange2d GetAxisCollisionRange(float min_a, float max_a, float min_b, float max_b, Vector2d unit_axis)
+// {
+//    // Even though u and v axis live in world space, the scalar results (minA, maxA) do not retain their independent X and Y identities.
+//    // Once you perform the dot product operation, we have flattened a 2D coordinate into a single 1D number line
+//    // You cannot reverse-engineer that single number back into a unique 2D point because you have discarded the perpendicular information.
+//    // We need to convert the 1D scalar overlap region into the global X and Y world space axis from the u_unit_axis and v_unit_axis
+//    // To get back to 2D world space coordinates, we aren't changing coordinate systems or multiplying by an inverse basis matrix.
+//    // We are simply taking that 1D scalar boundary (d_start, d_end) line segment and un-flattening it back along the global vector direction: e.g., P_start = d_start * u_axis.
+//    AxisIntersectionRange2d global_range = {0};
+
+//    // Find the 1D scalar overlap region on the separating axis (u_axis or v_axis from SAT)
+//    // The overlap starts at the maximum of the two minimums
+//    float overlap_start = (min_a > min_b) ? min_a : min_b;
+//    // The overlap ends at the minimum of the two maximums
+//    float overlap_end = (max_b < max_b) ? max_b : max_b;
+
+//    // If start >= end, there is no actual overlap happening on this axis
+//    if (overlap_start >= overlap_end)
+//    {
+//       return global_range;
+//    }
+
+//    // Transform the 1D scalars back into 2D World Coordinate Space
+//    // Since the axis vector is already in world space, we just scale it
+//    global_range.start.x = overlap_start * unit_axis.x;
+//    global_range.start.y = overlap_start * unit_axis.y;
+
+//    global_range.end.x = overlap_end * unit_axis.x;
+//    global_range.end.y = overlap_end * unit_axis.y;
+
+//    return global_range;
+// }
+// Matrix2x2 CalcProjectedPoints_SAT(LArray vertices_arr, Vector2d vertice_offset, Vector2d u_unit_axis, Vector2d v_unit_axis) // Newtonoid2d *a, Newtonoid2d *b)
 // {
 //    // GET MAX AND MIN OF ALL VERTICES BY PROJECTING ONTO THE ABOVE AXIS (instead of the default x,y axis)
 //    float min_x = INFINITY;
@@ -809,7 +1140,7 @@ void PrintVerticeCoords(LArray *vertices_arr, Vector2d offset)
 //    return (Matrix2x2){{min_x, max_x}, {min_y, max_y}};
 // }
 
-// void ResolvePenetration(NewtonObject2d *a, NewtonObject2d *b)
+// void ResolvePenetration(Newtonoid2d *a, Newtonoid2d *b)
 // {
 //    // COMMON DATA FOR PENETRATION & VELOCITY RESOLUTIONS
 //    Vector2d a_b_vel_diff = VectorSum_2d(a->velocity, VectorScale_2d(b->velocity, -1));              // relative velocity, or velocity felt by a
@@ -852,7 +1183,7 @@ void PrintVerticeCoords(LArray *vertices_arr, Vector2d offset)
 //    }
 // }
 
-// void ResolveVelocity(NewtonObject2d *a, NewtonObject2d *b)
+// void ResolveVelocity(Newtonoid2d *a, Newtonoid2d *b)
 // {
 //    // COMMON DATA FOR PENETRATION & VELOCITY RESOLUTIONS
 //    Vector2d a_b_vel_diff = VectorSum_2d(a->velocity, VectorScale_2d(b->velocity, -1));              // relative velocity, or velocity felt by a
@@ -917,7 +1248,7 @@ void PrintVerticeCoords(LArray *vertices_arr, Vector2d offset)
 //    Polygonoid *polygonoids = objects->items;
 //    for (size_t i = 0; i < count; i++)
 //    {
-//       NewtonObject2d *obj = &polygonoids[i].newtonian_properties;
+//       Newtonoid2d *obj = &polygonoids[i].newtonian_properties;
 
 //       // Ensure the object isn't outside the bounds of the world before we try to get the cell it's in, otherwise we could get an out of bounds error when we try to access the cell's object_ids array. We can just skip updating the cell for this object if it's out of bounds, but we should still update its vectors based on its acceleration and velocity so that it can move back into the bounds of the world.
 //       if (obj->coords_origin.x < 0 || obj->coords_origin.x >= world->coord_space_grid.coord_space.resolution_ixj.x ||
