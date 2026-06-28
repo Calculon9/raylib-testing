@@ -11,18 +11,19 @@
 #include "ui/text_region.h"
 #include "system/ui_system.h"
 #include "system/utility_system.h"
+#include <stdlib.h>
+#include "world/world.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
-UIElement *G_FocusedElement = NULL;
 DragState G_DragState = {0};
 // UIElement *G_DraggedElement = NULL;
 // Vector2d G_DragOffset = ZERO_VECTOR_2D;
 Text_64_IOState tbox_io_buffers = {0};
 MouseDownState mouse_down_state = {0};
-// char tbox_input_buffer[sizeof(G_FocusedElement->data.textbox.text.string)] = ""; // Stores textbox input
-// char tbox_temp_buffer[sizeof(G_FocusedElement->data.textbox.text.string)] = "";  // Stores the original text being output to a focused textbox before it was modified by the user - this buffer is used to restore it if needed
+// char tbox_input_buffer[sizeof(G_UIState.focused_element->data.textbox.text.string)] = ""; // Stores textbox input
+// char tbox_temp_buffer[sizeof(G_UIState.focused_element->data.textbox.text.string)] = "";  // Stores the original text being output to a focused textbox before it was modified by the user - this buffer is used to restore it if needed
 
 //----------------------------------------------------------------------------------
 // Functions Definition
@@ -31,6 +32,7 @@ void HandleMouseEvents(UIElement *root_element, Vector2d mouse_coords);
 void HandleLeftMouseDown(UIElement *element, Vector2d mouse_coords);
 void HandleLeftMouseUp(UIElement *target, Vector2d mouse_coords);
 void HandleTextBoxClick(UIElement *clicked);
+void HandleBtnClick(UIElement *target);
 void HandleUIDragging(UIElement *e, Vector2d mouse_coords);
 void HandleFocusSwitch(UIElement *curr_focus, UIElement *prev_focus);
 void HandleTextCommit(UIElement *element, Text_64_IOState *tbox_buffers);
@@ -56,7 +58,19 @@ void ProcessUIInput(int mouse_x, int mouse_y, bool cursor_in_region)
     {
         return;
     }
+
+    // If focus was disabled externally, clear it so stale input cannot flow through.
+    if (G_UIState.focused_element && !G_UIState.focused_element->is_enabled)
+    {
+        RevertTextChanges(G_UIState.focused_element, &tbox_io_buffers);
+        ClearUIFocus();
+    }
+
     UIElement *target = GetElementAt(lpanel_root, mouse_coords);
+    if (target && !target->is_enabled)
+    {
+        target = NULL;
+    }
 
     HandleMouseEvents(target, mouse_coords);
     // -----HANDLE LEFT MOUSE-----
@@ -101,6 +115,11 @@ void HandleMouseEvents(UIElement *target, Vector2d mouse_coords)
 // HANDLER - MOUSE DOWN
 void HandleLeftMouseDown(UIElement *target, Vector2d mouse_coords)
 {
+    if (target && !target->is_enabled)
+    {
+        target = NULL;
+    }
+
     // -----UPDATE MOUSE DOWN STATE-----
     // 1. ALWAYS update the mouse state first so everything below has fresh data
     UpdateMouseDownState(LEFT, &mouse_down_state, mouse_coords);
@@ -108,10 +127,10 @@ void HandleLeftMouseDown(UIElement *target, Vector2d mouse_coords)
     // 2. EVENT PHASE: Check if focus shifted (Only runs on the *initial* press frame)
     if (mouse_down_state.left_button_hold_ticks == 1)
     {
-        if (target != G_FocusedElement)
+        if (target != G_UIState.focused_element)
         {
             // Cleanup any state from previous focus
-            RevertTextChanges(G_FocusedElement, &tbox_io_buffers);
+            RevertTextChanges(G_UIState.focused_element, &tbox_io_buffers);
 
             // Initialise new focus and new state
             UpdateUIFocus(target);
@@ -132,7 +151,7 @@ void HandleLeftMouseDown(UIElement *target, Vector2d mouse_coords)
         // Calculate fresh delta
         G_DragState.drag_delta = VectorSum_2d(mouse_down_state.current_pos, (Vector2d){-mouse_down_state.initial_pos.x, -mouse_down_state.initial_pos.y});
 
-        // Use your threshold check to see if the user has dragged past the deadzone
+        // Use threshold check to see if the user has dragged past the deadzone
         if (IsMouseDragged(mouse_down_state))
         {
             if (G_DragState.target_element->is_draggable)
@@ -153,6 +172,11 @@ void HandleLeftMouseDown(UIElement *target, Vector2d mouse_coords)
 // HANDLER - MOUSE DOWN
 void HandleLeftMouseUp(UIElement *target, Vector2d mouse_coords)
 {
+    if (target && !target->is_enabled)
+    {
+        target = NULL;
+    }
+
     // -----CHECK IF IT WAS A CLICK (e.g. MOUSE DOWN FOR <20 frames)-----
     if (mouse_down_state.left_button_hold_ticks > 0) // Only need to do something if the mouse was down, i.e. there was either a drag, or click
     {
@@ -160,13 +184,17 @@ void HandleLeftMouseUp(UIElement *target, Vector2d mouse_coords)
         {
             Vector2d mouse_local_coords = (Vector2d){lpanel_to_local_scale.x * mouse_coords.x, lpanel_to_local_scale.y * mouse_coords.y};
             int cell_index = ((int)mouse_local_coords.y * (int)lpanel_resolution.x) + (int)mouse_local_coords.x;
-            printf("CLICKED [%s] | PIXEL (%.0f, %.0f) | CELL (%d)(%.1f, %.1f)\n", GetElementTypeName(target->type), mouse_coords.x, mouse_coords.y, cell_index, mouse_local_coords.x, mouse_local_coords.y);
+            printf("CLICKED [%s] | PIXEL (%.0f, %.0f) | CELL (%d)(%.1f, %.1f)\n", GetElementTypeName(target ? target->type : UI_ELEMENT_NONE), mouse_coords.x, mouse_coords.y, cell_index, mouse_local_coords.x, mouse_local_coords.y);
 
             // Handle Interaction
-            // if (IsTextbox(target))
-            // {
-            //     HandleTextBoxClick(target);
-            // }
+            if (target && IsTextbox(target))
+            {
+                HandleTextBoxClick(target);
+            }
+            else if (target && IsBtn(target))
+            {
+                HandleBtnClick(target);
+            }
         }
 
         ResetMouseDownState(&mouse_down_state);
@@ -175,9 +203,139 @@ void HandleLeftMouseUp(UIElement *target, Vector2d mouse_coords)
     }
 }
 
+void HandleBtnClick(UIElement *target)
+{
+    if (target && !target->is_enabled)
+    {
+        target = NULL;
+    }
+
+    // -----CHECK IF IT WAS A CLICK (e.g. MOUSE DOWN FOR <20 frames)-----
+    if (target && IsBtn(target))
+    {
+        if (target->data.button.on_click != NULL)
+        {
+            target->data.button.on_click(target);
+        }
+    }
+}
+
+void HandleBtnSwitchClick(UIElement *btn)
+{
+    if (btn && !btn->is_enabled)
+    {
+        return;
+    }
+    ToggleElementEnabled(btn->data.button.data_bind); // Toggle the slave's enabled state
+    LOG_INFO("SWITCH CLICK\n");
+}
+
+// A LArray of UIElements needs
+void HandleBtnEnumerateClick(UIElement *btn)
+{
+    if (!btn || !btn->is_enabled)
+        return;
+
+    LArray *a = btn->data.button.data_bind;
+
+    // Safely extract our custom integer tracker from the void*
+    int *current_index = (int *)btn->data.button.user_data;
+    if (!current_index || !a || a->count == 0)
+        return;
+
+    // Calculate next step using the heap integer
+    int next_index = (*current_index + 1) % a->count;
+    View *curr_view = *((View **)LArray_Get(a, *current_index));
+    View *next_view = *((View **)LArray_Get(a, next_index));
+
+    // UIElement *current_item = *(UIElement **)LArray_Get(a, *current_index);
+    // UIElement *next_item = *(UIElement **)LArray_Get(a, next_index);
+
+    if (curr_view)
+        ToggleElementEnabled(curr_view->container);
+    if (next_view)
+        ToggleElementEnabled(next_view->container);
+
+    // Save the state back directly to that memory address
+    *current_index = next_index;
+
+    // Update the Active View in the global state if this button is associated with a view switch
+    G_UIState.active_panel_view = next_view->type;
+
+    LOG_INFO("ENUMERATE VIEW CLICK\n");
+}
+
+void HandleBtnSimpleClick(UIElement *btn)
+{
+    if (btn && !btn->is_enabled)
+    {
+        return;
+    }
+
+    // ToggleElementEnabled(btn->data.button.slave); // Toggle the slave's enabled state
+    // LOG_INFO("SWITCH CLICK\n");
+}
+
+void HandleBtnSubmitClick(UIElement *btn)
+{
+    if (!btn || !btn->is_enabled)
+        return;
+
+    if (!G_WorldState.world)
+        return;
+
+    if (btn->data.button.data_bind == (void *)"create-entity")
+    {
+        float mass = 1.0f;
+        int edge_count = 0;
+        int vert_count = 0;
+        float width = 0.0f;
+        float height = 0.0f;
+        Vector2d pos = {0.0f, 0.0f};
+        Vector2d vel = {0.0f, 0.0f};
+        Vector2d accel = {0.0f, 0.0f};
+        Vector2d momentum = {0.0f, 0.0f};
+
+        // Grab the staged Newtonoid Params
+
+        if (G_UIState.lpanel_entity_edit_mass_str)
+            PipelineTextToFloat(G_UIState.lpanel_entity_edit_mass_str->string, &mass);
+        if (G_UIState.lpanel_entity_edit_pos_c_str)
+            PipelineTextToVector(G_UIState.lpanel_entity_edit_pos_c_str->string, &pos);
+        if (G_UIState.lpanel_entity_edit_vel_str)
+            PipelineTextToVector(G_UIState.lpanel_entity_edit_vel_str->string, &vel);
+        if (G_UIState.lpanel_entity_edit_accel_str)
+            PipelineTextToVector(G_UIState.lpanel_entity_edit_accel_str->string, &accel);
+        if (G_UIState.lpanel_entity_edit_moment_str)
+            PipelineTextToVector(G_UIState.lpanel_entity_edit_moment_str->string, &momentum);
+
+        if (G_UIState.lpanel_entity_edit_vertice_count_str)
+        {
+            char *end = NULL;
+            long parsed = strtol(G_UIState.lpanel_entity_edit_vertice_count_str->string, &end, 10);
+            if (end != G_UIState.lpanel_entity_edit_vertice_count_str->string && parsed > 2)
+                vert_count = (int)parsed;
+        }
+
+        Newtonoid2d *new_entity = ResolveEntityParamsToEntity(G_WorldState.newtonoid_params);
+        int entity_id = -1;
+        if (new_entity)
+        {
+            entity_id = AddObjectToWorld(G_WorldState.world, new_entity, G_WorldState.world->coord_space_grid.object.id);
+        }
+
+        if (entity_id >= 0)
+        {
+            Newtonoid2d *spawned = GetEntityByID(&G_WorldState, entity_id);
+            if (spawned)
+                G_WorldState.selected_object = spawned;
+        }
+    }
+}
+
 void HandleUIDragging(UIElement *e, Vector2d mouse_coords)
 {
-    if (!e)
+    if (!e || !e->is_enabled)
         return;
 
     // 1. Correctly map screen destination pixels to source virtual coordinates
@@ -196,17 +354,16 @@ void HandleUIDragging(UIElement *e, Vector2d mouse_coords)
     new_local_offset.x = G_DragState.initial_element_offset.x + total_local_travel.x;
     new_local_offset.y = G_DragState.initial_element_offset.y + total_local_travel.y;
 
-    // 4. Boundaries Clamping Constraints
-    new_local_offset.x = fmaxf(new_local_offset.x, 0.0f);
-    new_local_offset.y = fmaxf(new_local_offset.y, 0.0f);
-
-    // 5. Compute real pixel offsets for accurate telemetry tracking
+    // 4. Compute real pixel offsets for accurate telemetry tracking
     Vector2d new_pixel_offset = (Vector2d){new_local_offset.x * basis_scale.x, new_local_offset.y * basis_scale.y};
-    Vector2d diff_local = VectorSum_2d(new_local_offset, (Vector2d){-e->parent_offset.offset.x, -e->parent_offset.offset.y});
+    Vector2d diff_local = VectorSum_2d(new_local_offset, (Vector2d){-e->manual_parent_offset.x, -e->manual_parent_offset.y});
     Vector2d diff_pixel = (Vector2d){diff_local.x / basis_scale.x, diff_local.y / basis_scale.y};
 
-    // 6. Finalize properties assignment
+    // 5. Finalize properties assignment
     e->parent_offset.offset = new_local_offset;
+    e->manual_parent_offset = new_local_offset;
+    e->has_manual_parent_offset = true;
+    e->is_dirty = true;
 
     // Clean debug logging throttling
     if ((diff_pixel.x > 0 || diff_pixel.y > 0) && frame_counter.total_frames % 120 == 0) // (frame_counter.total_frames % 180 == 0)
@@ -236,18 +393,18 @@ void HandleTextCommit(UIElement *element, Text_64_IOState *tbox_buffers)
 {
     // PIPELINE COMMITTED TEXT TO THE SELECTED OBJECT
     Newtonoid2d *obj = G_WorldState.selected_object;
-    if (!element || !IsTextbox(element) || !obj)
+    Newtonoid2dParams *params = G_WorldState.newtonoid_params;
+    if (!element || !IsTextbox(element) || (!obj && !params))
     {
         RevertTextChanges(element, tbox_buffers);
         return;
     }
-        
 
     // These TextBoxes (IO) are interactive so check it's an IO type before doing anything
     if (element->type == UI_ELEMENT_TEXTBOX_IO || element->type == UI_ELEMENT_TEXTBOX_SAFE_IO)
     {
         // Get the type of data the textbox is bound to
-        DatatType data_type = element->data.textbox.data_type;
+        DataType data_type = element->data.textbox.data_type;
         switch (data_type)
         {
         case VECTOR2D:
@@ -255,6 +412,9 @@ void HandleTextCommit(UIElement *element, Text_64_IOState *tbox_buffers)
             break;
         case FLOAT:
             PipelineTextToFloat(element->data.textbox.text.string, element->data.textbox.data_bind); // Be sure the data type and data bind are compatible!
+            break;
+        case INT:
+            PipelineTextToInt(element->data.textbox.text.string, (int *)element->data.textbox.data_bind);
             break;
         // case STRING64: case STRING128:
         //     PipelineTextToFloat(tbox_io_buffers.input_buffer.string, element->data.textbox.data_bind); // Be sure the data type and data bind are compatible!
@@ -272,22 +432,22 @@ void HandleTextCommit(UIElement *element, Text_64_IOState *tbox_buffers)
 // HANDLER - MOUSE CLICK
 void HandleTextBoxClick(UIElement *clicked)
 {
-    if (!clicked)
+    if (!clicked || !clicked->is_enabled)
         return;
 
     // 1. If we clicked the same element that already has focus, do nothing
-    if (G_FocusedElement == clicked)
+    if (G_UIState.focused_element == clicked)
         return;
 
     // 2. Clear focus from the previous element (if any)
-    // if (G_FocusedElement != NULL)
+    // if (G_UIState.focused_element != NULL)
     // {
-    //     G_FocusedElement->is_focused = false;
+    //     G_UIState.focused_element->is_focused = false;
     //     // Optional: Trigger an "OnBlur" event here if needed
     // }
 
     // Assign focus to the new element
-    // G_FocusedElement = clicked;
+    // G_UIState.focused_element = clicked;
     // clicked->is_focused = true;
 
     // Move the cursor to the end of the text string
@@ -301,10 +461,17 @@ void HandleTextBoxClick(UIElement *clicked)
 
 void UpdateTextIO()
 {
-    if (!G_FocusedElement || (G_FocusedElement->type != UI_ELEMENT_TEXTBOX_IO && G_FocusedElement->type != UI_ELEMENT_TEXTBOX_SAFE_IO))
+    if (G_UIState.focused_element && !G_UIState.focused_element->is_enabled)
+    {
+        RevertTextChanges(G_UIState.focused_element, &tbox_io_buffers);
+        ClearUIFocus();
+        return;
+    }
+
+    if (!G_UIState.focused_element || (G_UIState.focused_element->type != UI_ELEMENT_TEXTBOX_IO && G_UIState.focused_element->type != UI_ELEMENT_TEXTBOX_SAFE_IO))
         return;
 
-    char *output_buf = G_FocusedElement->data.textbox.text.string;
+    char *output_buf = G_UIState.focused_element->data.textbox.text.string;
 
     // 1. "Snapshot" for Undo/Cancel
     // If this is the very first time we are typing, save the original state
@@ -347,18 +514,18 @@ void UpdateTextIO()
         // Reset tracking buffers
         tbox_io_buffers.input_buffer.string[0] = '\0';
         tbox_io_buffers.temp_buffer.string[0] = '\0';
-        G_FocusedElement->is_focused = false;
-        G_FocusedElement = NULL;
+        G_UIState.focused_element->is_focused = false;
+        G_UIState.focused_element = NULL;
     }
 
     // 5. Handle Enter (Commit)
     if (IsKeyPressed(KEY_ENTER))
     {
-        HandleTextCommit(G_FocusedElement, &tbox_io_buffers);
+        HandleTextCommit(G_UIState.focused_element, &tbox_io_buffers);
         tbox_io_buffers.input_buffer.string[0] = '\0';
         tbox_io_buffers.temp_buffer.string[0] = '\0';
-        G_FocusedElement->is_focused = false;
-        G_FocusedElement = NULL;
+        G_UIState.focused_element->is_focused = false;
+        G_UIState.focused_element = NULL;
         // Trigger physics update here! (e.g., UpdateObjectMass())
     }
 }
@@ -366,11 +533,8 @@ void UpdateTextIO()
 bool IsMouseDragged(MouseDownState mouse_down_state)
 {
     Vector2d local_displacement_xy = {0};
-    // If mouse is held down for 20 frames, it qualifies
-    if (mouse_down_state.left_button_hold_ticks >= 12)
+    if (mouse_down_state.left_button_hold_ticks > 0)
     {
-        // If mouse displacement (in local coords/space, not pixels) while being dragged is >= 3% of the local space's resolution (total cells)
-        // Vector2d drag_delta = VectorSum_2d(mouse_down_state.current_pos, (Vector2d){-mouse_down_state.initial_pos.x, -mouse_down_state.initial_pos.y});
         Vector2d local_displacement_xy = {lpanel_to_local_scale.x * G_DragState.drag_delta.x, lpanel_to_local_scale.y * G_DragState.drag_delta.y};
         float local_displacement = VectorMagnitude_2d(local_displacement_xy);
         float min_drag = 0.005 * VectorMagnitude_2d(lpanel_resolution);
@@ -411,6 +575,7 @@ void UpdateMouseDownState(MouseBtn btn_type, MouseDownState *mouse_down_state, V
     if (mouse_down_state->left_button_hold_ticks == 1 || mouse_down_state->right_button_hold_ticks == 1)
     {
         mouse_down_state->initial_pos = mouse_coords;
+        mouse_down_state->current_pos = mouse_coords;
     }
     else
     {
@@ -451,29 +616,39 @@ void ResetMouseDownState(MouseDownState *mouse_down_state)
 
 void ClearUIFocus()
 {
-    if (G_FocusedElement)
+    if (G_UIState.focused_element)
     {
-        G_FocusedElement->is_focused = false;
-        G_FocusedElement = NULL;
+        G_UIState.focused_element->is_focused = false;
+        G_UIState.focused_element = NULL;
     }
 }
 
 void UpdateUIFocus(UIElement *element)
 {
-    if (G_FocusedElement)
+    if (element && !element->is_enabled)
     {
-        G_FocusedElement->is_focused = false;
+        return;
     }
-    G_FocusedElement = element;
-    if (G_FocusedElement)
+
+    if (G_UIState.focused_element)
     {
-        G_FocusedElement->is_focused = true;
+        G_UIState.focused_element->is_focused = false;
+    }
+    G_UIState.focused_element = element;
+    if (G_UIState.focused_element)
+    {
+        G_UIState.focused_element->is_focused = true;
         printf("FOCUS CHANGE: [%s]\n", GetElementTypeName(element->type));
     }
 }
 
 void UpdateDragFocus(UIElement *element, Vector2d mouse_coords)
 {
+    if (!element || !element->is_enabled)
+    {
+        return;
+    }
+
     G_DragState.target_element = element;
 
     // float parent_offset_x = 0.0f;
@@ -486,7 +661,7 @@ void UpdateDragFocus(UIElement *element, Vector2d mouse_coords)
     //     parent_offset_y = element->parent_offset.offset.y; // + (e->parent->padding.y * basis_scale.y);
     // }
 
-    G_DragState.initial_element_offset = element->parent_offset.offset;
+    G_DragState.initial_element_offset = element->manual_parent_offset;
     printf("DRAG FOCUS CHANGE: [%s]\n", GetElementTypeName(element->type));
 }
 

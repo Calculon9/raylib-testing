@@ -34,10 +34,11 @@ void PrintVerticeCoords(LArray *vertices_arr, Vector2d offset);
 void UpdateEntityWorldRegistry(FlatMapInt *entity_world_index_registry, int entity_id, int type_flag, int entity_arr_index);
 void SetObjectFlag(WorldState *context, int object_id, int flag_to_update);
 void ClearObjectFlag(WorldState *context, int object_id, int flag_to_update);
-void ScheduleEntityFlagSet(LArray *scheduled_events, int object_id, int flag_to_set, int initial_frame_delay, int interval_frames, int run_limit);
-void RegisterEntity(WorldState *context, Newtonoid2d *entity);
+int RegisterEntity(WorldState *context, Newtonoid2d *entity);
 void DeregisterEntity(WorldState *context, int object_id);
 void ScheduleEntityFlagClear(LArray *scheduled_events, int object_id, int flag_to_set, int initial_frame_delay, int interval_frames, int run_limit);
+void ScheduleEntityFlagSet(LArray *scheduled_events, int object_id, int flag_to_set, int initial_frame_delay, int interval_frames, int run_limit);
+void ScheduleEntityDeletion(LArray *scheduled_events, int object_id, int flag_to_set, int initial_frame_delay, int interval_frames, int run_limit);
 void RunScheduledWorldCmds(LArray *scheduled_cmds, WorldState *context);
 void StickEntity(WorldState *context, Newtonoid2d *child, Newtonoid2d *parent);
 // void AddScheduledWorldUpdate(LArray *scheduled_events, Func func_to_run, void *new_func_data);
@@ -66,7 +67,7 @@ void CreateWorld(CoordSpace2d_Grid space_obj, float gravity, World2d *out_world)
    // return world;
 }
 
-void AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id)
+int AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id)
 {
    // We can calculate the cell indices based on the object's coordinates and the coordinate space's basis vectors and resolution
    // For simplicity, let's assume the object's coords_center is the point we will use to determine which cell it occupies
@@ -75,11 +76,11 @@ void AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id)
    if (local_coords.x < 0 || local_coords.y < 0 || local_coords.x >= world->coord_space_grid.coord_space.resolution_ixj.x || local_coords.y >= world->coord_space_grid.coord_space.resolution_ixj.y)
    {
       LOG_WARN("Desired spawn point (%0.2f,%0.2f) out of bounds. Cannot add entity to the world.\n", local_coords.x, local_coords.y);
-      return; // Click is outside the structural world viewport boundaries! Avoid resolving cell.
+      return -1; // Click is outside the structural world viewport boundaries! Avoid resolving cell.
    }
 
    // Add the newton_object to the world's objects array
-   RegisterEntity(&G_WorldState, object);
+   int assigned_id = RegisterEntity(&G_WorldState, object);
 
    // Solid objects are collision-enabled, need to be tracked spacially
    int cell_index = -1;
@@ -94,19 +95,17 @@ void AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id)
       {
          target_cell->object_ids[target_cell->occupancy] = object->id;
          target_cell->occupancy++;
-         // object->newtonian_properties.footprint = CalcSnappedAABB(world->coord_space_grid.coord_space.basis, object->newtonian_properties.surface, ZERO_VECTOR_2D);
       }
       else
       {
          LOG_WARN("Cell %d full. ID %d not tracked spatially.\n", cell_index, object->id);
-         return;
+         return assigned_id;
       }
    }
-
    // object->id = world->next_object_id++;
    // LArray_Push(&world->objects, object);
-
    LOG_INFO("CREATED OBJECT (ID %d): Cell %d : Center(%.1f, %.1f)\n", object->id, cell_index, local_coords.x, local_coords.y);
+   return assigned_id;
 }
 
 void UpdateWorld(WorldState *context, float delta_time)
@@ -136,7 +135,7 @@ void UpdateWorld(WorldState *context, float delta_time)
    }
 
    // RUN SCHEDULED WORLD EVENTS
-   //RunScheduledWorldCmds(&scheduled_world_cmds, context);
+   RunScheduledWorldCmds(&scheduled_world_cmds, context);
 
    Newtonoid2d *newtonoids = (Newtonoid2d *)objects->items;
    Matrix2x2 space_aabb = CalcSpaceAABB(space);
@@ -169,9 +168,10 @@ void UpdateWorld(WorldState *context, float delta_time)
 
    LArray *temp_objects = &context->world->temp_objects;
    // PASS 2: Resolving Attachment Hierarchies
-   for (size_t i = 0; i < obj_count; i++)
+   for (size_t i = 0; i < temp_objects->count; i++)
    {
-      Newtonoid2d *child = &newtonoids[i];
+      // Newtonoid2d *child = &newtonoids[i];
+      Newtonoid2d *child = (Newtonoid2d *)LArray_Get(temp_objects, i);
 
       if (!(child->flags & FLAG_STATUS_ALIVE) || child->parent_id == space_entity->object.id)
          continue;
@@ -265,28 +265,20 @@ void UpdateWorld(WorldState *context, float delta_time)
                   Vector2d dimensions = {collision_box.col2.x - collision_box.col1.x, collision_box.col2.y - collision_box.col1.y};
                   LArray collision_vertices_arr = MakeLArray(4, sizeof(Vector2d));
                   collision_vertices_arr.count = 4;
-                  CalcBoxVertices(dimensions, collision_center, collision_vertices_arr.items);               
+                  CalcBoxVertices(dimensions, ZERO_VECTOR_2D, collision_vertices_arr.items);
                   Newtonoid2d collision_obj = CreateNewtonoid2d(0.00001f, collision_center, penetrating_entity->velocity, penetrating_entity->acceleration, (Surface2d){.surface_vectors = collision_vertices_arr});
                   collision_obj.entity_layer = FLAG_TYPE_EFFECT;
-                  collision_obj.flags = FLAG_LIFETIME_CLOCKED;
-                  StickEntity(&G_WorldState, &collision_obj, penetrating_entity);
-                  AddObjectToWorld(G_WorldState.world, &collision_obj, penetrating_entity->parent_id);
-                  //Newtonoid2d *collision_obj_ptr = GetEntityByID(&G_WorldState, collision_obj.id);               
-                  //RegisterEntity(&G_WorldState, &collision_obj);
-                  // LArray_Push(&world->temp_objects, &collision_obj);
+                  collision_obj.flags |= FLAG_LIFETIME_CLOCKED;
+                  StickEntity(&G_WorldState, &collision_obj, penetrating_entity);                        // ISSUE IS HERE OR WHEN GETTING COLLISION BOX VERTICES ABOVE
+                  int id = AddObjectToWorld(G_WorldState.world, &collision_obj, penetrating_entity->id); // looks like a duplicate collision object is being created? continue this debug session and see what array it's in
 
                   // Create a scheduled update to flag the collision object for removal
-                  // EntityUpdate_WorldState ctx = {.world_objects = &world->temp_objects, .object_id = penetrating_entity->id, .flag_to_update = FLAG_ALIVE};
-                  ScheduleEntityFlagClear(&scheduled_world_cmds, penetrating_entity->id, FLAG_STATUS_ALIVE, 240, 1, 1);
-                  // AddScheduledWorldUpdate(&scheduled_world_updates, ClearObjectFlag, &ctx);
+                  ScheduleEntityDeletion(&scheduled_world_cmds, id, FLAG_STATUS_ALIVE, 120, 1, 1);
                }
             }
          }
       }
    }
-
-   // ClearFlatMapInt(&resolved_collisions);
-   // ClearFlatMapInt(&entity_space_map);
 }
 // Figure out how to return the vertice of the line/axis that is colliding..actually might not work if it's in between vertices where the collision occurs
 CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b)
@@ -792,9 +784,9 @@ void ScheduleEntityFlagSet(LArray *scheduled_events, int object_id, int flag_to_
        .type = CMD_SET_OBJECT_FLAG,
        .target_id = object_id,
        .payload_value = flag_to_set,
-       .interval_frames = interval_frames,
+       .interval_frames = interval_frames <= 0 ? 1 : interval_frames,
        .run_limit = run_limit,
-       .frame_count = initial_frame_delay,
+       .frame_count = 0,
        .initial_frame_delay = initial_frame_delay,
        .active = true};
    LArray_Push(scheduled_events, &cmd);
@@ -806,9 +798,23 @@ void ScheduleEntityFlagClear(LArray *scheduled_events, int object_id, int flag_t
        .type = CMD_CLEAR_OBJECT_FLAG,
        .target_id = object_id,
        .payload_value = flag_to_set,
-       .interval_frames = interval_frames,
+       .interval_frames = interval_frames <= 0 ? 1 : interval_frames,
        .run_limit = run_limit,
-       .frame_count = initial_frame_delay,
+       .frame_count = 0,
+       .initial_frame_delay = initial_frame_delay,
+       .active = true};
+   LArray_Push(scheduled_events, &cmd);
+}
+
+void ScheduleEntityDeletion(LArray *scheduled_events, int object_id, int flag_to_set, int initial_frame_delay, int interval_frames, int run_limit)
+{
+   WorldCommand cmd = {
+       .type = CMD_DELETE_OBJECT,
+       .target_id = object_id,
+       .payload_value = flag_to_set,
+       .interval_frames = interval_frames <= 0 ? 1 : interval_frames,
+       .run_limit = run_limit,
+       .frame_count = 0,
        .initial_frame_delay = initial_frame_delay,
        .active = true};
    LArray_Push(scheduled_events, &cmd);
@@ -823,10 +829,19 @@ void RunScheduledWorldCmds(LArray *scheduled_cmds, WorldState *context)
    while (i < scheduled_cmds->count)
    {
       // If it's not time yet, tick up the frame counter and skip executing it
-      if (cmds[i].frame_count % cmds[i].interval_frames != 0 || cmds[i].initial_frame_delay < cmds[i].frame_count)
+      // Handle the Initial Frame Delay
+      if (cmds[i].initial_frame_delay > 0)
       {
-         cmds[i].frame_count++;
-         i++; // Move to next command in queue
+         cmds[i].initial_frame_delay--;
+         i++;
+         continue;
+      }
+
+      // Handle the Interval Countdown
+      if (cmds[i].frame_count > 0)
+      {
+         cmds[i].frame_count--;
+         i++;
          continue;
       }
 
@@ -847,17 +862,22 @@ void RunScheduledWorldCmds(LArray *scheduled_cmds, WorldState *context)
          break;
       }
       cmds[i].run_count++;
-
+      // Check if this command is fully exhausted
       if (cmds[i].run_count >= cmds[i].run_limit)
       {
-         // Since this command is done, remove it from the schedule queue
-         // by swapping the last command into this slot (fast O(1) removal)
+         // Swap & Pop removal(fast O(1) removal)
          size_t last_idx = scheduled_cmds->count - 1;
          if (i != last_idx)
          {
             cmds[i] = cmds[last_idx];
          }
          scheduled_cmds->count--; // Notice we DO NOT increment 'i' here, because a new un-processed command was just swapped into the current 'i' position!
+      }
+      else
+      {
+         // Reset the interval timer for the next execution cycle
+         cmds[i].frame_count = cmds[i].interval_frames;
+         i++; // Move past this recurring command safely
       }
    }
 }
@@ -916,8 +936,9 @@ void DeregisterEntity(WorldState *context, int entity_id)
       Newtonoid2d *last_entity = (Newtonoid2d *)LArray_Get(world_objects, last_idx);
 
       // Repack its new location (same array type, but moves into deleted_idx)
-      int repacked_new_loc = PACK_INTS(deleted_idx, type);
-      FlatMapInt_InsertOrUpdate(context->entity_world_index_registry, last_entity->id, repacked_new_loc);
+      UpdateEntityWorldRegistry(context->entity_world_index_registry, last_entity->id, type, deleted_idx);
+      // int repacked_new_loc = PACK_INTS(deleted_idx, type);
+      // FlatMapInt_InsertOrUpdate(context->entity_world_index_registry, last_entity->id, repacked_new_loc);
    }
    int type_and_index_packed = -1;
    LArray_SwapPopAt(world_objects, deleted_idx);
@@ -939,7 +960,7 @@ void UpdateEntityWorldRegistry(FlatMapInt *entity_world_index_registry, int enti
    FlatMapInt_InsertOrUpdate(entity_world_index_registry, entity_id, packed);
 }
 
-void RegisterEntity(WorldState *context, Newtonoid2d *entity)
+int RegisterEntity(WorldState *context, Newtonoid2d *entity)
 {
    LArray *world_objects = NULL;
    ArchetypeID array_type;
@@ -965,19 +986,20 @@ void RegisterEntity(WorldState *context, Newtonoid2d *entity)
    UpdateEntityWorldRegistry(context->entity_world_index_registry, entity->id, array_type, assigned_index);
 
    LOG_INFO("Registered entity %d at index %d in array type %d", entity->id, assigned_index, array_type);
+   return entity->id;
 }
 
 void StickEntity(WorldState *context, Newtonoid2d *child, Newtonoid2d *parent)
 {
-    child->parent_id = parent->id;
-    
-    // Calculate how far away the child is from the parent at the exact moment of impact
-    child->local_offset.x = child->coords_center.x - parent->coords_center.x;
-    child->local_offset.y = child->coords_center.y - parent->coords_center.y;
-    
-    // Clear out the child's velocity so it doesn't accumulate forces while stuck
-    child->velocity.x = 0;
-    child->velocity.y = 0;
+   child->parent_id = parent->id;
+
+   // Calculate how far away the child is from the parent at the exact moment of impact
+   child->local_offset.x = child->coords_center.x - parent->coords_center.x;
+   child->local_offset.y = child->coords_center.y - parent->coords_center.y;
+
+   // Clear out the child's velocity so it doesn't accumulate forces while stuck
+   child->velocity.x = 0;
+   child->velocity.y = 0;
 }
 // void DeregisterEntity(WorldState context, Newtonoid2d *entity)
 // {

@@ -164,6 +164,19 @@ void *LArray_Get(LArray *a, int index)
     return source;
 }
 
+void *LArray_GetCircular(LArray *a, int *index_tracker)
+{
+    if (a == NULL || a->count == 0 || index_tracker == NULL) return NULL;
+
+    // Get the current item using the tracker passed in
+    void *item = (char *)a->items + ((*index_tracker) * a->elem_bytes);
+
+    // Advance and wrap the external tracker safely
+    *index_tracker = (*index_tracker + 1) % a->count;
+
+    return item;
+}
+
 bool LArray_RemoveAt(LArray *a, int index)
 {
     if (a == NULL)
@@ -211,12 +224,30 @@ bool LArray_SwapPopAt(LArray *a, int index)
     // If it's not the last element, move the last element to where the removed element was
     if (index < a->count - 1)
     {
-        void *last_element = (char *)target + (a->count - 1) * a->elem_bytes;
+        void *last_element = (char *)a->items + (a->count - 1) * a->elem_bytes;
         memmove(target, last_element, a->elem_bytes);
     }
 
     a->count--;
     return true;
+}
+
+void *LArray_CircularEnumerate(LArray *a)
+{
+    if (a == NULL || a->count == 0)
+    {
+        return NULL;
+    }
+
+    // Calculate the address of the CURRENT item first
+    void *item = (char *)a->items + (a->enumerator_index * a->elem_bytes);
+
+    // Advance the index, wrapping smoothly back to 0 if we hit the end
+    // Formula: (current_index + 1) % total_count
+    a->enumerator_index = (a->enumerator_index + 1) % a->count;
+
+    // eturn the item (this will never be NULL if the array has items)
+    return item;
 }
 
 // Dispose of the array and free its memory
@@ -315,7 +346,7 @@ bool LArray_Reset(LArray *a)
     }
 
     memset(a->items, 0, bytes);
-    
+
     // Update the capacity tracking
     a->count = 0;
 

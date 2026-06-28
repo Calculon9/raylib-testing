@@ -415,7 +415,7 @@ static void CalculateSpaceProperties(void)
     // 1. DEFINE & CALCULATE LOGICAL screen origin and end points for each region (panel, world)
     // 1.1 Give the panel ~1/4 of the x-dimension, and always 100% y-dimension
     lpanel_origin = ZERO_VECTOR_2D;
-    lpanel_end.x = floorf(lpanel_origin.x + ((1.0f / 4.0f) * resolution.x));
+    lpanel_end.x = floorf(lpanel_origin.x + ((0.25) * resolution.x));
     lpanel_end.y = resolution.y;
     lpanel_resolution = VectorSum_2d(VectorScale_2d(lpanel_origin, -1), lpanel_end);
     float lpanel_space_measure = VectorBox_2d(lpanel_resolution);

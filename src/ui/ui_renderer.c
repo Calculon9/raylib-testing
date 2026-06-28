@@ -35,13 +35,18 @@ void DrawTextArea(UIElement *e)
     if (!e)
         return;
 
-    // 1. Data Setup - Abstract the difference between Label and Textbox
+    // Data Setup - Abstract the difference between Label and Textbox
     char *text_ptr = NULL;  //(e->type == UI_ELEMENT_LABEL) ? e->data.label.text.string : e->data.textbox.text.string;
     Bitmap_Font font = {0}; // e->data.textbox.font; // Assuming similar struct layout
     if (IsTextbox(e))
     {
         text_ptr = e->data.textbox.text.string;
         font = e->data.textbox.font;
+    }
+    else if (IsBtn(e))
+    {
+        text_ptr = e->data.button.label.string;
+        font = e->data.button.font;
     }
     else if (e->type == UI_ELEMENT_LABEL)
     {
@@ -131,6 +136,8 @@ void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d camera)
     UIBox box = ResolveElementBox(root_element, seed_box, basis_scale);
     root_element->cached_box = box;
 
+    DistributeChildrenRecursiveResolved(root_element, box, basis_scale);
+
     // Draw background & border
     DrawElementBox(root_element);
     // frame_counter.total_frames % 800 == 0 ? printf("DREW [%s] Pos: (%.1f, %.1f) | Size: (%.1f, %.1f)\n", GetElementTypeName(root_element->type), box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y) : (void)0;
@@ -146,7 +153,7 @@ void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d camera)
 
 void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d camera)
 {
-    if (!e)
+    if (!e || !e->is_enabled)
     {
         return;
     }
@@ -192,7 +199,7 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d camera)
 
     // Draw background & border
     DrawElementBox(e);
-    if (IsTextbox(e) || e->type == UI_ELEMENT_LABEL)
+    if (IsTextbox(e) || IsBtn(e) || e->type == UI_ELEMENT_LABEL)
     {
         // Draw the Text
         DrawTextArea(e);

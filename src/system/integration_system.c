@@ -83,7 +83,20 @@ bool PipelineTextToVector(char *input_buffer, Vector2d *target_vector) //, Newto
         // snprintf(input_buffer, 64, "(%.2f,%.2f)", target_object->newtonian_properties.velocity.x, target_object->newtonian_properties.velocity.y);
     }
 }
+bool PipelineTextToInt(char *input_buffer, int *target_int)
+{
+    if (!input_buffer || !target_int)
+        return false;
 
+    int parsed_value = 0;
+    if (sscanf(input_buffer, "%d", &parsed_value) == 1)
+    {
+        *target_int = parsed_value;
+        return true;
+    }
+
+    return false;
+}
 // Text must be in the following format: "y" and assumes the text has already been committed by the user (e.g. pressed enter)
 bool PipelineTextToFloat(char *input_buffer, float *target_float) //, NewtonProperty object_property)
 {

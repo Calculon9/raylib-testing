@@ -1,7 +1,7 @@
 #include "math/geometry.h"
 #include "math/helpers.h"
 
-LArray CreateVertices_Symmetric(int vertice_count, float radius)
+LArray CreateVertices_Symmetric(int vertice_count, float radius_x, float radius_y)
 {
     if (vertice_count < 0)
     {
@@ -18,8 +18,8 @@ LArray CreateVertices_Symmetric(int vertice_count, float radius)
     {
         float current_angle = i * angle_step;
         Vector2d p;
-        p.x = radius * cosf(current_angle);
-        p.y = radius * sinf(current_angle);
+        p.x = radius_x * cosf(current_angle);
+        p.y = radius_y * sinf(current_angle);
         printf("Generated vertice %d: Angle = %.3f\n", i, current_angle);
         LArray_Push(&points, &p);
         if (log_offset < (int)sizeof(log_buffer) - 30)

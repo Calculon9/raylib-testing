@@ -75,6 +75,7 @@ typedef struct Newtonoid2d
     Vector2d acceleration;
     Vector2d momentum;
     Surface2d surface;
+    int edge_count;
     Vector2d local_axis_x;  // object's Forward/Right arrow is pointing     // Pre-computed (cos(rotation), sin(rotation))
     Vector2d local_axis_y;  // object's Up arrow is pointing
     float rotation;         // The raw angle in radians
@@ -97,6 +98,23 @@ typedef struct Newtonoid2d
     int id;
     int parent_id;
 } Newtonoid2d;
+
+typedef struct Newtonoid2dParams
+{
+    Vector2d coords_center;
+    Vector2d velocity;
+    Vector2d acceleration;
+    Vector2d momentum;
+    float mass;
+    float radius;
+    float width;
+    float height;
+    int edge_count;
+    int vertice_count;
+    ColourRgba line_colour;
+    ColourRgba fill_colour;
+    Surface2d surface;
+} Newtonoid2dParams;
 
 typedef struct Newtonoid2d_Static
 {
@@ -129,6 +147,7 @@ typedef enum
 //----------------------------------------------------------------------------------
 
 Newtonoid2d CreateNewtonoid2d(float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration, Surface2d surface);
+Newtonoid2d *CreateNewtonoid2d_Reference(float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration, Surface2d surface);
 Newtonoid2d CreateNewtonoid2d_Static(Vector2d coords_center, Surface2d surface);
 Newtonoid2d CreateNewtonoid2d_Symmetric(int vertice_count, float radius, ColourRgba colour, float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration);
 Newtonoid2d CreateNewtonoid2d_Irregular(int vertice_count, float min_radius, float max_radius, ColourRgba colour, float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration);

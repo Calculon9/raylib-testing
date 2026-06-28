@@ -98,8 +98,8 @@ typedef struct
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 //TextField CreateTextField(float width, float height, Vector2d origin_coords, Vector2d padding_inner, Vector2d padding_outer, ColourRgba colour_border_outer, ColourRgba colour_fill_outer, ColourRgba colour_border_inner, ColourRgba colour_fill_inner);
-UIElement *CreateTextFieldInTree(Size size, UIElement *parent, Offset parent_offset, Vector2d padding, Vector2d label_tbox_offset, ColourRgba colour_border, ColourRgba colour_fill);
-UIElement *CreateTextFieldContainerInTree(Size size, UIElement *parent, Offset parent_offset, Vector2d padding, Vector2d child_spacing, ColourRgba colour_border, ColourRgba colour_fill);
+UIElement *CreateTextFieldInTree(Size size, UIElement *parent, Offset parent_offset, Size tbox_size, Vector2d padding, Vector2d label_tbox_offset, ColourRgba colour_border, ColourRgba colour_fill);
+UIElement *CreateTextFieldContainerInTree(Size size, UIElement *parent, Offset parent_offset, Vector2d padding, Spacing child_spacing, ColourRgba colour_border, ColourRgba colour_fill);
 //ShortString GetText_TextField(TextField *text_box);
 //void *GetTextFieldVertices(TextField text_box, Vector2d out_vertices[4]);
 bool IsFocused(Vector2d pixel_coords, Vector2d *vertices, int vertex_count);

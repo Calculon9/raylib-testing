@@ -76,22 +76,23 @@ LArray *test = NULL;
 //----------------------------------------------------------------------------------
 // Gameplay Screen Functions Definition
 //----------------------------------------------------------------------------------
-void InitPanelTextContainers();
 void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region);
 void CreateAddNewtonoid(int vertice_count, float radius, ShapeType shape_type, float mass, ColourRgba colour, Vector2d coords_center, Vector2d velocity, Vector2d acceleration);
+void TogglePause(WorldState *context);
 
 // FIRST: Initialisation of Gameplay Screen
 void InitGameWorld(void)
 {
+    // Init Global World State
+    G_WorldState.selected_object = NULL;
+    G_WorldState.selected_cell = NULL;
+    G_WorldState.newtonoid_params = AllocateBytes(sizeof(Newtonoid2dParams)); // CreateNewtonoid2d_Reference(0, ZERO_VECTOR_2D, ZERO_VECTOR_2D, ZERO_VECTOR_2D, (Surface2d){0});
+    G_WorldState.world = &world;
     // 1. INIT CAMERAS using using the resolutions, sceen basis, origins etc. from Step 0
     // 1.1 Game world camera
     Basis2d world_basis = (Basis2d){world_u, world_v};
     Basis2d world_pixel_basis = (Basis2d){world_pixel_u, world_pixel_v};
     camera_world = CreateCamera2d(world_pixel_basis, world_basis, world_pixel_origin, world_origin, camera_world_zoom, camera_world_rotation);
-    // G_WorldState.world = &world;
-    //  3 CREATE GAME WORLD using the resolutions, origins etc. from Step 0
-    //  3.1 Create the coordinate space for the world
-    //  3.11 Initialise Objects
 
     // 3.2 Create the space then world
     CoordSpace2d_Grid space_g = NewCoordSpace2d_Grid(world_origin, world_resolution, world_basis, world_fill_colour, world_line_colour);
@@ -119,7 +120,6 @@ void DrawGameWorld()
 void UpdateWorldSystem(int mouse_x, int mouse_y)
 {
     bool cursor_in_world = mouse_x >= world_pixel_origin.x && mouse_x <= (world_pixel_origin.x + (world_pixel_u.x * world_resolution.x)) && mouse_y >= world_pixel_origin.y && mouse_y <= (world_pixel_origin.y + (world_pixel_v.y * world_resolution.y));
-
     UpdateWorldRegion(mouse_x, mouse_y, cursor_in_world);
 }
 // Gameplay Screen Stage Update logic
@@ -136,6 +136,11 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
     Vector2d acceleration = polygonoid_acceleration_default;
     ColourRgba colour = polygonoid_line_colour;
 
+    if (IsKeyPressed(KEY_SPACE))
+    {
+        TogglePause(&G_WorldState);
+    }
+
     // DEBUGGING - we will update object vectors if button is pressed
     bool keyDown = IsKeyDown(KEY_LEFT_CONTROL);
     if (keyDown)
@@ -145,8 +150,7 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
         // PrintCurrentBytesAlloc();
     }
     // DEBUGGING - 1 Frame setp-through
-    bool keyPressed = IsKeyPressed(KEY_LEFT_SHIFT);
-    if (keyPressed)
+    if (IsKeyPressed(KEY_LEFT_SHIFT) && G_WorldState.mode == PAUSED)
     {
         // PrintCurrentBytesAlloc();
         UpdateWorld(&G_WorldState, frame_counter.delta_time);
@@ -154,37 +158,35 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
     }
 
     // DEBUGGING - Rapid firing of polygonoids
-    keyDown = IsKeyDown(KEY_ONE);
-    if (keyDown & frame_counter.total_frames % 3 == 0)
-    {
-        radius = GetRandomFloat(0.1, polygonoid_radius_default * 0.25);
-        mass = radius * polygonoid_mass_default;
-        velocity = (Vector2d){GetRandomFloat(polygonoid_velocity_default.x * -8, polygonoid_velocity_default.x * 8), GetRandomFloat(polygonoid_velocity_default.y * 0, polygonoid_velocity_default.y * 16)};
-        Vector2d top_middle_world = (Vector2d){world.coord_space_grid.object.boxed_dimensions.x * 0.5, 0.3};
-        // Vector2d top_middle_world_pixel = TransformCoordinates(camera_world.source_to_dest_mtx, top_middle_world);
-        CreateAddNewtonoid(vertice_count, radius, SHAPE_MATH_POLY_HULL, mass, colour, top_middle_world, velocity, acceleration);
-        UpdateWorld(&G_WorldState, frame_counter.delta_time);
-    }
+    // keyDown = IsKeyDown(KEY_ONE);
+    // if (keyDown & frame_counter.total_frames % 3 == 0)
+    // {
+    //     radius = GetRandomFloat(0.1, polygonoid_radius_default * 0.25);
+    //     mass = radius * polygonoid_mass_default;
+    //     velocity = (Vector2d){GetRandomFloat(polygonoid_velocity_default.x * -8, polygonoid_velocity_default.x * 8), GetRandomFloat(polygonoid_velocity_default.y * 0, polygonoid_velocity_default.y * 16)};
+    //     Vector2d top_middle_world = (Vector2d){world.coord_space_grid.object.boxed_dimensions.x * 0.5, 0.3};
+    //     // Vector2d top_middle_world_pixel = TransformCoordinates(camera_world.source_to_dest_mtx, top_middle_world);
+    //     CreateAddNewtonoid(vertice_count, radius, SHAPE_MATH_POLY_HULL, mass, colour, top_middle_world, velocity, acceleration);
+    //     UpdateWorld(&G_WorldState, frame_counter.delta_time);
+    // }
 
-    // DEBUGGING - Collisions
-    keyPressed = IsKeyPressed(KEY_THREE);
-    if (keyPressed)
-    {
-        radius = 1.5;
-        mass = radius * polygonoid_mass_default;
-        velocity = (Vector2d){-3, 3};
-        CreateAddNewtonoid(3, radius, SHAPE_MATH_EQUIDISTANT, mass, colour, click_world_coords, velocity, acceleration); // triangle
-        UpdateWorld(&G_WorldState, frame_counter.delta_time);
-    }
-    keyPressed = IsKeyPressed(KEY_FOUR);
-    if (keyPressed)
-    {
-        radius = 1.5;
-        mass = radius * polygonoid_mass_default;
-        velocity = (Vector2d){-3, 3};
-        CreateAddNewtonoid(4, radius, SHAPE_MATH_EQUIDISTANT, mass, colour, click_world_coords, velocity, acceleration); // rectangle
-        UpdateWorld(&G_WorldState, frame_counter.delta_time);
-    }
+    // // DEBUGGING - Collisions
+    // if (IsKeyPressed(KEY_THREE))
+    // {
+    //     radius = 1.5;
+    //     mass = radius * polygonoid_mass_default;
+    //     velocity = (Vector2d){-3, 3};
+    //     CreateAddNewtonoid(3, radius, SHAPE_MATH_EQUIDISTANT, mass, colour, click_world_coords, velocity, acceleration); // triangle
+    //     UpdateWorld(&G_WorldState, frame_counter.delta_time);
+    // }
+    // if (IsKeyPressed(KEY_FOUR))
+    // {
+    //     radius = 1.5;
+    //     mass = radius * polygonoid_mass_default;
+    //     velocity = (Vector2d){-3, 3};
+    //     CreateAddNewtonoid(4, radius, SHAPE_MATH_EQUIDISTANT, mass, colour, click_world_coords, velocity, acceleration); // rectangle
+    //     UpdateWorld(&G_WorldState, frame_counter.delta_time);
+    // }
     // Draw a circle where the mouse clicks and add it to the state
     if (IsKeyPressed(KEY_UP) && cursor_in_region)
     {
@@ -223,8 +225,7 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
     Vector2d click_local_coords = TransformCoordinates(camera_world.dest_to_source_mtx, click_pixel_coords); // This is relative to the world origin, so we can use it directly to compare to object coordinates which are also relative to the world origin
 
     int cell_index = ((int)click_local_coords.y * (int)world_resolution.x) + (int)click_local_coords.x;
-    if (click_local_coords.x < 0 || click_local_coords.y < 0 ||
-        click_local_coords.x >= world_resolution.x || click_local_coords.y >= world_resolution.y)
+    if (click_local_coords.x < 0 || click_local_coords.y < 0 || click_local_coords.x >= world_resolution.x || click_local_coords.y >= world_resolution.y)
     {
         // Click is outside the structural world viewport boundaries! Avoid resolving cell.
         return;
@@ -241,8 +242,6 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
 
     // Check World objects for the object with the same ID as the one in the cell and print its properties if found
     Newtonoid2d *objs = (Newtonoid2d *)world.objects.items;
-    // Vector2d click_to_cell_dist = VectorSum_2d(VectorScale_2d(cell.coords_center, -1), click_local_coords);
-    // float click_to_cell_mag = fabs(VectorMagnitude_2d(click_to_cell_dist));
     Vector2d click_to_obj_vec = {world.coord_space_grid.coord_space.resolution_ixj.x, world.coord_space_grid.coord_space.resolution_ixj.y}; // Init with the max value in the world's coord system
     float shortest_dist = fabs(VectorMagnitude_2d(click_to_obj_vec));
     Newtonoid2d *p_closest = NULL;
@@ -330,6 +329,101 @@ void CreateAddNewtonoid(int vertice_count, float radius, ShapeType shape_type, f
     // Array_Push(polygonoids, &newPolygonoid);
 }
 
+void TogglePause(WorldState *context)
+{
+    if (context->mode == RUNNING)
+    {
+        context->mode = PAUSED;
+    }
+    else if (context->mode == PAUSED)
+    {
+        context->mode = RUNNING;
+    }
+}
+
+Newtonoid2d *ResolveEntityParamsToEntity(Newtonoid2dParams *newtonoid_params)
+{
+    // Parameter Validation Guards
+    if (newtonoid_params->vertice_count < 0 || newtonoid_params->vertice_count < newtonoid_params->edge_count - 1)
+    {
+        LOG_WARN("Invalid vertice count: vertice_count = %d, edge_count = %d\n", newtonoid_params->vertice_count, newtonoid_params->edge_count);
+        return NULL;
+    }
+    if (newtonoid_params->edge_count < 0)
+    {
+        LOG_WARN("Invalid edge count: vertice_count = %d, edge_count = %d\n", newtonoid_params->vertice_count, newtonoid_params->edge_count);
+        return NULL;
+    }
+    if (newtonoid_params->width < 0.0 || newtonoid_params->height < 0.0)
+    {
+        LOG_WARN("Invalid size: width = %f, height = %f\n", newtonoid_params->width, newtonoid_params->height);
+        return NULL;
+    }
+
+    // Resolve the Shape Type
+    // If it has 4 vertices and 4 edges, it's a box. If it has high vertex counts, it approximates a circle/equidistant shape.
+    ShapeType shape_type = SHAPE_MATH_EQUIDISTANT;
+    if (newtonoid_params->vertice_count == 4)
+    {
+        shape_type = SHAPE_BOX;
+    }
+    else if (newtonoid_params->vertice_count == 0)
+    {
+        shape_type = SHAPE_CIRCLE;
+    }
+
+    // Request/Allocate a raw slot for our new live physics object from the world pool
+    Newtonoid2d *obj = CreateNewtonoid2d_Reference(newtonoid_params->vertice_count, newtonoid_params->coords_center, newtonoid_params->velocity, newtonoid_params->acceleration, (Surface2d){0});
+    if (!obj)
+    {
+        LOG_WARN("Failed to allocate new physical object. World entity pool full.\n");
+        return NULL;
+    }
+
+    // Populate Base Physics Properties
+    obj->mass = newtonoid_params->mass;
+    obj->coords_center = newtonoid_params->coords_center;
+    obj->velocity = newtonoid_params->velocity;
+    obj->acceleration = newtonoid_params->acceleration;
+    obj->momentum = newtonoid_params->momentum;
+
+    // Generate Vertices Array based on Geometry Layout
+    // Assuming your Newtonoid2d struct contains an LArray or fixed array called `local_vertices`
+    obj->surface.surface_vectors = MakeLArray(sizeof(Vector2d), newtonoid_params->vertice_count);
+
+    if (shape_type == SHAPE_BOX)
+    {
+        float hw = newtonoid_params->width * 0.5f;
+        float hh = newtonoid_params->height * 0.5f;
+
+        // Clockwise or Counter-Clockwise layout relative to local center (0,0)
+        Vector2d box_verts[4] = {
+            {-hw, -hh}, // Top-Left
+            {hw, -hh},  // Top-Right
+            {hw, hh},   // Bottom-Right
+            {-hw, hh}   // Bottom-Left
+        };
+
+        for (int i = 0; i < 4; i++)
+        {
+            LArray_Push(&obj->surface.surface_vectors, &box_verts[i]);
+        }
+    }
+    else if (shape_type == SHAPE_MATH_EQUIDISTANT)
+    {
+        // Generate regular polygon vertices distributed equidistantly around a unit radius loop
+        int total_verts = newtonoid_params->vertice_count;
+        float radius_x = newtonoid_params->width * 0.5f;
+        float radius_y = newtonoid_params->height * 0.5f;
+        obj->surface.surface_vectors = CreateVertices_Symmetric(total_verts, radius_x, radius_y);
+        
+    }
+
+    LOG_INFO("Successfully spawned Entity ID: %d [Type: %d] at Position (%.2f, %.2f)\n",
+             obj->id, shape_type, obj->coords_center.x, obj->coords_center.y);
+
+    return obj;
+}
 // void CreateAddPolygonoid(int vertice_count, float radius, ShapeType shape_type, float mass, ColourRgba colour, Vector2d coords_center, Vector2d velocity, Vector2d acceleration)
 // {
 //     Polygonoid new_polygonoid = {0};
@@ -356,7 +450,7 @@ void CreateAddNewtonoid(int vertice_count, float radius, ShapeType shape_type, f
 //     // Array_Push(polygonoids, &newPolygonoid);
 // }
 
-int GetPolygonoidCount(void)
+int GetNewtonoidCount(void)
 {
     return world.objects.count;
 }

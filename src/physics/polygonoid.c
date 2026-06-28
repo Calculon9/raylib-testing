@@ -20,7 +20,7 @@ Polygonoid CreatePolygonoid_Symmetric(int vertice_count, float radius, ColourRgb
 {
    Polygonoid newPol = {0};
    Surface2d surface = {0};
-   LArray surface_vectors = CreateVertices_Symmetric(vertice_count, radius);
+   LArray surface_vectors = CreateVertices_Symmetric(vertice_count, radius, radius);
    surface.surface_vectors = surface_vectors;
    Newtonoid2d newtOb = CreateNewtonoid2d(mass, coords_center, velocity, acceleration, surface);
 

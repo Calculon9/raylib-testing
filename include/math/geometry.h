@@ -35,8 +35,8 @@ typedef enum {
 
 typedef enum {
     SHAPE_MATH_EQUIDISTANT, // A Primitive shape with uniform radius (Circles, regular hexagons, squares)
-    SHAPE_PRIMITIVE_CIRCLE,
-    SHAPE_PRIMITIVE_BOX,
+    SHAPE_CIRCLE,
+    SHAPE_BOX,
     SHAPE_MATH_POLY_HULL    // Asymmetric/Irregular shapes requiring full vertex-edge checking loops. Tells the collision resolver: "Use the SAT/GJK loop!"
 } ShapeType;
 
@@ -61,6 +61,6 @@ bool BoxFitsWithinBox(Matrix2x2 box1, Matrix2x2 box2);
 Matrix2x2 CalcBoxOverlapWithBox(Matrix2x2 box1, Matrix2x2 box2);
 void CalcBoxVertices(Vector2d dimensions, Vector2d coords_center, Vector2d out_vertices[4]);
 LArray ShapeAVerticesInShapeB(LArray *shape1_vertices, LArray *shape2_vertices, Vector2d shape1_vertice_offset, Vector2d shape2_vertice_offset);
-LArray CreateVertices_Symmetric (int vertice_count, float radius);
+LArray CreateVertices_Symmetric (int vertice_count, float radius_x, float radius_y);
 LArray CreateVertices_Irregular (int vertice_count, float min_radius, float max_radius);
 #endif

@@ -12,30 +12,40 @@ WORLD MODULE
 #include "ui/cfont.h"
 #include "system/systems.h"
 
-
-
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
 #define GET_UI_ELEMENT(la, idx) (*(UIElement **)LArray_Get(la, idx))
-#define ZERO_BOX \
-    (UIBox) { .coords = {0, 0}, .dimensions = {0, 0} }
+#define ZERO_BOX (UIBox) { .coords = {0, 0}, .dimensions = {0, 0} }
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
+typedef void (*UIEventHandler)(UIElement *e);
+
 typedef enum
 {
     UI_ELEMENT_NONE,
     UI_ELEMENT_ROOT,
     UI_ELEMENT_CONTAINER,
-    UI_ELEMENT_TEXTBOX_O, // Will save over previous text with whatever is typed into it
-    UI_ELEMENT_TEXTBOX_IO, // Will only save over previous text if ENTER is pressed
+    UI_ELEMENT_TEXTBOX_O,       // Will save over previous text with whatever is typed into it
+    UI_ELEMENT_TEXTBOX_IO,      // Will only save over previous text if ENTER is pressed
     UI_ELEMENT_TEXTBOX_SAFE_IO, // Will only save over previous text if ENTER is pressed
     UI_ELEMENT_TEXTFIELD,
     UI_ELEMENT_LABEL,
-    UI_ELEMENT_BUTTON,
+    UI_ELEMENT_BUTTON_SIMPLE,
+    UI_ELEMENT_BUTTON_SWITCH,
+    UI_ELEMENT_BUTTON_ENUMERATE,
+    UI_ELEMENT_BUTTON_SUBMIT,
     UI_ELEMENT_IMAGE
 } UIElementType;
+
+typedef enum
+{
+    SPACING_NONE,
+    SPACING_STACKED, // Stack elements vertically in sibling order, using child height plus spacing.y. spacing.x is ignored.
+    SPACING_NORMAL, // Add a per-index spacing offset on top of each child's authored/manual parent offset.
+    SPACING_OVERLAYED
+} SpacingType;
 
 typedef enum
 {
@@ -54,7 +64,7 @@ typedef enum
 typedef enum
 {
     LEFT,
-    RIGHT, 
+    RIGHT,
     MIDDLE
 } MouseBtn;
 
@@ -72,13 +82,20 @@ typedef struct
 
 typedef struct
 {
+    Vector2d spacing;
+    NumberForm spacing_mode;
+    SpacingType spacing_type;
+} Spacing;
+
+typedef struct
+{
     CoordSpace2d coord_space;
 } RootData;
 
 typedef struct
 {
     String64 text;
-    DatatType data_type;
+    DataType data_type;
     void *data_bind;
     Bitmap_Font font;
     int cursor_position;
@@ -98,8 +115,12 @@ typedef struct
 
 typedef struct
 {
-    String32 label;
-    void (*on_click)(void);
+    String64 label;
+    Bitmap_Font font;
+    UIEventHandler on_click;
+    UIElement *slave;
+    void *data_bind;
+    void *user_data; // 8-byte magic pointer for ANY custom state
 } ButtonData;
 
 typedef union
@@ -124,7 +145,9 @@ typedef struct UIElement
 {
     // LArray children;
     Offset parent_offset;
-    Vector2d child_spacing;
+    Vector2d manual_parent_offset;
+    bool has_manual_parent_offset;
+    Spacing child_spacing;
     Vector2d padding;
     ColourRgba colour_border;
     ColourRgba colour_fill;
@@ -132,12 +155,18 @@ typedef struct UIElement
     UIElementType type;
     UIElementData data;
     UIBox cached_box;
-    bool is_focused, is_dirty, is_draggable; // For interactive elements like TextBoxes and Buttons
+    bool is_focused, is_dirty, is_draggable, is_enabled; // For interactive elements like TextBoxes and Buttons
 
     UIElement *parent;
     UIElement *first_child;
     UIElement *next_sibling;
 } UIElement;
+
+typedef struct View
+{
+    UIElement *container;
+    ViewType type;
+} View;
 
 // typedef struct {
 //     Texture *texture;
@@ -152,9 +181,14 @@ typedef struct UIElement
 //----------------------------------------------------------------------------------
 UIElement *CreateUIElement(UIElementType type, Size size, Offset parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill);
 UIElement *CreateUIElementInTree(UIElementType type, Size size, UIElement *parent, Offset parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill);
+UIElement *CreateBtnUIElementInTree(UIElementType type, Size size, UIElement *parent, Offset parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill);
 void GetUIElementVertices(UIElement *e, Vector2d out_vertices[4]);
 bool IsMouseOverElement(UIElement *el, Vector2d mouse_pos);
-//Vector2d ResolveElementPosition(UIElement *element, UIBox parent_box, Vector2d basis_scale);
+// Vector2d ResolveElementPosition(UIElement *element, UIBox parent_box, Vector2d basis_scale);
+void DistributeChildren(UIElement *e);
+void DistributeChildrenRecursive(UIElement *e);
+void DistributeChildrenResolved(UIElement *e, UIBox resolved_box, Vector2d basis_scale);
+void DistributeChildrenRecursiveResolved(UIElement *e, UIBox resolved_box, Vector2d basis_scale);
 UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_scale);
 const char *GetElementTypeName(UIElementType type);
 UIElement *GetLastChild(UIElement *e);
@@ -163,7 +197,10 @@ void RemoveElementFromTree(UIElement *element);
 UIElement *GetPreviousSibling(UIElement *element);
 bool ElementHasSibling(UIElement *e);
 UIElement *GetElementAt(UIElement *e, Vector2d pixel_coords);
+void EnableElement(UIElement *element);
+void DisableElement(UIElement *element);
 bool IsTextbox(UIElement *e);
-
+bool IsBtn(UIElement *e);
+void ToggleElementEnabled(UIElement *element);
 // UIElement *CreateTextField(float width, float height, Vector2d origin_coords, Vector2d parent_offset, Vector2d label_tbox_offset, Vector2d label_tbox_padding, char max_label_chars, char max_text_box_chars);
 #endif

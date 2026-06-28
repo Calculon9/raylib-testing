@@ -7,6 +7,143 @@
 #include "ui/ui.h"
 #include "raylib.h"
 
+static Vector2d GetContentAreaInLocalUnits(const UIElement *parent)
+{
+    if (!parent)
+    {
+        return ZERO_VECTOR_2D;
+    }
+
+    float content_w = 0.0f;
+    float content_h = 0.0f;
+
+    // Preferred fallback for init-time layout where cached boxes are not yet resolved.
+    if (parent->size.size_mode == SIZE_FIXED)
+    {
+        content_w = parent->size.dimensions.x;
+        content_h = parent->size.dimensions.y;
+    }
+    else
+    {
+        // Percent-sized parents still need a non-zero basis for relative spacing.
+        content_w = parent->size.dimensions.x;
+        content_h = parent->size.dimensions.y;
+    }
+
+    content_w = fmaxf(0.0f, content_w - (2.0f * parent->padding.x));
+    content_h = fmaxf(0.0f, content_h - (2.0f * parent->padding.y));
+
+    return (Vector2d){content_w, content_h};
+}
+
+static Vector2d GetContentAreaInResolvedLocalUnits(const UIElement *parent, UIBox resolved_box, Vector2d basis_scale)
+{
+    if (!parent)
+    {
+        return ZERO_VECTOR_2D;
+    }
+
+    float content_w = resolved_box.dimensions.x;
+    float content_h = resolved_box.dimensions.y;
+
+    if (parent->padding.x > 0.0f)
+    {
+        content_w -= (2.0f * parent->padding.x * basis_scale.x);
+    }
+    if (parent->padding.y > 0.0f)
+    {
+        content_h -= (2.0f * parent->padding.y * basis_scale.y);
+    }
+
+    content_w = fmaxf(0.0f, content_w);
+    content_h = fmaxf(0.0f, content_h);
+
+    return (Vector2d){
+        basis_scale.x > 0.0f ? content_w / basis_scale.x : 0.0f,
+        basis_scale.y > 0.0f ? content_h / basis_scale.y : 0.0f};
+}
+
+static void DistributeChildrenWithContentArea(UIElement *e, Vector2d content_area_local)
+{
+    if (!e || !e->first_child)
+    {
+        return;
+    }
+
+    Spacing s = e->child_spacing;
+    if (s.spacing_type == SPACING_NONE)
+    {
+        return;
+    }
+
+    Vector2d spacing_step_fixed = s.spacing;
+    Vector2d spacing_step_percent = s.spacing;
+
+    if (s.spacing_mode == PERCENT)
+    {
+        spacing_step_fixed.x = content_area_local.x * s.spacing.x;
+        spacing_step_fixed.y = content_area_local.y * s.spacing.y;
+    }
+    else
+    {
+        spacing_step_percent.x = content_area_local.x > 0.0f ? s.spacing.x / content_area_local.x : 0.0f;
+        spacing_step_percent.y = content_area_local.y > 0.0f ? s.spacing.y / content_area_local.y : 0.0f;
+    }
+
+    if (s.spacing_type == SPACING_NORMAL)
+    {
+        int child_count = 0;
+        for (UIElement *child = e->first_child; child; child = child->next_sibling)
+        {
+            Vector2d step = child->parent_offset.offset_mode == OFFSET_PERCENT ? spacing_step_percent : spacing_step_fixed;
+            Vector2d distributed = (Vector2d){step.x * child_count, step.y * child_count};
+
+            child->parent_offset.offset.x = child->manual_parent_offset.x + distributed.x;
+            child->parent_offset.offset.y = child->manual_parent_offset.y + distributed.y;
+            child_count++;
+        }
+    }
+    else if (s.spacing_type == SPACING_STACKED)
+    {
+        float cursor_fixed_y = 0.0f;
+        float cursor_percent_y = 0.0f;
+
+        for (UIElement *child = e->first_child; child; child = child->next_sibling)
+        {
+            Vector2d child_size_fixed = ZERO_VECTOR_2D;
+
+            if (child->size.size_mode == SIZE_PERCENT)
+            {
+                child_size_fixed.x = content_area_local.x * child->size.dimensions.x;
+                child_size_fixed.y = content_area_local.y * child->size.dimensions.y;
+            }
+            else if (child->size.size_mode == SIZE_FILL)
+            {
+                child_size_fixed.x = content_area_local.x;
+                child_size_fixed.y = fmaxf(0.0f, content_area_local.y - cursor_fixed_y);
+            }
+            else
+            {
+                child_size_fixed = child->size.dimensions;
+            }
+
+            float child_size_percent_y = content_area_local.y > 0.0f ? child_size_fixed.y / content_area_local.y : 0.0f;
+
+            if (child->parent_offset.offset_mode == OFFSET_PERCENT)
+            {
+                child->parent_offset.offset = (Vector2d){child->manual_parent_offset.x, child->manual_parent_offset.y + cursor_percent_y};
+            }
+            else
+            {
+                child->parent_offset.offset = (Vector2d){child->manual_parent_offset.x, child->manual_parent_offset.y + cursor_fixed_y};
+            }
+
+            cursor_fixed_y += child_size_fixed.y + spacing_step_fixed.y;
+            cursor_percent_y += child_size_percent_y + spacing_step_percent.y;
+        }
+    }
+}
+
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
@@ -31,15 +168,44 @@ UIElement *CreateUIElement(UIElementType type, Size size, Offset parent_offset, 
     e->size = size;
     e->padding = padding;
     e->parent_offset = parent_offset;
+    e->manual_parent_offset = parent_offset.offset;
+    e->has_manual_parent_offset = true;
     e->type = type;
-
+    e->is_enabled = true;
     // MUST explicitly set these to NULL
     e->first_child = NULL;
     e->next_sibling = NULL;
     e->parent = NULL;
-    // e->children = *NewLArray(2, sizeof(UIElement *)); // Initialise the children array for this element
+    // Default values for interactive elements
+    e->is_focused = false;
+    e->is_dirty = true;
+    e->is_draggable = false;
+    e->child_spacing = (Spacing){{0, 0}, PERCENT, SPACING_NONE};
+   
 
     return e;
+}
+
+UIElement *CreateBtnUIElementInTree(UIElementType type, Size size, UIElement *parent, Offset parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill)
+{
+    UIElement *btn = CreateUIElementInTree(type, size, parent, parent_offset, padding, colour_border, colour_fill);
+
+    if (!btn)
+        return NULL;
+
+    btn->is_enabled = true;
+    btn->is_draggable = false;
+    btn->is_focused = false;
+    btn->is_dirty = true;
+
+    btn->data.button.on_click = NULL;
+    btn->data.button.slave = NULL;
+    btn->data.button.data_bind = NULL;
+    btn->data.button.user_data = NULL;
+    btn->data.button.font = FONT_BASIC;
+    btn->data.button.label.string[0] = '\0';
+
+    return btn;
 }
 
 UIElement *CreateUIElementInTree(UIElementType type, Size size, UIElement *parent, Offset parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill)
@@ -184,10 +350,73 @@ bool ElementHasSibling(UIElement *e)
     }
 }
 
+// This needs to be called BEFORE the child's box is resolved, so that the child can use the parent's child_spacing to determine its position
+// Purpose: Distribute the children of a parent container according to its configured spacing rules. This function modifies the parent_offset of each child based on the parent's child_spacing settings.
+void DistributeChildren(UIElement *e)
+{
+    if (!e || !e->first_child)
+    {
+        return;
+    }
+
+    Vector2d content_area_local = GetContentAreaInLocalUnits(e);
+    DistributeChildrenWithContentArea(e, content_area_local);
+}
+
+void DistributeChildrenRecursive(UIElement *e)
+{
+    if (!e)
+    {
+        return;
+    }
+
+    // Apply spacing at this level when configured.
+    DistributeChildren(e);
+
+    // Always recurse so nested containers can still distribute their own children.
+    for (UIElement *child = e->first_child; child; child = child->next_sibling)
+    {
+        DistributeChildrenRecursive(child);
+    }
+}
+
+void DistributeChildrenResolved(UIElement *e, UIBox resolved_box, Vector2d basis_scale)
+{
+    if (!e || !e->first_child)
+    {
+        return;
+    }
+
+    Vector2d content_area_local = GetContentAreaInResolvedLocalUnits(e, resolved_box, basis_scale);
+    DistributeChildrenWithContentArea(e, content_area_local);
+}
+
+void DistributeChildrenRecursiveResolved(UIElement *e, UIBox resolved_box, Vector2d basis_scale)
+{
+    if (!e)
+    {
+        return;
+    }
+
+    DistributeChildrenResolved(e, resolved_box, basis_scale);
+
+    for (UIElement *child = e->first_child; child; child = child->next_sibling)
+    {
+        UIBox child_box = ResolveElementBox(child, resolved_box, basis_scale);
+        DistributeChildrenRecursiveResolved(child, child_box, basis_scale);
+    }
+}
+
 UIElement *GetElementAt(UIElement *e, Vector2d pixel_coords)
 {
     if (!e)
         return NULL;
+
+    // Disabled elements and their subtrees are not interactive.
+    if (!e->is_enabled)
+    {
+        return NULL;
+    }
 
     // 1. If the mouse isn't even over THIS element, it can't be over its children
     if (!IsMouseOverElement(e, pixel_coords))
@@ -213,12 +442,39 @@ UIElement *GetElementAt(UIElement *e, Vector2d pixel_coords)
     return (found) ? found : e;
 }
 
+void DisableElement(UIElement *element)
+{
+    element->is_enabled = false;
+}
+
+void EnableElement(UIElement *element)
+{
+    element->is_enabled = true;
+}
+
+void ToggleElementEnabled(UIElement *element)
+{
+    element->is_enabled = !element->is_enabled;
+}
+
 bool IsTextbox(UIElement *e)
 {
     if (!e)
         return false;
 
     if (e->type == UI_ELEMENT_TEXTBOX_O || e->type == UI_ELEMENT_TEXTBOX_SAFE_IO || e->type == UI_ELEMENT_TEXTBOX_IO)
+    {
+        return true;
+    }
+    return false;
+}
+
+bool IsBtn(UIElement *e)
+{
+    if (!e)
+        return false;
+
+    if (e->type == UI_ELEMENT_BUTTON_SIMPLE || e->type == UI_ELEMENT_BUTTON_SWITCH || e->type == UI_ELEMENT_BUTTON_ENUMERATE || e->type == UI_ELEMENT_BUTTON_SUBMIT)
     {
         return true;
     }
@@ -254,9 +510,8 @@ bool IsTextbox(UIElement *e)
 // Disposes Element - assumes it has already been removed from its UI Tree if in one
 void DisposeUIElement(UIElement *e)
 {
-    if (e == NULL)
-        if (!e)
-            return;
+    if (!e)
+        return;
 
     // 1. Recursively destroy the first child (and all its siblings)
     // This goes "deep" before it stays "wide"
@@ -361,7 +616,7 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_sca
     float p_mid_x = parent_box.dimensions.x / 2;
     float p_mid_y = parent_box.dimensions.y / 2;
 
-    // 1. Calculate the available content area inside the parent
+    // Calculate the available content area inside the parent
     float content_area_w = parent_box.dimensions.x;
     float content_area_h = parent_box.dimensions.y;
 
@@ -379,7 +634,7 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_sca
         content_area_h -= (pad_y * 2.0f);
     }
 
-    // 2. Resolve the local Offset (Relative to the content area)
+    // Resolve the local Offset (Relative to the content area)
     float safe_offset_x = fmaxf(0.0f, element->parent_offset.offset.x);
     float safe_offset_y = fmaxf(0.0f, element->parent_offset.offset.y);
     float pixel_offset_x, pixel_offset_y;
@@ -405,7 +660,7 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_sca
     box.coords.x += pixel_offset_x;
     box.coords.y += pixel_offset_y;
 
-    // 3. Resolve Dimensions
+    // Resolve Dimensions
     if (element->size.size_mode == SIZE_PERCENT)
     {
         box.dimensions.x = element->size.dimensions.x * content_area_w;
@@ -417,7 +672,7 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_sca
         box.dimensions.y = element->size.dimensions.y * basis_scale.y;
     }
 
-    // 4. Resolve Size with Right/Bottom clamping
+    // Resolve Size with Right/Bottom clamping
     // The "Space Left" is the content area minus how far we shifted in
     float remaining_w = fmaxf(0.0f, content_area_w - pixel_offset_x);
     float remaining_h = fmaxf(0.0f, content_area_h - pixel_offset_y);
@@ -425,7 +680,7 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_sca
     box.dimensions.x = fminf(box.dimensions.x, remaining_w);
     box.dimensions.y = fminf(box.dimensions.y, remaining_h);
 
-    // 5. Pixel Snapping
+    // Pixel Snapping
     box.coords.x = floorf(box.coords.x);
     box.coords.y = floorf(box.coords.y);
     box.dimensions.x = floorf(box.dimensions.x);
@@ -491,8 +746,14 @@ const char *GetElementTypeName(UIElementType type)
         return "TEXTBOX_IO";
     case UI_ELEMENT_TEXTBOX_SAFE_IO:
         return "TEXTBOX_SAFE_IO";
-    case UI_ELEMENT_BUTTON:
-        return "BUTTON";
+    case UI_ELEMENT_BUTTON_SWITCH:
+        return "BUTTON_SWITCH";
+    case UI_ELEMENT_BUTTON_SIMPLE:
+        return "BUTTON_SIMPLE";
+    case UI_ELEMENT_BUTTON_ENUMERATE:
+        return "BUTTON_ENUMERATE";
+    case UI_ELEMENT_BUTTON_SUBMIT:
+        return "BUTTON_SUBMIT";
     case UI_ELEMENT_IMAGE:
         return "IMAGE";
     default:

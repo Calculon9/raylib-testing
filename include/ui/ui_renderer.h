@@ -55,6 +55,8 @@ extern Camera2d camera_lpanel;// = {0};
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
+void DrawElementBox(UIElement *e);
+void DrawTextArea(UIElement *e);
 //void UpdateUISystem(int mouse_x, int mouse_y);
 
 #endif

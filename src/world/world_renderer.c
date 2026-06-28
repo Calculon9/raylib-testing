@@ -144,7 +144,7 @@ void DrawNewtonoids(LArray *newtonoids)
     for (int i = 0; i < newtonoids->count; i++)
     {
         Newtonoid2d newtonoid = *((Newtonoid2d *)((char *)newtonoids->items + (i * newtonoids->elem_bytes)));
-        Vector2d obj_center_coords = newtonoid.coords_center;
+        Vector2d obj_center_coords = newtonoid.coords_center; //-246.363251 ???????????????????
 
         // ----DEBUG----- draw the bounding box of the polygonoid to check it is correct
         Surface2d obj_box_surface = CreateSurface_Rectangular(newtonoid.boxed_dimensions, ZERO_VECTOR_2D);

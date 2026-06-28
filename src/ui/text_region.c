@@ -26,7 +26,7 @@ bool IsFocused(Vector2d pixel_coords, Vector2d *vertices, int vertex_count)
 }
 
 // Ensure the dimensions and label_tbox_offset values are the same SIZE_MODE (e.g., fixed, percentage)
-UIElement *CreateTextFieldInTree(Size size, UIElement *parent, Offset parent_offset, Vector2d padding, Vector2d label_tbox_offset, ColourRgba colour_border, ColourRgba colour_fill)
+UIElement *CreateTextFieldInTree(Size size, UIElement *parent, Offset parent_offset, Size tbox_size, Vector2d padding, Vector2d label_tbox_offset, ColourRgba colour_border, ColourRgba colour_fill)
 {
     UIElement *tf = CreateUIElementInTree(UI_ELEMENT_TEXTFIELD, size, parent, parent_offset, padding, colour_border, colour_fill);
     tf->type = UI_ELEMENT_TEXTFIELD;
@@ -39,29 +39,32 @@ UIElement *CreateTextFieldInTree(Size size, UIElement *parent, Offset parent_off
     // Determine layout style
     bool label_is_inline = (label_tbox_offset.y < size.dimensions.y / 4);
 
-    if (label_is_inline)
+    if (tbox_size.size_mode == SIZE_PERCENT)
     {
-        // 1. Percentage-based Inline Layout (e.g., 40% Label, 60% TextBox)
-        tl->size.dimensions.x = 0.4f; // 40% of parent width
-        tl->size.dimensions.y = 1.0f; // 100% of parent height
-        tl->parent_offset.offset = (Vector2d){0, 0};
+        if (label_is_inline) // Inline layout
+        {
+            // 1. Percentage-based Inline Layout (e.g., 40% Label, 60% TextBox)
+            tl->size.dimensions.x = 1.0 - tbox_size.dimensions.x; // 40% of parent width
+            tl->size.dimensions.y = 1.0f;                       // 100% of parent height
+            tl->parent_offset.offset = (Vector2d){0, 0};
 
-        tb->size.dimensions.x = 0.58f; // 60% of parent width
-        tb->size.dimensions.y = 1.0f;
-        // Offset starts where the label ends (40% mark)
-        // Note: Using percentage for offset requires Resolve function to handle it!
-        tb->parent_offset.offset = (Vector2d){0.42f, 0};
-    }
-    else
-    {
-        // 2. Stacked Layout: Label top (e.g. 30%), TextBox bottom (70%)
-        tl->size.dimensions.x = 1.0f;
-        tl->size.dimensions.y = 0.3f;
-        tl->parent_offset.offset = (Vector2d){0, 0};
+            tb->size.dimensions.x = tbox_size.dimensions.x; // 60% of parent width
+            tb->size.dimensions.y = 1.0f;
+            // Offset starts where the label ends (40% mark)
+            // Note: Using percentage for offset requires Resolve function to handle it!
+            tb->parent_offset.offset = (Vector2d){1.0 - tbox_size.dimensions.x, 0};
+        }
+        else // Stacked Layout: Label top (e.g. 30%), TextBox bottom (70%)
+        {
 
-        tb->size.dimensions.x = 1.0f;
-        tb->size.dimensions.y = 0.68f;
-        tb->parent_offset.offset = (Vector2d){0, 0.32f};
+            tl->size.dimensions.x = 1.0f;
+            tl->size.dimensions.y = 1.0 - tbox_size.dimensions.y;
+            tl->parent_offset.offset = (Vector2d){0, 0};
+
+            tb->size.dimensions.x = 1.0f;
+            tb->size.dimensions.y = tbox_size.dimensions.y;
+            tb->parent_offset.offset = (Vector2d){0, 1.0 - tbox_size.dimensions.y};
+        }
     }
 
     AddElementToTree(tl, tf);
@@ -137,7 +140,7 @@ UIElement *CreateTextFieldInTree(Size size, UIElement *parent, Offset parent_off
 //     DisposeUIElement(tf);
 // }
 
-UIElement *CreateTextFieldContainerInTree(Size size, UIElement *parent, Offset parent_offset, Vector2d padding, Vector2d child_spacing, ColourRgba colour_border, ColourRgba colour_fill)
+UIElement *CreateTextFieldContainerInTree(Size size, UIElement *parent, Offset parent_offset, Vector2d padding, Spacing child_spacing, ColourRgba colour_border, ColourRgba colour_fill)
 {
     UIElement *tc = CreateUIElementInTree(UI_ELEMENT_CONTAINER, size, parent, parent_offset, padding, colour_border, colour_fill);
     tc->child_spacing = child_spacing;
@@ -248,7 +251,7 @@ int GetTextWidth(char *text, char font_spacing, char scale)
 
     // In case there was no string termination
     // If there isn't, strlen will wonder outside the provided text buffer and count the 1st byte outside it as a char!
-    if(text[char_count - 1] != '\0')
+    if (text[char_count - 1] != '\0')
     {
         char_count--;
     }

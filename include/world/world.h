@@ -112,7 +112,7 @@ extern World2d world_1;
 //----------------------------------------------------------------------------------
 void CreateWorld(CoordSpace2d_Grid space_obj, float gravity, World2d *out_world);
 void UpdateWorld(WorldState *context, float delta_time);
-void AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id);
+int AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id);
 // Vector2d GetCellIndicesFromCoordinates(Vector2d origin_coordinates, Vector2d input_coordinates, Basis2d basis);
 // Field UpdateFieldCellValues(Field field);
 

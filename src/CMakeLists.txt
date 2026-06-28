@@ -6,6 +6,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 file(GLOB_RECURSE SOURCE_FILES CONFIGURE_DEPENDS *.c)
 file(GLOB_RECURSE HEADER_FILES CONFIGURE_DEPENDS *.h)
 
+# ui_panel.c is an in-progress split of ui_system.c and currently duplicates
+# global symbols and functions that still live in ui_system.c.
+#list(REMOVE_ITEM SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/ui/ui_panel.c")
+
 # Add the sources to the target defined in the root
 target_sources(${PROJECT_NAME} PRIVATE ${SOURCE_FILES} ${HEADER_FILES})
 

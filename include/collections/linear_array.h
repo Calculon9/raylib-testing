@@ -23,7 +23,7 @@ typedef struct LArray
     void *items;       // Raw memory block
     int capacity;      // Total space allocated
     int count;         // Number of items currently stored
-    //int enumeratorIndex; // Index used for enumeration
+    int enumerator_index; // Index used for enumeration
     //int enumerationCount; // Count of items enumerated so far (for safety check)
 } LArray;
 
@@ -50,6 +50,8 @@ void *LArray_Pop(LArray *la, void *out_item);
 void *LArray_Get(LArray *la, int index);
 bool LArray_RemoveAt(LArray *la, int index);
 bool LArray_SwapPopAt(LArray *a, int index);
+void *LArray_CircularEnumerate(LArray *a);
+void *LArray_GetCircular(LArray *a, int *index_tracker);
 void DisposeLArray(LArray *la);
 void ClearLArray(LArray *la);
 bool LArray_Reset(LArray *a);

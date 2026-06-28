@@ -19,6 +19,7 @@ COMMON MODULE
 #include "memory/cmemory.h"
 #include "math/cvectors.h"
 #include "math/helpers.h"
+#include "math/cmath.h"
 #include "collections/dynamic_array.h"
 #include "collections/linear_array.h"
 #include "associations/flat_map.h"
