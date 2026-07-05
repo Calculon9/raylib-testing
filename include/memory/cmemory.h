@@ -6,6 +6,7 @@ MEMORY MANAGEMENT MODULE
 #ifndef CMEMORY_H
 #define CMEMORY_H
 #include <stddef.h>
+#include <stdbool.h>
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
@@ -40,4 +41,12 @@ size_t CurrBytesAllocated();
 size_t TotalBytesFreed();
 size_t TotalBytesAllocated();
 void PrintCurrentBytesAlloc();
+
+// Simple fixed-size pool allocator
+typedef struct Pool Pool;
+Pool *PoolCreate(size_t element_size, int capacity);
+void *PoolAlloc(Pool *p);
+void PoolFree(Pool *p, void *element);
+bool PoolOwns(Pool *p, void *element);
+
 #endif // CMEMORY_H

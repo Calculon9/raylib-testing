@@ -13,7 +13,7 @@
             "environment": [],
             "externalConsole": false,
             "MIMode": "gdb", // Use "lldb" if on macOS
-            "preLaunchTask": "Raylib Build", // Matches the label in tasks.json
+            "preLaunchTask": "Build", // Matches the label in tasks.json
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",

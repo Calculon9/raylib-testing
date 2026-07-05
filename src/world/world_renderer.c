@@ -16,24 +16,21 @@
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
 
-void DrawNewtonoids(LArray *newtonoids);
+void DrawNewtonoids(LArray *newtonoids, Vector2d universe_pos);
 void DrawCollisions(LArray *collisions);
 // void DrawObjectVertices(LArray local_vertices, Vector2d coords_center, Camera2d camera, ColourRgba line_colour);
 void DrawObjectVertices(Vector2d *local_vertices, int vertices_count, Vector2d offset, Camera2d camera, ColourRgba line_colour);
-void DrawWorldCoordinateGrid(CoordSpace2d_Grid *coord_space_grid, Camera2d *camera_world);
+void DrawWorldCoordinateGrid(CoordSpace2d_Grid *coord_space_grid, Camera2d *camera_world, Vector2d universe_pos);
 
-void DrawWorldRegion(World2d *world, Camera2d *camera_world)
+void DrawWorldRegion(World2d *world, Camera2d *camera_world, Vector2d universe_pos)
 {
-    // Draw the world's coordinate space
-    // DEBUGGING - Draw the world coordinate space basis vectors to check they are correct
-    DrawWorldCoordinateGrid(&world->coord_space_grid, camera_world);
-    // Draw objects in the world (circloids, polygonoids, etc.)
-    DrawNewtonoids(&world->objects);
-    DrawNewtonoids(&world->temp_objects);
+    DrawWorldCoordinateGrid(&world->coord_space_grid, camera_world, universe_pos);
+    DrawNewtonoids(&world->objects, universe_pos);
+    DrawNewtonoids(&world->temp_objects, universe_pos);
     // DrawCollisions(&world->collisions);
 }
 
-void DrawWorldCoordinateGrid(CoordSpace2d_Grid *coord_space_grid, Camera2d *camera_world)
+void DrawWorldCoordinateGrid(CoordSpace2d_Grid *coord_space_grid, Camera2d *camera_world, Vector2d universe_pos)
 {
     if (coord_space_grid->coord_space.cells.capacity < 1)
     {
@@ -43,9 +40,9 @@ void DrawWorldCoordinateGrid(CoordSpace2d_Grid *coord_space_grid, Camera2d *came
     // Need to convert world coordinates to screen coordinates
     Basis2d basis = coord_space_grid->coord_space.basis;
 
-    // The world position of the coordinate space object is the origin of the coordinate space, so (0,0).
-    // But to make it more flexible for different coordinate space origins, we will add the world position to the start and end points of the lines to get their actual coordinates in world space, and then convert those to screen coordinates using the basis transform matrix
-    Vector2d origin = coord_space_grid->coord_space.coords_origin;
+    // Local grid coords_origin is (0,0); universe_pos offsets the world into universe space.
+    Vector2d local_origin = coord_space_grid->coord_space.coords_origin;
+    Vector2d origin = VectorSum_2d(local_origin, universe_pos);
     Vector2d end = VectorSum_2d(origin, coord_space_grid->coord_space.resolution_ixj);
 
     // Transform local space position to pixel space
@@ -72,10 +69,9 @@ void DrawWorldCoordinateGrid(CoordSpace2d_Grid *coord_space_grid, Camera2d *came
     Vector2d line_pixel_origin, line_pixel_end = {0};
     for (int j = 0; j <= stepsV; j++)
     {
-        // Define the line in LOCAL coordinates (simple units)
-        // Line i starts at (i, 0) and goes to (i, stepsV)
-        line_origin = (Vector2d){origin.x, (float)j};
-        line_end = (Vector2d){(float)stepsU, (float)j};
+        // Line in universe space: offset local coords by universe_pos
+        line_origin = (Vector2d){origin.x, (float)j + universe_pos.y};
+        line_end = (Vector2d){(float)stepsU + universe_pos.x, (float)j + universe_pos.y};
 
         // The Matrix handles everything:
         // It applies World Position (Origin), Rotation, and Scale in one go.
@@ -93,10 +89,9 @@ void DrawWorldCoordinateGrid(CoordSpace2d_Grid *coord_space_grid, Camera2d *came
     // We create a line at every 'u' step that spans the entire 'v' height
     for (int i = 0; i <= stepsU; i++)
     {
-        // Define the line in LOCAL coordinates (simple units)
-        // Line i starts at (i, 0) and goes to (i, stepsV)
-        line_origin = (Vector2d){(float)i, origin.y};
-        line_end = (Vector2d){(float)i, (float)stepsV};
+        // Line in universe space: offset local coords by universe_pos
+        line_origin = (Vector2d){(float)i + universe_pos.x, origin.y};
+        line_end = (Vector2d){(float)i + universe_pos.x, (float)stepsV + universe_pos.y};
 
         // The Matrix handles everything:
         // It applies World Position (Origin), Rotation, and Scale in one go.
@@ -119,7 +114,7 @@ void DrawWorldCoordinateGrid(CoordSpace2d_Grid *coord_space_grid, Camera2d *came
         int i = k / stepsU; // Row index (based on horizontal lines)
         int j = k % stepsU; // Column index (based on vertical lines)
         Cell *cell = (Cell *)((char *)cells.items + (k * cells.elem_bytes));
-        Vector2d cell_coords = cell->coords_origin;
+        Vector2d cell_coords = VectorSum_2d(cell->coords_origin, universe_pos);
         Vector2d cell_pixel_coords = TransformCoordinates(camera_world->source_to_dest_mtx, cell_coords);
         const char *displayText = TextFormat(" %d (%d,%d)\n (%.0f,%.0f)\n", k, i, j, cell_pixel_coords.x, cell_pixel_coords.y);
         // const char *displayText = TextFormat(" %d (%d,%d)\n (%0.0f,%0.0f)\n", k + 1, i + 1, j + 1, cell_pixel_coords.x, cell_pixel_coords.y);
@@ -134,17 +129,17 @@ void DrawWorldCoordinateGrid(CoordSpace2d_Grid *coord_space_grid, Camera2d *came
     // printf("Drew %d cells\n", count);
 }
 
-void DrawNewtonoids(LArray *newtonoids)
+void DrawNewtonoids(LArray *newtonoids, Vector2d universe_pos)
 {
     if (newtonoids == NULL)
     {
         return; // Nothing to draw
     }
-    // Collection *coll = &polygonoids->coll;
     for (int i = 0; i < newtonoids->count; i++)
     {
         Newtonoid2d newtonoid = *((Newtonoid2d *)((char *)newtonoids->items + (i * newtonoids->elem_bytes)));
-        Vector2d obj_center_coords = newtonoid.coords_center; //-246.363251 ???????????????????
+        // Offset entity local coords by universe_pos so they render in the right universe-space location.
+        Vector2d obj_center_coords = VectorSum_2d(newtonoid.coords_center, universe_pos);
 
         // ----DEBUG----- draw the bounding box of the polygonoid to check it is correct
         Surface2d obj_box_surface = CreateSurface_Rectangular(newtonoid.boxed_dimensions, ZERO_VECTOR_2D);
@@ -152,7 +147,6 @@ void DrawNewtonoids(LArray *newtonoids)
         ClearLArray(&obj_box_surface.surface_vectors);
 
         // Draw polygonoid THEN text so text is on top
-        // Get origin-offset coordinates as they are only relative vectors with no origin offset
         LArray surf_vectors = newtonoid.surface.surface_vectors;
         DrawObjectVertices(surf_vectors.items, surf_vectors.count, obj_center_coords, camera_world, newtonoid.line_colour);
 

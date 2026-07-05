@@ -10,9 +10,14 @@
 #include "ui/ui_input.h"
 #include "ui/text_region.h"
 #include "system/ui_system.h"
+#include "system/lpanel_system.h"
+#include "system/viewport_system.h"
 #include "system/utility_system.h"
 #include <stdlib.h>
 #include "world/world.h"
+#include "system/str_helpers.h"
+#include "system/rpanel_system.h"
+#include "system/command_queue.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -44,6 +49,43 @@ bool IsMouseClicked(MouseDownState mouse_down_state);
 void UpdateMouseDownState(MouseBtn btn_type, MouseDownState *mouse_down_state, Vector2d mouse_coords);
 void ResetMouseDownState(MouseDownState *mouse_down_state);
 void InitTextBuffers(UIElement *e, Text_64_IOState *t_bufs);
+UIElement *ResolveUIRootTarget(Vector2d mouse_coords);
+
+static bool IsLPanelViewType(ViewType type)
+{
+    return type == LPANEL_STATE_VIEW || type == LPANEL_EDIT_ENTITY_VIEW;
+}
+
+static void UpdateEnumerateButtonLabel(UIElement *btn, ViewType active_view_type)
+{
+    if (!btn)
+    {
+        return;
+    }
+
+    const char *label = NULL;
+    if (active_view_type == LPANEL_STATE_VIEW)
+    {
+        label = "STATE -- UTIL";
+    }
+    else if (active_view_type == LPANEL_EDIT_ENTITY_VIEW)
+    {
+        label = "UTIL -- STATE";
+    }
+    else if (active_view_type == RPANEL_STATE_VIEW)
+    {
+        label = "STATE -- CREATE";
+    }
+    else if (active_view_type == RPANEL_WORLD_CREATE_VIEW)
+    {
+        label = "CREATE -- STATE";
+    }
+
+    if (label)
+    {
+        safe_strncpy(btn->data.button.label.string, label, MAX_LABEL_CHARS);
+    }
+}
 // -----Global Helpers-----
 void UpdateUIFocus(UIElement *element);
 void UpdateDragFocus(UIElement *element, Vector2d mouse_coords);
@@ -66,7 +108,7 @@ void ProcessUIInput(int mouse_x, int mouse_y, bool cursor_in_region)
         ClearUIFocus();
     }
 
-    UIElement *target = GetElementAt(lpanel_root, mouse_coords);
+    UIElement *target = ResolveUIRootTarget(mouse_coords);
     if (target && !target->is_enabled)
     {
         target = NULL;
@@ -281,55 +323,42 @@ void HandleBtnSubmitClick(UIElement *btn)
     if (!btn || !btn->is_enabled)
         return;
 
-    if (!G_WorldState.world)
-        return;
+    int action = BUTTON_ACTION_NONE;
+    if (btn->data.button.user_data)
+        action = *(int *)(btn->data.button.user_data);
 
-    if (btn->data.button.data_bind == (void *)"create-entity")
+    if (action == BUTTON_ACTION_CREATE_ENTITY)
     {
-        float mass = 1.0f;
-        int edge_count = 0;
-        int vert_count = 0;
-        float width = 0.0f;
-        float height = 0.0f;
-        Vector2d pos = {0.0f, 0.0f};
-        Vector2d vel = {0.0f, 0.0f};
-        Vector2d accel = {0.0f, 0.0f};
-        Vector2d momentum = {0.0f, 0.0f};
+        if (!G_WorldState.world)
+            return;
 
-        // Grab the staged Newtonoid Params
-
-        if (G_UIState.lpanel_entity_edit_mass_str)
-            PipelineTextToFloat(G_UIState.lpanel_entity_edit_mass_str->string, &mass);
-        if (G_UIState.lpanel_entity_edit_pos_c_str)
-            PipelineTextToVector(G_UIState.lpanel_entity_edit_pos_c_str->string, &pos);
-        if (G_UIState.lpanel_entity_edit_vel_str)
-            PipelineTextToVector(G_UIState.lpanel_entity_edit_vel_str->string, &vel);
-        if (G_UIState.lpanel_entity_edit_accel_str)
-            PipelineTextToVector(G_UIState.lpanel_entity_edit_accel_str->string, &accel);
-        if (G_UIState.lpanel_entity_edit_moment_str)
-            PipelineTextToVector(G_UIState.lpanel_entity_edit_moment_str->string, &momentum);
-
-        if (G_UIState.lpanel_entity_edit_vertice_count_str)
+        // Enqueue a create-entity command instead of creating immediately
+        if (G_WorldState.newtonoid_params)
         {
-            char *end = NULL;
-            long parsed = strtol(G_UIState.lpanel_entity_edit_vertice_count_str->string, &end, 10);
-            if (end != G_UIState.lpanel_entity_edit_vertice_count_str->string && parsed > 2)
-                vert_count = (int)parsed;
+            EnqueueCreateEntity(G_WorldState.newtonoid_params);
         }
+    } else if (action == BUTTON_ACTION_DELETE_ENTITY)
+    {
+        if (!G_WorldState.world)
+            return;
 
-        Newtonoid2d *new_entity = ResolveEntityParamsToEntity(G_WorldState.newtonoid_params);
-        int entity_id = -1;
-        if (new_entity)
+        // Enqueue a delete-entity command instead of deleting immediately
+        if (G_WorldState.selected_object)
         {
-            entity_id = AddObjectToWorld(G_WorldState.world, new_entity, G_WorldState.world->coord_space_grid.object.id);
+            EnqueueDeleteEntity(G_WorldState.selected_object);
         }
-
-        if (entity_id >= 0)
-        {
-            Newtonoid2d *spawned = GetEntityByID(&G_WorldState, entity_id);
-            if (spawned)
-                G_WorldState.selected_object = spawned;
-        }
+    }
+    else if (action == BUTTON_ACTION_CREATE_WORLD)
+    {
+        EnqueueCreateWorld();
+    }
+    else if (action == BUTTON_ACTION_SELECT_WORLD_PREV)
+    {
+        EnqueueSelectWorld(-1);
+    }
+    else if (action == BUTTON_ACTION_SELECT_WORLD_NEXT)
+    {
+        EnqueueSelectWorld(1);
     }
 }
 
@@ -382,7 +411,7 @@ void RevertTextChanges(UIElement *e, Text_64_IOState *tbox_buffers)
     char *output_buf = NULL;
 
     output_buf = e->data.textbox.text.string;
-    strncpy(output_buf, tbox_buffers->temp_buffer.string, MAX_TEXTBOX_CHARS - 1);
+    safe_strncpy(output_buf, tbox_buffers->temp_buffer.string, MAX_TEXTBOX_CHARS);
 
     // Reset tracking buffers
     tbox_buffers->input_buffer.string[0] = '\0';
@@ -391,10 +420,14 @@ void RevertTextChanges(UIElement *e, Text_64_IOState *tbox_buffers)
 
 void HandleTextCommit(UIElement *element, Text_64_IOState *tbox_buffers)
 {
-    // PIPELINE COMMITTED TEXT TO THE SELECTED OBJECT
-    Newtonoid2d *obj = G_WorldState.selected_object;
-    Newtonoid2dParams *params = G_WorldState.newtonoid_params;
-    if (!element || !IsTextbox(element) || (!obj && !params))
+    if (!element || !IsTextbox(element))
+    {
+        RevertTextChanges(element, tbox_buffers);
+        return;
+    }
+
+    // Require a valid data binding target for commit.
+    if (!element->data.textbox.data_bind && !element->data.textbox.binder)
     {
         RevertTextChanges(element, tbox_buffers);
         return;
@@ -403,24 +436,35 @@ void HandleTextCommit(UIElement *element, Text_64_IOState *tbox_buffers)
     // These TextBoxes (IO) are interactive so check it's an IO type before doing anything
     if (element->type == UI_ELEMENT_TEXTBOX_IO || element->type == UI_ELEMENT_TEXTBOX_SAFE_IO)
     {
-        // Get the type of data the textbox is bound to
-        DataType data_type = element->data.textbox.data_type;
-        switch (data_type)
+        // If a Binder is attached, use it (allows validation + conversion)
+        if (element->data.textbox.binder)
         {
-        case VECTOR2D:
-            PipelineTextToVector(element->data.textbox.text.string, element->data.textbox.data_bind); // Be sure the data type and data bind are compatible!
-            break;
-        case FLOAT:
-            PipelineTextToFloat(element->data.textbox.text.string, element->data.textbox.data_bind); // Be sure the data type and data bind are compatible!
-            break;
-        case INT:
-            PipelineTextToInt(element->data.textbox.text.string, (int *)element->data.textbox.data_bind);
-            break;
-        // case STRING64: case STRING128:
-        //     PipelineTextToFloat(tbox_io_buffers.input_buffer.string, element->data.textbox.data_bind); // Be sure the data type and data bind are compatible!
-        //     break;
-        default:
-            break;
+            bool ok = Binder_ValidateAndWrite(element->data.textbox.binder, element->data.textbox.text.string);
+            if (!ok)
+            {
+                // Validation failed; revert changes
+                RevertTextChanges(element, tbox_buffers);
+                return;
+            }
+        }
+        else
+        {
+            // Get the type of data the textbox is bound to
+            DataType data_type = element->data.textbox.data_type;
+            switch (data_type)
+            {
+            case VECTOR2D:
+                PipelineTextToVector(element->data.textbox.text.string, element->data.textbox.data_bind); // Be sure the data type and data bind are compatible!
+                break;
+            case FLOAT:
+                PipelineTextToFloat(element->data.textbox.text.string, element->data.textbox.data_bind); // Be sure the data type and data bind are compatible!
+                break;
+            case INT:
+                PipelineTextToInt(element->data.textbox.text.string, (int *)element->data.textbox.data_bind);
+                break;
+            default:
+                break;
+            }
         }
     }
 
@@ -477,7 +521,7 @@ void UpdateTextIO()
     // If this is the very first time we are typing, save the original state
     if (strlen(tbox_io_buffers.input_buffer.string) == 0 && strlen(tbox_io_buffers.temp_buffer.string) == 0)
     {
-        strncpy(tbox_io_buffers.input_buffer.string, output_buf, MAX_TEXTBOX_CHARS - 1);
+        safe_strncpy(tbox_io_buffers.input_buffer.string, output_buf, MAX_TEXTBOX_CHARS);
         tbox_io_buffers.temp_buffer.string[MAX_TEXTBOX_CHARS - 1] = '\0';
     }
 
@@ -510,7 +554,7 @@ void UpdateTextIO()
     if (IsKeyPressed(KEY_ESCAPE))
     {
         // Restore from backup
-        strncpy(output_buf, tbox_io_buffers.temp_buffer.string, MAX_TEXTBOX_CHARS - 1);
+        safe_strncpy(output_buf, tbox_io_buffers.temp_buffer.string, MAX_TEXTBOX_CHARS);
         // Reset tracking buffers
         tbox_io_buffers.input_buffer.string[0] = '\0';
         tbox_io_buffers.temp_buffer.string[0] = '\0';
@@ -680,4 +724,21 @@ void InitTextBuffers(UIElement *e, Text_64_IOState *t_bufs)
     {
         t_bufs->temp_buffer = e->data.textbox.text;
     }
+}
+
+UIElement *ResolveUIRootTarget(Vector2d mouse_coords)
+{
+    UIElement *target = NULL;
+
+    if (rpanel_root)
+    {
+        target = GetElementAt(rpanel_root, mouse_coords);
+    }
+
+    if (!target && lpanel_root)
+    {
+        target = GetElementAt(lpanel_root, mouse_coords);
+    }
+
+    return target;
 }

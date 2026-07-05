@@ -148,6 +148,11 @@ static void DistributeChildrenWithContentArea(UIElement *e, Vector2d content_are
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
 
+// Pool for UIElement instances (uses memory pool API)
+#include "memory/cmemory.h"
+static Pool *ui_element_pool = NULL;
+
+
 //----------------------------------------------------------------------------------
 // Functions Definition
 //----------------------------------------------------------------------------------
@@ -161,7 +166,21 @@ static void DistributeChildrenWithContentArea(UIElement *e, Vector2d content_are
 
 UIElement *CreateUIElement(UIElementType type, Size size, Offset parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill)
 {
-    UIElement *e = AllocateBytes(sizeof(UIElement));
+    // Fast-path: allocate from a simple static pool to reduce heap churn for UI elements
+    if (!ui_element_pool)
+    {
+        ui_element_pool = PoolCreate(sizeof(UIElement), 512);
+    }
+
+    UIElement *e = NULL;
+    if (ui_element_pool)
+    {
+        e = (UIElement *)PoolAlloc(ui_element_pool);
+    }
+    if (!e)
+    {
+        e = AllocateBytes(sizeof(UIElement));
+    }
     // e->origin = origin_coords;
     e->colour_fill = colour_fill;
     e->colour_border = colour_border;
@@ -527,9 +546,32 @@ void DisposeUIElement(UIElement *e)
         DisposeUIElement(e->next_sibling);
     }
 
-    // 3. Finally, free the current element
+    // 3. Cleanup element-specific resources (e.g., attached binders)
+    if (IsTextbox(e) && e->data.textbox.binder)
+    {
+        Binder_Destroy(e->data.textbox.binder);
+        e->data.textbox.binder = NULL;
+    }
+
+    // 4. Finally, free the current element
     // Now that children and siblings are gone, it's safe to delete this one
-    free(e);
+    // If the element points into our static pool, return it to the free list; otherwise free the heap allocation.
+    if (ui_element_pool && PoolOwns(ui_element_pool, e))
+    {
+        // reset minimal state and return to pool
+        e->first_child = NULL;
+        e->next_sibling = NULL;
+        e->parent = NULL;
+        e->is_focused = false;
+        e->is_dirty = false;
+        e->is_draggable = false;
+        e->is_enabled = false;
+        PoolFree(ui_element_pool, e);
+    }
+    else
+    {
+        free(e);
+    }
 }
 
 // bool DisposeUIElement(UIElement *e)

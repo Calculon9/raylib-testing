@@ -47,8 +47,13 @@ typedef struct World2d
     LArray objects;
     LArray temp_objects;
     LArray collisions;
+    FlatMapInt entity_space_map;
+    FlatMapInt resolved_collisions;
+    FlatMapInt entity_world_index_registry;
+    LArray scheduled_world_cmds;
     float gravity;
     int next_object_id; // Global variable to keep track of the next available ID for NewtonObjects
+    Vector2d universe_position; // Position of this world in the shared universe space (world-local units). Keeps local coords 0-based.
 } World2d;
 
 typedef struct

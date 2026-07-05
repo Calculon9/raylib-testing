@@ -14,7 +14,7 @@ MEMORY MANAGEMENT MODULE
 #define INFINITY_VECTOR_2D (Vector2d){INFINITY, INFINITY}
 #define INFINITY_MATRIX_2x2 (Matrix2x2){INFINITY_VECTOR_2D, INFINITY_VECTOR_2D}
 #define ZERO_VECTOR_3D (Vector3d){0, 0, 0}
-#define INFINITY_VECTOR_3D (Vector2d){INFINITY, INFINITY, INFINITY}
+#define INFINITY_VECTOR_3D (Vector3d){INFINITY, INFINITY, INFINITY}
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
@@ -59,9 +59,9 @@ typedef struct Basis3d
 
 typedef struct Matrix3x3
 {
-    float m0, m3, m6; // Row 1: BasisU.x, BasisV.x, Trans.x
-    float m1, m4, m7; // Row 2: BasisU.y, BasisV.y, Trans.y
-    float m2, m5, m8; // Row 3: 0, 0, 1
+    Vector3d row1; // BasisU.x, BasisV.x, Trans.x
+    Vector3d row2; // BasisU.y, BasisV.y, Trans.y
+    Vector3d row3; // 0, 0, 1
 } Matrix3x3;
 
 typedef struct Matrix2x2

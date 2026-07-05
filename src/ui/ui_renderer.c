@@ -56,7 +56,12 @@ void DrawTextArea(UIElement *e)
     Vector2d available_space = e->cached_box.dimensions;
 
     // 2. Metrics calculation
-    int row_height = (8 * font.scale) + (font.scale * fabs(font.spacing));
+    int glyph_advance = (8 * font.scale) + (font.scale * (int)font.spacing);
+    int row_height = (8 * font.scale) + (font.scale * (int)fabs(font.spacing));
+    if (glyph_advance <= 0 || row_height <= 0)
+    {
+        return;
+    }
     int rows_that_fit = (int)(available_space.y / row_height);
     int char_ptr = 0;
     int current_row = 0;
@@ -76,7 +81,7 @@ void DrawTextArea(UIElement *e)
         while (text_ptr[char_ptr] != '\0' && row_char_count < 255)
         {
             char c = text_ptr[char_ptr];
-            int char_width = GetTextWidth(&c, (char)font.spacing, font.scale);
+            int char_width = glyph_advance;
 
             if (current_row_width + char_width > available_space.x)
                 break;
@@ -172,23 +177,21 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d camera)
     e->cached_box = box;
 
     // DRAW IT ... IF it's within the ranged coordinates of its parent
-    LArray parent_verts = MakeLArray(4, sizeof(Vector2d));
-    LArray verts = MakeLArray(4, sizeof(Vector2d));
+    Vector2d parent_verts_arr[4];
+    Vector2d verts_arr[4];
+    LArray parent_verts = {sizeof(Vector2d), parent_verts_arr, 4, 4, 0};
+    LArray verts = {sizeof(Vector2d), verts_arr, 4, 4, 0};
     for (size_t i = 0; i < 4; i++)
     {
-        Vector2d parent_vert = (Vector2d){
+        parent_verts_arr[i] = (Vector2d){
             parent_box.coords.x + (i == 1 || i == 2 ? parent_box.dimensions.x : 0),
             parent_box.coords.y + (i >= 2 ? parent_box.dimensions.y : 0)};
-        Vector2d vert = (Vector2d){
+        verts_arr[i] = (Vector2d){
             box.coords.x + (i == 1 || i == 2 ? box.dimensions.x : 0),
             box.coords.y + (i >= 2 ? box.dimensions.y : 0)};
-        LArray_Push(&parent_verts, &parent_vert);
-        LArray_Push(&verts, &vert);
     }
 
-    bool is_within_parent = ShapeFitsWithinShape(&verts, &parent_verts,ZERO_VECTOR_2D, ZERO_VECTOR_2D);
-    ClearLArray(&parent_verts);
-    ClearLArray(&verts);
+    bool is_within_parent = ShapeFitsWithinShape(&verts, &parent_verts, ZERO_VECTOR_2D, ZERO_VECTOR_2D);
 
     // Don't draw it or any of its children
     if (!is_within_parent)

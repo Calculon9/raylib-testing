@@ -32,7 +32,7 @@
             "problemMatcher": ["$gcc"]      
         },
         {
-            "label": "Raylib Build",
+            "label": "Build",
             "dependsOn": ["CMake-Execute-Makefile"],
             "dependsOrder": "sequence",
             "group": {

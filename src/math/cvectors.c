@@ -133,19 +133,19 @@ Matrix3x3 MatrixMultiply_3x3_3x3(Matrix3x3 A, Matrix3x3 B)
     Matrix3x3 result = {0};
 
     // Row 1
-    result.m0 = A.m0 * B.m0 + A.m3 * B.m1 + A.m6 * B.m2;
-    result.m3 = A.m0 * B.m3 + A.m3 * B.m4 + A.m6 * B.m5;
-    result.m6 = A.m0 * B.m6 + A.m3 * B.m7 + A.m6 * B.m8;
+    result.row1.x = (A.row1.x * B.row1.x) + (A.row1.y * B.row2.x) + (A.row1.z * B.row3.x);
+    result.row1.y = (A.row1.x * B.row1.y) + (A.row1.y * B.row2.y) + (A.row1.z * B.row3.y);
+    result.row1.z = (A.row1.x * B.row1.z) + (A.row1.y * B.row2.z) + (A.row1.z * B.row3.z);
 
     // Row 2
-    result.m1 = A.m1 * B.m0 + A.m4 * B.m1 + A.m7 * B.m2;
-    result.m4 = A.m1 * B.m3 + A.m4 * B.m4 + A.m7 * B.m5;
-    result.m7 = A.m1 * B.m6 + A.m4 * B.m7 + A.m7 * B.m8;
+    result.row2.x = (A.row2.x * B.row1.x) + (A.row2.y * B.row2.x) + (A.row2.z * B.row3.x);
+    result.row2.y = (A.row2.x * B.row1.y) + (A.row2.y * B.row2.y) + (A.row2.z * B.row3.y);
+    result.row2.z = (A.row2.x * B.row1.z) + (A.row2.y * B.row2.z) + (A.row2.z * B.row3.z);
 
     // Row 3
-    result.m2 = A.m2 * B.m0 + A.m5 * B.m1 + A.m8 * B.m2;
-    result.m5 = A.m2 * B.m3 + A.m5 * B.m4 + A.m8 * B.m5;
-    result.m8 = A.m2 * B.m6 + A.m5 * B.m7 + A.m8 * B.m8;
+    result.row3.x = (A.row3.x * B.row1.x) + (A.row3.y * B.row2.x) + (A.row3.z * B.row3.x);
+    result.row3.y = (A.row3.x * B.row1.y) + (A.row3.y * B.row2.y) + (A.row3.z * B.row3.y);
+    result.row3.z = (A.row3.x * B.row1.z) + (A.row3.y * B.row2.z) + (A.row3.z * B.row3.z);
 
     return result;
 }
@@ -153,9 +153,9 @@ Matrix3x3 MatrixMultiply_3x3_3x3(Matrix3x3 A, Matrix3x3 B)
 Matrix3x3 MatrixInvert_3x3(Matrix3x3 M)
 {
     // 1. Calculate the Determinant
-    float det = M.m0 * (M.m4 * M.m8 - M.m5 * M.m7) -
-                M.m3 * (M.m1 * M.m8 - M.m2 * M.m7) +
-                M.m6 * (M.m1 * M.m5 - M.m2 * M.m4);
+    float det = M.row1.x * (M.row2.y * M.row3.z - M.row3.y * M.row2.z) -
+                M.row1.y * (M.row2.x * M.row3.z - M.row3.x * M.row2.z) +
+                M.row1.z * (M.row2.x * M.row3.y - M.row3.x * M.row2.y);
 
     if (det == 0.0f)
         return (Matrix3x3){0}; // Cannot invert
@@ -164,17 +164,17 @@ Matrix3x3 MatrixInvert_3x3(Matrix3x3 M)
     Matrix3x3 res;
 
     // 2. Calculate the Adjugate Matrix (Cofactors Transposed) / Det
-    res.m0 = (M.m4 * M.m8 - M.m5 * M.m7) * invDet;
-    res.m3 = (M.m6 * M.m5 - M.m3 * M.m8) * invDet;
-    res.m6 = (M.m3 * M.m7 - M.m6 * M.m4) * invDet;
+    res.row1.x = (M.row2.y * M.row3.z - M.row3.y * M.row2.z) * invDet;
+    res.row1.y = (M.row1.z * M.row3.y - M.row1.y * M.row3.z) * invDet;
+    res.row1.z = (M.row1.y * M.row2.z - M.row1.z * M.row2.y) * invDet;
 
-    res.m1 = (M.m2 * M.m7 - M.m1 * M.m8) * invDet;
-    res.m4 = (M.m0 * M.m8 - M.m2 * M.m6) * invDet;
-    res.m7 = (M.m6 * M.m1 - M.m0 * M.m7) * invDet;
+    res.row2.x = (M.row2.z * M.row3.x - M.row2.x * M.row3.z) * invDet;
+    res.row2.y = (M.row1.x * M.row3.z - M.row1.z * M.row3.x) * invDet;
+    res.row2.z = (M.row2.x * M.row1.z - M.row1.x * M.row2.z) * invDet;
 
-    res.m2 = (M.m1 * M.m5 - M.m2 * M.m4) * invDet;
-    res.m5 = (M.m2 * M.m3 - M.m0 * M.m5) * invDet;
-    res.m8 = (M.m0 * M.m4 - M.m1 * M.m3) * invDet;
+    res.row3.x = (M.row2.x * M.row3.y - M.row3.x * M.row2.y) * invDet;
+    res.row3.y = (M.row3.x * M.row1.y - M.row1.x * M.row3.y) * invDet;
+    res.row3.z = (M.row1.x * M.row2.y - M.row2.x * M.row1.y) * invDet;
 
     return res;
 }
@@ -202,17 +202,17 @@ Matrix3x3 CoordSpaceTransform_2d(Basis2d source, Basis2d destination, Vector2d d
 {
     // matSource stays the same (usually 0,0 for world origin)
     Matrix3x3 matSource = {
-        source.u.x, source.v.x, 0,
-        source.u.y, source.v.y, 0,
-        0, 0, 1};
+        .row1 = {source.u.x, source.v.x, 0.0f},
+        .row2 = {source.u.y, source.v.y, 0.0f},
+        .row3 = {0.0f, 0.0f, 1.0f}};
 
     Matrix3x3 invSource = MatrixInvert_3x3(matSource);
 
     // matDest NEEDS the origin in the third column (m6, m7)
     Matrix3x3 matDest = {
-        destination.u.x, destination.v.x, destination_origin.x, // <--- HERE
-        destination.u.y, destination.v.y, destination_origin.y, // <--- HERE
-        0, 0, 1};
+        .row1 = {destination.u.x, destination.v.x, destination_origin.x},
+        .row2 = {destination.u.y, destination.v.y, destination_origin.y},
+        .row3 = {0.0f, 0.0f, 1.0f}};
 
     // Usually: Result = Dest * invSource
     // Inverse of source x destination = transformation matrix to convert a source vector to destination vector
@@ -263,11 +263,11 @@ Vector2d MatrixMultiply_3x3_2x2(Matrix3x3 matrix_function, Vector2d vector_input
     // Since we are using a 3x  matrix for 2D, we treat the 2D point as a 3D vector where z=1. This is a trick called Homogeneous Coordinates that allows the matrix to move (translate) the point, not just rotate or scale it.
     //  Multiply: (Row 1 * WorldColumn)
     //  screenX = (m0 * x) + (m3 * y) + m6
-    vector_result.x = (vector_input.x * matrix_function.m0) + (vector_input.y * matrix_function.m3) + matrix_function.m6;
+    vector_result.x = (vector_input.x * matrix_function.row1.x) + (vector_input.y * matrix_function.row1.y) + matrix_function.row1.z;
 
     // Multiply: (Row 2 * WorldColumn)
     // screenY = (m1 * x) + (m4 * y) + m7
-    vector_result.y = (vector_input.x * matrix_function.m1) + (vector_input.y * matrix_function.m4) + matrix_function.m7;
+    vector_result.y = (vector_input.x * matrix_function.row2.x) + (vector_input.y * matrix_function.row2.y) + matrix_function.row2.z;
 
     return vector_result;
 }

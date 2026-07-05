@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <string.h>
 #include "memory/cmemory.h"
+#include <stdbool.h>
+#include <stdint.h>
 
 //----------------------------------------------------------------------------------
 // Global Variables Definition (local to this module)
@@ -162,4 +164,80 @@ size_t CurrBytesConsumed()
 void PrintCurrentBytesAlloc()
 {
     printf("TOTAL BYTES ALLOC: %0.2lf kbytes\n", (double)(bytesAllocated/1024.0));
+}
+
+// ---------------- Pool allocator ----------------
+struct Pool
+{
+    void *mem;
+    void *free_list; // linked list of free slots (stores next pointer inside freed slot)
+    size_t element_size;
+    int capacity;
+};
+
+Pool *PoolCreate(size_t element_size, int capacity)
+{
+    if (element_size == 0 || capacity <= 0)
+        return NULL;
+
+    Pool *p = (Pool *)AllocateBytes(sizeof(Pool));
+    if (!p)
+        return NULL;
+
+    size_t total = element_size * (size_t)capacity;
+    void *mem = AllocateBytes(total);
+    if (!mem)
+    {
+        Deallocate((void **)&p, sizeof(Pool));
+        return NULL;
+    }
+
+    p->mem = mem;
+    p->element_size = element_size;
+    p->capacity = capacity;
+    p->free_list = NULL;
+
+    // initialize free list
+    for (int i = 0; i < capacity; i++)
+    {
+        void *slot = (char *)mem + (i * element_size);
+        // store pointer to next at start of slot
+        void **next_ptr = (void **)slot;
+        *next_ptr = p->free_list;
+        p->free_list = slot;
+    }
+
+    return p;
+}
+
+void *PoolAlloc(Pool *p)
+{
+    if (!p || !p->free_list)
+        return NULL;
+    void *slot = p->free_list;
+    void **next_ptr = (void **)slot;
+    p->free_list = *next_ptr;
+    // zero init
+    memset(slot, 0, p->element_size);
+    return slot;
+}
+
+void PoolFree(Pool *p, void *element)
+{
+    if (!p || !element)
+        return;
+    // push back onto free list
+    void **next_ptr = (void **)element;
+    *next_ptr = p->free_list;
+    p->free_list = element;
+}
+
+bool PoolOwns(Pool *p, void *element)
+{
+    if (!p || !element)
+        return false;
+    uintptr_t base = (uintptr_t)p->mem;
+    uintptr_t e = (uintptr_t)element;
+    uintptr_t top = base + p->element_size * (uintptr_t)p->capacity;
+    return (e >= base && e < top);
 }

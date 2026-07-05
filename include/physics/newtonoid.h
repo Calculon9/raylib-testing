@@ -75,6 +75,7 @@ typedef struct Newtonoid2d
     Vector2d acceleration;
     Vector2d momentum;
     Surface2d surface;
+    ShapeType shape_type;
     int edge_count;
     Vector2d local_axis_x;  // object's Forward/Right arrow is pointing     // Pre-computed (cos(rotation), sin(rotation))
     Vector2d local_axis_y;  // object's Up arrow is pointing
@@ -109,7 +110,7 @@ typedef struct Newtonoid2dParams
     float radius;
     float width;
     float height;
-    int edge_count;
+    //int edge_count;
     int vertice_count;
     ColourRgba line_colour;
     ColourRgba fill_colour;

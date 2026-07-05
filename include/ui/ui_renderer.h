@@ -57,6 +57,7 @@ extern Camera2d camera_lpanel;// = {0};
 //----------------------------------------------------------------------------------
 void DrawElementBox(UIElement *e);
 void DrawTextArea(UIElement *e);
+void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d camera);
 //void UpdateUISystem(int mouse_x, int mouse_y);
 
 #endif

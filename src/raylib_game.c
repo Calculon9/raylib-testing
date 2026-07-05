@@ -18,6 +18,8 @@
 #include "system/systems.h"
 #include "system/ui_system.h"
 #include "system/world_system.h"
+#include "system/viewport_system.h"
+#include "system/rpanel_system.h"
 #if defined(PLATFORM_WEB)
 #include <emscripten/emscripten.h>
 #endif
@@ -40,8 +42,9 @@ const int screenHeight = 900;
 //----------------------------------------------------------------------------------
 // static const int screenWidth = 1920;
 // static const int screenHeight = 1080;
-static Vector2d resolution = {0};
-int screen_resolution_scalar = 100; // used to divide up the pixel resolution to get a local coordinate resolution for the entire screen
+int screen_resolution_scalar = 0; // <= 0 uses dynamic world scaling from target logical height
+static float viewport_target_logical_height = 18.0f;
+static int viewport_ui_scale_scalar = 0;
 
 // Required variables to manage screen transitions (fade-in, fade-out)
 static float transAlpha = 0.0f;
@@ -58,7 +61,7 @@ static void TransitionToScreen(int screen); // Request transition to next screen
 static void UpdateTransition(void);         // Update transition effect
 static void DrawTransition(void);           // Draw transition effect (full-screen rectangle)
 static void UpdateDrawFrame(void);          // Update and draw one frame
-static void CalculateSpaceProperties(void); // Caclulates the world and UI regions' resolution and origins
+static void HandleViewportDebugHotkeys(void);
 
 //----------------------------------------------------------------------------------
 // Program main entry point
@@ -206,7 +209,7 @@ static void ChangeToScreen(int screen)
         break;
     // case OPTIONS: InitOptionsScreen(); break;
     case GAMEPLAY:
-        CalculateSpaceProperties();
+        InitViewportLayout(screenWidth, screenHeight, screen_resolution_scalar);
         InitGameWorld();
         break;
     // case ENDING: InitEndingScreen(); break;
@@ -383,77 +386,104 @@ static void UpdateDrawFrame(void)
 
 void InitGameplayScreen(void)
 {
-    CalculateSpaceProperties();
+    SetViewportPanelRatios(0.20f, 0.20f);
+    SetViewportTargetLogicalHeight(viewport_target_logical_height);
+    SetViewportUIScaleScalar(viewport_ui_scale_scalar);
+    InitViewportLayout(screenWidth, screenHeight, screen_resolution_scalar);
     InitGameWorld();
     InitUI();
+    InitRPanel();
 }
 
 void DrawGameplayScreen(void)
 {
     DrawGameWorld();
+    DrawRPanel();
     DrawUI();
 }
 
 void UpdateGameplayScreen(void)
 {
+    HandleViewportDebugHotkeys();
+
     int mouse_x = GetMouseX();
     int mouse_y = GetMouseY();
 
+    UpdateRPanel(mouse_x, mouse_y);
     UpdateUISystem(mouse_x, mouse_y);
     UpdateWorldSystem(mouse_x, mouse_y);
 }
 
-// Draw transition effect (full-screen rectangle)
-static void CalculateSpaceProperties(void)
+static void HandleViewportDebugHotkeys(void)
 {
-    // 0 CALCULATE LOGICAL/LOCAL resolution from screen's pixel resolution
-    resolution = VectorScale_2d((Vector2d){screenWidth, screenHeight}, 1.0f / screen_resolution_scalar);
-    resolution.x = floorf(resolution.x);
-    resolution.y = floorf(resolution.y);
-    float total_space_measure = resolution.x * resolution.y;
+    bool world_scale_changed = false;
+    bool ui_scale_changed = false;
 
-    // 1. DEFINE & CALCULATE LOGICAL screen origin and end points for each region (panel, world)
-    // 1.1 Give the panel ~1/4 of the x-dimension, and always 100% y-dimension
-    lpanel_origin = ZERO_VECTOR_2D;
-    lpanel_end.x = floorf(lpanel_origin.x + ((0.25) * resolution.x));
-    lpanel_end.y = resolution.y;
-    lpanel_resolution = VectorSum_2d(VectorScale_2d(lpanel_origin, -1), lpanel_end);
-    float lpanel_space_measure = VectorBox_2d(lpanel_resolution);
+    if (IsKeyPressed(KEY_F7))
+    {
+        viewport_target_logical_height -= 1.0f;
+        if (viewport_target_logical_height < 8.0f)
+        {
+            viewport_target_logical_height = 8.0f;
+        }
+        world_scale_changed = true;
+    }
+    if (IsKeyPressed(KEY_F8))
+    {
+        viewport_target_logical_height += 1.0f;
+        if (viewport_target_logical_height > 400.0f)
+        {
+            viewport_target_logical_height = 400.0f;
+        }
+        world_scale_changed = true;
+    }
 
-    // 1.2 The game screen simply takes up the rest of the screen
-    world_resolution = (Vector2d){resolution.x - lpanel_resolution.x, resolution.y};
-    world_origin = (Vector2d){lpanel_end.x, 0};
-    world_end = (Vector2d){world_origin.x + world_resolution.x, world_origin.y + world_resolution.y};
-    float world_space_measure = VectorBox_2d(world_resolution);
+    if (IsKeyPressed(KEY_F9))
+    {
+        if (viewport_ui_scale_scalar <= 1)
+        {
+            viewport_ui_scale_scalar = 0;
+        }
+        else
+        {
+            viewport_ui_scale_scalar -= 1;
+        }
+        ui_scale_changed = true;
+    }
+    if (IsKeyPressed(KEY_F10))
+    {
+        if (viewport_ui_scale_scalar == 0)
+        {
+            viewport_ui_scale_scalar = 10;
+        }
+        else
+        {
+            viewport_ui_scale_scalar += 1;
+        }
+        ui_scale_changed = true;
+    }
 
-    // 2. BACK-CALCULATE SCREEN PIXEL SPACE Basis for panel and game world
-    // 2.1 Influence of resolution scaling
-    world_pixel_u = VectorScale_2d(world_u, screen_resolution_scalar);
-    world_pixel_v = VectorScale_2d(world_v, screen_resolution_scalar);
-    lpanel_pixel_u = VectorScale_2d(lpanel_u, screen_resolution_scalar);
-    lpanel_pixel_v = VectorScale_2d(lpanel_v, screen_resolution_scalar);
+    if (!world_scale_changed && !ui_scale_changed)
+    {
+        return;
+    }
 
-    // 2.2 Save the basis scaling factors for later use in coordinate conversions
-    Basis2d lpanel_basis = (Basis2d){lpanel_u, lpanel_v};  
-    Basis2d lpanel_pixel_basis = (Basis2d){lpanel_pixel_u, lpanel_pixel_v};  
-    Basis2d world_basis = (Basis2d){world_u, world_v};  
-    Basis2d world_pixel_basis = (Basis2d){world_pixel_u, world_pixel_v};  
-    local_to_lpanel_scale = BasisTransform_2d_Scale(lpanel_basis, lpanel_pixel_basis); // useful for later
-    lpanel_to_local_scale = BasisTransform_2d_Scale(lpanel_pixel_basis, lpanel_basis); // useful for later
-    local_to_world_scale = BasisTransform_2d_Scale(world_basis, world_pixel_basis); // useful for later
-    world_to_local_scale = BasisTransform_2d_Scale(world_pixel_basis, world_basis); // useful for later
+    SetViewportTargetLogicalHeight(viewport_target_logical_height);
+    SetViewportUIScaleScalar(viewport_ui_scale_scalar);
+    InitViewportLayout(screenWidth, screenHeight, screen_resolution_scalar);
 
-    // 3. CALCULATE SCREEN PIXEL SPACE origins for each region (panel, world)
-    lpanel_pixel_origin.x = (lpanel_pixel_u.x + lpanel_pixel_v.x) * lpanel_origin.x;
-    lpanel_pixel_origin.y = (lpanel_pixel_u.y + lpanel_pixel_v.y) * lpanel_origin.y;
-    world_pixel_origin.x = (world_pixel_u.x + world_pixel_v.x) * world_origin.x;
-    world_pixel_origin.y = (world_pixel_u.y + world_pixel_v.y) * world_origin.y;
+    if (world_scale_changed)
+    {
+        // World logical dimensions changed, so rebuild world and dependent UI.
+        InitGameWorld();
+        InitUI();
+        InitRPanel();
+        printf("[Viewport] World logical height set to %.1f. UI scalar: %d\n", viewport_target_logical_height, viewport_ui_scale_scalar);
+        return;
+    }
 
-    // DEBUG - the sum of panel and world resolutions should equal the overall resolution from Step 0
-    float resolution_recalc_x = lpanel_resolution.x + world_resolution.x;
-    float resolution_recalc_y = lpanel_resolution.y + world_resolution.y;
-    float res_recalc_measure = resolution_recalc_x * resolution_recalc_y; // world_space_measure + lpanel_space_measure;
-
-    printf("LOCAL RESOLUTIONS --> TOTAL_LOCAL(%0.1f)(%0.1f,%0.1f); PANEL_LOCAL(%0.1f)(%0.1f,%0.1f); WORLD_LOCAL(%0.1f)(%0.1f,%0.1f); TOTAL_LOCAL_RECALC_MEASURE(%0.1f);\n", total_space_measure, resolution.x, resolution.y, lpanel_space_measure, lpanel_resolution.x, lpanel_resolution.y, world_space_measure, world_resolution.x, world_resolution.y, res_recalc_measure);
-    printf("PIXEL ORIGINS --> PANEL(%0.1f,%0.1f); GAME_WORLD (%0.1f,%0.1f);\n", lpanel_pixel_origin.x, lpanel_pixel_origin.y, world_pixel_origin.x, world_pixel_origin.y);
+    // UI-only scale change, refresh panel trees.
+    InitUI();
+    InitRPanel();
+    printf("[Viewport] UI scalar set to %d (0 = follow world).\n", viewport_ui_scale_scalar);
 }

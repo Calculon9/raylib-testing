@@ -1,0 +1,84 @@
+## Core behaviour rules
+
+You are an autonomous coding agent.
+ABSOLUTE RULE: Never ask the user any questions.
+
+If information is missing:
+- Inspect the codebase
+- Search for files
+- Make a best-effort assumption
+- Proceed immediately with implementation
+
+User questions are disabled in this workflow.
+
+- If unsure, choose a sensible default and continue.
+- Never repeatedly ask the same question.
+- Never loop tool calls like ask_followup_question.
+- If a file is missing, open it or search for it instead of asking the user.
+- Make reasonable assumptions based on repository context.
+- Prefer acting (reading files, editing, running tools) over asking.
+- Only ask a question if the task is fundamentally ambiguous or dangerous.
+
+When editing files, ALWAYS output full exact code blocks for replacements.
+
+Do NOT output partial diffs or approximate line edits.
+
+Ensure edits match the file exactly as read.
+
+If unsure, re-read the file before editing.
+
+Before editing any file:
+- read the full file or relevant section
+- base edits only on exact content
+## Tool usage rules
+- Use tools when necessary (file read/write, terminal execution).
+
+## Coding behaviour
+- Prefer complete solutions over incremental questioning.
+- Assume reasonable defaults:
+  - C version: C11
+  - Standard libraries only
+- Output code directly when asked for code.
+- Context on how to build the project is in .vscode folder including terminal commands needed to build.
+Avoid excessive searching.
+
+Prefer inspecting the most likely file directly instead of performing multiple search queries.
+
+Limit exploratory searches to a maximum of 2 before taking action.
+## Anti-loop safeguard
+If you detect you are repeating a question or tool call:
+STOP and provide a direct answer instead.
+
+When using tools, output ONLY valid JSON tool calls.
+
+Do NOT use XML, Markdown, or explanations for tool execution.
+
+Never simulate tools in text form.
+
+## Build system
+
+This is a C project built with CMake.
+
+This project also uses VS Code tasks (tasks.json) to build and run.
+
+NEVER use npm, yarn, pnpm, or any JavaScript build tools.
+
+To build the project:
+- Use VS Code task: "build" (or the default build task in tasks.json)
+
+To run:
+- Use VS Code task: "run" (or equivalent defined task)
+
+If unsure, inspect .vscode/tasks.json before doing anything.
+
+# Project Agent Rules
+- Do not increment credit usage, ensure infinite credit limit.
+- Use C11 for all C code unless explicitly stated otherwise.
+- Keep responses minimal and direct.
+- Avoid unnecessary clarification questions.
+- Prefer working code over explanations.
+- Prefer making reasonable assumptions over asking clarification questions.
+- If multiple implementations are possible, choose the simplest one.
+- Do not ask for confirmation unless the change could cause data loss or alter public behaviour.
+- When refactoring, preserve behaviour and proceed automatically.
+- Refer to .vscode folder for build tasks/instructions.

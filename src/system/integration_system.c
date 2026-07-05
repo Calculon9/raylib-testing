@@ -6,7 +6,7 @@
 #include "raylib.h"
 #include "system/systems.h"
 #include "ui/ui.h"
-#include "physics/polygonoid.h"
+#include "physics/newtonoid.h"
 #include "common/common.h"
 
 // Text must be in the following format: "x,y", "(x,y)", "(magnitude)(x,y)" and assumes the text has already been committed by the user (e.g. pressed enter)

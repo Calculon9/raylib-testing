@@ -1,0 +1,155 @@
+#include "system/command_queue.h"
+#include <string.h>
+#include "system/systems.h"
+#include "system/world_system.h"
+#include "world/world.h"
+#include "world/world_internal.h"
+#include "common/common.h"
+
+// Simple circular buffer queue
+#define COMMAND_QUEUE_CAPACITY 128
+static Command queue[COMMAND_QUEUE_CAPACITY];
+static int q_head = 0;
+static int q_tail = 0;
+static int q_count = 0;
+
+void InitCommandQueue(void)
+{
+    memset(queue, 0, sizeof(queue));
+    q_head = q_tail = q_count = 0;
+}
+
+bool EnqueueCreateEntity(const Newtonoid2dParams *params)
+{
+    if (!params)
+        return false;
+    if (q_count >= COMMAND_QUEUE_CAPACITY)
+        return false;
+
+    Command *c = &queue[q_tail];
+    c->type = CMD_CREATE_ENTITY;
+    c->params = *params; // copy struct
+
+    q_tail = (q_tail + 1) % COMMAND_QUEUE_CAPACITY;
+    q_count++;
+    LOG_INFO("Enqueued CMD_CREATE_ENTITY (queue_count=%d)\n", q_count);
+    return true;
+}
+
+bool EnqueueDeleteEntity(Newtonoid2d *obj)
+{
+    if (!obj)
+        return false;
+    if (q_count >= COMMAND_QUEUE_CAPACITY)
+        return false;
+
+    Command *c = &queue[q_tail];
+    c->type = CMD_DELETE_ENTITY;
+    c->params = (Newtonoid2dParams){0}; // No params needed for deletion
+
+    q_tail = (q_tail + 1) % COMMAND_QUEUE_CAPACITY;
+    q_count++;
+    LOG_INFO("Enqueued CMD_DELETE_ENTITY (queue_count=%d)\n", q_count);
+    return true;
+}
+
+bool EnqueueCreateWorld(void)
+{
+    if (q_count >= COMMAND_QUEUE_CAPACITY)
+        return false;
+
+    Command *c = &queue[q_tail];
+    c->type = CMD_CREATE_WORLD;
+    c->params = (Newtonoid2dParams){0};
+    c->world_select_delta = 0;
+
+    q_tail = (q_tail + 1) % COMMAND_QUEUE_CAPACITY;
+    q_count++;
+    LOG_INFO("Enqueued CMD_CREATE_WORLD (queue_count=%d)\n", q_count);
+    return true;
+}
+
+bool EnqueueSelectWorld(int delta)
+{
+    if (q_count >= COMMAND_QUEUE_CAPACITY)
+        return false;
+
+    Command *c = &queue[q_tail];
+    c->type = CMD_SELECT_WORLD;
+    c->params = (Newtonoid2dParams){0};
+    c->world_select_delta = delta;
+
+    q_tail = (q_tail + 1) % COMMAND_QUEUE_CAPACITY;
+    q_count++;
+    LOG_INFO("Enqueued CMD_SELECT_WORLD delta=%d (queue_count=%d)\n", delta, q_count);
+    return true;
+}
+
+void ProcessCommandQueue(void)
+{
+    while (q_count > 0)
+    {
+        Command *c = &queue[q_head];
+        if (c->type == CMD_CREATE_ENTITY)
+        {
+            // Resolve params to an entity and add to world
+            Newtonoid2d *new_entity = ResolveEntityParamsToEntity(&c->params);
+            if (new_entity && G_WorldState.world)
+            {
+                int entity_id = AddObjectToWorld(G_WorldState.world, new_entity, G_WorldState.world->coord_space_grid.object.id);
+                if (entity_id >= 0)
+                {
+                    Newtonoid2d *spawned = GetEntityByID(&G_WorldState, entity_id);
+                    if (spawned)
+                        G_WorldState.selected_object = spawned;
+                    LOG_INFO("Processed CMD_CREATE_ENTITY -> spawned id=%d\n", entity_id);
+                }
+            }
+        }
+
+        if (c->type == CMD_DELETE_ENTITY)
+        {
+            if (G_WorldState.selected_object)
+            {
+                int entity_id = G_WorldState.selected_object->id;
+                DeregisterEntity(&G_WorldState, entity_id);
+                G_WorldState.selected_object = NULL;
+                LOG_INFO("Processed CMD_DELETE_ENTITY -> deleted id=%d\n", entity_id);
+            }
+        }
+
+        if (c->type == CMD_CREATE_WORLD)
+        {
+            int world_index = CreateNewWorldDefault();
+            if (world_index >= 0)
+            {
+                LOG_INFO("Processed CMD_CREATE_WORLD -> world_index=%d\n", world_index);
+            }
+        }
+
+        if (c->type == CMD_SELECT_WORLD)
+        {
+            int world_count = GetWorldCount();
+            if (world_count > 0)
+            {
+                int current_index = GetSelectedWorldIndex();
+                int delta = c->world_select_delta;
+                int next_index = (current_index + delta) % world_count;
+                if (next_index < 0)
+                {
+                    next_index += world_count;
+                }
+
+                if (SelectWorldByIndex(next_index))
+                {
+                    LOG_INFO("Processed CMD_SELECT_WORLD -> selected_index=%d\n", next_index);
+                }
+            }
+        }
+
+        // Pop command
+        queue[q_head].type = CMD_NONE;
+        q_head = (q_head + 1) % COMMAND_QUEUE_CAPACITY;
+        q_count--;
+    }
+}

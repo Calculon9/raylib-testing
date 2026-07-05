@@ -9,6 +9,7 @@ WORLD MODULE
 #include "math/cvectors.h"
 #include "camera/camera.h"
 #include "system/systems.h"
+#include "world/universe.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
@@ -40,9 +41,9 @@ extern Vector2d world_v;// = {0, 1};
 extern Vector2d world_resolution;// = {0};
 
 // Logical->pixel-space conversion properties
-extern Vector2d world_pixel_origin, world_pixel_end;// = {0};
-extern Vector2d world_pixel_u;// = {75, 0};
-extern Vector2d world_pixel_v;// = {0, 75};
+extern Vector2d universe_viewport_origin, universe_viewport_end;// = {0};
+extern Vector2d universe_viewport_u;// = {75, 0};
+extern Vector2d universe_viewport_v;// = {0, 75};
 extern Camera2d camera_world;// = {0};
 extern Vector2d local_to_world_scale;
 extern Vector2d world_to_local_scale;
@@ -60,4 +61,15 @@ extern Vector2d world_to_local_scale;
 //----------------------------------------------------------------------------------
 //void *GetEntityByID(WorldState *context, int entity_id);
 //UIElement *CreateTextField(float width, float height, Vector2d origin_coords, Vector2d parent_offset, Vector2d label_tbox_offset, Vector2d label_tbox_padding, char max_label_chars, char max_text_box_chars);
+int CreateNewWorldDefault(void);
+bool SelectWorldByIndex(int index);
+int GetWorldCount(void);
+int GetSelectedWorldIndex(void);
+World2d *GetSelectedWorld(void);
+World2d *GetWorldByIndex(int index);
+Vector2d *GetNextWorldSpawnOriginPtr(void);
+void SetNextWorldSpawnOrigin(Vector2d origin);
+Vector2d *GetNextWorldResolutionPtr(void);
+Vector2d GetUniverseCameraOffset(void);
+float *GetNextWorldGravityPtr(void);
 #endif

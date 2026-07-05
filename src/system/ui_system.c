@@ -12,9 +12,11 @@
 #include "ui/text_region.h"
 #include "ui/ui_renderer.h"
 #include "system/ui_system.h"
+#include "system/lpanel_system.h"
 #include "world/world.h"
 #include "system/systems.h"
 #include "system/utility_system.h"
+#include "system/viewport_system.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -24,20 +26,24 @@ UIState G_UIState = (UIState){0};
 // Logical->pixel-space conversion properties
 
 // Default UI Properties
-Offset tbox_tlabel_default_offset = {{0.06, 0}, OFFSET_FIXED};
-Vector2d tbox_default_padding = {0.04, 0.04};
-Vector2d tlabel_default_padding = {0.04, 0.04};
-Vector2d tfield_default_padding = {0.04, 0.04};
+Offset tbox_tlabel_default_offset = {{0.03, 0}, OFFSET_FIXED};
+Vector2d tbox_default_padding = {0.00, 0.00};
+Vector2d tlabel_default_padding = {0.00, 0.00};
+Vector2d tfield_default_padding = {0.01, 0.01};
 Vector2d tcont_default_padding = {0.06, 0.06};
 Vector2d btn_default_padding = {0.025, 0.025};
+ColourRgba btn_default_colour_border = COLOUR_PANEL_DARK_2;
+ColourRgba btn_default_colour_fill = COLOUR_PANEL_LIGHT_1;
 ColourRgba tbox_default_colour_border = COLOUR_PANEL_DARK_1; // {150, 115, 70, 255};//MAROON_RGBA; //{128, 99, 42, 100};
 ColourRgba tbox_default_colour_fill = COLOUR_PANEL_LIGHT_3;  // COLOUR_PANEL_DARK_1;
 ColourRgba tcont_default_colour_fill = COLOUR_PANEL_LIGHT_1;
 ColourRgba tcont_default_colour_border = COLOUR_PANEL_DARK_2; // {150, 115, 70, 255};//MAROON_RGBA; //{128, 99, 42, 100};
 ColourRgba tfield_default_colour_fill = COLOURLESS_RGBA;
-Size tfield_default_size = {{6, 0.36}, SIZE_FIXED};
-Size tbox_default_size = {{0.6, 1}, SIZE_PERCENT}; // Assuming it's in a container
-Size btn_default_size = {{1, 1}, SIZE_PERCENT};    // Assuming it's in a container
+Size tfield_default_size = {{6, 0.5}, SIZE_FIXED};
+// Give labels more room in inline text fields (label width = 1.0 - textbox width).
+Size tbox_default_size = {{0.45, 1}, SIZE_PERCENT};
+Size btn_default_size = {{6, 0.5}, SIZE_FIXED};    // Assuming it's in a container
+//Size btn_default_size = {{1, 1}, SIZE_PERCENT};    // Assuming it's in a container
 Size tcont_default_size = {{1, 0.5}, SIZE_PERCENT};
 Spacing tcont_default_child_spacing = {{0, 0.015}, PERCENT, SPACING_STACKED};
 Spacing cont_default_child_spacing = {{0, 0.015}, PERCENT, SPACING_STACKED};
@@ -49,7 +55,6 @@ Spacing btn_cont_default_child_spacing = {{0.0, 0.0}, PERCENT, SPACING_NONE};
 // Gameplay Screen Functions Definition
 //----------------------------------------------------------------------------------
 
-void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d camera);
 void UpdatePanelRegion(int mouse_x, int mouse_y, bool cursor_in_panel);
 void UpdateGlobalUIState();
 
@@ -57,13 +62,17 @@ void InitUI(void)
 {
     // Init Global UI State
     G_UIState.focused_element = NULL;
-    InitPanel();
+    InitLPanel();
     // G_UIState.active_panel_view = LPANEL_STATE_VIEW;
 }
 
 void UpdateUISystem(int mouse_x, int mouse_y)
 {
-    bool cursor_in_ui = mouse_x >= lpanel_pixel_origin.x && mouse_x <= (lpanel_pixel_origin.x + (lpanel_pixel_u.x * lpanel_resolution.x)) && mouse_y >= lpanel_pixel_origin.y && mouse_y <= (lpanel_pixel_origin.y + (lpanel_pixel_v.y * lpanel_resolution.y));
+    bool cursor_in_lpanel = mouse_x >= lpanel_pixel_origin.x && mouse_x <= (lpanel_pixel_origin.x + (lpanel_pixel_u.x * lpanel_resolution.x)) &&
+                            mouse_y >= lpanel_pixel_origin.y && mouse_y <= (lpanel_pixel_origin.y + (lpanel_pixel_v.y * lpanel_resolution.y));
+    bool cursor_in_rpanel = mouse_x >= rpanel_pixel_origin.x && mouse_x <= (rpanel_pixel_origin.x + (rpanel_pixel_u.x * rpanel_resolution.x)) &&
+                            mouse_y >= rpanel_pixel_origin.y && mouse_y <= (rpanel_pixel_origin.y + (rpanel_pixel_v.y * rpanel_resolution.y));
+    bool cursor_in_ui = cursor_in_lpanel || cursor_in_rpanel;
 
     // Send useful data to the Dispatcher for it triage and process/update affected elements
     ProcessUIInput(mouse_x, mouse_y, cursor_in_ui);
@@ -72,8 +81,7 @@ void UpdateUISystem(int mouse_x, int mouse_y)
 
 void DrawUI()
 {
-    // Draw the root element to kick it off
-    DrawRootUIElement(lpanel_root, seed_box, camera_lpanel);
+    DrawLPanel();
 }
 
 void UpdateGlobalUIState()
@@ -189,7 +197,7 @@ void UpdateGlobalUIState()
     if (G_UIState.active_panel_view == LPANEL_EDIT_ENTITY_VIEW && params)
     {   
         // Bind selected_object data to the Object Properties TextBoxes
-        G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.data_bind = &params->edge_count;
+        //G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.data_bind = &params->edge_count;
         G_UIState.lpanel_entity_edit_vertice_count_tbox->data.textbox.data_bind = &params->vertice_count;
         G_UIState.lpanel_entity_edit_width_tbox->data.textbox.data_bind = &params->width;
         G_UIState.lpanel_entity_edit_height_tbox->data.textbox.data_bind = &params->height;
@@ -203,8 +211,8 @@ void UpdateGlobalUIState()
 
         // PIPELINE data to text only when the element is NOT focused
         // so that editing of the text by the user doesn't keep getting overwritten with the value stored in the object
-        if (!G_UIState.lpanel_entity_edit_edge_count_tbox->is_focused)
-            PipelineNumberToText(params->edge_count, 0, G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.text.string, str_64);
+        // if (!G_UIState.lpanel_entity_edit_edge_count_tbox->is_focused)
+        //     PipelineNumberToText(params->edge_count, 0, G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.text.string, str_64);
         if (!G_UIState.lpanel_entity_edit_vertice_count_tbox->is_focused)
             PipelineNumberToText(params->vertice_count, 0, G_UIState.lpanel_entity_edit_vertice_count_tbox->data.textbox.text.string, str_64);
         if (!G_UIState.lpanel_entity_edit_width_tbox->is_focused)
@@ -225,7 +233,7 @@ void UpdateGlobalUIState()
     else
     {
         // Reset the bounded textbox output buffers
-        G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.text.string[0] = '\0';
+        //G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.text.string[0] = '\0';
         G_UIState.lpanel_entity_edit_vertice_count_tbox->data.textbox.text.string[0] = '\0';
         G_UIState.lpanel_entity_edit_width_tbox->data.textbox.text.string[0] = '\0';
         G_UIState.lpanel_entity_edit_height_tbox->data.textbox.text.string[0] = '\0';
@@ -236,7 +244,7 @@ void UpdateGlobalUIState()
         G_UIState.lpanel_entity_edit_moment_tbox->data.textbox.text.string[0] = '\0';
 
         // Unbind data
-        G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.data_bind = NULL;
+        //G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.data_bind = NULL;
         G_UIState.lpanel_entity_edit_vertice_count_tbox->data.textbox.data_bind = NULL;
         G_UIState.lpanel_entity_edit_width_tbox->data.textbox.data_bind = NULL;
         G_UIState.lpanel_entity_edit_height_tbox->data.textbox.data_bind = NULL;

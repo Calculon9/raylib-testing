@@ -35,31 +35,6 @@ UI SYSTEM MODULE
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
 //----------------------------------------------------------------------------------
-// Coordinate Space Properties
-extern Vector2d lpanel_u;                              // = {1, 0};
-extern Vector2d lpanel_v;                              // = {0, 1};
-extern Vector2d lpanel_resolution;                     //= {0};
-extern Vector2d lpanel_pixel_origin, lpanel_pixel_end; //= {0};
-
-// Logical->pixel-space conversion properties
-extern Vector2d lpanel_pixel_u;            // = {75, 0};
-extern Vector2d lpanel_pixel_v;            // = {0, 75};
-extern Vector2d lpanel_origin, lpanel_end; //= {0}; // Dependent on the game world screen area
-extern Camera2d camera_lpanel;
-extern Vector2d local_to_lpanel_scale; // = {0};lpanel_to_local_scale
-extern Vector2d lpanel_to_local_scale;
-
-// UI Elements
-extern UIBox seed_box; // This is the box that will be used as the parent box for the root element of the panel, and all other elements will calculate their positions and dimensions based on this box, which represents the entire panel area in pixel coordinates
-extern UIElement *lpanel_root;
-extern UIElement *lpanel_properties_tcont;
-extern UIElement *lpanel_stats_tcont;
-//extern Vector2d lpanel_properties_tcont_offset;
-//extern Vector2d lpanel_stats_tcont_offset;
-// - default text container props
-//extern Vector2d lpanel_tcont_default_dims;
-//extern Vector2d lpanel_tcont_default_padding;
-
 // Default UI Properties
 extern Offset tbox_tlabel_default_offset;
 extern Vector2d tbox_default_padding;
@@ -77,6 +52,8 @@ extern ColourRgba tcont_default_colour_fill;// = COLOUR_PANEL_LIGHT_1;
 extern ColourRgba tcont_default_colour_border;// = COLOUR_PANEL_DARK_2; // {150, 115, 70, 255};//MAROON_RGBA; //{128, 99, 42, 100};
 extern Size btn_default_size;// = {{1, 0.25}, SIZE_FIXED};
 extern Vector2d btn_default_padding ;//= {0.025, 0.025};
+extern ColourRgba btn_default_colour_border;
+extern ColourRgba btn_default_colour_fill;
 extern Spacing btn_cont_default_child_spacing;// = {{0.03, 0.0}, PERCENT, SPACING_NONE};
 extern Spacing lpanel_root_child_spacing;// = {{0, 0.015}, PERCENT, SPACING_STACKED};
 extern Spacing cont_default_child_spacing;

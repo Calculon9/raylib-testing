@@ -11,6 +11,7 @@ WORLD MODULE
 #include "colour/colour.h"
 #include "ui/cfont.h"
 #include "system/systems.h"
+#include "ui/binding.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
@@ -39,6 +40,16 @@ typedef enum
     UI_ELEMENT_IMAGE
 } UIElementType;
 
+// Actions that can be attached to buttons via `user_data` (pointer to int)
+typedef enum
+{
+    BUTTON_ACTION_NONE = 0,
+    BUTTON_ACTION_CREATE_ENTITY = 1,
+    BUTTON_ACTION_DELETE_ENTITY = 2,
+    BUTTON_ACTION_CREATE_WORLD = 3,
+    BUTTON_ACTION_SELECT_WORLD_PREV = 4,
+    BUTTON_ACTION_SELECT_WORLD_NEXT = 5,
+} ButtonAction;
 typedef enum
 {
     SPACING_NONE,
@@ -97,6 +108,7 @@ typedef struct
     String64 text;
     DataType data_type;
     void *data_bind;
+    Binder *binder;
     Bitmap_Font font;
     int cursor_position;
 } TextBoxData;

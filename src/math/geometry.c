@@ -3,16 +3,16 @@
 
 LArray CreateVertices_Symmetric(int vertice_count, float radius_x, float radius_y)
 {
-    if (vertice_count < 0)
+    if (vertice_count <= 0)
     {
-        fprintf(stderr, "The provided number of contact vertices, %d, is less than 0. Returning an empty surface.\n", vertice_count);
+        if (vertice_count < 0)
+        {
+            fprintf(stderr, "The provided number of contact vertices, %d, is invalid. Returning an empty surface.\n", vertice_count);
+        }
         return MakeLArray(0, sizeof(Vector2d));
     }
     LArray points = MakeLArray(vertice_count, sizeof(Vector2d));
     float angle_step = (2.0f * PI) / vertice_count;
-
-    char log_buffer[512] = {0};
-    int log_offset = 0;
 
     for (int i = 0; i < vertice_count; i++)
     {
@@ -20,29 +20,23 @@ LArray CreateVertices_Symmetric(int vertice_count, float radius_x, float radius_
         Vector2d p;
         p.x = radius_x * cosf(current_angle);
         p.y = radius_y * sinf(current_angle);
-        printf("Generated vertice %d: Angle = %.3f\n", i, current_angle);
         LArray_Push(&points, &p);
-        if (log_offset < (int)sizeof(log_buffer) - 30)
-        {
-            log_offset += snprintf(log_buffer + log_offset, sizeof(log_buffer) - log_offset, " (%.2f, %.2f)", ((Vector2d *)points.items)[i].x, ((Vector2d *)points.items)[i].y);
-        }
     }
     CenterVerticesToExtents(&points);
-    printf("VERTICES(SYM) CREATED:%s\n", log_buffer);
     return points;
 }
 LArray CreateVertices_Irregular(int vertice_count, float min_radius, float max_radius)
 {
-    if (vertice_count < 0)
+    if (vertice_count <= 0)
     {
-        fprintf(stderr, "The provided number of contact vertices, %d, is less than 0. Returning an empty surface.\n", vertice_count);
+        if (vertice_count < 0)
+        {
+            fprintf(stderr, "The provided number of contact vertices, %d, is invalid. Returning an empty surface.\n", vertice_count);
+        }
         return MakeLArray(0, sizeof(Vector2d));
     }
     LArray points = MakeLArray(vertice_count, sizeof(Vector2d));
     float angle_step = (2.0f * PI) / vertice_count;
-
-    char log_buffer[512] = {0};
-    int log_offset = 0;
     float radius_rand;
     for (int i = 0; i < vertice_count; i++)
     {
@@ -51,15 +45,9 @@ LArray CreateVertices_Irregular(int vertice_count, float min_radius, float max_r
         Vector2d p;
         p.x = radius_rand * cosf(current_angle);
         p.y = radius_rand * sinf(current_angle);
-        printf("Generated vertice %d: Angle = %.3f\n", i, current_angle);
         LArray_Push(&points, &p);
-        if (log_offset < (int)sizeof(log_buffer) - 30)
-        {
-            log_offset += snprintf(log_buffer + log_offset, sizeof(log_buffer) - log_offset, " (%.2f, %.2f)", ((Vector2d *)points.items)[i].x, ((Vector2d *)points.items)[i].y);
-        }
     }
     CenterVerticesToExtents(&points);
-    printf("VERTICES(IRREG) CREATED:%s\n", log_buffer);
     return points;
 }
 // Creates surface vectors with the provided offset.
