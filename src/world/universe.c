@@ -124,7 +124,7 @@ bool Universe_SelectWorld(Universe *u, int index, Vector2d game_region_origin)
 
     // Also update the universe camera position to center on the selected world.
     u->camera.camera_coords = u->worlds[index].universe_position;
-    UpdateCameraTransforms(&u->camera);
+    UpdateCameraFull(&u->camera);
 
     return true;
 }
@@ -230,20 +230,4 @@ World2d *Universe_GetWorld(Universe *u, int index)
 Camera2d *Universe_GetCamera(Universe *u)
 {
     return &u->camera;
-}
-
-void Universe_ZoomCamera(Universe *u, float factor)
-{
-    ZoomCamera(&u->camera, factor);
-}
-
-void Universe_PanCamera(Universe *u, Vector2d delta)
-{
-    u->camera.camera_coords = VectorSum_2d(u->camera.camera_coords, delta);
-    UpdateCameraTransforms_Pan(&u->camera);
-}
-
-void Universe_RotateCamera(Universe *u, float angle_delta)
-{
-    RotateCamera(&u->camera, angle_delta);
 }

@@ -178,7 +178,7 @@ void InitRPanel(void)
     Basis2d rpanel_basis = (Basis2d){lpanel_u, lpanel_v};
     Basis2d rpanel_pixel_basis = (Basis2d){rpanel_pixel_u, rpanel_pixel_v};
 
-    camera_rpanel = CreateCamera2d(rpanel_pixel_basis, rpanel_basis, rpanel_pixel_origin, rpanel_origin, 1.0f, 0.0f);
+    camera_rpanel = CreateCamera2d(rpanel_pixel_basis, rpanel_basis, rpanel_pixel_origin, rpanel_origin);
 
     rpanel_space = NewCoordSpace2d(rpanel_origin, rpanel_resolution, rpanel_basis);
     rpanel_root = CreateUIElement(

@@ -48,14 +48,12 @@ void InitUniverseSystem(void)
 
     Vector2d universe_resolution = {
         (float)universe_grid_cells_x * universe_grid_cell_size,
-        (float)universe_grid_cells_y * universe_grid_cell_size
-    };
+        (float)universe_grid_cells_y * universe_grid_cell_size};
 
     // Spawn first world centered in universe so startup composition is stable.
     Vector2d first_world_spawn = {
         (universe_resolution.x - game_region_resolution.x) * 0.5f,
-        (universe_resolution.y - game_region_resolution.y) * 0.5f
-    };
+        (universe_resolution.y - game_region_resolution.y) * 0.5f};
 
     Universe_Init(&G_Universe, first_world_spawn, game_region_resolution, universe_resolution, gravity);
     // Initialise universe camera: identity basis, origin at (0,0), centered view.
@@ -65,33 +63,12 @@ void InitUniverseSystem(void)
         VectorScale_2d(game_viewport_u, game_region_resolution.x),
         VectorScale_2d(game_viewport_v, game_region_resolution.y));
     Vector2d game_viewport_center = VectorSum_2d(game_viewport_origin, VectorScale_2d(game_viewport_pixel_dimensions, 0.5f));
-    G_Universe.camera = CreateCamera2d(game_viewport_basis, identity_basis, game_viewport_center, ZERO_VECTOR_2D, 1.0f, 0.0f);
+    G_Universe.camera = CreateCamera2d(game_viewport_basis, identity_basis, game_viewport_center, ZERO_VECTOR_2D);
     G_Universe.camera.camera_coords = ZERO_VECTOR_2D;
-    //G_Universe.camera.camera_coords = (Vector2d){universe_resolution.x * 0.5f, universe_resolution.y * 0.5f};
-    // Universe camera outputs into the game viewport (screen-space basis/origin).
-    UpdateCameraTransforms(&G_Universe.camera);
+    // G_Universe.camera.camera_coords = (Vector2d){universe_resolution.x * 0.5f, universe_resolution.y * 0.5f};
+    //  Universe camera outputs into the game viewport (screen-space basis/origin).
+    UpdateCameraFull(&G_Universe.camera);
 }
-
-// void SetUniverseGridCellCounts(int cells_x, int cells_y)
-// {
-//     if (cells_x < 10)
-//         cells_x = 10;
-//     if (cells_y < 10)
-//         cells_y = 10;
-
-//     universe_grid_cells_x = cells_x;
-//     universe_grid_cells_y = cells_y;
-// }
-
-// void SetUniverseGridCellSize(float cell_size)
-// {
-//     if (cell_size < 0.1f)
-//         cell_size = 0.1f;
-//     if (cell_size > 100.0f)
-//         cell_size = 100.0f;
-
-//     universe_grid_cell_size = cell_size;
-// }
 
 void UpdateUniverseInput(int mouse_x, int mouse_y, bool cursor_in_game_viewport)
 {
@@ -110,22 +87,28 @@ void UpdateUniverseInput(int mouse_x, int mouse_y, bool cursor_in_game_viewport)
             pan_delta.x += 0.5f;
 
         if (pan_delta.x != 0.0f || pan_delta.y != 0.0f)
-            Universe_PanCamera(&G_Universe, pan_delta);
+            PanCamera(&G_Universe.camera, pan_delta);
 
         // Zoom with Ctrl +/-
         if (IsKeyDown(KEY_LEFT_CONTROL))
         {
             if (IsKeyPressed(KEY_EQUAL))
-                Universe_ZoomCamera(&G_Universe, 1.1f);
+                ZoomCamera(&G_Universe.camera, 1.1f);
             else if (IsKeyPressed(KEY_MINUS))
-                Universe_ZoomCamera(&G_Universe, 1.0f/1.1f);
+                ZoomCamera(&G_Universe.camera, 1.0f / 1.1f);
+        }
+        if (IsKeyDown(KEY_LEFT_SHIFT))
+        {
+            if (IsKeyPressed(KEY_EQUAL))
+                RotateCamera(&G_Universe.camera, 0.25);
+            else if (IsKeyPressed(KEY_MINUS))
+                RotateCamera(&G_Universe.camera, -0.25);
         }
     }
-
     // Click to select/deselect worlds
     if (IsMouseButtonPressed((int)MOUSE_BUTTON_LEFT) && cursor_in_game_viewport)
     {
-        //extern Vector2d game_region_origin;
+        // extern Vector2d game_region_origin;
         Vector2d click_pixel_coords = {mouse_x, mouse_y};
         // Use universe camera to transform pixel to universe space
         Vector2d click_universe_coords = TransformCoordinates(G_Universe.camera.dest_to_source_mtx, click_pixel_coords);
@@ -139,6 +122,7 @@ void UpdateUniverseInput(int mouse_x, int mouse_y, bool cursor_in_game_viewport)
             G_Universe.camera_offset = ZERO_VECTOR_2D;
         }
     }
+    UpdateCameraSmoothingTick(&G_Universe.camera);
 }
 
 void DrawUniverse(void)
@@ -149,36 +133,40 @@ void DrawUniverse(void)
         printf("[Universe] Grid debug labels: %s\n", universe_grid_debug_labels_enabled ? "ON" : "OFF");
     }
 
-    //extern Camera2d camera_world;
-    //extern Vector2d game_region_origin;
-    
+    // extern Camera2d camera_world;
+    // extern Vector2d game_region_origin;
+
     // Draw universe grid background
     DrawUniverseGrid();
-    
+
     Universe_Draw(&G_Universe, &G_Universe.camera);
     DrawUniverseCameraMarker();
 }
 
 void DrawUniverseCameraMarker(void)
 {
-    // Draw universe camera marker always so we can see where the universe camera is
-    Vector2d camera_pos = G_Universe.camera.camera_coords;
-    Vector2d marker_half_size = {0.25f, 0.25f}; // Half-size for the marker
-    Vector2d marker_min = VectorSum_2d(camera_pos, VectorScale_2d(marker_half_size, -1.0f));
-    Vector2d marker_max = VectorSum_2d(camera_pos, marker_half_size);
+    // Get the absolute world position of the camera center
+    Vector2d camera_world_pos = G_Universe.camera.camera_coords;
 
-    // Transform to screen coordinates
-    Vector2d marker_min_screen = TransformCoordinates(G_Universe.camera.source_to_dest_mtx, marker_min);
-    Vector2d marker_max_screen = TransformCoordinates(G_Universe.camera.source_to_dest_mtx, marker_max);
+    // Transform ONLY the single center point to screen coordinates.
+    // This perfectly handles panning, zooming, and rotation without point drift.
+    Vector2d center_screen = TransformCoordinates(G_Universe.camera.source_to_dest_mtx, camera_world_pos);
 
-    Vector2d size_2d = {marker_max_screen.x - marker_min_screen.x, marker_max_screen.y - marker_min_screen.y};
+    // Define the marker size in SCREEN PIXELS. 
+    // We adjust it by our camera zoom factor so it physically scales down/up with the world!
+    float marker_pixel_size = 32.0f * G_Universe.camera.zoom; 
+    float half_size = marker_pixel_size * 0.5f;
 
-    // Convert to raylib types
-    Vector2 position = {marker_min_screen.x, marker_min_screen.y};
-    Vector2 size = {size_2d.x, size_2d.y};
-    Color color = {camera_marker_colour.r, camera_marker_colour.g, camera_marker_colour.b, camera_marker_colour.a};
+    // Calculate the top-left screen position for Raylib
+    Vector2 position = { 
+        (float)(center_screen.x - half_size), 
+        (float)(center_screen.y - half_size) 
+    };
+    
+    Vector2 size = { (float)marker_pixel_size, (float)marker_pixel_size };
+    Color color = { camera_marker_colour.r, camera_marker_colour.g, camera_marker_colour.b, camera_marker_colour.a };
 
-    // Draw a small square at the universe camera position
+    // Draw the unwarped screen square centered on the camera position
     DrawRectangleV(position, size, color);
 }
 
@@ -186,35 +174,35 @@ void DrawUniverseGrid(void)
 {
     // Grid lines for universe visualization - independent of world size
     // Grid cells are a fixed size in logical units
-    ColourRgba grid_colour = {100, 100, 100, 100};  // Very faint, highly transparent gray
+    ColourRgba grid_colour = {100, 100, 100, 100}; // Very faint, highly transparent gray
     float grid_cell_size = universe_grid_cell_size;
 
     Vector2d universe_min = {0, 0};
     Vector2d universe_max = G_Universe.resolution;
-    
+
     // Draw vertical lines (along Y)
     for (float x = 0; x <= universe_max.x; x += grid_cell_size)
     {
         Vector2d line_start = {x, universe_min.y};
         Vector2d line_end = {x, universe_max.y};
-        
+
         Vector2d line_start_pixel = TransformCoordinates(G_Universe.camera.source_to_dest_mtx, line_start);
         Vector2d line_end_pixel = TransformCoordinates(G_Universe.camera.source_to_dest_mtx, line_end);
-        
+
         DrawLineV((Vector2){line_start_pixel.x, line_start_pixel.y},
                   (Vector2){line_end_pixel.x, line_end_pixel.y},
                   (Color){grid_colour.r, grid_colour.g, grid_colour.b, grid_colour.a});
     }
-    
+
     // Draw horizontal lines (along X)
     for (float y = 0; y <= universe_max.y; y += grid_cell_size)
     {
         Vector2d line_start = {universe_min.x, y};
         Vector2d line_end = {universe_max.x, y};
-        
+
         Vector2d line_start_pixel = TransformCoordinates(G_Universe.camera.source_to_dest_mtx, line_start);
         Vector2d line_end_pixel = TransformCoordinates(G_Universe.camera.source_to_dest_mtx, line_end);
-        
+
         DrawLineV((Vector2){line_start_pixel.x, line_start_pixel.y},
                   (Vector2){line_end_pixel.x, line_end_pixel.y},
                   (Color){grid_colour.r, grid_colour.g, grid_colour.b, grid_colour.a});

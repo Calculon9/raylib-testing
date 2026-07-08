@@ -27,12 +27,12 @@ typedef struct Universe
 {
     // World container
     World2d worlds[UNIVERSE_MAX_WORLDS];
-    int     world_count;
-    int     selected_world_index;
-    int     camera_marker_ids[UNIVERSE_MAX_WORLDS]; // Per-world camera-position marker entity IDs
+    int world_count;
+    int selected_world_index;
+    int camera_marker_ids[UNIVERSE_MAX_WORLDS]; // Per-world camera-position marker entity IDs
     Vector2d world_bounds_min[UNIVERSE_MAX_WORLDS];
     Vector2d world_bounds_max[UNIVERSE_MAX_WORLDS];
-    bool     world_bounds_valid[UNIVERSE_MAX_WORLDS];
+    bool world_bounds_valid[UNIVERSE_MAX_WORLDS];
 
     // Universe-space camera (operates in world-local units)
     Camera2d camera;
@@ -43,7 +43,7 @@ typedef struct Universe
     Vector2d next_spawn;
     Vector2d spawn_step;
     Vector2d next_resolution;
-    float    next_gravity;
+    float next_gravity;
 } Universe;
 
 //----------------------------------------------------------------------------------
@@ -60,16 +60,16 @@ void Universe_Init(Universe *u,
                    Vector2d default_spawn,
                    Vector2d default_new_world_resolution,
                    Vector2d universe_resolution,
-                   float    default_gravity);
+                   float default_gravity);
 
 // Create a new world using the universe creation params; returns its index or -1 on failure.
-int  Universe_CreateWorld(Universe *u,
-                          Basis2d   world_basis,
-                          ColourRgba fill_colour,
-                          ColourRgba line_colour,
-                          Camera2d  *world_camera,
-                          ColourRgba camera_marker_colour,
-                          WorldState *world_state);
+int Universe_CreateWorld(Universe *u,
+                         Basis2d world_basis,
+                         ColourRgba fill_colour,
+                         ColourRgba line_colour,
+                         Camera2d *world_camera,
+                         ColourRgba camera_marker_colour,
+                         WorldState *world_state);
 
 // Select a world by index; pans the universe camera to align the world with the game region origin.
 bool Universe_SelectWorld(Universe *u, int index, Vector2d game_region_origin);
@@ -81,25 +81,25 @@ void Universe_Draw(Universe *u, Camera2d *world_camera);
 // Returns true if the selection changed. local_out receives the local coords in the
 // newly selected (or unchanged) world.
 bool Universe_ResolveClick(Universe *u,
-                           Vector2d  universe_click,
-                           Vector2d  game_region_origin,
+                           Vector2d universe_click,
+                           Vector2d game_region_origin,
                            Vector2d *local_out);
 
 // Register or update the universe-space bounds for a world.
 void Universe_SetWorldBounds(Universe *u, int index, Vector2d min_bound, Vector2d max_bound);
 
 // Find the world index at a universe-space point, or -1 if none.
-int  Universe_FindWorldAt(const Universe *u, Vector2d universe_point);
+int Universe_FindWorldAt(const Universe *u, Vector2d universe_point);
 
 // --- Camera control ---
 Camera2d *Universe_GetCamera(Universe *u);
-void Universe_ZoomCamera(Universe *u, float factor);
-void Universe_PanCamera(Universe *u, Vector2d delta);
-void Universe_RotateCamera(Universe *u, float angle_delta);
+// void Universe_ZoomCamera(Universe *u, float factor);
+// void Universe_PanCamera(Universe *u, Vector2d delta);
+// void Universe_RotateCamera(Universe *u, float angle_delta);
 
 // --- Accessors ---
-int      Universe_GetWorldCount(const Universe *u);
-int      Universe_GetSelectedIndex(const Universe *u);
+int Universe_GetWorldCount(const Universe *u);
+int Universe_GetSelectedIndex(const Universe *u);
 World2d *Universe_GetSelectedWorld(Universe *u);
 World2d *Universe_GetWorld(Universe *u, int index);
 

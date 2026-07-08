@@ -163,7 +163,7 @@ void InitPanelRoot(void)
 {
     Basis2d lpanel_basis = (Basis2d){lpanel_u, lpanel_v};
     Basis2d lpanel_pixel_basis = (Basis2d){lpanel_pixel_u, lpanel_pixel_v};
-    camera_lpanel = CreateCamera2d(lpanel_pixel_basis, lpanel_basis, lpanel_pixel_origin, lpanel_origin, 1, 0);
+    camera_lpanel = CreateCamera2d(lpanel_pixel_basis, lpanel_basis, lpanel_pixel_origin, lpanel_origin);
 
     lpanel_space = NewCoordSpace2d(lpanel_origin, lpanel_resolution, lpanel_basis);
     lpanel_root = CreateUIElement(UI_ELEMENT_ROOT, lpanel_root_size, (Offset){ZERO_VECTOR_2D, OFFSET_FIXED}, lpanel_default_padding, COLOURLESS_RGBA, lpanel_fill_colour);
