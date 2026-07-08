@@ -56,6 +56,48 @@ static Size rpanel_stat_row_tfield_size = {{5.8f, 0.55f}, SIZE_FIXED};
 static Size rpanel_button_size = {{5.8f, 0.45f}, SIZE_FIXED};
 static Spacing rpanel_world_btn_child_spacing = {{0.0f, 0.03f}, NONE, SPACING_STACKED};
 
+static void SetTextboxText(UIElement *textbox, const char *value)
+{
+    if (!textbox)
+    {
+        return;
+    }
+
+    safe_strncpy(textbox->data.textbox.text.string, value, MAX_LABEL_CHARS);
+}
+
+static void SetTextboxInt(UIElement *textbox, int value)
+{
+    if (!textbox)
+    {
+        return;
+    }
+
+    snprintf(textbox->data.textbox.text.string, sizeof(String64), "%d", value);
+}
+
+static void SetTextboxFloat(UIElement *textbox, float value, int precision)
+{
+    if (!textbox)
+    {
+        return;
+    }
+
+    char format[16] = {0};
+    snprintf(format, sizeof(format), "%%.%df", precision);
+    snprintf(textbox->data.textbox.text.string, sizeof(String64), format, value);
+}
+
+static void SetTextboxVector2Pair(UIElement *textbox, Vector2d value)
+{
+    if (!textbox)
+    {
+        return;
+    }
+
+    snprintf(textbox->data.textbox.text.string, sizeof(String64), "(%.1f,%.1f)", value.x, value.y);
+}
+
 static UIElement *CreateRPanelTitleLabel(UIElement *parent, const char *text)
 {
     return CreatePanelTitleLabel(parent,
@@ -302,15 +344,15 @@ void DrawRPanel(void)
 
     if (rpanel_stats_fps_tbox)
     {
-        snprintf(rpanel_stats_fps_tbox->data.textbox.text.string, sizeof(String64), "%.1f", frame_counter.fps);
+        SetTextboxFloat(rpanel_stats_fps_tbox, frame_counter.fps, 1);
     }
     if (rpanel_stats_frame_tbox)
     {
-        snprintf(rpanel_stats_frame_tbox->data.textbox.text.string, sizeof(String64), "%.2f", frame_counter.delta_time * 1000.0f);
+        SetTextboxFloat(rpanel_stats_frame_tbox, frame_counter.delta_time * 1000.0f, 2);
     }
     if (rpanel_stats_entities_tbox)
     {
-        snprintf(rpanel_stats_entities_tbox->data.textbox.text.string, sizeof(String64), "%d", GetNewtonoidCount());
+        SetTextboxInt(rpanel_stats_entities_tbox, GetNewtonoidCount());
     }
 
     World2d *selected_world = GetSelectedWorld();
@@ -325,7 +367,7 @@ void DrawRPanel(void)
         }
         else
         {
-            safe_strncpy(rpanel_world_index_tbox->data.textbox.text.string, "0/0", MAX_LABEL_CHARS);
+            SetTextboxText(rpanel_world_index_tbox, "0/0");
         }
     }
 
@@ -333,29 +375,28 @@ void DrawRPanel(void)
     {
         if (selected_world)
         {
-            snprintf(rpanel_world_universe_pos_tbox->data.textbox.text.string, sizeof(String64),
-                     "(%.1f,%.1f)", selected_world->universe_position.x, selected_world->universe_position.y);
+            SetTextboxVector2Pair(rpanel_world_universe_pos_tbox, selected_world->universe_position);
         }
         else
         {
-            safe_strncpy(rpanel_world_universe_pos_tbox->data.textbox.text.string, "N/A", MAX_LABEL_CHARS);
+            SetTextboxText(rpanel_world_universe_pos_tbox, "N/A");
         }
     }
 
     if (rpanel_create_world_count_tbox)
     {
-        snprintf(rpanel_create_world_count_tbox->data.textbox.text.string, sizeof(String64), "%d", world_count);
+        SetTextboxInt(rpanel_create_world_count_tbox, world_count);
     }
 
     if (rpanel_create_selected_world_tbox)
     {
         if (selected_world && world_count > 0)
         {
-            snprintf(rpanel_create_selected_world_tbox->data.textbox.text.string, sizeof(String64), "%d", selected_world_idx + 1);
+            SetTextboxInt(rpanel_create_selected_world_tbox, selected_world_idx + 1);
         }
         else
         {
-            safe_strncpy(rpanel_create_selected_world_tbox->data.textbox.text.string, "0", MAX_LABEL_CHARS);
+            SetTextboxText(rpanel_create_selected_world_tbox, "0");
         }
     }
 
@@ -394,26 +435,26 @@ void DrawRPanel(void)
         }
         if (rpanel_world_objects_tbox)
         {
-            snprintf(rpanel_world_objects_tbox->data.textbox.text.string, sizeof(String64), "%d", selected_world->objects.count);
+            SetTextboxInt(rpanel_world_objects_tbox, selected_world->objects.count);
         }
         if (rpanel_world_next_id_tbox)
         {
-            snprintf(rpanel_world_next_id_tbox->data.textbox.text.string, sizeof(String64), "%d", selected_world->next_object_id);
+            SetTextboxInt(rpanel_world_next_id_tbox, selected_world->next_object_id);
         }
     }
     else
     {
         if (rpanel_world_gravity_edit_tbox)
         {
-            safe_strncpy(rpanel_world_gravity_edit_tbox->data.textbox.text.string, "N/A", MAX_LABEL_CHARS);
+            SetTextboxText(rpanel_world_gravity_edit_tbox, "N/A");
             rpanel_world_gravity_edit_tbox->data.textbox.data_bind = NULL;
         }
         if (rpanel_world_resolution_tbox)
-            safe_strncpy(rpanel_world_resolution_tbox->data.textbox.text.string, "N/A", MAX_LABEL_CHARS);
+            SetTextboxText(rpanel_world_resolution_tbox, "N/A");
         if (rpanel_world_objects_tbox)
-            safe_strncpy(rpanel_world_objects_tbox->data.textbox.text.string, "0", MAX_LABEL_CHARS);
+            SetTextboxText(rpanel_world_objects_tbox, "0");
         if (rpanel_world_next_id_tbox)
-            safe_strncpy(rpanel_world_next_id_tbox->data.textbox.text.string, "0", MAX_LABEL_CHARS);
+            SetTextboxText(rpanel_world_next_id_tbox, "0");
     }
 
     DrawRootUIElement(rpanel_root, rpanel_seed_box, camera_rpanel);

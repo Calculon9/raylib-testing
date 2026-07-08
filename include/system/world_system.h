@@ -34,19 +34,17 @@ WORLD MODULE
 
 
 
-// Coordinate Space Properties
-extern Vector2d world_origin, world_end;// = {0};
+// Game-region placement in logical units inside the full screen layout.
+extern Vector2d game_region_origin, game_region_end;// = {0};
 extern Vector2d world_u;// = {1, 0};
 extern Vector2d world_v;// = {0, 1};
-extern Vector2d world_resolution;// = {0};
+extern Vector2d game_region_resolution;// = {0};
 
-// Logical->pixel-space conversion properties
-extern Vector2d universe_viewport_origin, universe_viewport_end;// = {0};
-extern Vector2d universe_viewport_u;// = {75, 0};
-extern Vector2d universe_viewport_v;// = {0, 75};
+// Game viewport in pixel-space (destination area for world/universe rendering).
+extern Vector2d game_viewport_origin, game_viewport_end;// = {0};
+extern Vector2d game_viewport_u;// = {75, 0};
+extern Vector2d game_viewport_v;// = {0, 75};
 extern Camera2d camera_world;// = {0};
-extern Vector2d local_to_world_scale;
-extern Vector2d world_to_local_scale;
 
 // typedef struct {
 //     Texture *texture;

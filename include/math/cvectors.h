@@ -59,9 +59,9 @@ typedef struct Basis3d
 
 typedef struct Matrix3x3
 {
-    Vector3d row1; // BasisU.x, BasisV.x, Trans.x
-    Vector3d row2; // BasisU.y, BasisV.y, Trans.y
-    Vector3d row3; // 0, 0, 1
+    Vector3d col1; // BasisU.x, BasisU.y, 0 
+    Vector3d col2; // BasisV.x, BasisV.y, 0
+    Vector3d col3; // Trans.x, Trans.y, 1
 } Matrix3x3;
 
 typedef struct Matrix2x2

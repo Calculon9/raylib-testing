@@ -30,6 +30,9 @@ typedef struct Universe
     int     world_count;
     int     selected_world_index;
     int     camera_marker_ids[UNIVERSE_MAX_WORLDS]; // Per-world camera-position marker entity IDs
+    Vector2d world_bounds_min[UNIVERSE_MAX_WORLDS];
+    Vector2d world_bounds_max[UNIVERSE_MAX_WORLDS];
+    bool     world_bounds_valid[UNIVERSE_MAX_WORLDS];
 
     // Universe-space camera (operates in world-local units)
     Camera2d camera;
@@ -55,7 +58,7 @@ extern Universe G_Universe;
 // Initialise the universe container with default values derived from the viewport.
 void Universe_Init(Universe *u,
                    Vector2d default_spawn,
-                   Vector2d default_world_resolution,
+                   Vector2d default_new_world_resolution,
                    Vector2d universe_resolution,
                    float    default_gravity);
 
@@ -68,8 +71,8 @@ int  Universe_CreateWorld(Universe *u,
                           ColourRgba camera_marker_colour,
                           WorldState *world_state);
 
-// Select a world by index; pans the universe camera to it. Returns false if out of range.
-bool Universe_SelectWorld(Universe *u, int index, Vector2d world_origin);
+// Select a world by index; pans the universe camera to align the world with the game region origin.
+bool Universe_SelectWorld(Universe *u, int index, Vector2d game_region_origin);
 
 // Draw all worlds at their universe positions.
 void Universe_Draw(Universe *u, Camera2d *world_camera);
@@ -79,8 +82,14 @@ void Universe_Draw(Universe *u, Camera2d *world_camera);
 // newly selected (or unchanged) world.
 bool Universe_ResolveClick(Universe *u,
                            Vector2d  universe_click,
-                           Vector2d  world_origin,
+                           Vector2d  game_region_origin,
                            Vector2d *local_out);
+
+// Register or update the universe-space bounds for a world.
+void Universe_SetWorldBounds(Universe *u, int index, Vector2d min_bound, Vector2d max_bound);
+
+// Find the world index at a universe-space point, or -1 if none.
+int  Universe_FindWorldAt(const Universe *u, Vector2d universe_point);
 
 // --- Camera control ---
 Camera2d *Universe_GetCamera(Universe *u);

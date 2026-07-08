@@ -179,6 +179,7 @@ void *GetEntityByID(WorldState *context, int entity_id);
 void InitUI(void);
 void InitPanel(void);
 void InitLPanel(void);
+void InitRPanel(void);
 void UpdateLPanel(int mouse_x, int mouse_y);
 void DrawLPanel(void);
 void UpdateUISystem(int mouse_x, int mouse_y);
@@ -192,7 +193,8 @@ void HandleBtnSubmitClick(UIElement *btn);
 //----------------------------------------------------------------------------------
 void UpdateWorldSystem(int mouse_x, int mouse_y);
 int GetNewtonoidCount(void);
-void InitGameWorld(void);
+void InitWorldSystem(void);
+void InitUniverseSystem(void);
 void DrawGameWorld(void);
 void DrawWorldRegion(World2d *world, Camera2d *world_camera, Vector2d universe_pos);
 Newtonoid2d *ResolveEntityParamsToEntity(Newtonoid2dParams *newtonoid_params);

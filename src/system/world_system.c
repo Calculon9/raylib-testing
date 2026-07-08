@@ -49,16 +49,14 @@ static Cell *selectedCell = NULL;          // Pointer to the currently selected 
 static ColourRgba world_text_colour = BROWN_1_RGBA_4; //{55, 97, 0, 200};
 static ColourRgba world_fill_colour = WHITE_RGBA;     //{48, 104, 68, 70}; // MAROON_RGBA;// {150, 255, 220,180};//DARKGREEN_RGBA;
 static ColourRgba world_line_colour = LIGHTGRAY_RGBA; //{128, 99, 42, 100};
-// Coordinate Space Properties
-Vector2d world_origin, world_end = {0};
-Vector2d universe_viewport_origin, universe_viewport_end = {0};
+// Game-region placement in logical screen units.
+Vector2d game_region_origin, game_region_end = {0};
 Vector2d world_u = {1, 0};
 Vector2d world_v = {0, 1};
-Vector2d world_resolution = {0};
+Vector2d game_region_resolution = {0};
 float gravity = 10;
 // Objects and properties
 int next_object_id = 1; // Global variable to keep track of the next available ID for NewtonObjects
-ColourRgba camera_world_marker_colour = {255, 80, 80, 255};
 static ColourRgba polygonoid_line_colour = {155, 0, 0, 255};
 static ColourRgba polygonoid_text_colour = {64, 64, 64, 255};
 static float polygonoid_radius_default = 1.0;
@@ -68,10 +66,6 @@ static Vector2d polygonoid_acceleration_default = {0.0, 0.0f};
 
 // Logical->pixel-space conversion properties
 // static Vector2d screen_game_origin, screen_game_end = {0};
-Vector2d universe_viewport_u = {0};
-Vector2d universe_viewport_v = {0};
-Vector2d local_to_world_scale = {0};
-Vector2d world_to_local_scale = {0};
 Camera2d camera_world = {0};
 static float camera_world_zoom = 1.0;
 static float camera_world_rotation = 0.0;
@@ -90,7 +84,7 @@ static World2d *GetWorldByIndexInternal(int index)
 }
 
 // FIRST: Initialisation of Gameplay Screen
-void InitGameWorld(void)
+void InitWorldSystem(void)
 {
     // Init Global World State
     G_WorldState.selected_object = NULL;
@@ -102,14 +96,11 @@ void InitGameWorld(void)
 
     // 1. INIT CAMERAS using using the resolutions, sceen basis, origins etc. from Step 0
     // 1.1 Game world camera
-    Basis2d world_basis = (Basis2d){world_u, world_v};
-    Basis2d universe_viewport_basis = (Basis2d){universe_viewport_u, universe_viewport_v};
-    camera_world = CreateCamera2d(universe_viewport_basis, world_basis, universe_viewport_origin, world_origin, camera_world_zoom, camera_world_rotation);
-    camera_world.camera_coords = (Vector2d){world_resolution.x * 0.5, world_resolution.y * 0.5};
-    UpdateCameraTransforms(&camera_world);
-
-    // Initialise the universe system with independent universe coordinates
-    InitUniverseSystem();
+    // Basis2d world_basis = (Basis2d){world_u, world_v};
+    // Basis2d game_viewport_basis = (Basis2d){game_viewport_u, game_viewport_v};
+    // camera_world = CreateCamera2d(game_viewport_basis, world_basis, game_viewport_origin, game_region_origin, camera_world_zoom, camera_world_rotation);
+    // camera_world.camera_coords = (Vector2d){game_region_resolution.x * 0.5, game_region_resolution.y * 0.5};
+    // UpdateCameraTransforms(&camera_world);
 
     // int new_world_index = Universe_CreateWorld(&G_Universe,
     //                                            world_basis,
@@ -121,9 +112,9 @@ void InitGameWorld(void)
 
     // // Select the newly created world to make it active from startup.
     // if (new_world_index >= 0)
-    //     Universe_SelectWorld(&G_Universe, new_world_index, world_origin);
+    //     Universe_SelectWorld(&G_Universe, new_world_index, game_region_origin);
 
-    UpdateCameraWorldMarker();
+    //UpdateCameraWorldMarker();
 }
 
 void DrawGameWorld()
@@ -138,8 +129,8 @@ void UpdateWorldSystem(int mouse_x, int mouse_y)
     extern void ProcessCommandQueue(void);
     ProcessCommandQueue();
 
-    bool cursor_in_viewport = mouse_x >= universe_viewport_origin.x && mouse_x <= (universe_viewport_origin.x + (universe_viewport_u.x * world_resolution.x)) && mouse_y >= universe_viewport_origin.y && mouse_y <= (universe_viewport_origin.y + (universe_viewport_v.y * world_resolution.y));
-    UpdateWorldRegion(mouse_x, mouse_y, cursor_in_viewport);
+    bool cursor_in_game_viewport = mouse_x >= game_viewport_origin.x && mouse_x <= (game_viewport_origin.x + (game_viewport_u.x * game_region_resolution.x)) && mouse_y >= game_viewport_origin.y && mouse_y <= (game_viewport_origin.y + (game_viewport_v.y * game_region_resolution.y));
+    UpdateWorldRegion(mouse_x, mouse_y, cursor_in_game_viewport);
 }
 // Gameplay Screen Stage Update logic
 void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
@@ -154,11 +145,11 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
     }
 
     Vector2d click_pixel_coords = {mouse_x, mouse_y};
-    // Camera source origin is world_origin, so dest_to_source gives local + world_origin.
-    // Subtract world_origin to get local coords. The universe camera ensures the selected
-    // world always renders aligned to world_origin regardless of universe_position.
+    // Camera source origin is game_region_origin, so dest_to_source gives local + game_region_origin.
+    // Subtract game_region_origin to get local coords. The universe camera ensures the selected
+    // world always renders aligned to game_region_origin regardless of universe_position.
     Vector2d click_coords_raw = TransformCoordinates(camera_world.dest_to_source_mtx, click_pixel_coords);
-    Vector2d click_world_coords = VectorSum_2d(click_coords_raw, VectorScale_2d(world_origin, -1.0f));
+    Vector2d click_world_coords = VectorSum_2d(click_coords_raw, VectorScale_2d(game_region_origin, -1.0f));
 
     // DEFAULT TESTING SPAWN of polygonoids with random properties
     float radius = GetRandomFloat(0.1, polygonoid_radius_default * 0.8);
@@ -256,7 +247,7 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
             else
             {
                 // Different world was clicked; select it
-                Universe_SelectWorld(&G_Universe, clicked_world_idx, world_origin);
+                Universe_SelectWorld(&G_Universe, clicked_world_idx, game_region_origin);
             }
         }
         else
@@ -320,18 +311,18 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
     // ----DEBUG
     char log[256] = "";
     int offset = 0;
-    offset += snprintf(log + offset, sizeof(log) - offset, "WORLD (%.1f,%.1f) --> ", world_origin.x, world_origin.y);
+    offset += snprintf(log + offset, sizeof(log) - offset, "WORLD (%.1f,%.1f) --> ", game_region_origin.x, game_region_origin.y);
     // DEBUG--- //
 
     // Check if a click is on an object and print some info about that object if so
     click_pixel_coords = (Vector2d){mouse_x, mouse_y};
-    // Universe camera guarantees the selected world is always rendered at world_origin.
-    // Subtract world_origin (the camera source origin) to get local coords directly.
+    // Universe camera guarantees the selected world is always rendered at game_region_origin.
+    // Subtract game_region_origin (the camera source origin) to get local coords directly.
     Vector2d click_universe_coords = TransformCoordinates(camera_world.dest_to_source_mtx, click_pixel_coords);
-    Vector2d click_local_coords = VectorSum_2d(click_universe_coords, VectorScale_2d(world_origin, -1.0f));
+    Vector2d click_local_coords = VectorSum_2d(click_universe_coords, VectorScale_2d(game_region_origin, -1.0f));
 
-    int cell_index = ((int)click_local_coords.y * (int)world_resolution.x) + (int)click_local_coords.x;
-    if (click_local_coords.x < 0 || click_local_coords.y < 0 || click_local_coords.x >= world_resolution.x || click_local_coords.y >= world_resolution.y)
+    int cell_index = ((int)click_local_coords.y * (int)game_region_resolution.x) + (int)click_local_coords.x;
+    if (click_local_coords.x < 0 || click_local_coords.y < 0 || click_local_coords.x >= game_region_resolution.x || click_local_coords.y >= game_region_resolution.y)
     {
         // Click is outside the structural world viewport boundaries! Avoid resolving cell.
         return;
@@ -569,18 +560,30 @@ int GetNewtonoidCount(void)
 int CreateNewWorldDefault(void)
 {
     Basis2d world_basis = (Basis2d){world_u, world_v};
-    return Universe_CreateWorld(&G_Universe,
-                                world_basis,
-                                world_fill_colour,
-                                world_line_colour,
-                                &camera_world,
-                                camera_world_marker_colour,
-                                &G_WorldState);
+    int new_index = Universe_CreateWorld(&G_Universe,
+                                         world_basis,
+                                         world_fill_colour,
+                                         world_line_colour,
+                                         &camera_world,
+                                         camera_marker_colour,
+                                         &G_WorldState);
+    if (new_index >= 0)
+    {
+        World2d *w = Universe_GetWorld(&G_Universe, new_index);
+        if (w)
+        {
+            Universe_SetWorldBounds(&G_Universe,
+                                    new_index,
+                                    w->universe_position,
+                                    VectorSum_2d(w->universe_position, w->coord_space_grid.coord_space.resolution_ixj));
+        }
+    }
+    return new_index;
 }
 
 bool SelectWorldByIndex(int index)
 {
-    bool ok = Universe_SelectWorld(&G_Universe, index, world_origin);
+    bool ok = Universe_SelectWorld(&G_Universe, index, game_region_origin);
     if (ok)
     {
         World2d *w = Universe_GetSelectedWorld(&G_Universe);

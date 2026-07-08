@@ -15,9 +15,10 @@
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 
+extern ColourRgba camera_marker_colour;
 /**
- * Initialize the universe system with independent universe coordinates
- * Separate from viewport - viewport is just the camera view into the universe
+ * Initialize the universe system with independent universe coordinates.
+ * The camera renders into the game viewport region resolved by viewport_system.
  */
 void InitUniverseSystem(void);
 
@@ -31,7 +32,7 @@ void SetUniverseGridCellSize(float cell_size);
  * Update universe-level input (world selection, camera navigation)
  * Called when no world is selected
  */
-void UpdateUniverseInput(int mouse_x, int mouse_y, bool cursor_in_viewport);
+void UpdateUniverseInput(int mouse_x, int mouse_y, bool cursor_in_game_viewport);
 
 /**
  * Draw all worlds in the universe using the appropriate camera

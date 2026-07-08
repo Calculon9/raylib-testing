@@ -43,8 +43,8 @@ const int screenHeight = 900;
 // static const int screenWidth = 1920;
 // static const int screenHeight = 1080;
 int screen_resolution_scalar = 0; // <= 0 uses dynamic world scaling from target logical height
-static float viewport_target_logical_height = 18.0f;
-static int viewport_ui_scale_scalar = 0;
+static float viewport_target_game_logical_height = 18.0f;
+static int viewport_ui_pixels_per_unit_override = 0;
 
 // Required variables to manage screen transitions (fade-in, fade-out)
 static float transAlpha = 0.0f;
@@ -62,6 +62,21 @@ static void UpdateTransition(void);         // Update transition effect
 static void DrawTransition(void);           // Draw transition effect (full-screen rectangle)
 static void UpdateDrawFrame(void);          // Update and draw one frame
 static void HandleViewportDebugHotkeys(void);
+static void RefreshViewportAndDependentSystems(bool viewport_scale_changed, bool ui_scale_changed);
+
+static float ClampViewportLogicalHeight(float height)
+{
+    if (height < 8.0f)
+    {
+        return 8.0f;
+    }
+    if (height > 400.0f)
+    {
+        return 400.0f;
+    }
+
+    return height;
+}
 
 //----------------------------------------------------------------------------------
 // Program main entry point
@@ -121,19 +136,7 @@ int main(void)
     // EndDrawing();
     while (!WindowShouldClose()) // Detect window close button or ESC key
     {
-        // DEBUGGING - we will update game loop if button is pressed
-        bool keyDown = IsKeyDown(KEY_LEFT_CONTROL);
-        if (true)
-        {
-            UpdateDrawFrame();
-        }
-        else
-        {
-            BeginDrawing();
-            ClearBackground(RAYWHITE);
-            DrawText("Hold Left Control to update!", 10, 10, 20, DARKGRAY);
-            EndDrawing();
-        }
+        UpdateDrawFrame();
     }
 #endif
 
@@ -210,7 +213,7 @@ static void ChangeToScreen(int screen)
     // case OPTIONS: InitOptionsScreen(); break;
     case GAMEPLAY:
         InitViewportLayout(screenWidth, screenHeight, screen_resolution_scalar);
-        InitGameWorld();
+        // InitGameWorld();
         break;
     // case ENDING: InitEndingScreen(); break;
     default:
@@ -387,12 +390,12 @@ static void UpdateDrawFrame(void)
 void InitGameplayScreen(void)
 {
     SetViewportPanelRatios(0.20f, 0.20f);
-    SetViewportTargetLogicalHeight(viewport_target_logical_height);
-    SetViewportUIScaleScalar(viewport_ui_scale_scalar);
+    SetViewportTargetLogicalHeight(viewport_target_game_logical_height);
+    SetViewportUIScaleScalar(viewport_ui_pixels_per_unit_override);
     InitViewportLayout(screenWidth, screenHeight, screen_resolution_scalar);
-    InitGameWorld();
+    InitUniverseSystem(); // Initialise the universe system with independent universe coordinates
+    InitWorldSystem();
     InitUI();
-    InitRPanel();
 }
 
 void DrawGameplayScreen(void)
@@ -416,74 +419,72 @@ void UpdateGameplayScreen(void)
 
 static void HandleViewportDebugHotkeys(void)
 {
-    bool world_scale_changed = false;
+    bool viewport_scale_changed = false;
     bool ui_scale_changed = false;
 
     if (IsKeyPressed(KEY_F7))
     {
-        viewport_target_logical_height -= 1.0f;
-        if (viewport_target_logical_height < 8.0f)
-        {
-            viewport_target_logical_height = 8.0f;
-        }
-        world_scale_changed = true;
+        viewport_target_game_logical_height = ClampViewportLogicalHeight(viewport_target_game_logical_height - 1.0f);
+        viewport_scale_changed = true;
     }
     if (IsKeyPressed(KEY_F8))
     {
-        viewport_target_logical_height += 1.0f;
-        if (viewport_target_logical_height > 400.0f)
-        {
-            viewport_target_logical_height = 400.0f;
-        }
-        world_scale_changed = true;
+        viewport_target_game_logical_height = ClampViewportLogicalHeight(viewport_target_game_logical_height + 1.0f);
+        viewport_scale_changed = true;
     }
 
     if (IsKeyPressed(KEY_F9))
     {
-        if (viewport_ui_scale_scalar <= 1)
+        if (viewport_ui_pixels_per_unit_override <= 1)
         {
-            viewport_ui_scale_scalar = 0;
+            viewport_ui_pixels_per_unit_override = 0;
         }
         else
         {
-            viewport_ui_scale_scalar -= 1;
+            viewport_ui_pixels_per_unit_override -= 1;
         }
         ui_scale_changed = true;
     }
     if (IsKeyPressed(KEY_F10))
     {
-        if (viewport_ui_scale_scalar == 0)
+        if (viewport_ui_pixels_per_unit_override == 0)
         {
-            viewport_ui_scale_scalar = 10;
+            viewport_ui_pixels_per_unit_override = 10;
         }
         else
         {
-            viewport_ui_scale_scalar += 1;
+            viewport_ui_pixels_per_unit_override += 1;
         }
         ui_scale_changed = true;
     }
 
-    if (!world_scale_changed && !ui_scale_changed)
+    if (!viewport_scale_changed && !ui_scale_changed)
     {
         return;
     }
 
-    SetViewportTargetLogicalHeight(viewport_target_logical_height);
-    SetViewportUIScaleScalar(viewport_ui_scale_scalar);
+    RefreshViewportAndDependentSystems(viewport_scale_changed, ui_scale_changed);
+}
+
+static void RefreshViewportAndDependentSystems(bool viewport_scale_changed, bool ui_scale_changed)
+{
+    SetViewportTargetLogicalHeight(viewport_target_game_logical_height);
+    SetViewportUIScaleScalar(viewport_ui_pixels_per_unit_override);
     InitViewportLayout(screenWidth, screenHeight, screen_resolution_scalar);
 
-    if (world_scale_changed)
+    if (viewport_scale_changed)
     {
         // World logical dimensions changed, so rebuild world and dependent UI.
-        InitGameWorld();
+        InitWorldSystem();
         InitUI();
-        InitRPanel();
-        printf("[Viewport] World logical height set to %.1f. UI scalar: %d\n", viewport_target_logical_height, viewport_ui_scale_scalar);
+        printf("[Viewport] Target game logical height set to %.1f. UI px-per-unit override: %d\n", viewport_target_game_logical_height, viewport_ui_pixels_per_unit_override);
         return;
     }
 
     // UI-only scale change, refresh panel trees.
-    InitUI();
-    InitRPanel();
-    printf("[Viewport] UI scalar set to %d (0 = follow world).\n", viewport_ui_scale_scalar);
+    if (ui_scale_changed)
+    {
+        InitUI();
+        printf("[Viewport] UI px-per-unit override set to %d (0 = follow game viewport scale).\n", viewport_ui_pixels_per_unit_override);
+    }
 }

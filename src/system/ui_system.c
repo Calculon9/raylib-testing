@@ -58,11 +58,68 @@ Spacing btn_cont_default_child_spacing = {{0.0, 0.0}, PERCENT, SPACING_NONE};
 void UpdatePanelRegion(int mouse_x, int mouse_y, bool cursor_in_panel);
 void UpdateGlobalUIState();
 
+static void BindTextbox(UIElement *textbox, void *data_bind)
+{
+    if (!textbox)
+    {
+        return;
+    }
+
+    textbox->data.textbox.data_bind = data_bind;
+}
+
+static void ClearTextbox(UIElement *textbox)
+{
+    if (!textbox)
+    {
+        return;
+    }
+
+    textbox->data.textbox.text.string[0] = '\0';
+}
+
+static void ClearAndUnbindTextbox(UIElement *textbox)
+{
+    ClearTextbox(textbox);
+    BindTextbox(textbox, NULL);
+}
+
+static void WriteNumberIfUnfocused(UIElement *textbox, float value, int precision)
+{
+    if (!textbox || textbox->is_focused)
+    {
+        return;
+    }
+
+    PipelineNumberToText(value, precision, textbox->data.textbox.text.string, sizeof(String64));
+}
+
+static void WriteVectorIfUnfocused(UIElement *textbox, Vector2d value)
+{
+    if (!textbox || textbox->is_focused)
+    {
+        return;
+    }
+
+    PipelineVectorToText(value, textbox->data.textbox.text.string, sizeof(String64));
+}
+
+static void ClearString64(String64 *value)
+{
+    if (!value)
+    {
+        return;
+    }
+
+    value->string[0] = '\0';
+}
+
 void InitUI(void)
 {
     // Init Global UI State
     G_UIState.focused_element = NULL;
     InitLPanel();
+    InitRPanel();
     // G_UIState.active_panel_view = LPANEL_STATE_VIEW;
 }
 
@@ -116,58 +173,34 @@ void UpdateGlobalUIState()
     Newtonoid2d *obj = G_WorldState.selected_object;
     if (obj)
     {
-        int id = obj->id;
-        float mass = obj->mass;
-        Vector2d pos_tl = obj->coords_origin;
-        Vector2d pos_c = obj->coords_center;
-        Vector2d vel = obj->velocity;
-        Vector2d acc = obj->acceleration;
-        Vector2d mom = obj->momentum;
-
         // Bind selected_object data to the Object Properties TextBoxes
-        G_UIState.lpanel_entity_state_id_tbox->data.textbox.data_bind = &obj->id;
-        G_UIState.lpanel_entity_state_mass_tbox->data.textbox.data_bind = &obj->mass;
-        G_UIState.lpanel_entity_state_pos_tl_tbox->data.textbox.data_bind = &obj->coords_origin;
-        G_UIState.lpanel_entity_state_pos_c_tbox->data.textbox.data_bind = &obj->coords_center;
-        G_UIState.lpanel_entity_state_vel_tbox->data.textbox.data_bind = &obj->velocity;
-        G_UIState.lpanel_entity_state_accel_tbox->data.textbox.data_bind = &obj->acceleration;
-        G_UIState.lpanel_entity_state_moment_tbox->data.textbox.data_bind = &obj->momentum;
-
-        size_t str_64 = sizeof(String64);
+        BindTextbox(G_UIState.lpanel_entity_state_id_tbox, &obj->id);
+        BindTextbox(G_UIState.lpanel_entity_state_mass_tbox, &obj->mass);
+        BindTextbox(G_UIState.lpanel_entity_state_pos_tl_tbox, &obj->coords_origin);
+        BindTextbox(G_UIState.lpanel_entity_state_pos_c_tbox, &obj->coords_center);
+        BindTextbox(G_UIState.lpanel_entity_state_vel_tbox, &obj->velocity);
+        BindTextbox(G_UIState.lpanel_entity_state_accel_tbox, &obj->acceleration);
+        BindTextbox(G_UIState.lpanel_entity_state_moment_tbox, &obj->momentum);
 
         // PIPELINE data to text only when the element is NOT focused
         // so that editing of the text by the user doesn't keep getting overwritten with the value stored in the object
-        if (!G_UIState.lpanel_entity_state_id_tbox->is_focused)
-            PipelineNumberToText(id, 0, G_UIState.lpanel_entity_state_id_tbox->data.textbox.text.string, str_64);
-        if (!G_UIState.lpanel_entity_state_mass_tbox->is_focused)
-            PipelineNumberToText(mass, 2, G_UIState.lpanel_entity_state_mass_tbox->data.textbox.text.string, str_64);
-        if (!G_UIState.lpanel_entity_state_pos_tl_tbox->is_focused)
-            PipelineVectorToText(pos_tl, G_UIState.lpanel_entity_state_pos_tl_tbox->data.textbox.text.string, str_64);
-        if (!G_UIState.lpanel_entity_state_pos_c_tbox->is_focused)
-            PipelineVectorToText(pos_c, G_UIState.lpanel_entity_state_pos_c_tbox->data.textbox.text.string, str_64);
-        if (!G_UIState.lpanel_entity_state_vel_tbox->is_focused)
-            PipelineVectorToText(vel, G_UIState.lpanel_entity_state_vel_tbox->data.textbox.text.string, str_64);
-        if (!G_UIState.lpanel_entity_state_accel_tbox->is_focused)
-            PipelineVectorToText(acc, G_UIState.lpanel_entity_state_accel_tbox->data.textbox.text.string, str_64);
-        if (!G_UIState.lpanel_entity_state_moment_tbox->is_focused)
-            PipelineVectorToText(mom, G_UIState.lpanel_entity_state_moment_tbox->data.textbox.text.string, str_64);
+        WriteNumberIfUnfocused(G_UIState.lpanel_entity_state_id_tbox, (float)obj->id, 0);
+        WriteNumberIfUnfocused(G_UIState.lpanel_entity_state_mass_tbox, obj->mass, 2);
+        WriteVectorIfUnfocused(G_UIState.lpanel_entity_state_pos_tl_tbox, obj->coords_origin);
+        WriteVectorIfUnfocused(G_UIState.lpanel_entity_state_pos_c_tbox, obj->coords_center);
+        WriteVectorIfUnfocused(G_UIState.lpanel_entity_state_vel_tbox, obj->velocity);
+        WriteVectorIfUnfocused(G_UIState.lpanel_entity_state_accel_tbox, obj->acceleration);
+        WriteVectorIfUnfocused(G_UIState.lpanel_entity_state_moment_tbox, obj->momentum);
     }
     else // Reset the bounded textbox output buffers AND unbind
     {
-        G_UIState.lpanel_entity_state_id_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_entity_state_mass_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_entity_state_pos_tl_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_entity_state_pos_c_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_entity_state_vel_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_entity_state_accel_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_entity_state_moment_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_entity_state_id_tbox->data.textbox.data_bind = NULL;
-        G_UIState.lpanel_entity_state_mass_tbox->data.textbox.data_bind = NULL;
-        G_UIState.lpanel_entity_state_pos_tl_tbox->data.textbox.data_bind = NULL;
-        G_UIState.lpanel_entity_state_pos_c_tbox->data.textbox.data_bind = NULL;
-        G_UIState.lpanel_entity_state_vel_tbox->data.textbox.data_bind = NULL;
-        G_UIState.lpanel_entity_state_accel_tbox->data.textbox.data_bind = NULL;
-        G_UIState.lpanel_entity_state_moment_tbox->data.textbox.data_bind = NULL;
+        ClearAndUnbindTextbox(G_UIState.lpanel_entity_state_id_tbox);
+        ClearAndUnbindTextbox(G_UIState.lpanel_entity_state_mass_tbox);
+        ClearAndUnbindTextbox(G_UIState.lpanel_entity_state_pos_tl_tbox);
+        ClearAndUnbindTextbox(G_UIState.lpanel_entity_state_pos_c_tbox);
+        ClearAndUnbindTextbox(G_UIState.lpanel_entity_state_vel_tbox);
+        ClearAndUnbindTextbox(G_UIState.lpanel_entity_state_accel_tbox);
+        ClearAndUnbindTextbox(G_UIState.lpanel_entity_state_moment_tbox);
     }
 
     // COLLECT & UPDATE SELECTED CELL PROPERTIES
@@ -185,636 +218,66 @@ void UpdateGlobalUIState()
         snprintf(G_UIState.lpanel_cell_state_value_str->string, sizeof(String64), "%0.1f", val);
         snprintf(G_UIState.lpanel_cell_state_fill_str->string, sizeof(String64), "%0.1f", fill);
     }
-    else // TODO: Reset the bounded textbox output buffers AND unbind
+    else
     {
-        // Setup like in the Entity State output
+        ClearString64(G_UIState.lpanel_cell_state_id_str);
+        ClearString64(G_UIState.lpanel_cell_state_occu_str);
+        ClearString64(G_UIState.lpanel_cell_state_value_str);
+        ClearString64(G_UIState.lpanel_cell_state_fill_str);
     }
 
     // COLLECT & UPDATE EDITING ENTITY PROPERTIES
     // Determine if the Edit View is active.
-    UIElement *e_focused = G_UIState.focused_element;
     Newtonoid2dParams *params = G_WorldState.newtonoid_params;
     if (G_UIState.active_panel_view == LPANEL_EDIT_ENTITY_VIEW && params)
     {   
         // Bind selected_object data to the Object Properties TextBoxes
         //G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.data_bind = &params->edge_count;
-        G_UIState.lpanel_entity_edit_vertice_count_tbox->data.textbox.data_bind = &params->vertice_count;
-        G_UIState.lpanel_entity_edit_width_tbox->data.textbox.data_bind = &params->width;
-        G_UIState.lpanel_entity_edit_height_tbox->data.textbox.data_bind = &params->height;
-        G_UIState.lpanel_entity_edit_mass_tbox->data.textbox.data_bind = &params->mass;
-        G_UIState.lpanel_entity_edit_pos_c_tbox->data.textbox.data_bind = &params->coords_center;
-        G_UIState.lpanel_entity_edit_vel_tbox->data.textbox.data_bind = &params->velocity;
-        G_UIState.lpanel_entity_edit_accel_tbox->data.textbox.data_bind = &params->acceleration;
-        G_UIState.lpanel_entity_edit_moment_tbox->data.textbox.data_bind = &params->momentum;
-
-        size_t str_64 = sizeof(String64);
+        BindTextbox(G_UIState.lpanel_entity_edit_vertice_count_tbox, &params->vertice_count);
+        BindTextbox(G_UIState.lpanel_entity_edit_width_tbox, &params->width);
+        BindTextbox(G_UIState.lpanel_entity_edit_height_tbox, &params->height);
+        BindTextbox(G_UIState.lpanel_entity_edit_mass_tbox, &params->mass);
+        BindTextbox(G_UIState.lpanel_entity_edit_pos_c_tbox, &params->coords_center);
+        BindTextbox(G_UIState.lpanel_entity_edit_vel_tbox, &params->velocity);
+        BindTextbox(G_UIState.lpanel_entity_edit_accel_tbox, &params->acceleration);
+        BindTextbox(G_UIState.lpanel_entity_edit_moment_tbox, &params->momentum);
 
         // PIPELINE data to text only when the element is NOT focused
         // so that editing of the text by the user doesn't keep getting overwritten with the value stored in the object
         // if (!G_UIState.lpanel_entity_edit_edge_count_tbox->is_focused)
         //     PipelineNumberToText(params->edge_count, 0, G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.text.string, str_64);
-        if (!G_UIState.lpanel_entity_edit_vertice_count_tbox->is_focused)
-            PipelineNumberToText(params->vertice_count, 0, G_UIState.lpanel_entity_edit_vertice_count_tbox->data.textbox.text.string, str_64);
-        if (!G_UIState.lpanel_entity_edit_width_tbox->is_focused)
-            PipelineNumberToText(params->width, 2, G_UIState.lpanel_entity_edit_width_tbox->data.textbox.text.string, str_64);
-        if (!G_UIState.lpanel_entity_edit_height_tbox->is_focused)
-            PipelineNumberToText(params->height, 2, G_UIState.lpanel_entity_edit_height_tbox->data.textbox.text.string, str_64);
-        if (!G_UIState.lpanel_entity_edit_mass_tbox->is_focused)
-            PipelineNumberToText(params->mass, 2, G_UIState.lpanel_entity_edit_mass_tbox->data.textbox.text.string, str_64);
-        if (!G_UIState.lpanel_entity_edit_pos_c_tbox->is_focused)
-            PipelineVectorToText(params->coords_center, G_UIState.lpanel_entity_edit_pos_c_tbox->data.textbox.text.string, str_64);
-        if (!G_UIState.lpanel_entity_edit_vel_tbox->is_focused)
-            PipelineVectorToText(params->velocity, G_UIState.lpanel_entity_edit_vel_tbox->data.textbox.text.string, str_64);
-        if (!G_UIState.lpanel_entity_edit_accel_tbox->is_focused)
-            PipelineVectorToText(params->acceleration, G_UIState.lpanel_entity_edit_accel_tbox->data.textbox.text.string, str_64);
-        if (!G_UIState.lpanel_entity_edit_moment_tbox->is_focused)
-            PipelineVectorToText(params->momentum, G_UIState.lpanel_entity_edit_moment_tbox->data.textbox.text.string, str_64);
+        WriteNumberIfUnfocused(G_UIState.lpanel_entity_edit_vertice_count_tbox, params->vertice_count, 0);
+        WriteNumberIfUnfocused(G_UIState.lpanel_entity_edit_width_tbox, params->width, 2);
+        WriteNumberIfUnfocused(G_UIState.lpanel_entity_edit_height_tbox, params->height, 2);
+        WriteNumberIfUnfocused(G_UIState.lpanel_entity_edit_mass_tbox, params->mass, 2);
+        WriteVectorIfUnfocused(G_UIState.lpanel_entity_edit_pos_c_tbox, params->coords_center);
+        WriteVectorIfUnfocused(G_UIState.lpanel_entity_edit_vel_tbox, params->velocity);
+        WriteVectorIfUnfocused(G_UIState.lpanel_entity_edit_accel_tbox, params->acceleration);
+        WriteVectorIfUnfocused(G_UIState.lpanel_entity_edit_moment_tbox, params->momentum);
     }
     else
     {
         // Reset the bounded textbox output buffers
         //G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_entity_edit_vertice_count_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_entity_edit_width_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_entity_edit_height_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_entity_edit_mass_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_entity_edit_pos_c_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_entity_edit_vel_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_entity_edit_accel_tbox->data.textbox.text.string[0] = '\0';
-        G_UIState.lpanel_entity_edit_moment_tbox->data.textbox.text.string[0] = '\0';
+        ClearAndUnbindTextbox(G_UIState.lpanel_entity_edit_vertice_count_tbox);
+        ClearAndUnbindTextbox(G_UIState.lpanel_entity_edit_width_tbox);
+        ClearAndUnbindTextbox(G_UIState.lpanel_entity_edit_height_tbox);
+        ClearAndUnbindTextbox(G_UIState.lpanel_entity_edit_mass_tbox);
+        ClearAndUnbindTextbox(G_UIState.lpanel_entity_edit_pos_c_tbox);
+        ClearAndUnbindTextbox(G_UIState.lpanel_entity_edit_vel_tbox);
+        ClearAndUnbindTextbox(G_UIState.lpanel_entity_edit_accel_tbox);
+        ClearAndUnbindTextbox(G_UIState.lpanel_entity_edit_moment_tbox);
 
         // Unbind data
         //G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.data_bind = NULL;
-        G_UIState.lpanel_entity_edit_vertice_count_tbox->data.textbox.data_bind = NULL;
-        G_UIState.lpanel_entity_edit_width_tbox->data.textbox.data_bind = NULL;
-        G_UIState.lpanel_entity_edit_height_tbox->data.textbox.data_bind = NULL;
-        G_UIState.lpanel_entity_edit_mass_tbox->data.textbox.data_bind = NULL;
-        G_UIState.lpanel_entity_edit_pos_c_tbox->data.textbox.data_bind = NULL;
-        G_UIState.lpanel_entity_edit_vel_tbox->data.textbox.data_bind = NULL;
-        G_UIState.lpanel_entity_edit_accel_tbox->data.textbox.data_bind = NULL;
-        G_UIState.lpanel_entity_edit_moment_tbox->data.textbox.data_bind = NULL;
+        // Unbind handled by ClearAndUnbindTextbox calls above.
     }
 }
-
-// void InitPanelStateView(void)
-// {
-//     InitStatsContainer();
-//     InitEntityStateContainer();
-//     InitCellStateContainer();
-// }
-
-// void InitPanelEditView(void)
-// {
-//     InitStatsContainer();
-//     InitEntityStateContainer();
-//     InitCellStateContainer();
-// }
-
-// void InitPanelSpace(void)
-// {
-//     // 0. Define the properties of the panel space and camera based on the overall screen properties defined in Step 0, and then use those properties to initialise the panel's camera, coordinate space and UI elements in the subsequent steps
-
-//     // INIT CAMERA using using the resolutions, sceen basis, origins etc. from Step 0
-//     Basis2d lpanel_basis = (Basis2d){lpanel_u, lpanel_v};
-//     Basis2d lpanel_pixel_basis = (Basis2d){lpanel_pixel_u, lpanel_pixel_v};
-//     camera_lpanel = CreateCamera2d(lpanel_pixel_basis, lpanel_basis, lpanel_pixel_origin, lpanel_origin, 1, 0);
-
-//     // INIT a LOCAL COORD SPACE for the SIDE PANEL using the resolutions, origins etc. from Step 0
-//     // This will be the Root UI Element for the panel, and all other UI elements within the panel will be children of this Root element and will use this coordinate space for their positioning and dimensions
-//     lpanel_space = NewCoordSpace2d(lpanel_origin, lpanel_resolution, lpanel_basis);
-//     lpanel_root = CreateUIElement(UI_ELEMENT_ROOT, (Size){lpanel_space.resolution_ixj, SIZE_FIXED}, (Offset){ZERO_VECTOR_2D, OFFSET_FIXED}, lpanel_default_padding, COLOURLESS_RGBA, lpanel_fill_colour);
-//     lpanel_root->data.root.coord_space = lpanel_space;
-//     lpanel_root->child_spacing = lpanel_root_child_spacing;
-
-//     Vector2d basis_scale = BasisTransform_2d_Scale(camera_lpanel.source_basis, camera_lpanel.destination_basis);
-//     seed_box.coords = (Vector2d){lpanel_pixel_origin.x * basis_scale.x, lpanel_pixel_origin.y * basis_scale.y};
-//     seed_box.dimensions = (Vector2d){lpanel_resolution.x * basis_scale.x, lpanel_resolution.y * basis_scale.y}; //
-
-//     // Init input buffers
-// }
-
-// void InitPanelToggleButtons(void)
-// {
-//     lpanel_btn_cont = CreateUIElementInTree(UI_ELEMENT_CONTAINER, lpanel_btn_cont_size, lpanel_root, lpanel_btn_cont_offset, btn_default_padding, COLOUR_PANEL_LIGHT_2, COLOURLESS_RGBA);
-//     lpanel_btn_cont->child_spacing = btn_cont_default_child_spacing;
-//     char *btn_labels[] = {"STATE -- UTIL"};
-
-//     for (int i = 0; i < 1; i++)
-//     {
-//         UIElement *btn = CreateUIElementInTree(UI_ELEMENT_BUTTON_SWITCH, btn_default_size, lpanel_btn_cont, (Offset){ZERO_VECTOR_2D, OFFSET_FIXED}, btn_default_padding, COLOUR_PANEL_LIGHT_2, COLOUR_PANEL_LIGHT_1);
-//         strncpy(btn->data.button.label.string, btn_labels[i], MAX_LABEL_CHARS - 1);
-//         btn->data.button.label.string[MAX_LABEL_CHARS - 1] = '\0';
-//         btn->data.button.font = FONT_BASIC_S;
-//         btn->is_draggable = true;
-//         btn->data.button.on_click = HandleBtnSwitchClick;
-//         // btn->data.textbox.data_type = FLOAT;
-//     }
-// }
-// void InitEntityStateContainer(void)
-// {
-//     // Create the Container (The Parent)
-//     // Note: We use an offset relative to lpanel_root, NOT an absolute origin.
-//     lpanel_entity_state_tcont = CreateTextFieldContainerInTree(
-//         lpanel_entity_state_tcont_size,
-//         lpanel_root,
-//         lpanel_entity_state_tcont_offset, // Relative to lpanel_root
-//         tcont_default_padding,
-//         tcont_default_child_spacing,
-//         tcont_default_colour_border,
-//         tcont_default_colour_fill);
-//     lpanel_entity_state_tcont->is_draggable = true;
-//     lpanel_entity_state_tcont->child_spacing = (Spacing){{0, 0.015}, PERCENT, SPACING_STACKED};
-
-//     char *tbox_labels[] = {"OBJECT PROPERTIES", "ID", "MASS", "POS.TL", "POS.C", "VEL", "ACCEL", "MOMENT"};
-//     // String64 **state_map_str[] = {NULL, &G_UIState.lpanel_entity_state_id_str, &G_UIState.lpanel_entity_state_mass_str, &G_UIState.lpanel_entity_state_pos_str, &G_UIState.lpanel_entity_state_vel_str, &G_UIState.lpanel_entity_state_accel_str, &G_UIState.lpanel_entity_state_moment_str};
-//     UIElement **state_map_tbox[] = {NULL, &G_UIState.lpanel_entity_state_id_tbox, &G_UIState.lpanel_entity_state_mass_tbox, &G_UIState.lpanel_entity_state_pos_tl_tbox, &G_UIState.lpanel_entity_state_pos_c_tbox, &G_UIState.lpanel_entity_state_vel_tbox, &G_UIState.lpanel_entity_state_accel_tbox, &G_UIState.lpanel_entity_state_moment_tbox};
-
-//     // Create Title (Label)
-//     UIElement *title = CreateUIElementInTree(UI_ELEMENT_LABEL,
-//                                              tfield_default_size,
-//                                              lpanel_entity_state_tcont,
-//                                              (Offset){ZERO_VECTOR_2D, OFFSET_FIXED},
-//                                              tfield_default_padding,
-//                                              COLOURLESS_RGBA, COLOURLESS_RGBA);
-//     strncpy(title->data.label.text.string, tbox_labels[0], MAX_LABEL_CHARS - 1);
-//     title->data.label.text.string[MAX_LABEL_CHARS - 1] = '\0';
-//     title->data.label.font = FONT_BASIC;
-//     title->is_draggable = true;
-
-//     for (int i = 1; i < 8; i++)
-//     {
-//         // Calculate the local offset for this TextField within the container
-//         // Formula: (Spacing + Height) * index
-//         // Create the TextField
-//         UIElement *tfield = CreateTextFieldInTree(
-//             tfield_default_size,
-//             lpanel_entity_state_tcont,
-//             (Offset){ZERO_VECTOR_2D, OFFSET_FIXED},
-//             tfield_default_padding,
-//             tbox_tlabel_default_offset.offset,
-//             COLOURLESS_RGBA, COLOURLESS_RGBA);
-//         tfield->is_draggable = true;
-
-//         // Access Children via the Tree
-//         UIElement *label_child = tfield->first_child;
-//         UIElement *input_child = (label_child) ? label_child->next_sibling : NULL;
-
-//         if (label_child && input_child)
-//         {
-//             // Configure Label
-//             label_child->padding = tbox_default_padding;
-//             label_child->colour_border = tbox_default_colour_border;
-//             label_child->colour_fill = tbox_default_colour_fill;
-//             label_child->data.label.font = FONT_BASIC;
-
-//             strncpy(label_child->data.label.text.string, tbox_labels[i], MAX_LABEL_CHARS - 1);
-//             label_child->data.label.text.string[MAX_LABEL_CHARS - 1] = '\0';
-
-//             // Configure TextBox
-//             input_child->padding = tbox_default_padding;
-//             input_child->colour_border = tbox_default_colour_border;
-//             input_child->colour_fill = tbox_default_colour_fill;
-//             input_child->data.textbox.font = FONT_BASIC;
-//             input_child->type = UI_ELEMENT_TEXTBOX_SAFE_IO; // Will only save over previous text if ENTER is pressed
-
-//             // ID will be output-only
-//             printf("[DEBUG CONTEXT] Address: %p | Raw Value: %d\n", (void *)&i, i);
-//             if (i == 1)
-//             {
-//                 input_child->type = UI_ELEMENT_TEXTBOX_O;
-//                 input_child->data.textbox.data_type = FLOAT;
-//             }
-//             if (i == 3)
-//                 input_child->type = UI_ELEMENT_TEXTBOX_O;
-//             if (i > 2)
-//                 input_child->data.textbox.data_type = VECTOR2D;
-//             else
-//                 input_child->data.textbox.data_type = FLOAT;
-
-//             // String64 **global_ptr_address = state_map_str[i];
-//             UIElement **global_ptr_address = state_map_tbox[i];
-//             if (global_ptr_address != NULL)
-//             {
-//                 // Dereference once (*) to overwrite the actual pointer inside G_UIState
-//                 *global_ptr_address = input_child;
-//             }
-//         }
-//     }
-// }
-
-// void InitCellStateContainer(void)
-// {
-//     // Create the Container (The Parent)
-//     // Note: We use an offset relative to lpanel_root, NOT an absolute origin.
-//     lpanel_cell_state_tcont = CreateTextFieldContainerInTree(
-//         lpanel_cell_state_size,
-//         lpanel_root,
-//         lpanel_cell_state_tcont_offset, // Relative to lpanel_root
-//         tcont_default_padding,
-//         tcont_default_child_spacing,
-//         tcont_default_colour_border,
-//         tcont_default_colour_fill);
-//     lpanel_cell_state_tcont->is_draggable = true;
-//     lpanel_cell_state_tcont->child_spacing = (Spacing){{0, 0.015}, PERCENT, SPACING_STACKED};
-
-//     char *tbox_labels[] = {"CELL STATE", "INDEX", "OCCU", "VALUE", "FILL"};
-//     String64 **state_map_str[] = {NULL, &G_UIState.lpanel_cell_state_index_str, &G_UIState.lpanel_cell_state_occu_str, &G_UIState.lpanel_cell_state_value_str, &G_UIState.lpanel_cell_state_fill_str};
-
-//     // Create Title (Label)
-//     UIElement *title = CreateUIElementInTree(UI_ELEMENT_LABEL,
-//                                              tfield_default_size,
-//                                              lpanel_cell_state_tcont,
-//                                              (Offset){ZERO_VECTOR_2D, OFFSET_FIXED},
-//                                              tfield_default_padding,
-//                                              COLOURLESS_RGBA, COLOURLESS_RGBA);
-//     strncpy(title->data.label.text.string, tbox_labels[0], MAX_LABEL_CHARS - 1);
-//     title->data.label.text.string[MAX_LABEL_CHARS - 1] = '\0';
-//     title->data.label.font = FONT_BASIC;
-//     title->is_draggable = true;
-
-//     for (int i = 1; i < 5; i++)
-//     {
-//         // Calculate the local offset for this TextField within the container
-//         // Formula: (Spacing + Height) * index
-//         // Create the TextField
-//         UIElement *tfield = CreateTextFieldInTree(
-//             tfield_default_size,
-//             lpanel_cell_state_tcont,
-//             (Offset){ZERO_VECTOR_2D, OFFSET_FIXED},
-//             tfield_default_padding,
-//             tbox_tlabel_default_offset.offset,
-//             COLOURLESS_RGBA, COLOURLESS_RGBA);
-//         tfield->is_draggable = true;
-
-//         // Access Children via the Tree
-//         UIElement *label_child = tfield->first_child;
-//         UIElement *input_child = (label_child) ? label_child->next_sibling : NULL;
-
-//         if (label_child && input_child)
-//         {
-//             // Configure Label
-//             label_child->padding = tbox_default_padding;
-//             label_child->colour_border = tbox_default_colour_border;
-//             label_child->colour_fill = tbox_default_colour_fill;
-//             label_child->data.label.font = FONT_BASIC;
-
-//             strncpy(label_child->data.label.text.string, tbox_labels[i], MAX_LABEL_CHARS - 1);
-//             label_child->data.label.text.string[MAX_LABEL_CHARS - 1] = '\0';
-
-//             // Configure TextBox
-//             input_child->padding = tbox_default_padding;
-//             input_child->colour_border = tbox_default_colour_border;
-//             input_child->colour_fill = tbox_default_colour_fill;
-//             input_child->data.textbox.font = FONT_BASIC;
-//             input_child->type = UI_ELEMENT_TEXTBOX_O; // Will only save over previous text if ENTER is pressed
-//             String64 **global_ptr_address = state_map_str[i];
-//             // UIElement **global_ptr_address = state_map_str[i];
-//             if (global_ptr_address != NULL)
-//             {
-//                 // Dereference once (*) to overwrite the actual pointer inside G_UIState
-//                 *global_ptr_address = &input_child->data.textbox.text;
-//             }
-//         }
-//     }
-// }
-
-// void InitStatsContainer(void)
-// {
-//     // Create the Container (The Parent)
-//     // Note: We use an offset relative to lpanel_root, NOT an absolute origin.
-//     lpanel_stats_tcont = CreateTextFieldContainerInTree(
-//         lpanel_stats_tcont_size,
-//         lpanel_root,
-//         lpanel_stats_tcont_offset, // Relative to lpanel_root
-//         tcont_default_padding,
-//         tcont_default_child_spacing,
-//         tcont_default_colour_border,
-//         tcont_default_colour_fill);
-//     lpanel_stats_tcont->is_draggable = true;
-//     lpanel_stats_tcont->child_spacing = (Spacing){{0, 0.015}, PERCENT, SPACING_STACKED};
-
-//     char *tbox_labels[] = {"STATISTICS", "POLYOIDS", "MEM", "FPS", "F.TIME"};
-//     String64 **state_map_str[] = {NULL, &G_UIState.lpanel_stats_polygs_str, &G_UIState.lpanel_stats_mem_str, &G_UIState.lpanel_stats_fps_str, &G_UIState.lpanel_stats_ftime_str};
-
-//     // Create Title (Label)
-//     UIElement *title = CreateUIElementInTree(UI_ELEMENT_LABEL,
-//                                              tfield_default_size,
-//                                              lpanel_stats_tcont,
-//                                              (Offset){ZERO_VECTOR_2D, OFFSET_FIXED},
-//                                              tfield_default_padding,
-//                                              COLOURLESS_RGBA, COLOURLESS_RGBA);
-//     strncpy(title->data.label.text.string, tbox_labels[0], MAX_LABEL_CHARS - 1);
-//     title->data.label.text.string[MAX_LABEL_CHARS - 1] = '\0';
-//     title->data.label.font = FONT_BASIC;
-//     title->is_draggable = true;
-
-//     for (int i = 1; i < 5; i++)
-//     {
-//         // Calculate the local offset for this TextField within the container
-//         // Formula: (Spacing + Height) * index
-//         // Create the TextField
-//         UIElement *tfield = CreateTextFieldInTree(
-//             tfield_default_size,
-//             lpanel_stats_tcont,
-//             (Offset){ZERO_VECTOR_2D, OFFSET_FIXED},
-//             tfield_default_padding,
-//             tbox_tlabel_default_offset.offset,
-//             COLOURLESS_RGBA, COLOURLESS_RGBA);
-//         tfield->is_draggable = true;
-
-//         // 4. Access Children via the Tree
-//         UIElement *label_child = tfield->first_child;
-//         UIElement *input_child = (label_child) ? label_child->next_sibling : NULL;
-
-//         if (label_child && input_child)
-//         {
-//             // Configure Label
-//             label_child->padding = tbox_default_padding;
-//             label_child->colour_border = tbox_default_colour_border;
-//             label_child->colour_fill = tbox_default_colour_fill;
-//             label_child->data.label.font = FONT_BASIC;
-
-//             strncpy(label_child->data.label.text.string, tbox_labels[i], MAX_LABEL_CHARS - 1);
-//             label_child->data.label.text.string[MAX_LABEL_CHARS - 1] = '\0';
-
-//             // Configure TextBox
-//             input_child->padding = tbox_default_padding;
-//             input_child->colour_border = tbox_default_colour_border;
-//             input_child->colour_fill = tbox_default_colour_fill;
-//             input_child->data.textbox.font = FONT_BASIC;
-//             input_child->type = UI_ELEMENT_TEXTBOX_O; // Will only save over previous text if ENTER is pressed
-//             String64 **global_ptr_address = state_map_str[i];
-//             // UIElement **global_ptr_address = state_map_str[i];
-//             if (global_ptr_address != NULL)
-//             {
-//                 // Dereference once (*) to overwrite the actual pointer inside G_UIState
-//                 *global_ptr_address = &input_child->data.textbox.text;
-//             }
-//         }
-//     }
-// }
-
-// void DistributeChildrenRecursive(UIElement *e, Camera2d camera)
-// {
-//     if (!e)
-//     {
-//         return;
-//     }
-
-//     // Need to convert world coordinates to screen coordinates
-//     CoordSpace2d panel_space = e->data.root.coord_space;
-//     Basis2d basis = panel_space.basis;
-
-//     Vector2d origin = panel_space.coords_origin;
-//     Vector2d basis_scale = BasisTransform_2d_Scale(camera.source_basis, camera.destination_basis); // Need to scale dimensions from world units to pixel units using the camera's basis transform
-
-//     // Resolve rendered position and dimensions of panel element
-//     UIBox box = ResolveElementBox(e, seed_box, basis_scale);
-//     e->cached_box = box;
-
-//     // Recursively draw children
-//     UIElement *child = e->first_child;
-//     while (child)
-//     {
-//         DistributeChildren(child);
-//         child = child->next_sibling;
-//     }
-// }
 
 // Gameplay Screen Stage Update logic
 void UpdatePanelRegion(int mouse_x, int mouse_y, bool cursor_in_region)
 {
-    // Vector2d mouse_pixel_coords = {(float)mouse_x, (float)mouse_y};
-    // // Check if something was clicked on the panel
-    // // 1. Initial Guard: Only process if the user is actually clicking in the panel
-    // if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || !cursor_in_region)
-    // {
-    //     UpdateTextBoxInput(); // Still run input update for previously focused boxes
-    //     return;
-    // }
-
-    // // 2. Get the target
-    // UIElement *clicked_element = GetElementAt(lpanel_root, mouse_pixel_coords);
-    // Vector2d clicked_coords = TransformCoordinates(camera_lpanel.dest_to_source_mtx, mouse_pixel_coords);
-    // // int cell_index = ((int)click_panel_coords.y * (int)lpanel_resolution.x) + (int)click_panel_coords.x;
-
-    // // 3. Handle Empty Clicks (Clicking nothing or the background)
-    // if (G_FocusedElement && (G_FocusedElement->type == UI_ELEMENT_TEXTBOX || G_FocusedElement->type == UI_ELEMENT_TEXTBOX_SAFE))
-    // {
-    //     // If we clicked something that is NOT the currently focused box
-    //     if (clicked_element != G_FocusedElement)
-    //     {
-    //         // DISCARD: Restore the old text from the backup buffer
-    //         strncpy(G_FocusedElement->data.textbox.text.string, tbox_temp_buffer, MAX_TEXTBOX_CHARS - 1);
-
-    //         // Clean up focus
-    //         ClearUIFocus();
-    //         tbox_temp_buffer[0] = '\0'; // Clear the backup
-    //     }
-    // }
-    // if (clicked_element == NULL)
-    // {
-    //     ClearUIFocus();
-    //     return;
-    // }
-
-    // // 4. Handle Interaction Types (The "Positive" Logic)
-    // bool is_text_type = (clicked_element->type == UI_ELEMENT_TEXTBOX || clicked_element->type == UI_ELEMENT_TEXTFIELD || clicked_element->type == UI_ELEMENT_TEXTBOX_SAFE);
-    // if (is_text_type)
-    // {
-    //     HandleTextBoxClick(clicked_element);
-    // }
-    // else // If they clicked a non-text element (like a label or a frame), clear focus
-    // {
-    //     ClearUIFocus();
-    // }
-
-    // printf("CLICKED [%s] (%.0f, %.0f) (%.0f, %.0f)\n", GetElementTypeName(clicked_element->type), clicked_coords.x, clicked_coords.y, clicked_element->cached_box.coords.x, clicked_element->cached_box.coords.y);
-    // UpdateTextBoxInput();
-
-    // return;
-
-    // Check if there are any objects in that cell and print info about those objects if so
-    // Cell *cells = lpanel_root->data.root.coord_space.cells.coll.items;
-    // Cell cell = cells[cell_index];
-    // selectedCell = &cells[cell_index];
-    // offset += snprintf(log + offset, sizeof(log) - offset, "Region: Panel (%.1f, %.1f) --> Cell %d (%.1f, %.1f) --> ", lpanel_pixel_origin.x, lpanel_pixel_origin.y, cell_index, cell.coords.x, cell.coords.y);
-
-    // Loop through all properties text boxes and apply focus if the clicked_coords are within a text_box, otherwise set focus --> false
-    // UIElement **tfields = (UIElement **)lpanel_entity_state_tcont->children.items; //.coll;
-    // UIElement *e = NULL;
-    // int tfield_count = lpanel_entity_state_tcont->children.count;
-    // Vector2d vertices[4] = {0};
-    // bool any_focus = false;
-    // if (lpanel_entity_state_tcont->children.count > 0)
-    // {
-    //     for (int i = 0; i < tfield_count; i++)
-    //     {
-    //         // Check if the click is within the text box
-    //         e = (UIElement *)(tfields[i]);
-    //         //GetUIElementVertices(t, vertices); // ISSUE HERE
-    //         //if (IsFocused(click_panel_coords, vertices, 4))
-    //         if(IsMouseOverElement(e, (Vector2d){mouse_x, mouse_y}))
-    //         {
-    //             // Apply focus on text box
-    //             HandleTextBoxClick(e);
-    //             any_focus = true;
-    //             offset += snprintf(log + offset, sizeof(log) - offset, "Element: TextBox (%.1f, %.1f)", click_panel_coords.x, click_panel_coords.y);
-    //             break;
-    //             // printf("Clicked on object properties text box! Text box properties - Position: (%.1f, %.1f), Dimensions: (%.1f, %.1f)\n", lpanel_entity_state_tbox.origin.x, lpanel_entity_state_tbox.origin.y, lpanel_entity_state_tbox.width, lpanel_entity_state_tbox.height);
-    //         }
-    //     }
-    // }
-    // If nothing in Properties was clicked, loop through all stats text boxes and apply focus if the clicked_coords are within a text_box, otherwise set focus --> false
-    // if (!any_focus && lpanel_stats_tcont->text_fields.coll.count > 0)
-    // {
-    //     tbox_coll = (Collection)lpanel_stats_tcont->text_fields.coll;
-
-    //     t = &((TextField *)(tbox_coll.items))[0];
-    //     vertices = GetTextFieldVertices(*t);
-    //     bool any_focus = false;
-    //     for (int i = 0; i < tbox_coll.count; i++)
-    //     {
-    //         // Check if the click is within the text box
-    //         t = &((TextField *)(tbox_coll.items))[i];
-    //         vertices = GetTextFieldVertices(*t);
-    //         if (IsFocused(click_panel_coords, vertices, 4))
-    //         {
-    //             // Apply focus on text box
-    //             HandleTextFieldClick(t);
-    //             // t->is_focused = true;
-    //             any_focus = true;
-    //             offset += snprintf(log + offset, sizeof(log) - offset, "Element: TextBox (%.1f, %.1f)", click_panel_coords.x, click_panel_coords.y);
-    //             break;
-    //             // printf("Clicked on object properties text box! Text box properties - Position: (%.1f, %.1f), Dimensions: (%.1f, %.1f)\n", lpanel_entity_state_tbox.origin.x, lpanel_entity_state_tbox.origin.y, lpanel_entity_state_tbox.width, lpanel_entity_state_tbox.height);
-    //         }
-    //     }
-    // }
-    // if (!any_focus)
-    // {
-    //     offset += snprintf(log + offset, sizeof(log) - offset, "Element: Nill");
-    // }
-
-    // printf("CLICKED (%d, %d) { %s }\n", mouse_x, mouse_y, log);
-
-    // finishScreen = 1;
-    //  PlaySound(fxCoin);
+    (void)mouse_x;
+    (void)mouse_y;
+    (void)cursor_in_region;
 }
-
-// void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d camera)
-// {
-//     if (!e)
-//     {
-//         return;
-//     }
-
-//     // Need to convert world coordinates to screen coordinates
-//     Basis2d basis = camera.destination_basis;
-
-//     // The world position of the coordinate space object is the origin of the coordinate space, so (0,0).
-//     // But to make it more flexible for different coordinate space origins, we will add the world position to the start and end points of the lines to get their actual coordinates in world space, and then convert those to screen coordinates using the basis transform matrix
-//     Vector2d basis_scale = BasisTransform_2d_Scale(camera.source_basis, camera.destination_basis); // Need to scale dimensions from world units to pixel units using the camera's basis transform
-
-//     // Resolve rendered position and dimensions of panel element
-//     UIBox box = ResolveElementBox(e, parent_box, basis_scale);
-//     box.coords = (Vector2d){(int)box.coords.x, (int)box.coords.y};
-//     box.dimensions = (Vector2d){(int)box.dimensions.x, (int)box.dimensions.y};
-//     e->cached_box = box;
-
-//     // Draw background & border
-//     DrawElementBox(e);
-//     if (e->type == UI_ELEMENT_LABEL)
-//     {
-//         // Draw the Text
-//         DrawTextCustom(e->data.label.text.string, e->cached_box.coords, 2, FONT_DEFAULT, FONT_DEFAULT.colour);
-//         // DrawTextCustom(e->data.label.text.string, e->cached_box.coords, 2, FONT_DEFAULT, FONT_DEFAULT.colour);
-//         // DrawTextCustom(e->data.label.text.string, e->cached_box.coords, 2, e->data.label.font, e->data.label.font.colour);
-//         //  DrawText(text_box->text, text_x, text_y, font_size, (Color){colour_border.r, colour_border.g, colour_border.b, colour_border.a});
-//     }
-//     if (e->type == UI_ELEMENT_TEXTBOX || e->type == UI_ELEMENT_TEXTBOX_SAFE)
-//     {
-//         DrawTextBoxText(e);
-//     }
-
-//     frame_counter.total_frames % 800 == 0 ? printf("Drew [%s] pos: (%.1f, %.1f) | Size: (%.1f, %.1f)\n", GetElementTypeName(e->type), box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y) : (void)0;
-
-//     // Recursively draw children elements
-//     UIElement *child = e->first_child;
-//     while (child)
-//     {
-//         DrawUIElement(child, box, camera);
-//         child = child->next_sibling;
-//     }
-// }
-
-// void DrawPanelRegion_Stats(CoordSpace2d panel_space, Color fill_colour)
-// {
-//     Vector2 pos = {20, 100};
-//     Vector2 lineSpacing = {0, 40};
-
-//     // Count display
-//     char text[32];
-//     // snprintf(text, sizeof(text), "Polygonoids: %d", GetPolygonoidCount());                                                                                 // Format the FPS value into the buffer
-//     // DrawTextEx(font_default, text, pos, font_default.baseSize * 2.0f, 2, (Color){lpanel_text_colour.r, lpanel_text_colour.g, lpanel_text_colour.b, lpanel_text_colour.a}); // Buffer to hold the text
-//     //  snprintf(text, sizeof(text), "Circloids: %d", GetCircloidCount()); // Format the FPS value into the buffer
-//     //  DrawTextEx(font, text, pos, font.baseSize * 2.0f, 2, (Color)BEIGE);
-
-//     // FPS display
-//     snprintf(text, sizeof(text), "FPS: %.1f", frame_counter.fps); // Format the FPS value into the buffer
-//     DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + lineSpacing.y}, font.baseSize * 2.0f, 2, (Color){lpanel_text_colour.r, lpanel_text_colour.g, lpanel_text_colour.b, lpanel_text_colour.a});
-
-//     // Memory display - Total allocated memory in bytes
-//     snprintf(text, sizeof(text), "Memory (bytes): %zu", GetCurrentMemoryAllocated()); // Format the FPS value into the buffer
-//     DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + 2 * lineSpacing.y}, font.baseSize * 2.0f, 2, (Color){lpanel_text_colour.r, lpanel_text_colour.g, lpanel_text_colour.b, lpanel_text_colour.a});
-// }
-
-// void HandleTextBoxClick(UIElement *clicked)
-// {
-//     if (!clicked)
-//         return;
-
-//     // 1. If we clicked the same element that already has focus, do nothing
-//     if (G_FocusedElement == clicked)
-//         return;
-
-//     // 2. Clear focus from the previous element (if any)
-//     if (G_FocusedElement != NULL)
-//     {
-//         G_FocusedElement->is_focused = false;
-//         // Optional: Trigger an "OnBlur" event here if needed
-//     }
-
-//     // Assign focus to the new element
-//     G_FocusedElement = clicked;
-//     clicked->is_focused = true;
-
-//     // Move the cursor to the end of the text string
-//     // This allows the user to start typing immediately after what's already there
-//     if (clicked->type == UI_ELEMENT_TEXTBOX || clicked->type == UI_ELEMENT_TEXTBOX_SAFE)
-//     {
-//         int length = strlen(clicked->data.textbox.text.string);
-//         clicked->data.textbox.cursor_position = length;
-//     }
-
-//     printf("Focus shifted to: %s\n", GetElementTypeName(clicked->type));
-// }
-
-// void DrawElementBox(UIElement *e)
-// {
-//     UIBox box = e->cached_box;
-//     ColourRgba colour_fill = e->colour_fill;
-//     ColourRgba colour_border = e->colour_border;
-//     DrawRectangle((int)box.coords.x, (int)box.coords.y, (int)box.dimensions.x, (int)box.dimensions.y, (Color){colour_fill.r, colour_fill.g, colour_fill.b, colour_fill.a});
-//     DrawRectangleLines((int)box.coords.x, (int)box.coords.y, (int)(box.dimensions.x), (int)(box.dimensions.y), (Color){colour_border.r, colour_border.g, colour_border.b, colour_border.a});
-// }
-// void DrawTextBoxText(UIElement *e)
-// {
-//     // Draw the Text
-//     DrawTextCustom(e->data.textbox.text.string, e->cached_box.coords, 2, FONT_DEFAULT, FONT_DEFAULT.colour);
-//     if (e->is_focused)
-//     {
-//         int text_len = GetTextWidth(e->data.textbox.text.string, (char)e->data.textbox.font.spacing, 2);
-//         Vector2d cursor_pos = {e->cached_box.coords.x + text_len + 2, e->cached_box.coords.y};
-//         frame_counter.total_frames % 60 < 30 ? DrawTextCustom(".", cursor_pos, 2, FONT_DEFAULT, FONT_DEFAULT.colour) : (void)0;
-//     }
-// }
