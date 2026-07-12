@@ -7,14 +7,38 @@
 //----------------------------------------------------------------------------------
 // Global Variables Definition (local to this module)
 
+static void InitScheduledTaskCommon(int interval, int run_limit, int *interval_frames, int *run_count, int *task_run_limit, bool *active)
+{
+    *interval_frames = interval;
+    *run_count = 0; // Run immediately on first check, or set to 'interval' to delay it
+    *task_run_limit = run_limit;
+    *active = true;
+}
+
+static bool UpdateScheduledTaskCommon(int *run_count, int interval_frames, int run_limit, bool *active)
+{
+    (*run_count)++;
+
+    // Has enough frames passed?
+    if (*run_count % interval_frames == 0)
+    {
+        *active = *run_count < run_limit;
+        return true;
+    }
+
+    return false;
+}
+
 ScheduledFunc CreateScheduledFunc(Func func, int interval, int run_limit)
 {
     ScheduledFunc task;
     task.function = func;
-    task.interval_frames = interval;
-    task.run_count = 0; // Run immediately on first check, or set to 'interval' to delay it
-    task.active = true;
-    task.run_limit = run_limit;
+    InitScheduledTaskCommon(interval,
+                            run_limit,
+                            &task.interval_frames,
+                            &task.run_count,
+                            &task.run_limit,
+                            &task.active);
     return task;
 }
 
@@ -22,10 +46,12 @@ ScheduledAction CreateScheduledAction(Action func, int interval, int run_limit)
 {
     ScheduledAction task;
     task.function = func;
-    task.interval_frames = interval;
-    task.run_count = 0; // Run immediately on first check, or set to 'interval' to delay it
-    task.active = true;
-    task.run_limit = run_limit;
+    InitScheduledTaskCommon(interval,
+                            run_limit,
+                            &task.interval_frames,
+                            &task.run_count,
+                            &task.run_limit,
+                            &task.active);
     return task;
 }
 
@@ -35,13 +61,9 @@ void UpdateScheduledFunc(ScheduledFunc *task)
     if (task == NULL || !task->active || task->function == NULL || task->run_count >= task->run_limit)
         return;
 
-    task->run_count++;
-
-    // Has enough frames passed?
-    if (task->run_count % task->interval_frames == 0)
+    if (UpdateScheduledTaskCommon(&task->run_count, task->interval_frames, task->run_limit, &task->active))
     {
         task->function(task->data_context); // Run the passed function!
-        task->active = task->run_count < task->run_limit;
     }
 }
 
@@ -51,12 +73,8 @@ void UpdateScheduledAction(ScheduledAction *task)
     if (task == NULL || !task->active || task->function == NULL || task->run_count >= task->run_limit)
         return;
 
-    task->run_count++;
-
-    // Has enough frames passed?
-    if (task->run_count % task->interval_frames == 0)
+    if (UpdateScheduledTaskCommon(&task->run_count, task->interval_frames, task->run_limit, &task->active))
     {
         task->function(); // Run the passed function!
-        task->active = task->run_count < task->run_limit;
     }
 }

@@ -20,8 +20,9 @@
 // void CalculateLineSegmentVectors(CoordSpace2d *coord_space);
 void InitUnitCells(CoordSpace2d *coordinate_space);
 
-// Creates a local coordinate space with physical attributes that can be used to render it to the screen. Basis vectors in most cases (orthogonal dimensions) should be u = {1,0}, v = {0,1}.
-// The top-left is the origin (0,0)
+// Creates a local child coordinate space with physical attributes.
+// Basis vectors in most cases (orthogonal dimensions) should be u = {1,0}, v = {0,1}.
+// The origin is in the child/local frame; parent-space placement is handled externally.
 CoordSpace2d_Grid NewCoordSpace2d_Grid(Vector2d origin, Vector2d resolution_ixj, Basis2d basis, ColourRgba colour_fill, ColourRgba colour_line)
 {
    CoordSpace2d_Grid space_obj = {0};
@@ -37,12 +38,12 @@ CoordSpace2d_Grid NewCoordSpace2d_Grid(Vector2d origin, Vector2d resolution_ixj,
    return space_obj;
 }
 
-// Creates a local coordinate space. Basis vectors in most cases (orthogonal dimensions) should be u = {1,0}, v = {0,1}. They can be other values if the space dimensions are not orthogonal.
-// The top-left is the origin (0,0)
+// Creates a local coordinate space. Basis vectors in most cases (orthogonal dimensions) should be u = {1,0}, v = {0,1}.
+// The origin is in local coordinates of this space, not a parent-space mapped coordinate.
 CoordSpace2d NewCoordSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d basis)
 {
    CoordSpace2d space = {0};
-   space.coords_origin;
+   space.local_origin = origin;
    // Needs a grid with resolution according to unit height and width - divide it up and handle the leftover height and width
    // if (unitHeight > object.height || unitWidth > object.width)
    // {
@@ -53,8 +54,9 @@ CoordSpace2d NewCoordSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d b
 
    space.basis = basis;
    space.resolution_ixj = resolution_ixj;
-   space.stepsU = ceilf((float)resolution_ixj.x / VectorMagnitude_2d(basis.u));
-   space.stepsV = ceilf((float)resolution_ixj.y / VectorMagnitude_2d(basis.v));
+   // Resolution is the number of addressable cells in local i/j coordinates.
+   space.stepsU = fmaxf(1.0f, ceilf(resolution_ixj.x));
+   space.stepsV = fmaxf(1.0f, ceilf(resolution_ixj.y));
    space.unitArea = fabsf((basis.u.x * basis.v.y) - (basis.u.y * basis.v.x)); // Calculate the 'Area' of a single basis tile; this is the determinant of the basis matrix, which gives us the area of the parallelogram formed by the basis vectors, which is the area of each cell in the coordinate space. We can then divide the total area of the field by this cell area to get the total number of cells needed to fill the field.
 
    // If cellArea is 0, the basis is invalid (it's a line, not a space)
@@ -63,9 +65,8 @@ CoordSpace2d NewCoordSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d b
       fprintf(stderr, "ERROR: Invalid basis vectors. The area of the basis tile is too small (close to zero). Cannot create coordinate space with these basis vectors!");
    }
 
-   // Total area and units of the bounding box/object
-   float totalArea = resolution_ixj.x * resolution_ixj.y;
-   int totalUnits = (int)ceilf(totalArea / space.unitArea);
+   // Total units are deterministic from requested i/j resolution.
+   int totalUnits = (int)(space.stepsU * space.stepsV);
 
    space.cells = MakeDArray(totalUnits, sizeof(Cell));
 
@@ -83,13 +84,65 @@ CoordSpace2d NewCoordSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d b
    return space;
 }
 
+Vector2d CalcCoordSpaceHalfExtent(const CoordSpace2d *space)
+{
+   if (!space)
+   {
+      return ZERO_VECTOR_2D;
+   }
+
+   Vector2d half_resolution = VectorScale_2d(space->resolution_ixj, 0.5f);
+   Vector2d half_u_extent = VectorScale_2d(space->basis.u, half_resolution.x);
+   Vector2d half_v_extent = VectorScale_2d(space->basis.v, half_resolution.y);
+   return VectorSum_2d(half_u_extent, half_v_extent);
+}
+
+Vector2d CalcCoordSpaceOriginFromCenter(const CoordSpace2d *space, Vector2d center)
+{
+   return VectorSum_2d(center, VectorScale_2d(CalcCoordSpaceHalfExtent(space), -1.0f));
+}
+
+Matrix2x2 CalcCoordSpaceBoundsFromCenter(const CoordSpace2d *space, Vector2d center)
+{
+   Matrix2x2 bounds = {0};
+   if (!space)
+   {
+      return bounds;
+   }
+
+   Vector2d origin = CalcCoordSpaceOriginFromCenter(space, center);
+   Vector2d corners[4] = {
+      origin,
+      VectorSum_2d(origin, VectorScale_2d(space->basis.u, space->resolution_ixj.x)),
+      VectorSum_2d(VectorSum_2d(origin, VectorScale_2d(space->basis.u, space->resolution_ixj.x)), VectorScale_2d(space->basis.v, space->resolution_ixj.y)),
+      VectorSum_2d(origin, VectorScale_2d(space->basis.v, space->resolution_ixj.y)),
+   };
+
+   bounds.col1 = corners[0];
+   bounds.col2 = corners[0];
+
+   for (int i = 1; i < 4; i++)
+   {
+      if (corners[i].x < bounds.col1.x)
+         bounds.col1.x = corners[i].x;
+      if (corners[i].y < bounds.col1.y)
+         bounds.col1.y = corners[i].y;
+      if (corners[i].x > bounds.col2.x)
+         bounds.col2.x = corners[i].x;
+      if (corners[i].y > bounds.col2.y)
+         bounds.col2.y = corners[i].y;
+   }
+
+   return bounds;
+}
+
 void InitUnitCells(CoordSpace2d *space)
 {
    DArray *cells = &(space->cells);
    size_t cells_capacity = cells->capacity;
    memset(cells->items, 0, cells->elem_bytes * cells_capacity);
 
-   Vector2d coords_origin = space->coords_origin;
+   Vector2d local_origin = space->local_origin;
    int stepsU = space->stepsU;
    int stepsV = space->stepsV;
 
@@ -107,11 +160,11 @@ void InitUnitCells(CoordSpace2d *space)
       Vector2d displacement = {scaled_u.x + scaled_v.x, scaled_u.y + scaled_v.y};
 
       // Add the displacement vector to the origin to get the coordinates of the cell
-      cell.coords_origin.x = coords_origin.x + displacement.x;
-      cell.coords_origin.y = coords_origin.y + displacement.y;
+      cell.local_origin.x = local_origin.x + displacement.x;
+      cell.local_origin.y = local_origin.y + displacement.y;
       // Centre will always be 0.5 basis units since a cell is by definition the object representing the 2 basis vectors
-      cell.coords_center.x = cell.coords_origin.x + (0.5 * (space->basis.u.x + space->basis.v.x));
-      cell.coords_center.y = cell.coords_origin.y + (0.5 * (space->basis.u.y + space->basis.v.y));
+      cell.local_center.x = cell.local_origin.x + (0.5 * (space->basis.u.x + space->basis.v.x));
+      cell.local_center.y = cell.local_origin.y + (0.5 * (space->basis.u.y + space->basis.v.y));
 
       // Write the cell to the array
       Cell *address = (Cell *)((char *)cells->items + (k * cells->elem_bytes));
@@ -124,7 +177,17 @@ void InitUnitCells(CoordSpace2d *space)
 
 int GetIndexFromCoords(CoordSpace2d *space, Vector2d space_coords)
 {
-   int cell_index = ((int)space_coords.y * (int)space->resolution_ixj.x) + (int)space_coords.x;
+   int i = (int)floorf(space_coords.y);
+   int j = (int)floorf(space_coords.x);
+   int stepsU = (int)space->stepsU;
+   int stepsV = (int)space->stepsV;
+
+   if (i < 0 || j < 0 || i >= stepsV || j >= stepsU)
+   {
+      return -1;
+   }
+
+   int cell_index = (i * stepsU) + j;
    return cell_index;
 }
 
@@ -209,11 +272,11 @@ bool VectorIsInSpace_2d(Vector2d vector, CoordSpace2d *space)
 {
    // Check if the vector is within the bounds of the coordinate space defined by its origin and the extents of its basis vectors multiplied by their respective steps
    Matrix2x2 extents = CalcSpaceExtents_2d(space);
-   Vector2d origin = space->coords_origin;
+   Vector2d origin = space->local_origin;
    float min_x = origin.x;
    float max_x = origin.x + extents.col1.x + extents.col2.x;
    float min_y = origin.y;
-   float max_y = origin.y + extents.col2.y + extents.col2.y;
+   float max_y = origin.y + extents.col1.y + extents.col2.y;
 
    return (vector.x >= min_x && vector.x < max_x && vector.y >= min_y && vector.y < max_y);
 }

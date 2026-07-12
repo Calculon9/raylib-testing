@@ -1,30 +1,14 @@
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <stdbool.h>
 #include "associations/flat_map.h"
 #include "memory/cmemory.h"
 
 //----------------------------------------------------------------------------------
 // Global Variables Definition (local to this module)
-unsigned long CalcIntHash(int key, int capacity);
-unsigned long CalcStrHash(const char *str, int capacity);
-bool GrowFlatMapInt(FlatMapInt *m);
+static unsigned long CalcIntHash(int key, int capacity);
+static bool GrowFlatMapInt(FlatMapInt *m);
 
-unsigned long CalcStrHash(const char *str, int capacity)
-{
-    unsigned long hash = 5381;
-    int c;
-
-    while ((c = *str++))
-    {
-        hash = ((hash << 5) + hash) + c; // hash * 33 + c
-    }
-
-    return hash % capacity; // Map the giant number cleanly to our bucket array size
-}
-
-unsigned long CalcIntHash(int key, int capacity)
+static unsigned long CalcIntHash(int key, int capacity)
 {
     // Scramble the integer bits so sequential IDs distribute beautifully
     unsigned long hash = (unsigned long)key * 2654435761UL;
@@ -50,11 +34,6 @@ FlatMapInt *AllocFlatMapInt(int capacity)
         return m;
     }
 
-    for (int i = 0; i < capacity; i++)
-    {
-        m->slots[i].occupied = false; // Init all slots to unoccupied state
-    }
-
     return m;
 }
 
@@ -73,11 +52,6 @@ FlatMapInt MakeFlatMapInt(int capacity)
         fprintf(stderr, "Failed to allocate memory for FlatMap internal slots!\n");
         m.capacity = 0;
         return m;
-    }
-
-    for (int i = 0; i < capacity; i++)
-    {
-        m.slots[i].occupied = false; // Init all slots to unoccupied state
     }
 
     return m;
@@ -117,44 +91,6 @@ bool FlatMapInt_GetValue(FlatMapInt *m, int key, int *out_value)
             break; // Searched full map array
         }
     }
-
-    return false;
-}
-
-bool FlatMapInt_GetKey(FlatMapInt *m, int value, int *out_key)
-{
-    // Safety Guardrails
-    // if (m == NULL || out_key == NULL)
-    // {
-    //     fprintf(stderr, "ERROR: Invalid NULL parameter passed to FlatMapInt_GetKey.\n");
-    //     return false;
-    // }
-
-    // if (m->capacity == 0 || m->count == 0)
-    // {
-    //     return false;
-    // }
-
-    // unsigned long index = CalcIntHash(key, m->capacity);
-    // unsigned long start_index = index;
-
-    // // Search until we hit an unoccupied slot
-    // while (m->slots[index].occupied)
-    // {
-    //     // Straight primitive integer matching (Blazing fast!)
-    //     if (m->slots[index].key == key)
-    //     {
-    //         *out_value = m->slots[index].value;
-    //         return true;
-    //     }
-
-    //     index = (index + 1) % m->capacity;
-
-    //     if (index == start_index)
-    //     {
-    //         break; // Searched full map array
-    //     }
-    // }
 
     return false;
 }
@@ -238,7 +174,7 @@ bool FlatMapInt_InsertOrUpdate(FlatMapInt *m, int key, int value)
     return true;
 }
 
-bool GrowFlatMapInt(FlatMapInt *m)
+static bool GrowFlatMapInt(FlatMapInt *m)
 {
     int old_capacity = m->capacity;
     // Cast explicitly back to integer to keep compiler calculations happy
@@ -250,12 +186,6 @@ bool GrowFlatMapInt(FlatMapInt *m)
     {
         fprintf(stderr, "Failed to allocate memory for growing Flat Map!\n");
         return false;
-    }
-
-    // Zero-out the new buffer occupancy states
-    for (int i = 0; i < new_capacity; i++)
-    {
-        new_slots[i].occupied = false;
     }
 
     // FIX: REHASH EXISTING KEYS. Do not use memcpy!

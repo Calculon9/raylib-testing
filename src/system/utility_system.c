@@ -5,22 +5,15 @@
 #include <stdint.h>
 #include "system/utility_system.h"
 #include "system/systems.h"
-#include "collections/queue.h"
 #include "memory/cmemory.h"
 
 //----------------------------------------------------------------------------------
 // Global Variables Definition (local to this module)
 //----------------------------------------------------------------------------------
-static Queue *frameTimes = NULL;
-static double prevFrameTime = {0};
-static double currTime = {0};
 //double memory_allocated = {0};
 
 //float fps = {0};
 
-
-double GetPreciseTime();
-float GetFrameDeltaTime();
 
 void UpdateFrameCounter(FrameCounter *fc) {
     double current_time = GetPreciseTime(); // Or OS-specific high-res timer
@@ -56,8 +49,6 @@ FrameCounter InitFrameCounter()
     FrameCounter fc = {0};
     //frameTimes = NEW_QUEUE(32, double); // Queue to hold timestamps of previous frames
     fc.last_time = GetPreciseTime();
-    fc.frame_count_this_second = 0;
-    fc.timer = 0;
 
     return fc;
 }
@@ -117,17 +108,79 @@ double GetPreciseTime()
     return (double)ts.tv_sec + (double)ts.tv_nsec / 1000000000.0;
 }
 
-float GetFrameDeltaTime()
+void UpdatePointerState(PointerButton button, PointerState *pointer_state, Vector2d pointer_pos)
 {
-    // This function can be used to get the time taken for the last frame, which can be useful for physics calculations
-    if (frameTimes->count > 1)
+    if (!pointer_state)
     {
-        return (float)(currTime - prevFrameTime);
+        return;
     }
-    else
+
+    switch (button)
     {
-        return 0.016f; // Approximate frame time for 60 FPS
+    case POINTER_BUTTON_LEFT:
+        pointer_state->left_button_hold_ticks++;
+        break;
+    case POINTER_BUTTON_RIGHT:
+        pointer_state->right_button_hold_ticks++;
+        break;
+    default:
+        break;
     }
+
+    if (pointer_state->left_button_hold_ticks == 1 || pointer_state->right_button_hold_ticks == 1)
+    {
+        pointer_state->initial_pos = pointer_pos;
+        pointer_state->current_pos = pointer_pos;
+        return;
+    }
+
+    pointer_state->previous_pos = pointer_state->current_pos;
+    pointer_state->current_pos = pointer_pos;
+}
+
+void ResetPointerState(PointerState *pointer_state)
+{
+    if (!pointer_state)
+    {
+        return;
+    }
+
+    pointer_state->left_button_hold_ticks = 0;
+    pointer_state->right_button_hold_ticks = 0;
+    pointer_state->initial_pos = ZERO_VECTOR_2D;
+    pointer_state->current_pos = ZERO_VECTOR_2D;
+    pointer_state->previous_pos = ZERO_VECTOR_2D;
+}
+
+Vector2d GetPointerTravelDelta(PointerState pointer_state)
+{
+    return VectorSum_2d(pointer_state.current_pos,
+                        (Vector2d){-pointer_state.initial_pos.x, -pointer_state.initial_pos.y});
+}
+
+float GetPointerTravelMagnitude(PointerState pointer_state)
+{
+    return VectorMagnitude_2d(GetPointerTravelDelta(pointer_state));
+}
+
+bool IsPointerClick(PointerState pointer_state, int max_hold_ticks, float max_travel_pixels)
+{
+    if (pointer_state.left_button_hold_ticks <= 0 || pointer_state.left_button_hold_ticks >= max_hold_ticks)
+    {
+        return false;
+    }
+
+    return GetPointerTravelMagnitude(pointer_state) < max_travel_pixels;
+}
+
+bool IsPointerDrag(PointerState pointer_state, float min_travel_pixels)
+{
+    if (pointer_state.left_button_hold_ticks <= 0)
+    {
+        return false;
+    }
+
+    return GetPointerTravelMagnitude(pointer_state) > min_travel_pixels;
 }
 
 // Utility function to get current memory allocated in bytes

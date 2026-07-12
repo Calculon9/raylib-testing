@@ -5,6 +5,7 @@
 #include "system/systems.h"
 #include "system/ui_system.h"
 #include "system/world_system.h"
+#include "system/universe_system.h"
 #include "world/universe.h"
 #include "system/viewport_system.h"
 #include "system/panel_ui_helpers.h"
@@ -46,7 +47,10 @@ static UIElement *rpanel_create_world_count_tbox = NULL;
 static UIElement *rpanel_create_selected_world_tbox = NULL;
 static UIElement *rpanel_create_spawn_tbox = NULL;
 static UIElement *rpanel_create_resolution_tbox = NULL;
+static UIElement *rpanel_create_basis_u_tbox = NULL;
+static UIElement *rpanel_create_basis_v_tbox = NULL;
 static UIElement *rpanel_create_gravity_tbox = NULL;
+static UIElement *rpanel_create_auto_select_tbox = NULL;
 
 static Vector2d rpanel_default_padding = {0.1f, 0.1f};
 static Vector2d rpanel_tfield_padding = {0.03f, 0.03f};
@@ -55,6 +59,14 @@ static Size rpanel_row_tfield_size = {{5.8f, 0.5f}, SIZE_FIXED};
 static Size rpanel_stat_row_tfield_size = {{5.8f, 0.55f}, SIZE_FIXED};
 static Size rpanel_button_size = {{5.8f, 0.45f}, SIZE_FIXED};
 static Spacing rpanel_world_btn_child_spacing = {{0.0f, 0.03f}, NONE, SPACING_STACKED};
+
+typedef struct PanelFieldInit
+{
+    const char *label;
+    UIElementType type;
+    Size size;
+    UIElement **target;
+} PanelFieldInit;
 
 static void SetTextboxText(UIElement *textbox, const char *value)
 {
@@ -98,79 +110,74 @@ static void SetTextboxVector2Pair(UIElement *textbox, Vector2d value)
     snprintf(textbox->data.textbox.text.string, sizeof(String64), "(%.1f,%.1f)", value.x, value.y);
 }
 
-static UIElement *CreateRPanelTitleLabel(UIElement *parent, const char *text)
+static void WriteBoundVectorIfUnfocused(UIElement *textbox, const Vector2d *value)
 {
-    return CreatePanelTitleLabel(parent,
-                                 text,
-                                 rpanel_title_tfield_size,
-                                 rpanel_tfield_padding,
-                                 FONT_BASIC,
-                                 COLOURLESS_RGBA,
-                                 COLOURLESS_RGBA);
+    if (!textbox || !value || textbox->is_focused)
+    {
+        return;
+    }
+
+    PipelineVectorToText(*value, textbox->data.textbox.text.string, sizeof(String64));
 }
 
-static UIElement *CreateRPanelLabeledField(UIElement *parent, const char *label_text, UIElementType input_type)
+static void WriteBoundNumberIfUnfocused(UIElement *textbox, const float *value, int precision)
 {
-    return CreatePanelLabeledField(parent,
-                                   label_text,
-                                   input_type,
-                                   rpanel_row_tfield_size,
-                                   tbox_default_size,
-                                   rpanel_tfield_padding,
-                                   tbox_tlabel_default_offset.offset,
-                                   WHITE_RGBA,
-                                   COLOURLESS_RGBA,
-                                   tbox_default_padding,
-                                   tbox_default_colour_border,
-                                   tbox_default_colour_fill,
-                                   FONT_BASIC);
+    if (!textbox || !value || textbox->is_focused)
+    {
+        return;
+    }
+
+    PipelineNumberToText(*value, precision, textbox->data.textbox.text.string, sizeof(String64));
 }
 
-static UIElement *CreateRPanelButton(UIElement *parent, const char *text, int *action_ptr)
+static UIElement *CreateRPanelField(UIElement *parent, const char *label, UIElementType type, Size size)
 {
-    return CreatePanelButton(parent,
+    return CreatePanelLabeledFieldDefault(parent,
+                                          label,
+                                          type,
+                                          size,
+                                          rpanel_tfield_padding,
+                                          WHITE_RGBA,
+                                          COLOURLESS_RGBA);
+}
+
+static void InitRPanelFields(UIElement *parent, const PanelFieldInit *defs, size_t count)
+{
+    if (!parent || !defs)
+    {
+        return;
+    }
+
+    for (size_t i = 0; i < count; i++)
+    {
+        if (defs[i].target)
+        {
+            *defs[i].target = CreateRPanelField(parent, defs[i].label, defs[i].type, defs[i].size);
+        }
+    }
+}
+
+static void BindTextboxData(UIElement *textbox, DataType type, void *data_bind)
+{
+    if (!textbox)
+    {
+        return;
+    }
+
+    textbox->data.textbox.data_type = type;
+    textbox->data.textbox.data_bind = data_bind;
+}
+
+static void CreateRPanelSubmitButton(UIElement *parent, const char *label, int *action)
+{
+    CreatePanelButtonDefault(parent,
                              UI_ELEMENT_BUTTON_SUBMIT,
-                             text,
+                             label,
                              rpanel_button_size,
                              (Vector2d){0.02f, 0.02f},
-                             btn_default_colour_border,
-                             btn_default_colour_fill,
-                             FONT_BASIC,
                              HandleBtnSubmitClick,
-                             action_ptr,
+                             action,
                              NULL);
-}
-
-static UIElement *CreateRPanelToggleButton(UIElement *parent, const char *text)
-{
-    return CreatePanelButton(parent,
-                             UI_ELEMENT_BUTTON_ENUMERATE,
-                             text,
-                             rpanel_button_size,
-                             (Vector2d){0.02f, 0.02f},
-                             btn_default_colour_border,
-                             btn_default_colour_fill,
-                             FONT_BASIC,
-                             HandleBtnEnumerateClick,
-                             &btn_action_rpanel_enumerate,
-                             &rpanel_views);
-}
-
-static UIElement *CreateRPanelStatField(UIElement *parent, const char *label_text)
-{
-    return CreatePanelLabeledField(parent,
-                                   label_text,
-                                   UI_ELEMENT_TEXTBOX_O,
-                                   rpanel_stat_row_tfield_size,
-                                   tbox_default_size,
-                                   rpanel_tfield_padding,
-                                   tbox_tlabel_default_offset.offset,
-                                   WHITE_RGBA,
-                                   COLOURLESS_RGBA,
-                                   tbox_default_padding,
-                                   tbox_default_colour_border,
-                                   tbox_default_colour_fill,
-                                   FONT_BASIC);
 }
 
 void InitRPanel(void)
@@ -210,7 +217,14 @@ void InitRPanel(void)
                                               tcont_default_child_spacing,
                                               false,
                                               true);
-    CreateRPanelToggleButton(rpanel_toggle_cont, "STATE -- CREATE");
+    CreatePanelButtonDefault(rpanel_toggle_cont,
+                             UI_ELEMENT_BUTTON_ENUMERATE,
+                             "STATE -- CREATE",
+                             rpanel_button_size,
+                             (Vector2d){0.02f, 0.02f},
+                             HandleBtnEnumerateClick,
+                             &btn_action_rpanel_enumerate,
+                             &rpanel_views);
 
     rpanel_state_view_cont = CreatePanelContainer(rpanel_root,
                                                   (Size){{1.0f, 0.92f}, SIZE_PERCENT},
@@ -249,7 +263,7 @@ void InitRPanel(void)
                                                  true,
                                                  true);
 
-    CreateRPanelTitleLabel(world_cont, "WORLD MANAGER");
+    CreatePanelTitleLabelDefault(world_cont, "WORLD MANAGER", rpanel_title_tfield_size, rpanel_tfield_padding);
 
     UIElement *world_btn_cont = CreatePanelContainer(world_cont,
                                                      (Size){{1.0f, 0.22f}, SIZE_PERCENT},
@@ -261,20 +275,23 @@ void InitRPanel(void)
                                                      false,
                                                      true);
 
-    CreateRPanelButton(world_btn_cont, "SELECT PREV", &btn_action_select_world_prev);
-    CreateRPanelButton(world_btn_cont, "SELECT NEXT", &btn_action_select_world_next);
+    CreateRPanelSubmitButton(world_btn_cont, "SELECT PREV", &btn_action_select_world_prev);
+    CreateRPanelSubmitButton(world_btn_cont, "SELECT NEXT", &btn_action_select_world_next);
 
-    rpanel_world_index_tbox = CreateRPanelLabeledField(world_cont, "WORLD", UI_ELEMENT_TEXTBOX_O);
-    rpanel_world_universe_pos_tbox = CreateRPanelLabeledField(world_cont, "UNIVERSE", UI_ELEMENT_TEXTBOX_O);
-    rpanel_world_gravity_edit_tbox = CreateRPanelLabeledField(world_cont, "GRAVITY", UI_ELEMENT_TEXTBOX_SAFE_IO);
+    const PanelFieldInit world_fields[] = {
+        {"WORLD", UI_ELEMENT_TEXTBOX_O, {{5.8f, 0.5f}, SIZE_FIXED}, &rpanel_world_index_tbox},
+        {"UNIVERSE", UI_ELEMENT_TEXTBOX_O, {{5.8f, 0.5f}, SIZE_FIXED}, &rpanel_world_universe_pos_tbox},
+        {"GRAVITY", UI_ELEMENT_TEXTBOX_SAFE_IO, {{5.8f, 0.5f}, SIZE_FIXED}, &rpanel_world_gravity_edit_tbox},
+        {"RES", UI_ELEMENT_TEXTBOX_O, {{5.8f, 0.5f}, SIZE_FIXED}, &rpanel_world_resolution_tbox},
+        {"OBJECTS", UI_ELEMENT_TEXTBOX_O, {{5.8f, 0.5f}, SIZE_FIXED}, &rpanel_world_objects_tbox},
+        {"NEXT ID", UI_ELEMENT_TEXTBOX_O, {{5.8f, 0.5f}, SIZE_FIXED}, &rpanel_world_next_id_tbox},
+    };
+    InitRPanelFields(world_cont, world_fields, sizeof(world_fields) / sizeof(world_fields[0]));
+
     if (rpanel_world_gravity_edit_tbox)
     {
         rpanel_world_gravity_edit_tbox->data.textbox.data_type = FLOAT;
     }
-
-    rpanel_world_resolution_tbox = CreateRPanelLabeledField(world_cont, "RES", UI_ELEMENT_TEXTBOX_O);
-    rpanel_world_objects_tbox = CreateRPanelLabeledField(world_cont, "OBJECTS", UI_ELEMENT_TEXTBOX_O);
-    rpanel_world_next_id_tbox = CreateRPanelLabeledField(world_cont, "NEXT ID", UI_ELEMENT_TEXTBOX_O);
 
     UIElement *stats_cont = CreatePanelContainer(rpanel_state_view_cont,
                                                  (Size){{1.0f, 0.32f}, SIZE_PERCENT},
@@ -286,10 +303,13 @@ void InitRPanel(void)
                                                  true,
                                                  true);
 
-    CreateRPanelTitleLabel(stats_cont, "UTILITY PANEL");
-    rpanel_stats_fps_tbox = CreateRPanelStatField(stats_cont, "FPS");
-    rpanel_stats_frame_tbox = CreateRPanelStatField(stats_cont, "FRAME (MS)");
-    rpanel_stats_entities_tbox = CreateRPanelStatField(stats_cont, "ENTITIES");
+    CreatePanelTitleLabelDefault(stats_cont, "UTILITY PANEL", rpanel_title_tfield_size, rpanel_tfield_padding);
+    const PanelFieldInit stat_fields[] = {
+        {"FPS", UI_ELEMENT_TEXTBOX_O, {{5.8f, 0.55f}, SIZE_FIXED}, &rpanel_stats_fps_tbox},
+        {"FRAME (MS)", UI_ELEMENT_TEXTBOX_O, {{5.8f, 0.55f}, SIZE_FIXED}, &rpanel_stats_frame_tbox},
+        {"ENTITIES", UI_ELEMENT_TEXTBOX_O, {{5.8f, 0.55f}, SIZE_FIXED}, &rpanel_stats_entities_tbox},
+    };
+    InitRPanelFields(stats_cont, stat_fields, sizeof(stat_fields) / sizeof(stat_fields[0]));
 
     UIElement *create_world_cont = CreatePanelContainer(rpanel_create_view_cont,
                                                         (Size){{0.96f, 0.78f}, SIZE_PERCENT},
@@ -301,32 +321,38 @@ void InitRPanel(void)
                                                         true,
                                                         true);
 
-    CreateRPanelTitleLabel(create_world_cont, "WORLD CREATION");
-    rpanel_create_world_count_tbox = CreateRPanelLabeledField(create_world_cont, "WORLDS", UI_ELEMENT_TEXTBOX_O);
-    rpanel_create_selected_world_tbox = CreateRPanelLabeledField(create_world_cont, "SELECTED", UI_ELEMENT_TEXTBOX_O);
-    rpanel_create_spawn_tbox = CreateRPanelLabeledField(create_world_cont, "SPAWN", UI_ELEMENT_TEXTBOX_SAFE_IO);
-    rpanel_create_resolution_tbox = CreateRPanelLabeledField(create_world_cont, "RESOLUTION", UI_ELEMENT_TEXTBOX_SAFE_IO);
-    rpanel_create_gravity_tbox = CreateRPanelLabeledField(create_world_cont, "GRAVITY", UI_ELEMENT_TEXTBOX_SAFE_IO);
+    CreatePanelTitleLabelDefault(create_world_cont, "WORLD CREATION", rpanel_title_tfield_size, rpanel_tfield_padding);
+    const PanelFieldInit create_fields[] = {
+        {"WORLDS", UI_ELEMENT_TEXTBOX_O, {{5.8f, 0.5f}, SIZE_FIXED}, &rpanel_create_world_count_tbox},
+        {"SELECTED", UI_ELEMENT_TEXTBOX_O, {{5.8f, 0.5f}, SIZE_FIXED}, &rpanel_create_selected_world_tbox},
+        {"SPAWN", UI_ELEMENT_TEXTBOX_SAFE_IO, {{5.8f, 0.5f}, SIZE_FIXED}, &rpanel_create_spawn_tbox},
+        {"RESOLUTION", UI_ELEMENT_TEXTBOX_SAFE_IO, {{5.8f, 0.5f}, SIZE_FIXED}, &rpanel_create_resolution_tbox},
+        {"BASIS U", UI_ELEMENT_TEXTBOX_SAFE_IO, {{5.8f, 0.5f}, SIZE_FIXED}, &rpanel_create_basis_u_tbox},
+        {"BASIS V", UI_ELEMENT_TEXTBOX_SAFE_IO, {{5.8f, 0.5f}, SIZE_FIXED}, &rpanel_create_basis_v_tbox},
+        {"GRAVITY", UI_ELEMENT_TEXTBOX_SAFE_IO, {{5.8f, 0.5f}, SIZE_FIXED}, &rpanel_create_gravity_tbox},
+        {"AUTO SELECT", UI_ELEMENT_TEXTBOX_SAFE_IO, {{5.8f, 0.5f}, SIZE_FIXED}, &rpanel_create_auto_select_tbox},
+    };
+    InitRPanelFields(create_world_cont, create_fields, sizeof(create_fields) / sizeof(create_fields[0]));
 
     Vector2d *spawn_origin = GetNextWorldSpawnOriginPtr();
-    if (rpanel_create_spawn_tbox && spawn_origin)
-    {
-        rpanel_create_spawn_tbox->data.textbox.data_type = VECTOR2D;
-        rpanel_create_spawn_tbox->data.textbox.data_bind = spawn_origin;
-    }
+    BindTextboxData(rpanel_create_spawn_tbox, VECTOR2D, spawn_origin);
+
     Vector2d *next_res = GetNextWorldResolutionPtr();
-    if (rpanel_create_resolution_tbox && next_res)
-    {
-        rpanel_create_resolution_tbox->data.textbox.data_type = VECTOR2D;
-        rpanel_create_resolution_tbox->data.textbox.data_bind = next_res;
-    }
+    BindTextboxData(rpanel_create_resolution_tbox, VECTOR2D, next_res);
+
+    Vector2d *basis_u = GetNextWorldBasisUPtr();
+    BindTextboxData(rpanel_create_basis_u_tbox, VECTOR2D, basis_u);
+
+    Vector2d *basis_v = GetNextWorldBasisVPtr();
+    BindTextboxData(rpanel_create_basis_v_tbox, VECTOR2D, basis_v);
+
     float *next_grav = GetNextWorldGravityPtr();
-    if (rpanel_create_gravity_tbox && next_grav)
-    {
-        rpanel_create_gravity_tbox->data.textbox.data_type = FLOAT;
-        rpanel_create_gravity_tbox->data.textbox.data_bind = next_grav;
-    }
-    CreateRPanelButton(create_world_cont, "NEW WORLD", &btn_action_create_world);
+    BindTextboxData(rpanel_create_gravity_tbox, FLOAT, next_grav);
+
+    int *auto_select = GetCreateWorldAutoSelectPtr();
+    BindTextboxData(rpanel_create_auto_select_tbox, INT, auto_select);
+
+    CreateRPanelSubmitButton(create_world_cont, "NEW WORLD", &btn_action_create_world);
 }
 
 void UpdateRPanel(int mouse_x, int mouse_y)
@@ -358,10 +384,11 @@ void DrawRPanel(void)
     World2d *selected_world = GetSelectedWorld();
     int selected_world_idx = GetSelectedWorldIndex();
     int world_count = GetWorldCount();
+    bool has_selected_world = selected_world && world_count > 0;
 
     if (rpanel_world_index_tbox)
     {
-        if (selected_world && world_count > 0)
+        if (has_selected_world)
         {
             snprintf(rpanel_world_index_tbox->data.textbox.text.string, sizeof(String64), "%d/%d", selected_world_idx + 1, world_count);
         }
@@ -375,7 +402,7 @@ void DrawRPanel(void)
     {
         if (selected_world)
         {
-            SetTextboxVector2Pair(rpanel_world_universe_pos_tbox, selected_world->universe_position);
+            SetTextboxVector2Pair(rpanel_world_universe_pos_tbox, selected_world->uni_coords_center);
         }
         else
         {
@@ -390,7 +417,7 @@ void DrawRPanel(void)
 
     if (rpanel_create_selected_world_tbox)
     {
-        if (selected_world && world_count > 0)
+        if (has_selected_world)
         {
             SetTextboxInt(rpanel_create_selected_world_tbox, selected_world_idx + 1);
         }
@@ -401,21 +428,24 @@ void DrawRPanel(void)
     }
 
     Vector2d *spawn_origin = GetNextWorldSpawnOriginPtr();
-    if (spawn_origin && rpanel_create_spawn_tbox && !rpanel_create_spawn_tbox->is_focused)
-    {
-        PipelineVectorToText(*spawn_origin, rpanel_create_spawn_tbox->data.textbox.text.string, sizeof(String64));
-    }
+    WriteBoundVectorIfUnfocused(rpanel_create_spawn_tbox, spawn_origin);
 
     Vector2d *next_res = GetNextWorldResolutionPtr();
-    if (next_res && rpanel_create_resolution_tbox && !rpanel_create_resolution_tbox->is_focused)
-    {
-        PipelineVectorToText(*next_res, rpanel_create_resolution_tbox->data.textbox.text.string, sizeof(String64));
-    }
+    WriteBoundVectorIfUnfocused(rpanel_create_resolution_tbox, next_res);
+
+    Vector2d *basis_u = GetNextWorldBasisUPtr();
+    WriteBoundVectorIfUnfocused(rpanel_create_basis_u_tbox, basis_u);
+
+    Vector2d *basis_v = GetNextWorldBasisVPtr();
+    WriteBoundVectorIfUnfocused(rpanel_create_basis_v_tbox, basis_v);
 
     float *next_grav = GetNextWorldGravityPtr();
-    if (next_grav && rpanel_create_gravity_tbox && !rpanel_create_gravity_tbox->is_focused)
+    WriteBoundNumberIfUnfocused(rpanel_create_gravity_tbox, next_grav, 2);
+
+    int *auto_select = GetCreateWorldAutoSelectPtr();
+    if (auto_select && rpanel_create_auto_select_tbox && !rpanel_create_auto_select_tbox->is_focused)
     {
-        PipelineNumberToText(*next_grav, 2, rpanel_create_gravity_tbox->data.textbox.text.string, sizeof(String64));
+        SetTextboxInt(rpanel_create_auto_select_tbox, *auto_select);
     }
 
     if (selected_world)
@@ -423,10 +453,7 @@ void DrawRPanel(void)
         if (rpanel_world_gravity_edit_tbox)
         {
             rpanel_world_gravity_edit_tbox->data.textbox.data_bind = &selected_world->gravity;
-            if (!rpanel_world_gravity_edit_tbox->is_focused)
-            {
-                PipelineNumberToText(selected_world->gravity, 2, rpanel_world_gravity_edit_tbox->data.textbox.text.string, sizeof(String64));
-            }
+            WriteBoundNumberIfUnfocused(rpanel_world_gravity_edit_tbox, &selected_world->gravity, 2);
         }
         if (rpanel_world_resolution_tbox)
         {

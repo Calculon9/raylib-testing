@@ -15,7 +15,6 @@ extern Vector2d lpanel_origin;
 extern Vector2d lpanel_end;
 extern Vector2d lpanel_resolution;
 extern Vector2d lpanel_pixel_origin;
-extern Vector2d lpanel_pixel_end;
 extern Vector2d lpanel_pixel_u;
 extern Vector2d lpanel_pixel_v;
 extern Vector2d local_to_lpanel_scale;
@@ -41,8 +40,5 @@ void SetViewportUIScaleScalar(int ui_pixels_per_unit_override);
 
 // Configure left/right panel width ratios before layout initialisation.
 void SetViewportPanelRatios(float left_panel_ratio, float right_panel_ratio);
-
-// Draw simple debug/placeholder overlays for viewport regions.
-void DrawViewportOverlays(void);
 
 #endif

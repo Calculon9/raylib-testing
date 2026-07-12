@@ -7,6 +7,7 @@ UI SYSTEM MODULE
 #define UI_INPUT_H
 #include "common/common.h"
 #include "system/systems.h"
+#include "system/utility_system.h"
 #include "ui/ui.h"
 
 //----------------------------------------------------------------------------------
@@ -22,15 +23,7 @@ typedef struct
     String64 temp_buffer;
 } Text_64_IOState;
 
-typedef struct
-{
-    // Vector2d initial_coords; // Pixel coords of the initiating down-click
-    Vector2d initial_pos;
-    Vector2d current_pos;  // Updated every frame while the mouse is held down
-    Vector2d previous_pos; // Updated every frame while the mouse is held down
-    int left_button_hold_ticks;
-    int right_button_hold_ticks;
-} MouseDownState;
+typedef PointerState MouseDownState;
 
 typedef struct
 {

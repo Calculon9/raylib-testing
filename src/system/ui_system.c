@@ -55,7 +55,6 @@ Spacing btn_cont_default_child_spacing = {{0.0, 0.0}, PERCENT, SPACING_NONE};
 // Gameplay Screen Functions Definition
 //----------------------------------------------------------------------------------
 
-void UpdatePanelRegion(int mouse_x, int mouse_y, bool cursor_in_panel);
 void UpdateGlobalUIState();
 
 static void BindTextbox(UIElement *textbox, void *data_bind)
@@ -82,6 +81,32 @@ static void ClearAndUnbindTextbox(UIElement *textbox)
 {
     ClearTextbox(textbox);
     BindTextbox(textbox, NULL);
+}
+
+static void BindTextboxGroup(UIElement **textboxes, void **bindings, size_t count)
+{
+    if (!textboxes || !bindings)
+    {
+        return;
+    }
+
+    for (size_t i = 0; i < count; i++)
+    {
+        BindTextbox(textboxes[i], bindings[i]);
+    }
+}
+
+static void ClearAndUnbindTextboxGroup(UIElement **textboxes, size_t count)
+{
+    if (!textboxes)
+    {
+        return;
+    }
+
+    for (size_t i = 0; i < count; i++)
+    {
+        ClearAndUnbindTextbox(textboxes[i]);
+    }
 }
 
 static void WriteNumberIfUnfocused(UIElement *textbox, float value, int precision)
@@ -174,13 +199,25 @@ void UpdateGlobalUIState()
     if (obj)
     {
         // Bind selected_object data to the Object Properties TextBoxes
-        BindTextbox(G_UIState.lpanel_entity_state_id_tbox, &obj->id);
-        BindTextbox(G_UIState.lpanel_entity_state_mass_tbox, &obj->mass);
-        BindTextbox(G_UIState.lpanel_entity_state_pos_tl_tbox, &obj->coords_origin);
-        BindTextbox(G_UIState.lpanel_entity_state_pos_c_tbox, &obj->coords_center);
-        BindTextbox(G_UIState.lpanel_entity_state_vel_tbox, &obj->velocity);
-        BindTextbox(G_UIState.lpanel_entity_state_accel_tbox, &obj->acceleration);
-        BindTextbox(G_UIState.lpanel_entity_state_moment_tbox, &obj->momentum);
+        UIElement *state_boxes[] = {
+            G_UIState.lpanel_entity_state_id_tbox,
+            G_UIState.lpanel_entity_state_mass_tbox,
+            G_UIState.lpanel_entity_state_pos_tl_tbox,
+            G_UIState.lpanel_entity_state_pos_c_tbox,
+            G_UIState.lpanel_entity_state_vel_tbox,
+            G_UIState.lpanel_entity_state_accel_tbox,
+            G_UIState.lpanel_entity_state_moment_tbox,
+        };
+        void *state_bindings[] = {
+            &obj->id,
+            &obj->mass,
+            &obj->coords_origin,
+            &obj->coords_center,
+            &obj->velocity,
+            &obj->acceleration,
+            &obj->momentum,
+        };
+        BindTextboxGroup(state_boxes, state_bindings, sizeof(state_boxes) / sizeof(state_boxes[0]));
 
         // PIPELINE data to text only when the element is NOT focused
         // so that editing of the text by the user doesn't keep getting overwritten with the value stored in the object
@@ -194,20 +231,23 @@ void UpdateGlobalUIState()
     }
     else // Reset the bounded textbox output buffers AND unbind
     {
-        ClearAndUnbindTextbox(G_UIState.lpanel_entity_state_id_tbox);
-        ClearAndUnbindTextbox(G_UIState.lpanel_entity_state_mass_tbox);
-        ClearAndUnbindTextbox(G_UIState.lpanel_entity_state_pos_tl_tbox);
-        ClearAndUnbindTextbox(G_UIState.lpanel_entity_state_pos_c_tbox);
-        ClearAndUnbindTextbox(G_UIState.lpanel_entity_state_vel_tbox);
-        ClearAndUnbindTextbox(G_UIState.lpanel_entity_state_accel_tbox);
-        ClearAndUnbindTextbox(G_UIState.lpanel_entity_state_moment_tbox);
+        UIElement *state_boxes[] = {
+            G_UIState.lpanel_entity_state_id_tbox,
+            G_UIState.lpanel_entity_state_mass_tbox,
+            G_UIState.lpanel_entity_state_pos_tl_tbox,
+            G_UIState.lpanel_entity_state_pos_c_tbox,
+            G_UIState.lpanel_entity_state_vel_tbox,
+            G_UIState.lpanel_entity_state_accel_tbox,
+            G_UIState.lpanel_entity_state_moment_tbox,
+        };
+        ClearAndUnbindTextboxGroup(state_boxes, sizeof(state_boxes) / sizeof(state_boxes[0]));
     }
 
     // COLLECT & UPDATE SELECTED CELL PROPERTIES
     Cell *cell = G_WorldState.selected_cell;
     if (cell)
     {
-        int index = GetIndexFromCoords(&G_WorldState.world->coord_space_grid.coord_space, cell->coords_center);
+        int index = GetIndexFromCoords(&G_WorldState.world->coord_space_grid.coord_space, cell->local_center);
         int occu = cell->occupancy;
         float val = cell->value;
         float fill = 0; // set to 0 for now
@@ -233,14 +273,27 @@ void UpdateGlobalUIState()
     {   
         // Bind selected_object data to the Object Properties TextBoxes
         //G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.data_bind = &params->edge_count;
-        BindTextbox(G_UIState.lpanel_entity_edit_vertice_count_tbox, &params->vertice_count);
-        BindTextbox(G_UIState.lpanel_entity_edit_width_tbox, &params->width);
-        BindTextbox(G_UIState.lpanel_entity_edit_height_tbox, &params->height);
-        BindTextbox(G_UIState.lpanel_entity_edit_mass_tbox, &params->mass);
-        BindTextbox(G_UIState.lpanel_entity_edit_pos_c_tbox, &params->coords_center);
-        BindTextbox(G_UIState.lpanel_entity_edit_vel_tbox, &params->velocity);
-        BindTextbox(G_UIState.lpanel_entity_edit_accel_tbox, &params->acceleration);
-        BindTextbox(G_UIState.lpanel_entity_edit_moment_tbox, &params->momentum);
+        UIElement *edit_boxes[] = {
+            G_UIState.lpanel_entity_edit_vertice_count_tbox,
+            G_UIState.lpanel_entity_edit_width_tbox,
+            G_UIState.lpanel_entity_edit_height_tbox,
+            G_UIState.lpanel_entity_edit_mass_tbox,
+            G_UIState.lpanel_entity_edit_pos_c_tbox,
+            G_UIState.lpanel_entity_edit_vel_tbox,
+            G_UIState.lpanel_entity_edit_accel_tbox,
+            G_UIState.lpanel_entity_edit_moment_tbox,
+        };
+        void *edit_bindings[] = {
+            &params->vertice_count,
+            &params->width,
+            &params->height,
+            &params->mass,
+            &params->coords_center,
+            &params->velocity,
+            &params->acceleration,
+            &params->momentum,
+        };
+        BindTextboxGroup(edit_boxes, edit_bindings, sizeof(edit_boxes) / sizeof(edit_boxes[0]));
 
         // PIPELINE data to text only when the element is NOT focused
         // so that editing of the text by the user doesn't keep getting overwritten with the value stored in the object
@@ -259,25 +312,20 @@ void UpdateGlobalUIState()
     {
         // Reset the bounded textbox output buffers
         //G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.text.string[0] = '\0';
-        ClearAndUnbindTextbox(G_UIState.lpanel_entity_edit_vertice_count_tbox);
-        ClearAndUnbindTextbox(G_UIState.lpanel_entity_edit_width_tbox);
-        ClearAndUnbindTextbox(G_UIState.lpanel_entity_edit_height_tbox);
-        ClearAndUnbindTextbox(G_UIState.lpanel_entity_edit_mass_tbox);
-        ClearAndUnbindTextbox(G_UIState.lpanel_entity_edit_pos_c_tbox);
-        ClearAndUnbindTextbox(G_UIState.lpanel_entity_edit_vel_tbox);
-        ClearAndUnbindTextbox(G_UIState.lpanel_entity_edit_accel_tbox);
-        ClearAndUnbindTextbox(G_UIState.lpanel_entity_edit_moment_tbox);
+        UIElement *edit_boxes[] = {
+            G_UIState.lpanel_entity_edit_vertice_count_tbox,
+            G_UIState.lpanel_entity_edit_width_tbox,
+            G_UIState.lpanel_entity_edit_height_tbox,
+            G_UIState.lpanel_entity_edit_mass_tbox,
+            G_UIState.lpanel_entity_edit_pos_c_tbox,
+            G_UIState.lpanel_entity_edit_vel_tbox,
+            G_UIState.lpanel_entity_edit_accel_tbox,
+            G_UIState.lpanel_entity_edit_moment_tbox,
+        };
+        ClearAndUnbindTextboxGroup(edit_boxes, sizeof(edit_boxes) / sizeof(edit_boxes[0]));
 
         // Unbind data
         //G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.data_bind = NULL;
         // Unbind handled by ClearAndUnbindTextbox calls above.
     }
-}
-
-// Gameplay Screen Stage Update logic
-void UpdatePanelRegion(int mouse_x, int mouse_y, bool cursor_in_region)
-{
-    (void)mouse_x;
-    (void)mouse_y;
-    (void)cursor_in_region;
 }

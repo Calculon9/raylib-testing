@@ -1080,8 +1080,8 @@
 // // {
 // //     Vector2d screen_coords;
 
-// //     // 1. Get the "transformation" or "mapping" basis to go from world to screen.
-// //     // 2. Get the scaling factor to go from world basis magnitude to screen basis magnitude.
+// //     // 1. Apply the source-to-destination transform basis.
+// //     // 2. Apply the scale implied by the basis magnitudes.
 
 // //     // Since we are using a 3x  matrix for 2D, we treat the 2D point as a 3D vector where z=1. This is a trick called Homogeneous Coordinates that allows the matrix to move (translate) the point, not just rotate or scale it.
 // //     //  Multiply: (Row 1 * WorldColumn)

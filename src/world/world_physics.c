@@ -25,6 +25,7 @@ void PhysicsUpdateJob(void *context, int start, int end)
         if (!(obj->flags & FLAG_STATUS_ALIVE) || (obj->entity_layer & FLAG_TYPE_EFFECT) || obj->parent_id != space_entity->object.id)
             continue;
 
+        // Use the current center position to derive the snapped grid footprint for this frame.
         Vector2d snapped_aabb_verts[4] = {0};
         CalcSnappedAABB_Vertices(obj->surface.surface_vectors.items, obj->surface.surface_vectors.count, obj->coords_center, space->basis, snapped_aabb_verts);
         Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);

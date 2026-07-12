@@ -195,8 +195,9 @@ void UpdateWorldSystem(int mouse_x, int mouse_y);
 int GetNewtonoidCount(void);
 void InitWorldSystem(void);
 void InitUniverseSystem(void);
+void UpdateUniverseSystem(int mouse_x, int mouse_y);
 void DrawGameWorld(void);
-void DrawWorldRegion(World2d *world, Camera2d *world_camera, Vector2d universe_pos);
+void DrawWorldRegion(World2d *world, Camera2d *world_camera, Camera2d *universe_camera);
 Newtonoid2d *ResolveEntityParamsToEntity(Newtonoid2dParams *newtonoid_params);
 //----------------------------------------------------------------------------------
 // Integration Functions Declaration

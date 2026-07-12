@@ -20,10 +20,11 @@ static int initObjectCount = 4;
 // Functions Definition
 //----------------------------------------------------------------------------------
 
-void CreateWorld(CoordSpace2d_Grid space_obj, float gravity, World2d *out_world)
+void CreateWorld(CoordSpace2d_Grid space_obj, Camera2d world_camera, float gravity, World2d *out_world)
 {
    // World2d world = {0};
    out_world->coord_space_grid = space_obj;
+   out_world->camera = world_camera;
    out_world->gravity = gravity;
    out_world->next_object_id = 1; // Initialize the next available ID for NewtonObjects
    out_world->objects = MakeLArray(initObjectCount, sizeof(Newtonoid2d));
@@ -44,9 +45,8 @@ void CreateWorld(CoordSpace2d_Grid space_obj, float gravity, World2d *out_world)
 
 int AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id)
 {
-   // We can calculate the cell indices based on the object's coordinates and the coordinate space's basis vectors and resolution
-   // For simplicity, let's assume the object's coords_center is the point we will use to determine which cell it occupies
-   Vector2d local_coords = object->coords_center; // These are the world coordinates of the object, which are the cell indices
+   // Object placement is center-based; grid occupancy still snaps that center into a cell index.
+   Vector2d local_coords = object->coords_center;
    object->parent_id = parent_id;
    if (local_coords.x < 0 || local_coords.y < 0 || local_coords.x >= world->coord_space_grid.coord_space.resolution_ixj.x || local_coords.y >= world->coord_space_grid.coord_space.resolution_ixj.y)
    {
@@ -54,7 +54,7 @@ int AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id)
       return -1; // Click is outside the structural world viewport boundaries! Avoid resolving cell.
    }
 
-   // Add the newton_object to the world's objects array
+   // Register the object first so the world/entity maps stay in sync with its center position.
    int assigned_id = RegisterEntity(&G_WorldState, object);
 
    // Solid objects are collision-enabled, need to be tracked spacially
@@ -99,7 +99,6 @@ void UpdateWorld(WorldState *context, float delta_time)
    FlatMapInt *entity_world_index_registry = &context->world->entity_world_index_registry;
    LArray *scheduled_world_cmds = &context->world->scheduled_world_cmds;
 
-   Vector2d *collisions = context->collisions->items;
    LArray_Reset(context->collisions);
    ResetFlatMapInt(entity_space_map);
    ResetFlatMapInt(resolved_collisions);
@@ -127,11 +126,9 @@ void UpdateWorld(WorldState *context, float delta_time)
    ClearJobs();
 
    Newtonoid2d *newtonoids = (Newtonoid2d *)objects->items;
-   Matrix2x2 space_aabb = CalcSpaceAABB(space);
    // PASS 1: Simulating Independent Physics
    // Update object positions based on their velocity and acceleration, then update the cells they occupy in the coordinate space grid as well as the entity_space_map which tracks how many objects occupy each cell (for collision checking later)
    // The physics work is now split into jobs for better task separation and future parallelism.
-   (void)space_aabb; // preserve existing local variable usage for later expansion
 
    // NOTE: The loop body is executed via PhysicsUpdateJob. No inline loop here anymore.
 
@@ -185,11 +182,8 @@ void UpdateWorld(WorldState *context, float delta_time)
       int cell_occ = 0;
       FlatMapInt_GetValue(entity_space_map, cell_i, &cell_occ);
 
-      Cell *cell = &cells[cell_i];
       if (cell_occ >= 2)
       {
-         int max_collisions = (cell_occ * (cell_occ - 1)) / 2; // nC2 combinations of objects in the cell to check for collisions
-         int checked_collisions = 0;
          Cell *cell = &cells[cell_i];
          for (size_t m = 0; m < cell_occ; m++)
          {

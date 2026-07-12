@@ -36,15 +36,15 @@ WORLD MODULE
 
 // Game-region placement in logical units inside the full screen layout.
 extern Vector2d game_region_origin, game_region_end;// = {0};
-extern Vector2d world_u;// = {1, 0};
-extern Vector2d world_v;// = {0, 1};
 extern Vector2d game_region_resolution;// = {0};
 
 // Game viewport in pixel-space (destination area for world/universe rendering).
 extern Vector2d game_viewport_origin, game_viewport_end;// = {0};
 extern Vector2d game_viewport_u;// = {75, 0};
 extern Vector2d game_viewport_v;// = {0, 75};
-extern Camera2d camera_world;// = {0};
+//extern Camera2d camera_world;// = {0};
+
+extern bool world_grid_debug_labels_enabled;
 
 // typedef struct {
 //     Texture *texture;
@@ -59,15 +59,5 @@ extern Camera2d camera_world;// = {0};
 //----------------------------------------------------------------------------------
 //void *GetEntityByID(WorldState *context, int entity_id);
 //UIElement *CreateTextField(float width, float height, Vector2d origin_coords, Vector2d parent_offset, Vector2d label_tbox_offset, Vector2d label_tbox_padding, char max_label_chars, char max_text_box_chars);
-int CreateNewWorldDefault(void);
-bool SelectWorldByIndex(int index);
-int GetWorldCount(void);
-int GetSelectedWorldIndex(void);
-World2d *GetSelectedWorld(void);
-World2d *GetWorldByIndex(int index);
-Vector2d *GetNextWorldSpawnOriginPtr(void);
-void SetNextWorldSpawnOrigin(Vector2d origin);
-Vector2d *GetNextWorldResolutionPtr(void);
-Vector2d GetUniverseCameraOffset(void);
-float *GetNextWorldGravityPtr(void);
+void ProcessCommandQueue(void);
 #endif

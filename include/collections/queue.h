@@ -6,12 +6,11 @@ QUEUE MODULE
 #ifndef QUEUE_H
 #define QUEUE_H
 #include <stddef.h>
-#include "collections/collection.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
-#define NEW_QUEUE(count, type) NewQueue(count, sizeof(type))
+#define NEW_QUEUE(count, type) MakeQueue(count, sizeof(type))
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
@@ -24,8 +23,6 @@ typedef struct Queue
     int count;            // Number of items currently stored
     int front;            // Index of the front item (for circular buffer implementation)
     int rear;             // Index of the rear item (for circular buffer implementation)
-    int enumeratorIndex;  // Index used for enumeration
-    int enumerationCount; // Count of items enumerated so far (for safety check)  // Collection struct to hold the actual data and metadata
 } Queue;
 
 //----------------------------------------------------------------------------------

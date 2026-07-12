@@ -1,8 +1,8 @@
 /**********************************************************************************************
-*
-CAMERA MODULE
-*
-**********************************************************************************************/
+ *
+ CAMERA MODULE
+ *
+ **********************************************************************************************/
 #ifndef CAMERA_H
 #define CAMERA_H
 #include "common/common.h"
@@ -16,20 +16,20 @@ CAMERA MODULE
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
 
-// Camera is the adapter between an input/source space and some other space, the target/output space. Converts the coordinates/vector from the input/source space to coordinates/vector in the target/output space.
+// Camera is the adapter between a source coordinate space and a destination coordinate space.
 typedef struct Camera2d
 {
-    Matrix3x3 source_to_dest_mtx;       // The calculated input-to-output space matrix
-    Matrix3x3 dest_to_source_mtx;       // The calculated output-to-input space matrix
-    Vector2d destination_origin_coords; // The destination spaces's origin coordinates (in dest. space units) => e.g. origin point of viewport in pixel coords
-    Vector2d source_origin_coords;      // The source spaces's origin coordinates (in source space units) => e.g. origin point of local (or root, encoded, topological ... you get the idea) space in its defined coords
-    Vector2d camera_coords;             // What source space coordinate is the camera looking at?
-    Vector2d target_camera_coords;      // What source space coordinate is the camera looking at?
+    Matrix3x3 source_to_dest_mtx;             // Source-space coordinates mapped into destination space
+    Matrix3x3 dest_to_source_mtx;             // Destination-space coordinates mapped back into source space
+    Vector2d destination_space_origin_coords;  // Destination-space origin in destination units
+    Vector2d source_space_origin_coords;       // Source-space origin in source units
+    Vector2d source_focus_coords;              // Source-space point the camera is currently centered on
+    Vector2d target_source_focus_coords;       // Source-space point the camera is moving toward
     Basis2d destination_basis;
     Basis2d source_basis;
     float rotation; // In radians
     float target_rotation;
-    float zoom;     // Scaling factor (e.g., 2.0f for 2x zoom, fixed origin for scaling)
+    float zoom;     // Scaling factor (e.g., 2.0f for 2x zoom)
     float target_zoom;
 } Camera2d;
 
@@ -40,15 +40,13 @@ typedef struct Camera2d
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-Camera2d CreateCamera2d(Basis2d destination_basis, Basis2d source_basis, Vector2d destination_origin_coords, Vector2d source_origin_coords);
+Camera2d CreateCamera2d(Basis2d destination_basis, Basis2d source_basis, Vector2d destination_space_origin_coords, Vector2d source_space_origin_coords);
 Vector2d TransformCoordinates(Matrix3x3 transformation_mtx, Vector2d coordinates_to_transform);
 void ZoomCamera(Camera2d *cam, float zoom_factor);
 void RotateCamera(Camera2d *cam, float rotation_angle);
 void PanCamera(Camera2d *cam, Vector2d delta);
 void UpdateCameraFull(Camera2d *cam);
-void FollowTarget(Camera2d *cam, Vector2d object_world_coords);
 void UpdateCameraSmoothingTick(Camera2d *cam);
-
 // Vector2d GetCellIndicesFromCoordinates(Vector2d origin_coordinates, Vector2d input_coordinates, Basis2d basis);
 // Field UpdateFieldCellValues(Field field);
 

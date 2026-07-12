@@ -25,7 +25,6 @@ static View lpanel_edit_entity_view_storage = {0};
 
 // ----------LEFT PANEL SCREEN----------
 // Visual Properties
-static ColourRgba lpanel_text_colour = COLOUR_PANEL_DARK_1;
 static ColourRgba lpanel_fill_colour = COLOUR_PANEL_DARK_1;
 static Vector2d lpanel_default_padding = {0.1, 0.1};
 static Vector2d lpanel_tfield_padding = {0.03f, 0.03f};
@@ -73,6 +72,80 @@ Size lpanel_state_cell_tcont_size = {{1.0f, 0.20f}, SIZE_PERCENT};
 Size lpanel_edit_view_cont_size = {{1.0f, 0.92f}, SIZE_PERCENT};
 Size lpanel_edit_entity_tcont_size = {{1.0f, 1.0f}, SIZE_PERCENT};
 
+typedef struct LPanelElementFieldSpec
+{
+    const char *label;
+    UIElementType type;
+    DataType data_type;
+    UIElement **target;
+} LPanelElementFieldSpec;
+
+typedef struct LPanelStringFieldSpec
+{
+    const char *label;
+    String64 **target;
+} LPanelStringFieldSpec;
+
+static UIElement *CreateLPanelField(UIElement *parent, const char *label, UIElementType type)
+{
+    return CreatePanelLabeledFieldDefault(parent,
+                                          label,
+                                          type,
+                                          lpanel_row_tfield_size,
+                                          lpanel_tfield_padding,
+                                          WHITE_RGBA,
+                                          COLOURLESS_RGBA);
+}
+
+static void InitLPanelElementFields(UIElement *parent, const LPanelElementFieldSpec *specs, size_t count)
+{
+    if (!parent || !specs)
+    {
+        return;
+    }
+
+    for (size_t i = 0; i < count; i++)
+    {
+        UIElement *input_child = CreateLPanelField(parent, specs[i].label, specs[i].type);
+        if (!input_child)
+        {
+            continue;
+        }
+
+        input_child->type = specs[i].type;
+        input_child->data.textbox.data_type = specs[i].data_type;
+
+        if (specs[i].target)
+        {
+            *specs[i].target = input_child;
+        }
+    }
+}
+
+static void InitLPanelStringFields(UIElement *parent, const LPanelStringFieldSpec *specs, size_t count)
+{
+    if (!parent || !specs)
+    {
+        return;
+    }
+
+    for (size_t i = 0; i < count; i++)
+    {
+        UIElement *input_child = CreateLPanelField(parent, specs[i].label, UI_ELEMENT_TEXTBOX_O);
+        if (!input_child)
+        {
+            continue;
+        }
+
+        input_child->type = UI_ELEMENT_TEXTBOX_O;
+
+        if (specs[i].target)
+        {
+            *specs[i].target = &input_child->data.textbox.text;
+        }
+    }
+}
+
 void InitPanelRoot(void);
 void InitPanelStateView(void);
 void InitPanelEditView(void);
@@ -81,34 +154,6 @@ void InitStatsContainer(void);
 void InitCellStateContainer(void);
 void InitEntityStateContainer(void);
 void InitEntityEditorContainer(void);
-
-static UIElement *CreateTitleLabel(UIElement *parent, const char *text)
-{
-    return CreatePanelTitleLabel(parent,
-                                 text,
-                                 lpanel_title_tfield_size,
-                                 lpanel_tfield_padding,
-                                 FONT_BASIC,
-                                 COLOURLESS_RGBA,
-                                 COLOURLESS_RGBA);
-}
-
-static UIElement *CreateLabeledTextField(UIElement *parent, const char *label_text)
-{
-    return CreatePanelLabeledField(parent,
-                                   label_text,
-                                   UI_ELEMENT_TEXTBOX_SAFE_IO,
-                                   lpanel_row_tfield_size,
-                                   tbox_default_size,
-                                   lpanel_tfield_padding,
-                                   tbox_tlabel_default_offset.offset,
-                                   WHITE_RGBA,
-                                   COLOURLESS_RGBA,
-                                   tbox_default_padding,
-                                   tbox_default_colour_border,
-                                   tbox_default_colour_fill,
-                                   FONT_BASIC);
-}
 
 void InitPanel()
 {
@@ -186,23 +231,15 @@ void InitPanelToggleButtons(void)
                                                        btn_cont_default_child_spacing,
                                                        false,
                                                        true);
-    char *btn_labels[] = {"STATE -- UTIL"};
-
-    for (int i = 0; i < 1; i++)
-    {
-        btn_action_enumerate = i;
-        CreatePanelButton(lpanel_btn_toggle_view_cont,
-                          UI_ELEMENT_BUTTON_ENUMERATE,
-                          btn_labels[i],
-                          btn_default_size,
-                          btn_default_padding,
-                          btn_default_colour_border,
-                          btn_default_colour_fill,
-                          FONT_BASIC,
-                          HandleBtnEnumerateClick,
-                          &btn_action_enumerate,
-                          &lpanel_views);
-    }
+    btn_action_enumerate = 0;
+    CreatePanelButtonDefault(lpanel_btn_toggle_view_cont,
+                             UI_ELEMENT_BUTTON_ENUMERATE,
+                             "STATE -- UTIL",
+                             btn_default_size,
+                             btn_default_padding,
+                             HandleBtnEnumerateClick,
+                             &btn_action_enumerate,
+                             &lpanel_views);
 }
 
 void InitEntityStateContainer(void)
@@ -217,38 +254,18 @@ void InitEntityStateContainer(void)
                                                      true,
                                                      true);
 
-    char *tbox_labels[] = {"OBJECT PROPERTIES", "ID", "MASS", "POS.TL", "POS.C", "VEL", "ACCEL", "MOMENT"};
-    UIElement **state_map_tbox[] = {NULL, &G_UIState.lpanel_entity_state_id_tbox, &G_UIState.lpanel_entity_state_mass_tbox, &G_UIState.lpanel_entity_state_pos_tl_tbox, &G_UIState.lpanel_entity_state_pos_c_tbox,
-                                    &G_UIState.lpanel_entity_state_vel_tbox, &G_UIState.lpanel_entity_state_accel_tbox, &G_UIState.lpanel_entity_state_moment_tbox};
+    CreatePanelTitleLabelDefault(lpanel_state_entity_tcont, "OBJECT PROPERTIES", lpanel_title_tfield_size, lpanel_tfield_padding);
 
-    CreateTitleLabel(lpanel_state_entity_tcont, tbox_labels[0]);
-
-    for (int i = 1; i < 8; i++)
-    {
-        UIElement *input_child = CreateLabeledTextField(lpanel_state_entity_tcont, tbox_labels[i]);
-        if (input_child)
-        {
-            input_child->type = UI_ELEMENT_TEXTBOX_SAFE_IO;
-
-            if (i == 1)
-            {
-                input_child->type = UI_ELEMENT_TEXTBOX_O;
-                input_child->data.textbox.data_type = FLOAT;
-            }
-            if (i == 3)
-                input_child->type = UI_ELEMENT_TEXTBOX_O;
-            if (i > 2)
-                input_child->data.textbox.data_type = VECTOR2D;
-            else
-                input_child->data.textbox.data_type = FLOAT;
-
-            UIElement **global_ptr_address = state_map_tbox[i];
-            if (global_ptr_address != NULL)
-            {
-                *global_ptr_address = input_child;
-            }
-        }
-    }
+    const LPanelElementFieldSpec state_specs[] = {
+        {"ID", UI_ELEMENT_TEXTBOX_O, FLOAT, &G_UIState.lpanel_entity_state_id_tbox},
+        {"MASS", UI_ELEMENT_TEXTBOX_SAFE_IO, FLOAT, &G_UIState.lpanel_entity_state_mass_tbox},
+        {"POS.TL", UI_ELEMENT_TEXTBOX_O, VECTOR2D, &G_UIState.lpanel_entity_state_pos_tl_tbox},
+        {"POS.C", UI_ELEMENT_TEXTBOX_SAFE_IO, VECTOR2D, &G_UIState.lpanel_entity_state_pos_c_tbox},
+        {"VEL", UI_ELEMENT_TEXTBOX_SAFE_IO, VECTOR2D, &G_UIState.lpanel_entity_state_vel_tbox},
+        {"ACCEL", UI_ELEMENT_TEXTBOX_SAFE_IO, VECTOR2D, &G_UIState.lpanel_entity_state_accel_tbox},
+        {"MOMENT", UI_ELEMENT_TEXTBOX_SAFE_IO, VECTOR2D, &G_UIState.lpanel_entity_state_moment_tbox},
+    };
+    InitLPanelElementFields(lpanel_state_entity_tcont, state_specs, sizeof(state_specs) / sizeof(state_specs[0]));
 
     lpanel_btn_delete_entity_cont = CreatePanelContainer(lpanel_state_entity_tcont,
                                                          lpanel_btn_cont_size,
@@ -260,17 +277,14 @@ void InitEntityStateContainer(void)
                                                          false,
                                                          true);
 
-    CreatePanelButton(lpanel_btn_delete_entity_cont,
-                      UI_ELEMENT_BUTTON_SUBMIT,
-                      "DELETE",
-                      btn_default_size,
-                      btn_default_padding,
-                      btn_default_colour_border,
-                      btn_default_colour_fill,
-                      FONT_BASIC,
-                      HandleBtnSubmitClick,
-                      &btn_action_delete_entity,
-                      NULL);
+    CreatePanelButtonDefault(lpanel_btn_delete_entity_cont,
+                             UI_ELEMENT_BUTTON_SUBMIT,
+                             "DELETE",
+                             btn_default_size,
+                             btn_default_padding,
+                             HandleBtnSubmitClick,
+                             &btn_action_delete_entity,
+                             NULL);
 }
 
 void InitCellStateContainer(void)
@@ -285,24 +299,15 @@ void InitCellStateContainer(void)
                                                    true,
                                                    true);
 
-    char *tbox_labels[] = {"CELL STATE", "INDEX", "OCCU", "VALUE", "FILL"};
-    String64 **state_map_str[] = {NULL, &G_UIState.lpanel_cell_state_id_str, &G_UIState.lpanel_cell_state_occu_str, &G_UIState.lpanel_cell_state_value_str, &G_UIState.lpanel_cell_state_fill_str};
+    CreatePanelTitleLabelDefault(lpanel_state_cell_tcont, "CELL STATE", lpanel_title_tfield_size, lpanel_tfield_padding);
 
-    CreateTitleLabel(lpanel_state_cell_tcont, tbox_labels[0]);
-
-    for (int i = 1; i < 5; i++)
-    {
-        UIElement *input_child = CreateLabeledTextField(lpanel_state_cell_tcont, tbox_labels[i]);
-        if (input_child)
-        {
-            input_child->type = UI_ELEMENT_TEXTBOX_O;
-            String64 **global_ptr_address = state_map_str[i];
-            if (global_ptr_address != NULL)
-            {
-                *global_ptr_address = &input_child->data.textbox.text;
-            }
-        }
-    }
+    const LPanelStringFieldSpec cell_specs[] = {
+        {"INDEX", &G_UIState.lpanel_cell_state_id_str},
+        {"OCCU", &G_UIState.lpanel_cell_state_occu_str},
+        {"VALUE", &G_UIState.lpanel_cell_state_value_str},
+        {"FILL", &G_UIState.lpanel_cell_state_fill_str},
+    };
+    InitLPanelStringFields(lpanel_state_cell_tcont, cell_specs, sizeof(cell_specs) / sizeof(cell_specs[0]));
 }
 
 void InitStatsContainer(void)
@@ -317,24 +322,15 @@ void InitStatsContainer(void)
                                                     true,
                                                     true);
 
-    char *tbox_labels[] = {"STATISTICS", "POLYOIDS", "MEM", "FPS", "F.TIME"};
-    String64 **state_map_str[] = {NULL, &G_UIState.lpanel_stats_polygs_str, &G_UIState.lpanel_stats_mem_str, &G_UIState.lpanel_stats_fps_str, &G_UIState.lpanel_stats_ftime_str};
+    CreatePanelTitleLabelDefault(lpanel_state_stats_tcont, "STATISTICS", lpanel_title_tfield_size, lpanel_tfield_padding);
 
-    CreateTitleLabel(lpanel_state_stats_tcont, tbox_labels[0]);
-
-    for (int i = 1; i < 5; i++)
-    {
-        UIElement *input_child = CreateLabeledTextField(lpanel_state_stats_tcont, tbox_labels[i]);
-        if (input_child)
-        {
-            input_child->type = UI_ELEMENT_TEXTBOX_O;
-            String64 **global_ptr_address = state_map_str[i];
-            if (global_ptr_address != NULL)
-            {
-                *global_ptr_address = &input_child->data.textbox.text;
-            }
-        }
-    }
+    const LPanelStringFieldSpec stats_specs[] = {
+        {"POLYOIDS", &G_UIState.lpanel_stats_polygs_str},
+        {"MEM", &G_UIState.lpanel_stats_mem_str},
+        {"FPS", &G_UIState.lpanel_stats_fps_str},
+        {"F.TIME", &G_UIState.lpanel_stats_ftime_str},
+    };
+    InitLPanelStringFields(lpanel_state_stats_tcont, stats_specs, sizeof(stats_specs) / sizeof(stats_specs[0]));
 }
 
 void InitEntityEditorContainer(void)
@@ -349,31 +345,19 @@ void InitEntityEditorContainer(void)
                                                     true,
                                                     true);
 
-    char *tbox_labels[] = {"ENTITY EDIT", "VERT.CNT", "WIDTH", "HEIGHT", "MASS", "POS.C", "VEL", "ACCEL", "MOMENT"};
-    UIElement **map_tbox[] = {NULL, &G_UIState.lpanel_entity_edit_vertice_count_tbox, &G_UIState.lpanel_entity_edit_width_tbox, &G_UIState.lpanel_entity_edit_height_tbox,
-                              &G_UIState.lpanel_entity_edit_mass_tbox, &G_UIState.lpanel_entity_edit_pos_c_tbox, &G_UIState.lpanel_entity_edit_vel_tbox, &G_UIState.lpanel_entity_edit_accel_tbox, &G_UIState.lpanel_entity_edit_moment_tbox};
+    CreatePanelTitleLabelDefault(lpanel_edit_entity_view->container, "ENTITY EDIT", lpanel_title_tfield_size, lpanel_tfield_padding);
 
-    CreateTitleLabel(lpanel_edit_entity_view->container, tbox_labels[0]);
-
-    for (int i = 1; i < 9; i++)
-    {
-        UIElement *input_child = CreateLabeledTextField(lpanel_edit_entity_tcont, tbox_labels[i]);
-        if (input_child)
-        {
-            input_child->type = UI_ELEMENT_TEXTBOX_SAFE_IO;
-            UIElement **global_ptr_address = map_tbox[i];
-            if (global_ptr_address != NULL)
-            {
-                *global_ptr_address = input_child;
-            }
-            if (i == 1 || i == 2)
-                input_child->data.textbox.data_type = INT;
-            else if (i < 6)
-                input_child->data.textbox.data_type = FLOAT;
-            else
-                input_child->data.textbox.data_type = VECTOR2D;
-        }
-    }
+    const LPanelElementFieldSpec edit_specs[] = {
+        {"VERT.CNT", UI_ELEMENT_TEXTBOX_SAFE_IO, INT, &G_UIState.lpanel_entity_edit_vertice_count_tbox},
+        {"WIDTH", UI_ELEMENT_TEXTBOX_SAFE_IO, INT, &G_UIState.lpanel_entity_edit_width_tbox},
+        {"HEIGHT", UI_ELEMENT_TEXTBOX_SAFE_IO, FLOAT, &G_UIState.lpanel_entity_edit_height_tbox},
+        {"MASS", UI_ELEMENT_TEXTBOX_SAFE_IO, FLOAT, &G_UIState.lpanel_entity_edit_mass_tbox},
+        {"POS.C", UI_ELEMENT_TEXTBOX_SAFE_IO, FLOAT, &G_UIState.lpanel_entity_edit_pos_c_tbox},
+        {"VEL", UI_ELEMENT_TEXTBOX_SAFE_IO, VECTOR2D, &G_UIState.lpanel_entity_edit_vel_tbox},
+        {"ACCEL", UI_ELEMENT_TEXTBOX_SAFE_IO, VECTOR2D, &G_UIState.lpanel_entity_edit_accel_tbox},
+        {"MOMENT", UI_ELEMENT_TEXTBOX_SAFE_IO, VECTOR2D, &G_UIState.lpanel_entity_edit_moment_tbox},
+    };
+    InitLPanelElementFields(lpanel_edit_entity_tcont, edit_specs, sizeof(edit_specs) / sizeof(edit_specs[0]));
 
     lpanel_btn_create_entity_cont = CreatePanelContainer(lpanel_edit_entity_tcont,
                                                          lpanel_btn_cont_size,
@@ -385,17 +369,14 @@ void InitEntityEditorContainer(void)
                                                          false,
                                                          true);
 
-    CreatePanelButton(lpanel_btn_create_entity_cont,
-                      UI_ELEMENT_BUTTON_SUBMIT,
-                      "CREATE",
-                      btn_default_size,
-                      btn_default_padding,
-                      btn_default_colour_border,
-                      btn_default_colour_fill,
-                      FONT_BASIC,
-                      HandleBtnSubmitClick,
-                      &btn_action_create_entity,
-                      NULL);
+    CreatePanelButtonDefault(lpanel_btn_create_entity_cont,
+                             UI_ELEMENT_BUTTON_SUBMIT,
+                             "CREATE",
+                             btn_default_size,
+                             btn_default_padding,
+                             HandleBtnSubmitClick,
+                             &btn_action_create_entity,
+                             NULL);
 }
 
 void InitLPanel(void)

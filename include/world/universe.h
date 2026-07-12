@@ -40,9 +40,11 @@ typedef struct Universe
     Vector2d camera_offset; // Pan offset applied when a world is selected (not used when universe camera is active)
 
     // Creation parameters for the next world
-    Vector2d next_spawn;
+    Vector2d next_spawn;    // World center in universe space; top-left is derived from this and world size
     Vector2d spawn_step;
     Vector2d next_resolution;
+    Vector2d next_basis_u;
+    Vector2d next_basis_v;
     float next_gravity;
 } Universe;
 
@@ -64,25 +66,23 @@ void Universe_Init(Universe *u,
 
 // Create a new world using the universe creation params; returns its index or -1 on failure.
 int Universe_CreateWorld(Universe *u,
-                         Basis2d world_basis,
                          ColourRgba fill_colour,
                          ColourRgba line_colour,
-                         Camera2d *world_camera,
                          ColourRgba camera_marker_colour,
-                         WorldState *world_state);
+                         Vector2d world_center_in_universe,
+                         WorldState *world_state,
+                         bool auto_select);
 
-// Select a world by index; pans the universe camera to align the world with the game region origin.
-bool Universe_SelectWorld(Universe *u, int index, Vector2d game_region_origin);
+// Select a world by index.
+bool Universe_SelectWorld(Universe *u, int index);
 
 // Draw all worlds at their universe positions.
-void Universe_Draw(Universe *u, Camera2d *world_camera);
+void Universe_Draw(Universe *u);
 
-// Check whether a universe-space click lands in a different world and auto-select it.
-// Returns true if the selection changed. local_out receives the local coords in the
-// newly selected (or unchanged) world.
+// Check whether a universe-space click lands in a world and auto-select it when needed.
+// Returns true when any world was hit. local_out receives local coords in that world.
 bool Universe_ResolveClick(Universe *u,
                            Vector2d universe_click,
-                           Vector2d game_region_origin,
                            Vector2d *local_out);
 
 // Register or update the universe-space bounds for a world.

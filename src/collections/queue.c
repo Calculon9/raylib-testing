@@ -1,5 +1,4 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include "collections/queue.h"
 #include "memory/cmemory.h"
@@ -9,18 +8,22 @@ Queue *AllocQueue(int elem_count, size_t elem_bytes)
 {
     // Allocate memory for the Queue struct itself
     Queue *q = AllocateBytes(sizeof(Queue));
+    if (q == NULL)
+    {
+        fprintf(stderr, "Failed to allocate memory for Queue!\n");
+        return NULL;
+    }
+
     q->elem_bytes = elem_bytes;
     q->capacity = elem_count;
     q->count = 0;
-    q->enumeratorIndex = 0;
-    q->enumerationCount = 0;
     q->items = AllocateBytes(elem_bytes * elem_count);
 
     // Simple safety check
-    if (q == NULL || q->items == NULL) 
+    if (q->items == NULL)
     {
         fprintf(stderr, "Failed to allocate memory for Queue!\n");
-        q->items = NULL; // Ensure nothing can done on the collection if allocation failed
+        q->capacity = 0;
     }
     return q;
 }
@@ -32,8 +35,6 @@ Queue MakeQueue(int elem_count, size_t elem_bytes)
     a.elem_bytes = elem_bytes;
     a.capacity = elem_count;
     a.count = 0;
-    a.enumeratorIndex = 0;
-    a.enumerationCount = 0;
     a.items = AllocateBytes(elem_bytes * elem_count);
 
     // Simple safety check
@@ -48,7 +49,7 @@ Queue MakeQueue(int elem_count, size_t elem_bytes)
 
 Queue *Queue_Push(Queue *q, void *item)
 {
-    if (q == NULL || q->items == NULL || q->count >= q->capacity)
+    if (q == NULL || q->items == NULL || item == NULL || q->capacity <= 0 || q->count >= q->capacity)
     {
         fprintf(stderr, "Queue is full! Cannot push new item.\n");
         return q; // Keep the return consistent with the signature

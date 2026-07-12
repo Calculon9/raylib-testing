@@ -43,7 +43,6 @@ FlatMapInt *AllocFlatMapInt(int capacity);
 bool FlatMapInt_InsertOrUpdate(FlatMapInt *m, int key, int value);
 FlatMapInt MakeFlatMapInt(int capacity);
 bool FlatMapInt_GetValue(FlatMapInt *m, int key, int *out_value);
-bool FlatMapInt_GetKey(FlatMapInt *m, int value, int *out_key);
 bool FlatMapInt_DeactivateSlot(FlatMapInt *m, int key);
 void DisposeFlatMapInt(FlatMapInt *m);
 void ClearFlatMapInt(FlatMapInt *m);

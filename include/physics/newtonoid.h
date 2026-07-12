@@ -60,15 +60,15 @@ typedef struct Momentum2d
 
 typedef struct Box2d
 {
-    Vector2d coords;     // Top-Left or Center Origin (We will assume Top-Left here)
+    Vector2d coords;     // Box origin, usually the top-left corner for AABB/bounds helpers
     Vector2d dimensions; // Width (x) and Height (y)
 } Box2d;
 
 // 2D Object with Newtonian properties; mass, position, velocity, acceleration, momentum
 typedef struct Newtonoid2d
 {
-    Vector2d coords_center;
-    Vector2d coords_origin; // the top-left
+    Vector2d coords_center; // Authoritative position used by physics, collision, and rendering
+    Vector2d coords_origin; // Derived top-left/AABB origin for box, grid, and hit-test helpers
     Vector2d local_offset;  // relative to parent
     Vector2d boxed_dimensions;
     Vector2d velocity;

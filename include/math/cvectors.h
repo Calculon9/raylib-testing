@@ -15,6 +15,9 @@ MEMORY MANAGEMENT MODULE
 #define INFINITY_MATRIX_2x2 (Matrix2x2){INFINITY_VECTOR_2D, INFINITY_VECTOR_2D}
 #define ZERO_VECTOR_3D (Vector3d){0, 0, 0}
 #define INFINITY_VECTOR_3D (Vector3d){INFINITY, INFINITY, INFINITY}
+#define INFINITY_MATRIX_3x3 (Matrix3x3){INFINITY_VECTOR_3D, INFINITY_VECTOR_3D, INFINITY_VECTOR_3D}
+#define IDENTITY_MATRIX_2x2 (Matrix2x2){(Vector2d){1, 0}, (Vector2d){0, 1}}
+#define IDENTITY_BASIS_2D (Basis2d){(Vector2d){1, 0}, (Vector2d){0, 1}}
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
@@ -42,6 +45,12 @@ typedef struct Transform2d
     Vector2d v;      // Y-Axis basis
     Vector2d origin; // The (0,0) point in world coordinates
 } Transform2d;
+
+typedef struct CoordSystem2d
+{
+    Basis2d basis;
+    Vector2d origin;
+} CoordSystem2d;
 
 typedef struct Vector3d
 {
@@ -93,17 +102,14 @@ float VectorBox_2d(Vector2d vector);
 float VectorDot_2d(Vector2d a, Vector2d b);
 float VectorRadians_2d(Vector2d vector);
 Vector2d VectorComponents_2d(float magnitude, float radians);
-Vector2d VectorTransform_2x2(Matrix2x2 matrix_function, Vector2d vector_input);
 Vector3d VectorSumArray_3d(Vector3d *array, size_t count);
 // Matrix3x3 VectorTransform_Scale_Rotate_2d(Vector2d origin, float scale_u, float scale_v, float radians_u, float radians_v);
-float MatrixDeterminant_2x2(Matrix2x2 M);
 
 Matrix3x3 MatrixMultiply_3x3_3x3(Matrix3x3 A, Matrix3x3 B);
 Matrix3x3 MatrixInvert_3x3(Matrix3x3 M);
-// For transforming coordinates from one basis to another, we can create a basis transform matrix that represents the transformation from the source basis to the destination basis, and then apply this matrix to the coordinates we want to transform. The destination origin is needed to account for any translation between the two bases.
-// Specify (0,0) as the destination origin if the destination basis shares the same origin as the source basis.
+CoordSystem2d CreateCoordSystem2d(Basis2d basis, Vector2d origin);
+Matrix3x3 CoordSystemTransform_2d(CoordSystem2d source, CoordSystem2d destination);
+Matrix3x3 CoordSystemChainTransform_2d(CoordSystem2d source, CoordSystem2d middle, CoordSystem2d destination);
 Vector2d BasisTransform_2d_Scale(Basis2d source, Basis2d destination);
-Matrix3x3 CoordSpaceTransform_2d(Basis2d source, Basis2d destination, Vector2d destination_origin);
-Vector2d MatrixMultiply_3x3_2x2(Matrix3x3 matrix_function, Vector2d vector_input);
 //bool IsPointInPolygon(Vector2d point, Vector2d *vertices, Vector2d vertice_offset, int vertice_count);
 #endif

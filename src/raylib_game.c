@@ -18,6 +18,7 @@
 #include "system/systems.h"
 #include "system/ui_system.h"
 #include "system/world_system.h"
+#include "system/universe_system.h"
 #include "system/viewport_system.h"
 #include "system/rpanel_system.h"
 #if defined(PLATFORM_WEB)
@@ -114,26 +115,6 @@ int main(void)
     emscripten_set_main_loop(UpdateDrawFrame, 60, 1);
 #else
     SetTargetFPS(60); // Set our game to run at 60 frames-per-second
-    //--------------------------------------------------------------------------------------
-
-    // Main game loop
-    // // 1. Logic & Physics
-    // UpdatePhysics(world);
-
-    // // 2. UI Interaction (The Dispatcher)
-    // // This lives in ui_input.c
-    // ProcessUIInput(GetMouseX(), GetMouseY(), CheckMouseInPanel());
-
-    // // 3. UI Resolution (The Math)
-    // // This lives in ui_core.c
-    // ResolveUITree(lpanel_root, screen_box, current_basis);
-
-    // // 4. Rendering
-    // BeginDrawing();
-    //     DrawWorld(world);
-    //     // This lives in ui_renderer.c
-    //     DrawUITree(lpanel_root);
-    // EndDrawing();
     while (!WindowShouldClose()) // Detect window close button or ESC key
     {
         UpdateDrawFrame();
@@ -400,7 +381,7 @@ void InitGameplayScreen(void)
 
 void DrawGameplayScreen(void)
 {
-    DrawGameWorld();
+    DrawUniverse();
     DrawRPanel();
     DrawUI();
 }
@@ -414,6 +395,7 @@ void UpdateGameplayScreen(void)
 
     UpdateRPanel(mouse_x, mouse_y);
     UpdateUISystem(mouse_x, mouse_y);
+    UpdateUniverseSystem(mouse_x, mouse_y);
     UpdateWorldSystem(mouse_x, mouse_y);
 }
 

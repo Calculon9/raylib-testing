@@ -19,7 +19,6 @@ extern Vector2d lpanel_origin;
 extern Vector2d lpanel_end;
 extern Vector2d lpanel_resolution;
 extern Vector2d lpanel_pixel_origin;
-extern Vector2d lpanel_pixel_end;
 extern Vector2d lpanel_pixel_u;
 extern Vector2d lpanel_pixel_v;
 extern Vector2d lpanel_u;

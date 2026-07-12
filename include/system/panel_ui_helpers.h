@@ -17,6 +17,11 @@ UIElement *CreatePanelTitleLabel(UIElement *parent,
                                  ColourRgba border,
                                  ColourRgba fill);
 
+UIElement *CreatePanelTitleLabelDefault(UIElement *parent,
+                                        const char *text,
+                                        Size size,
+                                        Vector2d padding);
+
 UIElement *CreatePanelLabeledField(UIElement *parent,
                                    const char *label_text,
                                    UIElementType input_type,
@@ -31,6 +36,14 @@ UIElement *CreatePanelLabeledField(UIElement *parent,
                                    ColourRgba cell_fill,
                                    Bitmap_Font font);
 
+            UIElement *CreatePanelLabeledFieldDefault(UIElement *parent,
+                                    const char *label_text,
+                                    UIElementType input_type,
+                                    Size row_size,
+                                    Vector2d row_padding,
+                                    ColourRgba row_border,
+                                    ColourRgba row_fill);
+
 UIElement *CreatePanelButton(UIElement *parent,
                              UIElementType type,
                              const char *text,
@@ -42,6 +55,15 @@ UIElement *CreatePanelButton(UIElement *parent,
                              UIEventHandler on_click,
                              void *user_data,
                              void *data_bind);
+
+            UIElement *CreatePanelButtonDefault(UIElement *parent,
+                                 UIElementType type,
+                                 const char *text,
+                                 Size size,
+                                 Vector2d padding,
+                                 UIEventHandler on_click,
+                                 void *user_data,
+                                 void *data_bind);
 
 UIElement *CreatePanelContainer(UIElement *parent,
                                           Size size,

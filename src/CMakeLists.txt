@@ -2,16 +2,19 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 
 
-# Find all files relative to this folder
+# Find active runtime source files relative to this folder
 file(GLOB_RECURSE SOURCE_FILES CONFIGURE_DEPENDS *.c)
-file(GLOB_RECURSE HEADER_FILES CONFIGURE_DEPENDS *.h)
+
+# Keep deprecated and generated trees out of the build surface.
+list(FILTER SOURCE_FILES EXCLUDE REGEX "/DEPRECATED/")
+list(FILTER SOURCE_FILES EXCLUDE REGEX "/CMakeFiles/")
 
 # ui_panel.c is an in-progress split of ui_system.c and currently duplicates
 # global symbols and functions that still live in ui_system.c.
 #list(REMOVE_ITEM SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/ui/ui_panel.c")
 
 # Add the sources to the target defined in the root
-target_sources(${PROJECT_NAME} PRIVATE ${SOURCE_FILES} ${HEADER_FILES})
+target_sources(${PROJECT_NAME} PRIVATE ${SOURCE_FILES})
 
 # Tell the target where the root include folder is
 # We use PUBLIC if we want Raylib or other modules to potentially see our types

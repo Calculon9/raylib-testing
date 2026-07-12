@@ -9,206 +9,211 @@
 #include "camera/camera.h"
 #include "system/systems.h"
 #include "system/world_system.h"
-#include "common/common.h"
 #include "world/world.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
+void DrawNewtonoids(LArray *newtonoids, Matrix3x3 coord_space_to_pixel_mtx);
+void DrawCollisions(LArray *collisions, Matrix3x3 coord_space_to_pixel_mtx);
+void DrawObjectVertices(Vector2d *local_vertices, int vertices_count, Vector2d offset, Matrix3x3 coord_space_to_pixel_mtx, ColourRgba line_colour);
+void DrawCoordSpaceGrid(CoordSpace2d_Grid *coord_space_grid, Matrix3x3 coord_space_to_pixel_mtx);
 
-void DrawNewtonoids(LArray *newtonoids, Vector2d universe_pos);
-void DrawCollisions(LArray *collisions);
-// void DrawObjectVertices(LArray local_vertices, Vector2d coords_center, Camera2d camera, ColourRgba line_colour);
-void DrawObjectVertices(Vector2d *local_vertices, int vertices_count, Vector2d offset, Camera2d camera, ColourRgba line_colour);
-void DrawWorldCoordinateGrid(CoordSpace2d_Grid *coord_space_grid, Camera2d *camera_world, Vector2d universe_pos);
-
-void DrawWorldRegion(World2d *world, Camera2d *camera_world, Vector2d universe_pos)
+static Color ToRaylibColor(ColourRgba colour)
 {
-    DrawWorldCoordinateGrid(&world->coord_space_grid, camera_world, universe_pos);
-    DrawNewtonoids(&world->objects, universe_pos);
-    DrawNewtonoids(&world->temp_objects, universe_pos);
-    // DrawCollisions(&world->collisions);
+    return (Color){colour.r, colour.g, colour.b, colour.a};
 }
 
-void DrawWorldCoordinateGrid(CoordSpace2d_Grid *coord_space_grid, Camera2d *camera_world, Vector2d universe_pos)
+static void TransformLineEndpoints(Vector2d start,
+                                   Vector2d end,
+                                   Matrix3x3 world_to_pixel_mtx,
+                                   Vector2d *out_start,
+                                   Vector2d *out_end)
+{
+    if (out_start != NULL)
+    {
+        *out_start = TransformCoordinates(world_to_pixel_mtx, start);
+    }
+
+    if (out_end != NULL)
+    {
+        *out_end = TransformCoordinates(world_to_pixel_mtx, end);
+    }
+}
+
+static void DrawTransformedLineV(Vector2d start,
+                                 Vector2d end,
+                                 Matrix3x3 world_to_pixel_mtx,
+                                 ColourRgba line_colour)
+{
+    Vector2d line_pixel_origin = {0};
+    Vector2d line_pixel_end = {0};
+    TransformLineEndpoints(start, end, world_to_pixel_mtx, &line_pixel_origin, &line_pixel_end);
+
+    DrawLineV((Vector2){line_pixel_origin.x, line_pixel_origin.y},
+              (Vector2){line_pixel_end.x, line_pixel_end.y},
+              ToRaylibColor(line_colour));
+}
+
+void DrawWorldRegion(World2d *world, Camera2d *world_camera, Camera2d *universe_camera)
+{
+    Matrix3x3 world_to_pixel_mtx = MatrixMultiply_3x3_3x3(universe_camera->source_to_dest_mtx,
+                                                          world_camera->source_to_dest_mtx);
+
+    DrawCoordSpaceGrid(&world->coord_space_grid, world_to_pixel_mtx);
+    DrawNewtonoids(&world->objects, world_to_pixel_mtx);
+    DrawNewtonoids(&world->temp_objects, world_to_pixel_mtx);
+    // DrawCollisions(&world->collisions, world_to_pixel_mtx);
+}
+
+void DrawCoordSpaceGrid(CoordSpace2d_Grid *coord_space_grid, Matrix3x3 world_to_pixel_mtx)
 {
     if (coord_space_grid->coord_space.cells.capacity < 1)
     {
-        return; // No field to draw
+        return;
     }
 
-    // Need to convert world coordinates to screen coordinates
     Basis2d basis = coord_space_grid->coord_space.basis;
 
-    // Local grid coords_origin is (0,0); universe_pos offsets the world into universe space.
-    Vector2d local_origin = coord_space_grid->coord_space.coords_origin;
-    Vector2d origin = VectorSum_2d(local_origin, universe_pos);
+    Vector2d local_origin = coord_space_grid->coord_space.local_origin;
+    Vector2d origin = local_origin;
     Vector2d end = VectorSum_2d(origin, coord_space_grid->coord_space.resolution_ixj);
 
-    // Transform local space position to pixel space
-    Vector2d world_pixel_origin = TransformCoordinates(camera_world->source_to_dest_mtx, origin);
-    Vector2d world_pixel_end = TransformCoordinates(camera_world->source_to_dest_mtx, end);
+    Vector2d world_pixel_origin = TransformCoordinates(world_to_pixel_mtx, origin);
+    Vector2d world_pixel_end = TransformCoordinates(world_to_pixel_mtx, end);
 
-    // First: Draw background
     ColourRgba colour_fill = coord_space_grid->colour_fill;
     ColourRgba colour_line = coord_space_grid->colour_line;
-    DrawRectangle(world_pixel_origin.x,
-                  world_pixel_origin.y,
-                  fabsf(world_pixel_end.x - world_pixel_origin.x),
-                  fabsf(world_pixel_end.y - world_pixel_origin.y),
+    DrawRectangle((int)world_pixel_origin.x,
+                  (int)world_pixel_origin.y,
+                  (int)fabsf(world_pixel_end.x - world_pixel_origin.x),
+                  (int)fabsf(world_pixel_end.y - world_pixel_origin.y),
                   (Color){colour_fill.r, colour_fill.g, colour_fill.b, colour_fill.a});
 
-    // Need to know how the unit steps to take in each direction
-    int stepsU = coord_space_grid->coord_space.stepsU; // ceilf((float)world_space.resolution_ixj.x / VectorMagnitude_2d(basis.u));
-    int stepsV = coord_space_grid->coord_space.stepsV; // VectorMagnitude_2d(basis.v));
+    int stepsU = coord_space_grid->coord_space.stepsU;
+    int stepsV = coord_space_grid->coord_space.stepsV;
 
-    // Draw Horizontal-ish lines (along the U direction)
-    // Create a line at every 'v' step that spans the entire 'u' width
     ColourRgba colour = coord_space_grid->colour_line;
-    Vector2d line_origin, line_end = {0};
-    Vector2d line_pixel_origin, line_pixel_end = {0};
     for (int j = 0; j <= stepsV; j++)
     {
-        // Line in universe space: offset local coords by universe_pos
-        line_origin = (Vector2d){origin.x, (float)j + universe_pos.y};
-        line_end = (Vector2d){(float)stepsU + universe_pos.x, (float)j + universe_pos.y};
+        Vector2d row_offset = VectorScale_2d(basis.v, (float)j);
+        Vector2d width_extent = VectorScale_2d(basis.u, (float)stepsU);
 
-        // The Matrix handles everything:
-        // It applies World Position (Origin), Rotation, and Scale in one go.
-        line_pixel_origin = TransformCoordinates(camera_world->source_to_dest_mtx, line_origin);
-        line_pixel_end = TransformCoordinates(camera_world->source_to_dest_mtx, line_end);
-        // Vector2d screenStart = WorldToScreenCoordinates(screen_basis_transform, localStart);
-        // Vector2d screenEnd = WorldToScreenCoordinates(screen_basis_transform, localEnd);
-
-        // Draw
-        DrawLineV((Vector2){line_pixel_origin.x, line_pixel_origin.y},
-                  (Vector2){line_pixel_end.x, line_pixel_end.y}, (Color){colour.r, colour.g, colour.b, colour.a});
+        Vector2d line_origin = VectorSum_2d(origin, row_offset);
+        Vector2d line_end = VectorSum_2d(line_origin, width_extent);
+        DrawTransformedLineV(line_origin, line_end, world_to_pixel_mtx, colour);
     }
 
-    // Draw Vertical-ish lines (along the V direction)
-    // We create a line at every 'u' step that spans the entire 'v' height
     for (int i = 0; i <= stepsU; i++)
     {
-        // Line in universe space: offset local coords by universe_pos
-        line_origin = (Vector2d){(float)i + universe_pos.x, origin.y};
-        line_end = (Vector2d){(float)i + universe_pos.x, (float)stepsV + universe_pos.y};
+        Vector2d column_offset = VectorScale_2d(basis.u, (float)i);
+        Vector2d height_extent = VectorScale_2d(basis.v, (float)stepsV);
 
-        // The Matrix handles everything:
-        // It applies World Position (Origin), Rotation, and Scale in one go.
-        Vector2d line_pixel_origin = TransformCoordinates(camera_world->source_to_dest_mtx, line_origin);
-        Vector2d line_pixel_end = TransformCoordinates(camera_world->source_to_dest_mtx, line_end);
-        // Vector2d localStart = {(double)i, 0.0};
-        // Vector2d localEnd = {(double)i, (double)stepsV};
-
-        // Draw
-        DrawLineV((Vector2){line_pixel_origin.x, line_pixel_origin.y},
-                  (Vector2){line_pixel_end.x, line_pixel_end.y}, (Color){colour.r, colour.g, colour.b, colour.a});
+        Vector2d line_origin = VectorSum_2d(origin, column_offset);
+        Vector2d line_end = VectorSum_2d(line_origin, height_extent);
+        DrawTransformedLineV(line_origin, line_end, world_to_pixel_mtx, colour);
     }
 
-    // Draw values as text on top of each field unit
-    int totalUnits = stepsU * stepsV; // (int)ceilf(totalArea / cellArea);
+    int totalUnits = stepsU * stepsV;
     DArray cells = coord_space_grid->coord_space.cells;
     Color text_colour = (Color){COLOUR_WORLD__XIGHT_1.r, COLOUR_WORLD__XIGHT_1.g, COLOUR_WORLD__XIGHT_1.b, COLOUR_WORLD__XIGHT_1.a};
+
+    if (!world_grid_debug_labels_enabled)
+    {
+        return;
+    }
+
+    Vector2d p00 = TransformCoordinates(world_to_pixel_mtx, origin);
+    Vector2d p10 = TransformCoordinates(world_to_pixel_mtx, VectorSum_2d(origin, basis.u));
+    Vector2d p01 = TransformCoordinates(world_to_pixel_mtx, VectorSum_2d(origin, basis.v));
+    float cell_px_w = VectorMagnitude_2d(VectorSum_2d(p10, VectorScale_2d(p00, -1.0f)));
+    float cell_px_h = VectorMagnitude_2d(VectorSum_2d(p01, VectorScale_2d(p00, -1.0f)));
+
+    if (cell_px_w < 28.0f || cell_px_h < 18.0f)
+    {
+        return;
+    }
+
     for (int k = 0; k < totalUnits; k++)
     {
-        int i = k / stepsU; // Row index (based on horizontal lines)
-        int j = k % stepsU; // Column index (based on vertical lines)
+        int i = k / stepsU;
+        int j = k % stepsU;
         Cell *cell = (Cell *)((char *)cells.items + (k * cells.elem_bytes));
-        Vector2d cell_coords = VectorSum_2d(cell->coords_origin, universe_pos);
-        Vector2d cell_pixel_coords = TransformCoordinates(camera_world->source_to_dest_mtx, cell_coords);
+        Vector2d cell_coords = cell->local_origin;
+        Vector2d cell_pixel_coords = TransformCoordinates(world_to_pixel_mtx, cell_coords);
         const char *displayText = TextFormat(" %d (%d,%d)\n (%.0f,%.0f)\n", k, i, j, cell_pixel_coords.x, cell_pixel_coords.y);
-        // const char *displayText = TextFormat(" %d (%d,%d)\n (%0.0f,%0.0f)\n", k + 1, i + 1, j + 1, cell_pixel_coords.x, cell_pixel_coords.y);
-        //  const char *displayText = TextFormat("Cell: %d (%d,%d)\nWorldCoord: (%d,%d)\nScreenCoord: (%d,%d)\nValue: %.1f", k + 1, i + 1, j + 1, (int)cell_world_coords.x, (int)cell_world_coords.y, cell->value);
-        //   DrawTextEx(font, displayText, (Vector2){cellPos.x + textOffsetX, cellPos.y - textOffsetY}, font.baseSize, 1, (Color)DARKBLUE_RGBA);
 
         DrawTextEx(font, displayText, (Vector2){cell_pixel_coords.x, cell_pixel_coords.y}, 16, 1, text_colour);
-
-        // Debug print
-        // printf("Cell %d [Row %d, Col %d] Value: %.1f\n", i + 1, row, col, cell->value);
     }
-    // printf("Drew %d cells\n", count);
 }
 
-void DrawNewtonoids(LArray *newtonoids, Vector2d universe_pos)
+void DrawNewtonoids(LArray *newtonoids, Matrix3x3 coord_space_to_pixel_mtx)
 {
     if (newtonoids == NULL)
     {
-        return; // Nothing to draw
+        return;
     }
+
     for (int i = 0; i < newtonoids->count; i++)
     {
         Newtonoid2d newtonoid = *((Newtonoid2d *)((char *)newtonoids->items + (i * newtonoids->elem_bytes)));
-        // Offset entity local coords by universe_pos so they render in the right universe-space location.
-        Vector2d obj_center_coords = VectorSum_2d(newtonoid.coords_center, universe_pos);
+        Vector2d obj_center_coords = newtonoid.coords_center;
 
-        // ----DEBUG----- draw the bounding box of the polygonoid to check it is correct
-        Surface2d obj_box_surface = CreateSurface_Rectangular(newtonoid.boxed_dimensions, ZERO_VECTOR_2D);
-        //DrawObjectVertices(obj_box_surface.surface_vectors.items, obj_box_surface.surface_vectors.count, obj_center_coords, camera_world, OLIVE_GARDEN_GREEN_XL);
-        ClearLArray(&obj_box_surface.surface_vectors);
-
-        // Draw polygonoid THEN text so text is on top
         LArray surf_vectors = newtonoid.surface.surface_vectors;
-        DrawObjectVertices(surf_vectors.items, surf_vectors.count, obj_center_coords, camera_world, newtonoid.line_colour);
-
-        // ----DEBUG-----  draw the footprint box of the polygonoid to check it is correct
-        // LArray footprint_vertices = CalcSnappedAABB(camera_world.source_basis, polygonoid.newtonian_properties.surface.surface_vectors, obj_center_coords);
-        // Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(&footprint_vertices, ZERO_VECTOR_2D);
-        // DrawObjectVertices(footprint_vertices, ZERO_VECTOR_2D, camera_world, polygonoid.colourRgba); // No object offset needed as its vertices have been snapped using object center coords
-        // ClearLArray(&footprint_vertices);
-
-        // float cell_index = ((int)local_origin_coords.y * world_resolution.x) + (int)local_origin_coords.x; // - 1; ((screen_origin.x - 1) * world_resolution.y) + screen_origin.y;
-        // const char *display_text = TextFormat("%.0f", cell_index);
-        // Vector2d pixel_origin = TransformCoordinates(camera_world.source_to_dest_mtx, local_origin_coords);
-        // float radius_mag_pixel = VectorMagnitude_2d(basis_scale) * polygonoid.radius; // Assuming orthogonal coordinatea
-        // Vector2d text_pixel_cords = {pixel_origin.x - (0.6 * radius_mag_pixel), pixel_origin.y - (0.3 * radius_mag_pixel)};
-        // DrawTextEx(font, display_text, (Vector2){text_pixel_cords.x, text_pixel_cords.y}, 20, 1, (Color){polygonoid_text_colour.r,
-        // Debug print
-        // printf("Drew Polygonoid %d at Coords (%.1f, %.1f), Pixel (%.1f, %.1f)\n", i, screen_origin.x, screen_origin.y, pixel_origin.x, pixel_origin.y);
+        DrawObjectVertices(surf_vectors.items, surf_vectors.count, obj_center_coords, coord_space_to_pixel_mtx, newtonoid.line_colour);
     }
 }
 
-void DrawCollisions(LArray *collisions)
+void DrawCollisions(LArray *collisions, Matrix3x3 coord_space_to_pixel_mtx)
 {
     if (collisions == NULL)
     {
-        return; // Nothing to draw
+        return;
     }
-    // Collection *coll = &polygonoids->coll;
+
     for (int i = 0; i < collisions->count; i++)
     {
         Matrix2x2 collision_box = *((Matrix2x2 *)((char *)collisions->items + (i * collisions->elem_bytes)));
-
-        // ----DEBUG----- draw the collision box to check it is correct
         Vector2d collision_vertices[4] = {0};
         Vector2d dimensions = {collision_box.col2.x - collision_box.col1.x, collision_box.col2.y - collision_box.col1.y};
-        // Vector2d offset = {(collision_box.col1.x + collision_box.col2.x) * 0.5, (collision_box.col1.y + collision_box.col2.y) * 0.5}; // {collision_box.col1.x, collision_box.col1.y};
         Vector2d coords_center = CalcGeometricCentre_FromBox(collision_box);
-        CalcBoxVertices(dimensions, coords_center, collision_vertices); // {collision_box.col1, collision_box.col2, collision_box.col2, collision_box.col1}; // Create a rect from the box coords = CreateSurface_Rectangular(collision_box, ZERO_VECTOR_2D);
-        DrawObjectVertices(collision_vertices, 4, ZERO_VECTOR_2D, camera_world, OLIVE_GARDEN_GREEN_D);
+        CalcBoxVertices(dimensions, coords_center, collision_vertices);
+        DrawObjectVertices(collision_vertices, 4, ZERO_VECTOR_2D, coord_space_to_pixel_mtx, OLIVE_GARDEN_GREEN_D);
     }
 }
-
-// Provide the boxed coords of the object and the object's vertices to render the vertices within the box
-void DrawObjectVertices(Vector2d *local_vertices, int vertices_count, Vector2d offset, Camera2d camera, ColourRgba line_colour)
+void DrawObjectVertices(Vector2d *local_vertices, int vertices_count, Vector2d offset, Matrix3x3 coord_space_to_pixel_mtx, ColourRgba line_colour)
 {
-    // Vector2d vertice_start = *((Vector2d *)local_vertices.items);
-    Vector2d vertice_start = local_vertices[0];
-    vertice_start = VectorSum_2d(vertice_start, offset); // apply positional offset
-    vertice_start = TransformCoordinates(camera_world.source_to_dest_mtx, vertice_start);
+    if (local_vertices == NULL || vertices_count < 2)
+    {
+        return;
+    }
+
+    Vector2d vertice_start = VectorSum_2d(local_vertices[0], offset);
     Vector2d vertice_start_cache = vertice_start;
+    Color colour = ToRaylibColor(line_colour);
+
     for (int i = 1; i < vertices_count; i++)
     {
-        // Vector2d vertice_end = *(Vector2d *)((char *)local_vertices.items + (i * sizeof(Vector2d)));
-        // Vector2d vertice_end = *(Vector2d *)LArray_Get(&local_vertices, i);
-        Vector2d vertice_end = local_vertices[i];
-        vertice_end = VectorSum_2d(vertice_end, offset);
-        vertice_end = TransformCoordinates(camera_world.source_to_dest_mtx, vertice_end);
-        DrawLine(vertice_start.x, vertice_start.y, vertice_end.x, vertice_end.y, (Color){line_colour.r, line_colour.g, line_colour.b, line_colour.a});
+        Vector2d vertice_end = VectorSum_2d(local_vertices[i], offset);
+        Vector2d line_pixel_origin = {0};
+        Vector2d line_pixel_end = {0};
+        TransformLineEndpoints(vertice_start, vertice_end, coord_space_to_pixel_mtx, &line_pixel_origin, &line_pixel_end);
 
-        // Current end vertice is used as the starting vertice for the next line, so recycle it
+        DrawLine(line_pixel_origin.x,
+                 line_pixel_origin.y,
+                 line_pixel_end.x,
+                 line_pixel_end.y,
+                 colour);
+
         vertice_start = vertice_end;
     }
 
-    // Draw the line from vertice[0] to vertice[count-1];
-    DrawLine(vertice_start.x, vertice_start.y, vertice_start_cache.x, vertice_start_cache.y, (Color){line_colour.r, line_colour.g, line_colour.b, line_colour.a});
+    Vector2d line_pixel_origin = {0};
+    Vector2d line_pixel_end = {0};
+    TransformLineEndpoints(vertice_start, vertice_start_cache, coord_space_to_pixel_mtx, &line_pixel_origin, &line_pixel_end);
+    DrawLine(line_pixel_origin.x,
+             line_pixel_origin.y,
+             line_pixel_end.x,
+             line_pixel_end.y,
+             colour);
 }

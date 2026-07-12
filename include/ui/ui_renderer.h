@@ -39,7 +39,7 @@ UI SYSTEM MODULE
 extern Vector2d lpanel_u;// = {1, 0};
 extern Vector2d lpanel_v;// = {0, 1};
 extern Vector2d lpanel_resolution; //= {0};
-extern Vector2d lpanel_pixel_origin, lpanel_pixel_end; //= {0};
+extern Vector2d lpanel_pixel_origin; //= {0};
 
 // Logical->pixel-space conversion properties
 extern Vector2d lpanel_pixel_u;// = {75, 0};

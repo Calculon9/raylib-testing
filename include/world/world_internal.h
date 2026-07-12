@@ -8,6 +8,9 @@
 
 #include "world/world.h"
 
+// World lifecycle internals
+void CreateWorld(CoordSpace2d_Grid space_obj, Camera2d world_camera, float gravity, World2d *out_world);
+
 // Entity registry / lookup helpers
 void UpdateEntityWorldRegistry(FlatMapInt *entity_world_index_registry, int entity_id, int type_flag, int entity_arr_index);
 int RegisterEntity(WorldState *context, Newtonoid2d *entity);

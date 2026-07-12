@@ -1,6 +1,7 @@
 #include "system/panel_ui_helpers.h"
 
 #include "system/str_helpers.h"
+#include "system/ui_system.h"
 
 UIElement *CreatePanelTitleLabel(UIElement *parent,
                                  const char *text,
@@ -28,6 +29,20 @@ UIElement *CreatePanelTitleLabel(UIElement *parent,
     title->is_draggable = true;
 
     return title;
+}
+
+UIElement *CreatePanelTitleLabelDefault(UIElement *parent,
+                                        const char *text,
+                                        Size size,
+                                        Vector2d padding)
+{
+    return CreatePanelTitleLabel(parent,
+                                 text,
+                                 size,
+                                 padding,
+                                 FONT_BASIC,
+                                 COLOURLESS_RGBA,
+                                 COLOURLESS_RGBA);
 }
 
 UIElement *CreatePanelLabeledField(UIElement *parent,
@@ -82,6 +97,29 @@ UIElement *CreatePanelLabeledField(UIElement *parent,
     return input_child;
 }
 
+UIElement *CreatePanelLabeledFieldDefault(UIElement *parent,
+                                          const char *label_text,
+                                          UIElementType input_type,
+                                          Size row_size,
+                                          Vector2d row_padding,
+                                          ColourRgba row_border,
+                                          ColourRgba row_fill)
+{
+    return CreatePanelLabeledField(parent,
+                                   label_text,
+                                   input_type,
+                                   row_size,
+                                   tbox_default_size,
+                                   row_padding,
+                                   tbox_tlabel_default_offset.offset,
+                                   row_border,
+                                   row_fill,
+                                   tbox_default_padding,
+                                   tbox_default_colour_border,
+                                   tbox_default_colour_fill,
+                                   FONT_BASIC);
+}
+
 UIElement *CreatePanelButton(UIElement *parent,
                              UIElementType type,
                              const char *text,
@@ -114,6 +152,28 @@ UIElement *CreatePanelButton(UIElement *parent,
     btn->is_draggable = true;
 
     return btn;
+}
+
+UIElement *CreatePanelButtonDefault(UIElement *parent,
+                                    UIElementType type,
+                                    const char *text,
+                                    Size size,
+                                    Vector2d padding,
+                                    UIEventHandler on_click,
+                                    void *user_data,
+                                    void *data_bind)
+{
+    return CreatePanelButton(parent,
+                             type,
+                             text,
+                             size,
+                             padding,
+                             btn_default_colour_border,
+                             btn_default_colour_fill,
+                             FONT_BASIC,
+                             on_click,
+                             user_data,
+                             data_bind);
 }
 
 UIElement *CreatePanelContainer(UIElement *parent,

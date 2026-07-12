@@ -18,9 +18,7 @@ LArray *AllocLArray(int elem_count, size_t elem_bytes)
     if (a == NULL)
     {
         fprintf(stderr, "Failed to allocate memory for Linear Array!\n");
-        a->capacity = 0;
-        a->items = NULL;
-        return a;
+        return NULL;
     }
 
     a->elem_bytes = elem_bytes;
@@ -280,7 +278,6 @@ bool LArray_ResizeAndReset(LArray *a, int new_capacity)
         return false;
     }
 
-    size_t old_bytes = (size_t)a->capacity * a->elem_bytes;
     size_t new_bytes = (size_t)new_capacity * a->elem_bytes;
 
     // Reallocate safely using a temporary pointer
@@ -294,9 +291,11 @@ bool LArray_ResizeAndReset(LArray *a, int new_capacity)
     // Assign the newly allocated/resized block
     a->items = temp_items;
 
-    // If we GREW the array, zero out only the new memory block at the end
-    // Zero out just the brand-new segment
-    memset(a->items, 0, new_bytes);
+    // Reset the resized storage without passing a null pointer to memset.
+    if (new_bytes > 0)
+    {
+        memset(a->items, 0, new_bytes);
+    }
     // if (new_capacity > a->capacity)
     // {
     //     // Get a pointer to where the old data ends and the new memory begins

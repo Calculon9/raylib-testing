@@ -156,7 +156,7 @@ Matrix3x3 MatrixInvert_3x3(Matrix3x3 M)
     float d = M.col1.y, e = M.col2.y, f = M.col3.y;
     float g = M.col1.z, h = M.col2.z, i = M.col3.z;
 
-    // 1. Calculate the determinant from row values derived from column storage.
+    // Calculate the determinant from row values derived from column storage.
     float det = a * (e * i - f * h) -
                 b * (d * i - f * g) +
                 c * (d * h - e * g);
@@ -167,7 +167,7 @@ Matrix3x3 MatrixInvert_3x3(Matrix3x3 M)
     float invDet = 1.0f / det;
     Matrix3x3 res = {0};
 
-    // 2. Inverse entries (row-major symbols), then pack into column vectors.
+    // Inverse entries (row-major symbols), then pack into column vectors.
     float r11 = (e * i - f * h) * invDet;
     float r12 = (c * h - b * i) * invDet;
     float r13 = (b * f - c * e) * invDet;
@@ -187,6 +187,11 @@ Matrix3x3 MatrixInvert_3x3(Matrix3x3 M)
     return res;
 }
 
+CoordSystem2d CreateCoordSystem2d(Basis2d basis, Vector2d origin)
+{
+    return (CoordSystem2d){basis, origin};
+}
+
 float VectorBox_2d(Vector2d vector)
 {
     float box = vector.x * vector.y;
@@ -199,32 +204,26 @@ float VectorBox_2d(Vector2d vector)
     return box;
 }
 
-float MatrixDeterminant_2x2(Matrix2x2 M)
+Matrix3x3 CoordSystemTransform_2d(CoordSystem2d source, CoordSystem2d destination)
 {
-    float det = (M.col1.x * M.col2.y) + (M.col2.x * M.col1.y);
+    Matrix3x3 matSource = {
+        .col1 = {source.basis.u.x, source.basis.u.y, 0.0f},
+        .col2 = {source.basis.v.x, source.basis.v.y, 0.0f},
+        .col3 = {source.origin.x, source.origin.y, 1.0f}};
 
-    return det;
+    Matrix3x3 matDest = {
+        .col1 = {destination.basis.u.x, destination.basis.u.y, 0.0f},
+        .col2 = {destination.basis.v.x, destination.basis.v.y, 0.0f},
+        .col3 = {destination.origin.x, destination.origin.y, 1.0f}};
+
+    return MatrixMultiply_3x3_3x3(matDest, MatrixInvert_3x3(matSource));
 }
 
-Matrix3x3 CoordSpaceTransform_2d(Basis2d source, Basis2d destination, Vector2d destination_origin)
+Matrix3x3 CoordSystemChainTransform_2d(CoordSystem2d source, CoordSystem2d middle, CoordSystem2d destination)
 {
-    // matSource stays the same (usually 0,0 for world origin)
-    Matrix3x3 matSource = {
-        .col1 = {source.u.x, source.u.y, 0.0f},
-        .col2 = {source.v.x, source.v.y, 0.0f},
-        .col3 = {0.0f, 0.0f, 1.0f}};
-
-    Matrix3x3 invSource = MatrixInvert_3x3(matSource);
-
-    // matDest NEEDS the origin in the third column (m6, m7)
-    Matrix3x3 matDest = {
-        .col1 = {destination.u.x, destination.u.y, 0.0f},
-        .col2 = {destination.v.x, destination.v.y, 0.0f},
-        .col3 = {destination_origin.x, destination_origin.y, 1.0f}};
-
-    // Usually: Result = Dest * invSource
-    // Inverse of source x destination = transformation matrix to convert a source vector to destination vector
-    return MatrixMultiply_3x3_3x3(matDest, invSource);
+    Matrix3x3 source_to_middle = CoordSystemTransform_2d(source, middle);
+    Matrix3x3 middle_to_destination = CoordSystemTransform_2d(middle, destination);
+    return MatrixMultiply_3x3_3x3(middle_to_destination, source_to_middle);
 }
 
 Vector2d BasisTransform_2d_Scale(Basis2d source, Basis2d destination)
@@ -240,39 +239,6 @@ Vector2d BasisTransform_2d_Scale(Basis2d source, Basis2d destination)
         return (Vector2d){1.0, 1.0};
 
     return (Vector2d){magDestU / magSourceU, magDestV / magSourceV};
-}
-
-Vector2d VectorTransform_2x2(Matrix2x2 matrix_function, Vector2d vector_input)
-{
-    Vector2d vector_result;
-
-    // 1. Get the "transformation" or "mapping" basis to go from world to screen.
-    // 2. Get the scaling factor to go from world basis magnitude to screen basis magnitude.
-
-    // Since we are using a 3x  matrix for 2D, we treat the 2D point as a 3D vector where z=1. This is a trick called Homogeneous Coordinates that allows the matrix to move (translate) the point, not just rotate or scale it.
-    //  Multiply: (Row 1 * WorldColumn)
-    //  screenX = (m0 * x) + (m3 * y) + m6
-    vector_result.x = (vector_input.x * matrix_function.col1.x) + (vector_input.y * matrix_function.col2.x);
-
-    // Multiply: (Row 2 * WorldColumn)
-    // screenY = (m1 * x) + (m4 * y) + m7
-    vector_result.y = (vector_input.y * matrix_function.col2.y) + (vector_input.x * matrix_function.col1.y);
-
-    return vector_result;
-}
-
-Vector2d MatrixMultiply_3x3_2x2(Matrix3x3 matrix_function, Vector2d vector_input)
-{
-    Vector2d vector_result;
-
-    // 1. Get the "transformation" or "mapping" basis to go from world to screen.
-    // 2. Get the scaling factor to go from world basis magnitude to screen basis magnitude.
-
-    // Since we are using a 3x matrix for 2D, treat point as (x, y, 1).
-    vector_result.x = (vector_input.x * matrix_function.col1.x) + (vector_input.y * matrix_function.col2.x) + matrix_function.col3.x;
-    vector_result.y = (vector_input.x * matrix_function.col1.y) + (vector_input.y * matrix_function.col2.y) + matrix_function.col3.y;
-
-    return vector_result;
 }
 
 // Returns the boxed coords from a collection of vertice vectors (must all be relative to the associated object's coords)

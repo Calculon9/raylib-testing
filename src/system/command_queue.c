@@ -1,7 +1,7 @@
 #include "system/command_queue.h"
 #include <string.h>
 #include "system/systems.h"
-#include "system/world_system.h"
+#include "system/universe_system.h"
 #include "world/world.h"
 #include "world/world_internal.h"
 #include "common/common.h"
@@ -13,6 +13,23 @@ static int q_head = 0;
 static int q_tail = 0;
 static int q_count = 0;
 
+static bool EnqueueCommand(CommandType type, const Newtonoid2dParams *params, int world_select_delta)
+{
+    if (q_count >= COMMAND_QUEUE_CAPACITY)
+    {
+        return false;
+    }
+
+    Command *command = &queue[q_tail];
+    command->type = type;
+    command->params = params ? *params : (Newtonoid2dParams){0};
+    command->world_select_delta = world_select_delta;
+
+    q_tail = (q_tail + 1) % COMMAND_QUEUE_CAPACITY;
+    q_count++;
+    return true;
+}
+
 void InitCommandQueue(void)
 {
     memset(queue, 0, sizeof(queue));
@@ -22,16 +39,15 @@ void InitCommandQueue(void)
 bool EnqueueCreateEntity(const Newtonoid2dParams *params)
 {
     if (!params)
+    {
         return false;
-    if (q_count >= COMMAND_QUEUE_CAPACITY)
+    }
+
+    if (!EnqueueCommand(CMD_CREATE_ENTITY, params, 0))
+    {
         return false;
+    }
 
-    Command *c = &queue[q_tail];
-    c->type = CMD_CREATE_ENTITY;
-    c->params = *params; // copy struct
-
-    q_tail = (q_tail + 1) % COMMAND_QUEUE_CAPACITY;
-    q_count++;
     LOG_INFO("Enqueued CMD_CREATE_ENTITY (queue_count=%d)\n", q_count);
     return true;
 }
@@ -39,48 +55,37 @@ bool EnqueueCreateEntity(const Newtonoid2dParams *params)
 bool EnqueueDeleteEntity(Newtonoid2d *obj)
 {
     if (!obj)
+    {
         return false;
-    if (q_count >= COMMAND_QUEUE_CAPACITY)
+    }
+
+    if (!EnqueueCommand(CMD_DELETE_ENTITY, NULL, 0))
+    {
         return false;
+    }
 
-    Command *c = &queue[q_tail];
-    c->type = CMD_DELETE_ENTITY;
-    c->params = (Newtonoid2dParams){0}; // No params needed for deletion
-
-    q_tail = (q_tail + 1) % COMMAND_QUEUE_CAPACITY;
-    q_count++;
     LOG_INFO("Enqueued CMD_DELETE_ENTITY (queue_count=%d)\n", q_count);
     return true;
 }
 
 bool EnqueueCreateWorld(void)
 {
-    if (q_count >= COMMAND_QUEUE_CAPACITY)
+    if (!EnqueueCommand(CMD_CREATE_WORLD, NULL, 0))
+    {
         return false;
+    }
 
-    Command *c = &queue[q_tail];
-    c->type = CMD_CREATE_WORLD;
-    c->params = (Newtonoid2dParams){0};
-    c->world_select_delta = 0;
-
-    q_tail = (q_tail + 1) % COMMAND_QUEUE_CAPACITY;
-    q_count++;
     LOG_INFO("Enqueued CMD_CREATE_WORLD (queue_count=%d)\n", q_count);
     return true;
 }
 
 bool EnqueueSelectWorld(int delta)
 {
-    if (q_count >= COMMAND_QUEUE_CAPACITY)
+    if (!EnqueueCommand(CMD_SELECT_WORLD, NULL, delta))
+    {
         return false;
+    }
 
-    Command *c = &queue[q_tail];
-    c->type = CMD_SELECT_WORLD;
-    c->params = (Newtonoid2dParams){0};
-    c->world_select_delta = delta;
-
-    q_tail = (q_tail + 1) % COMMAND_QUEUE_CAPACITY;
-    q_count++;
     LOG_INFO("Enqueued CMD_SELECT_WORLD delta=%d (queue_count=%d)\n", delta, q_count);
     return true;
 }
@@ -120,7 +125,7 @@ void ProcessCommandQueue(void)
 
         if (c->type == CMD_CREATE_WORLD)
         {
-            int world_index = CreateNewWorldDefault();
+            int world_index = CreateNewWorld(IsCreateWorldAutoSelectEnabled());
             if (world_index >= 0)
             {
                 LOG_INFO("Processed CMD_CREATE_WORLD -> world_index=%d\n", world_index);
