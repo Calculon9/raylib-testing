@@ -189,7 +189,12 @@ Matrix3x3 MatrixInvert_3x3(Matrix3x3 M)
 
 CoordSystem2d CreateCoordSystem2d(Basis2d basis, Vector2d origin)
 {
-    return (CoordSystem2d){basis, origin};
+    return (CoordSystem2d){
+        .basis = basis,
+        .origin_in_parent = origin,
+        .local_min = ZERO_VECTOR_2D,
+        .local_max = ZERO_VECTOR_2D,
+    };
 }
 
 float VectorBox_2d(Vector2d vector)
@@ -209,12 +214,12 @@ Matrix3x3 CoordSystemTransform_2d(CoordSystem2d source, CoordSystem2d destinatio
     Matrix3x3 matSource = {
         .col1 = {source.basis.u.x, source.basis.u.y, 0.0f},
         .col2 = {source.basis.v.x, source.basis.v.y, 0.0f},
-        .col3 = {source.origin.x, source.origin.y, 1.0f}};
+        .col3 = {source.origin_in_parent.x, source.origin_in_parent.y, 1.0f}};
 
     Matrix3x3 matDest = {
         .col1 = {destination.basis.u.x, destination.basis.u.y, 0.0f},
         .col2 = {destination.basis.v.x, destination.basis.v.y, 0.0f},
-        .col3 = {destination.origin.x, destination.origin.y, 1.0f}};
+        .col3 = {destination.origin_in_parent.x, destination.origin_in_parent.y, 1.0f}};
 
     return MatrixMultiply_3x3_3x3(matDest, MatrixInvert_3x3(matSource));
 }

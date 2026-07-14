@@ -132,9 +132,9 @@ void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d camera)
 
     // Need to convert world coordinates to screen coordinates
     CoordSpace2d panel_space = root_element->data.root.coord_space;
-    Basis2d basis = panel_space.basis;
+    Basis2d basis = panel_space.system.basis;
 
-    Vector2d origin = panel_space.local_origin;
+    Vector2d origin = panel_space.system.origin_in_parent;
     Vector2d basis_scale = BasisTransform_2d_Scale(camera.source_basis, camera.destination_basis); // Need to scale dimensions from world units to pixel units using the camera's basis transform
 
     // Resolve rendered position and dimensions of panel element

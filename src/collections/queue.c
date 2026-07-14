@@ -61,7 +61,7 @@ Queue *Queue_Push(Queue *q, void *item)
     void *target = (char *)q->items + (q->rear * q->elem_bytes);
     
     // 2. Put the data there
-    memcpy(target, item, q->elem_bytes);
+    MemoryCopy(target, item, q->elem_bytes);
 
     // 3. Now move the rear for the NEXT push
     // This correctly wraps around to 0 only AFTER the last slot is filled
@@ -85,7 +85,7 @@ Queue *Queue_Pop(Queue *q, void *outItem)
     
     // Copy the data out for the user
     if (outItem != NULL) {
-        memcpy(outItem, source, q->elem_bytes);
+        MemoryCopy(outItem, source, q->elem_bytes);
     }
 
     // Update the front index (Wrap around if it hits capacity)

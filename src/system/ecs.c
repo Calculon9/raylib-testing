@@ -3,7 +3,6 @@
 #include "memory/cmemory.h"
 #include <string.h>
 #include <stdio.h>
-#include <stdlib.h>
 
 #define MAX_ENTITIES 2048
 #define MAX_COMPONENT_TYPES 16
@@ -49,7 +48,7 @@ ECS *ECS_Create(void)
         return NULL;
     }
 
-    memset(ecs->entities, 0, sizeof(EntityRecord) * ecs->entity_capacity);
+    MemorySet(ecs->entities, 0, sizeof(EntityRecord) * (size_t)ecs->entity_capacity);
     ecs->entity_count = 0;
     ecs->next_entity_id = 1; // Reserve 0 as invalid
     ecs->next_version = 0;
@@ -68,13 +67,13 @@ void ECS_Destroy(ECS *ecs)
     {
         if (ecs->components[i].data)
         {
-            // Each component data slot is a void* that was malloc'd
+            // Each component data slot is a void* allocated via AllocateBytes.
             for (int j = 0; j < ecs->components[i].data->count; j++)
             {
                 void **slot = (void **)DArray_Get(ecs->components[i].data, j);
                 if (slot && *slot)
                 {
-                    free(*slot);
+                    Deallocate((void **)slot, ecs->components[i].element_size);
                 }
             }
             DisposeDArray(ecs->components[i].data);
@@ -169,7 +168,7 @@ void ECS_AddComponent(ECS *ecs, Entity e, ComponentID comp_id, const void *compo
     void *comp_instance = AllocateBytes(component_size);
     if (!comp_instance)
         return;
-    memcpy(comp_instance, component_data, component_size);
+    MemoryCopy(comp_instance, component_data, component_size);
 
     // Ensure entity index slot exists in component array
     while (storage->data->count <= e)
@@ -198,8 +197,7 @@ void ECS_RemoveComponent(ECS *ecs, Entity e, ComponentID comp_id)
                 void **slot = (void **)DArray_Get(ecs->components[i].data, e);
                 if (slot && *slot)
                 {
-                    free(*slot);
-                    *slot = NULL;
+                    Deallocate((void **)slot, ecs->components[i].element_size);
                 }
             }
             return;

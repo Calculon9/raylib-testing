@@ -87,7 +87,7 @@ DArray *DArray_Push(DArray *a, void *item)
     }
 
     void *target = (char *)a->items + (a->rear * a->elem_bytes);
-    memcpy(target, item, a->elem_bytes);
+    MemoryCopy(target, item, a->elem_bytes);
 
     // Upate state
     a->rear = (a->rear + 1) % a->capacity;
@@ -115,11 +115,11 @@ DArray *DArray_Pop(DArray *a, void *outItem)
     // Copy the ata out for the user
     if (outItem != NULL)
     {
-        memcpy(outItem, source, a->elem_bytes);
+        MemoryCopy(outItem, source, a->elem_bytes);
     }
 
     // Zero-out the popped slot so ghost data doesn't persist in memory
-    memset(source, 0, a->elem_bytes);
+    MemorySet(source, 0, a->elem_bytes);
 
     // Upate the front index (Wrap around if it hits capacity)
     a->front = (a->front + 1) % a->capacity;
@@ -162,7 +162,7 @@ bool GrowDynamicArray(DArray *a)
             void *source = (char *)a->items + (current_index * a->elem_bytes);
             void *dest = (char *)new_items + (i * a->elem_bytes);
 
-            memcpy(dest, source, a->elem_bytes);
+            MemoryCopy(dest, source, a->elem_bytes);
 
             // Advance the source pointer index along the old ring layout
             current_index = (current_index + 1) % a->capacity;

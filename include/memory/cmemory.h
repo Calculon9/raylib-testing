@@ -34,12 +34,19 @@ void ValidateAllocation(void *pMemory, size_t bytes);
 size_t Deallocate(void **ptr, size_t bytes);
 void *AllocateCollection(size_t element_count, size_t element_bytes);
 void *AllocateBytes(size_t bytes);
+void *ReallocateBytes(void *ptr, size_t old_bytes, size_t new_bytes);
+void *MemoryCopy(void *dest, const void *src, size_t bytes);
+void *MemoryMove(void *dest, const void *src, size_t bytes);
+void *MemorySet(void *dest, int value, size_t bytes);
 // void deallocate_deep(void **ptr, size_t bytes);
 size_t CurrBytesAllocated();
 
 // Returns the cumulative memory freed since the program started. Useful for tracking total deallocations over time.
 size_t TotalBytesFreed();
 size_t TotalBytesAllocated();
+size_t TotalBytesCopied();
+size_t TotalBytesMoved();
+size_t TotalBytesSet();
 void PrintCurrentBytesAlloc();
 
 // Simple fixed-size pool allocator

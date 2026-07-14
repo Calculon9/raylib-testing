@@ -43,7 +43,9 @@ CoordSpace2d_Grid NewCoordSpace2d_Grid(Vector2d origin, Vector2d resolution_ixj,
 CoordSpace2d NewCoordSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d basis)
 {
    CoordSpace2d space = {0};
-   space.local_origin = origin;
+   space.system = CreateCoordSystem2d(basis, origin);
+   space.system.local_min = origin;
+   space.system.local_max = VectorSum_2d(origin, resolution_ixj);
    // Needs a grid with resolution according to unit height and width - divide it up and handle the leftover height and width
    // if (unitHeight > object.height || unitWidth > object.width)
    // {
@@ -52,7 +54,6 @@ CoordSpace2d NewCoordSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d b
    // };
    // Create the underlying object and define its surface
 
-   space.basis = basis;
    space.resolution_ixj = resolution_ixj;
    // Resolution is the number of addressable cells in local i/j coordinates.
    space.stepsU = fmaxf(1.0f, ceilf(resolution_ixj.x));
@@ -74,8 +75,8 @@ CoordSpace2d NewCoordSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d b
    InitUnitCells(&space);
 
    // LOG FIELD INFO
-   Vector2d basis_u = space.basis.u;
-   Vector2d basis_v = space.basis.v;
+   Vector2d basis_u = space.system.basis.u;
+   Vector2d basis_v = space.system.basis.v;
 
    // char text[64]; // Buffer to hold the text
    // snprintf(text, sizeof(text), "FIELD INITIALISED:  Dimensions (%d, %d); Units (%d); Basis -> u = [%d,%d], v = [%d,%d].\n", unitW, unitH, totalUnits, basis_u.x, basis_u.y, basis_v.x, basis_v.y);
@@ -92,8 +93,8 @@ Vector2d CalcCoordSpaceHalfExtent(const CoordSpace2d *space)
    }
 
    Vector2d half_resolution = VectorScale_2d(space->resolution_ixj, 0.5f);
-   Vector2d half_u_extent = VectorScale_2d(space->basis.u, half_resolution.x);
-   Vector2d half_v_extent = VectorScale_2d(space->basis.v, half_resolution.y);
+   Vector2d half_u_extent = VectorScale_2d(space->system.basis.u, half_resolution.x);
+   Vector2d half_v_extent = VectorScale_2d(space->system.basis.v, half_resolution.y);
    return VectorSum_2d(half_u_extent, half_v_extent);
 }
 
@@ -113,9 +114,9 @@ Matrix2x2 CalcCoordSpaceBoundsFromCenter(const CoordSpace2d *space, Vector2d cen
    Vector2d origin = CalcCoordSpaceOriginFromCenter(space, center);
    Vector2d corners[4] = {
       origin,
-      VectorSum_2d(origin, VectorScale_2d(space->basis.u, space->resolution_ixj.x)),
-      VectorSum_2d(VectorSum_2d(origin, VectorScale_2d(space->basis.u, space->resolution_ixj.x)), VectorScale_2d(space->basis.v, space->resolution_ixj.y)),
-      VectorSum_2d(origin, VectorScale_2d(space->basis.v, space->resolution_ixj.y)),
+      VectorSum_2d(origin, VectorScale_2d(space->system.basis.u, space->resolution_ixj.x)),
+      VectorSum_2d(VectorSum_2d(origin, VectorScale_2d(space->system.basis.u, space->resolution_ixj.x)), VectorScale_2d(space->system.basis.v, space->resolution_ixj.y)),
+      VectorSum_2d(origin, VectorScale_2d(space->system.basis.v, space->resolution_ixj.y)),
    };
 
    bounds.col1 = corners[0];
@@ -140,9 +141,9 @@ void InitUnitCells(CoordSpace2d *space)
 {
    DArray *cells = &(space->cells);
    size_t cells_capacity = cells->capacity;
-   memset(cells->items, 0, cells->elem_bytes * cells_capacity);
+   MemorySet(cells->items, 0, cells->elem_bytes * cells_capacity);
 
-   Vector2d local_origin = space->local_origin;
+   Vector2d local_origin = space->system.origin_in_parent;
    int stepsU = space->stepsU;
    int stepsV = space->stepsV;
 
@@ -155,20 +156,20 @@ void InitUnitCells(CoordSpace2d *space)
       Cell cell = {0}; // Create a new cell and initialize it to zero
 
       // Scale the basis vectors (u,v) and add them to get the displacement from the origin
-      Vector2d scaled_u = {j * space->basis.u.x, j * space->basis.u.y};
-      Vector2d scaled_v = {i * space->basis.v.x, i * space->basis.v.y};
+      Vector2d scaled_u = {j * space->system.basis.u.x, j * space->system.basis.u.y};
+      Vector2d scaled_v = {i * space->system.basis.v.x, i * space->system.basis.v.y};
       Vector2d displacement = {scaled_u.x + scaled_v.x, scaled_u.y + scaled_v.y};
 
       // Add the displacement vector to the origin to get the coordinates of the cell
       cell.local_origin.x = local_origin.x + displacement.x;
       cell.local_origin.y = local_origin.y + displacement.y;
       // Centre will always be 0.5 basis units since a cell is by definition the object representing the 2 basis vectors
-      cell.local_center.x = cell.local_origin.x + (0.5 * (space->basis.u.x + space->basis.v.x));
-      cell.local_center.y = cell.local_origin.y + (0.5 * (space->basis.u.y + space->basis.v.y));
+      cell.local_center.x = cell.local_origin.x + (0.5 * (space->system.basis.u.x + space->system.basis.v.x));
+      cell.local_center.y = cell.local_origin.y + (0.5 * (space->system.basis.u.y + space->system.basis.v.y));
 
       // Write the cell to the array
       Cell *address = (Cell *)((char *)cells->items + (k * cells->elem_bytes));
-      memcpy(address, &cell, cells->elem_bytes);
+      MemoryCopy(address, &cell, cells->elem_bytes);
       count++;
    }
    cells->count = stepsU * stepsV;
@@ -272,7 +273,7 @@ bool VectorIsInSpace_2d(Vector2d vector, CoordSpace2d *space)
 {
    // Check if the vector is within the bounds of the coordinate space defined by its origin and the extents of its basis vectors multiplied by their respective steps
    Matrix2x2 extents = CalcSpaceExtents_2d(space);
-   Vector2d origin = space->local_origin;
+   Vector2d origin = space->system.origin_in_parent;
    float min_x = origin.x;
    float max_x = origin.x + extents.col1.x + extents.col2.x;
    float min_y = origin.y;
@@ -286,8 +287,8 @@ bool VectorIsInSpace_2d(Vector2d vector, CoordSpace2d *space)
 Matrix2x2 CalcSpaceExtents_2d(CoordSpace2d *space)
 {
    // Check if the vector is within the bounds of the coordinate space defined by its origin and the extents of its basis vectors multiplied by their respective steps
-   Vector2d u_extent = {space->basis.u.x * space->stepsU, space->basis.u.y * space->stepsU};
-   Vector2d v_extent = {space->basis.v.x * space->stepsV, space->basis.v.y * space->stepsV};
+   Vector2d u_extent = {space->system.basis.u.x * space->stepsU, space->system.basis.u.y * space->stepsU};
+   Vector2d v_extent = {space->system.basis.v.x * space->stepsV, space->system.basis.v.y * space->stepsV};
 
    return (Matrix2x2){u_extent, v_extent};
 }

@@ -104,7 +104,7 @@ bool ResolvePointerLocalCoords(UIElement *element, Vector2d mouse_pixel_coords, 
     }
 
     Vector2d pixels_to_local_scale = ResolvePixelToLocalDragScale(root);
-    Vector2d root_local_origin = root->data.root.coord_space.local_origin;
+    Vector2d root_local_origin = root->data.root.coord_space.system.origin_in_parent;
     Vector2d root_pixel_origin = root->cached_box.coords;
     Vector2d pixel_delta = VectorSum_2d(mouse_pixel_coords, (Vector2d){-root_pixel_origin.x, -root_pixel_origin.y});
 

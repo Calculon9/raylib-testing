@@ -262,7 +262,7 @@ bool Universe_ResolveClick(Universe *u, Vector2d universe_click, Vector2d *local
         {
             World2d *w = &u->worlds[clicked_world];
             CoordSystem2d universe_space = CreateCoordSystem2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D);
-            CoordSystem2d world_space = CreateCoordSystem2d(w->coord_space_grid.coord_space.basis,
+            CoordSystem2d world_space = CreateCoordSystem2d(w->coord_space_grid.coord_space.system.basis,
                                                            CalcCoordSpaceOriginFromCenter(&w->coord_space_grid.coord_space, w->uni_coords_center));
             Matrix3x3 universe_to_world_mtx = CoordSystemTransform_2d(universe_space, world_space);
             *local_out = TransformCoordinates(universe_to_world_mtx, universe_click);

@@ -73,9 +73,9 @@ void DrawCoordSpaceGrid(CoordSpace2d_Grid *coord_space_grid, Matrix3x3 world_to_
         return;
     }
 
-    Basis2d basis = coord_space_grid->coord_space.basis;
+    Basis2d basis = coord_space_grid->coord_space.system.basis;
 
-    Vector2d local_origin = coord_space_grid->coord_space.local_origin;
+    Vector2d local_origin = coord_space_grid->coord_space.system.origin_in_parent;
     Vector2d origin = local_origin;
     Vector2d end = VectorSum_2d(origin, coord_space_grid->coord_space.resolution_ixj);
 

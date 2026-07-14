@@ -1,6 +1,6 @@
 #include "system/job_system.h"
-#include <stdlib.h>
 #include <string.h>
+#include "memory/cmemory.h"
 
 #define JOB_CAPACITY_DEFAULT 256
 
@@ -25,7 +25,7 @@ bool InitJobSystem(int max_jobs)
     if (max_jobs <= 0)
         max_jobs = JOB_CAPACITY_DEFAULT;
 
-    g_jobs = malloc(sizeof(Job) * max_jobs);
+    g_jobs = (Job *)AllocateBytes(sizeof(Job) * (size_t)max_jobs);
     if (!g_jobs)
         return false;
 
@@ -40,8 +40,7 @@ void ShutdownJobSystem(void)
     if (!g_initialized)
         return;
 
-    free(g_jobs);
-    g_jobs = NULL;
+    Deallocate((void **)&g_jobs, sizeof(Job) * (size_t)g_job_capacity);
     g_job_count = 0;
     g_job_capacity = 0;
     g_initialized = false;

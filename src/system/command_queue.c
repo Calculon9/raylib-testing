@@ -32,7 +32,7 @@ static bool EnqueueCommand(CommandType type, const Newtonoid2dParams *params, in
 
 void InitCommandQueue(void)
 {
-    memset(queue, 0, sizeof(queue));
+    MemorySet(queue, 0, sizeof(queue));
     q_head = q_tail = q_count = 0;
 }
 

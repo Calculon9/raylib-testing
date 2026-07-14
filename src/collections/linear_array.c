@@ -77,7 +77,7 @@ bool LArray_Push(LArray *a, void *item)
 
     // Calcuate the target address using the ACTUAL live data
     void *target = (char *)a->items + (a->count * a->elem_bytes);
-    memcpy(target, item, a->elem_bytes);
+    MemoryCopy(target, item, a->elem_bytes);
     a->count++;
 
     return true;
@@ -94,7 +94,7 @@ void *LArray_Pop(LArray *a, void *out_item)
     // Copy the data out for the user
     if (out_item != NULL)
     {
-        memcpy(out_item, source, a->elem_bytes);
+        MemoryCopy(out_item, source, a->elem_bytes);
     }
 
     a->count--;
@@ -115,7 +115,7 @@ bool GrowLinearArray(LArray *a)
     size_t old_bytes = (size_t)a->capacity * a->elem_bytes;
     size_t new_bytes = (size_t)new_capacity * a->elem_bytes;
 
-    void *new_items = realloc(a->items, new_bytes);
+    void *new_items = ReallocateBytes(a->items, old_bytes, new_bytes);
     if (new_items == NULL)
     {
         fprintf(stderr, "Failed to grow array to new capacity %d!\n", new_capacity);
@@ -124,7 +124,7 @@ bool GrowLinearArray(LArray *a)
 
     if (new_capacity > a->capacity)
     {
-        memset((char *)new_items + old_bytes, 0, new_bytes - old_bytes);
+        MemorySet((char *)new_items + old_bytes, 0, new_bytes - old_bytes);
     }
 
     a->items = new_items;
@@ -186,7 +186,7 @@ bool LArray_RemoveAt(LArray *a, int index)
     {
         void *next_element = (char *)target + a->elem_bytes;
         size_t bytes_to_shift = (a->count - index - 1) * a->elem_bytes;
-        memmove(target, next_element, bytes_to_shift);
+        MemoryMove(target, next_element, bytes_to_shift);
     }
 
     a->count--;
@@ -213,7 +213,7 @@ bool LArray_SwapPopAt(LArray *a, int index)
     if (index < a->count - 1)
     {
         void *last_element = (char *)a->items + (a->count - 1) * a->elem_bytes;
-        memmove(target, last_element, a->elem_bytes);
+        MemoryMove(target, last_element, a->elem_bytes);
     }
 
     a->count--;
@@ -281,7 +281,8 @@ bool LArray_ResizeAndReset(LArray *a, int new_capacity)
     size_t new_bytes = (size_t)new_capacity * a->elem_bytes;
 
     // Reallocate safely using a temporary pointer
-    void *temp_items = realloc(a->items, new_bytes);
+    size_t old_bytes = (size_t)a->capacity * a->elem_bytes;
+    void *temp_items = ReallocateBytes(a->items, old_bytes, new_bytes);
     if (temp_items == NULL && new_bytes > 0)
     {
         fprintf(stderr, "Failed to reallocate memory to new capacity %d!\n", new_capacity);
@@ -294,7 +295,7 @@ bool LArray_ResizeAndReset(LArray *a, int new_capacity)
     // Reset the resized storage without passing a null pointer to memset.
     if (new_bytes > 0)
     {
-        memset(a->items, 0, new_bytes);
+        MemorySet(a->items, 0, new_bytes);
     }
     // if (new_capacity > a->capacity)
     // {
@@ -334,7 +335,7 @@ bool LArray_Reset(LArray *a)
         return false;
     }
 
-    memset(a->items, 0, bytes);
+    MemorySet(a->items, 0, bytes);
 
     // Update the capacity tracking
     a->count = 0;

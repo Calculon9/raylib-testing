@@ -49,7 +49,9 @@ typedef struct Transform2d
 typedef struct CoordSystem2d
 {
     Basis2d basis;
-    Vector2d origin;
+    Vector2d origin_in_parent;
+    Vector2d local_min;
+    Vector2d local_max;
 } CoordSystem2d;
 
 typedef struct Vector3d

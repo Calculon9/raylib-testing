@@ -94,7 +94,7 @@ static Vector2d ResolveClickCoordSpaceCoords(const World2d *active_world, Vector
     }
 
     CoordSystem2d parent_system = CreateCoordSystem2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D);
-    CoordSystem2d child_local_system = CreateCoordSystem2d(active_world->coord_space_grid.coord_space.basis,
+    CoordSystem2d child_local_system = CreateCoordSystem2d(active_world->coord_space_grid.coord_space.system.basis,
                                                            CalcCoordSpaceOriginFromCenter(&active_world->coord_space_grid.coord_space,
                                                                                           active_world->uni_coords_center));
     CoordSystem2d input_system = CreateCoordSystem2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D);

@@ -110,7 +110,7 @@ void UpdateWorld(WorldState *context, float delta_time)
    {
       Cell *target_cell = &cells[i];
       target_cell->occupancy = 0;
-      memset(&cells[i].object_ids, 0, sizeof(cells[i].object_ids));
+      MemorySet(&cells[i].object_ids, 0, sizeof(cells[i].object_ids));
    }
 
    // RUN SCHEDULED WORLD EVENTS
@@ -230,7 +230,7 @@ void UpdateWorld(WorldState *context, float delta_time)
                   CalcBoxVertices(dimensions, ZERO_VECTOR_2D, collision_vertices_arr);
                   Surface2d collision_surface = {0};
                   collision_surface.surface_vectors = MakeLArray(4, sizeof(Vector2d));
-                  memcpy(collision_surface.surface_vectors.items, collision_vertices_arr, sizeof(collision_vertices_arr));
+                  MemoryCopy(collision_surface.surface_vectors.items, collision_vertices_arr, sizeof(collision_vertices_arr));
                   collision_surface.surface_vectors.count = 4;
                   Newtonoid2d collision_obj = CreateNewtonoid2d(0.00001f, collision_center, penetrating_entity->velocity, penetrating_entity->acceleration, collision_surface);
                   collision_obj.entity_layer = FLAG_TYPE_EFFECT;

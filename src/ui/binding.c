@@ -2,11 +2,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include "memory/cmemory.h"
 
 static Binder *AllocBinder()
 {
-    Binder *b = (Binder *)malloc(sizeof(Binder));
-    if (b) memset(b, 0, sizeof(Binder));
+    Binder *b = (Binder *)AllocateBytes(sizeof(Binder));
+    if (b) MemorySet(b, 0, sizeof(Binder));
     return b;
 }
 
@@ -24,7 +25,7 @@ Binder *Binder_Create(BindingType type, void *target, ValidatorFn validator, voi
 void Binder_Destroy(Binder *b)
 {
     if (!b) return;
-    free(b);
+    Deallocate((void **)&b, sizeof(Binder));
 }
 
 bool Binder_ValidateAndWrite(Binder *b, const char *text)

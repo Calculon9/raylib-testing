@@ -37,24 +37,23 @@ typedef struct LineSegment2d
 // A bare-bones coordinate space with no associated object or physicality. Use for describing a logical child grid space.
 // coords_origin is this child space origin in its own local frame. Parent-space placement is stored externally
 // (for example, a world center in universe space) and mapped via transform helpers.
-typedef struct CoordSpace2d
-{
-    Vector2d local_origin;
-    Vector2d resolution_ixj;        // Logical dimensions in local i/j units
-    Basis2d basis;                  // Local basis: one step in local +i (u) and local +j (v)
-    DArray cells;                   // the cells or field units within the coordinate space (in linear form) of field units
-    float unitArea, stepsU, stepsV; // rows, columns; // number of rows and columns in the coordinate space
+// 2. THE SIMULATION DATA CONTAINER (Belongs in world.h / grid.h)
+// This is the domain object that represents your physical game worlds.
+typedef struct CoordSpace2d {
+    CoordSystem2d system;       // Math representation! Brings basis, tracking, and boundaries
+    Vector2d resolution_ixj;    // Logical dimensions in local i/j units
+    DArray cells;               // The grid data buffer (linear form)
+    float unitArea;
+    float stepsU; 
+    float stepsV; 
 } CoordSpace2d;
 
-typedef struct CoordSpace2d_Grid
-{
+// 3. THE VISUAL MANAGER LAYER
+typedef struct CoordSpace2d_Grid {
     CoordSpace2d coord_space;
     ColourRgba colour_fill;
     ColourRgba colour_line;
     Newtonoid2d object;
-    // DynamicArray cells;            // the cells or field units within the coordinate space (in linear form) of field units
-    //  DynamicArray lineSegments_u; // array of line segments representing the "horizontal" lines of the field (if applicable)
-    //  DynamicArray lineSegments_v; // array of line segments representing the "vertical" lines of the field (if applicable)
 } CoordSpace2d_Grid;
 
 // typedef struct WorldSpace {

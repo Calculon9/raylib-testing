@@ -570,7 +570,7 @@ void DisposeUIElement(UIElement *e)
     }
     else
     {
-        free(e);
+        Deallocate((void **)&e, sizeof(UIElement));
     }
 }
 

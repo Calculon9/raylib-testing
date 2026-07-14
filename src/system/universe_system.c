@@ -236,8 +236,8 @@ void DrawCoordinateDebugOverlay(void)
         child_local = TransformCoordinates(parent_to_child_center_mtx, parent_local);
 
         // Shift (0,0) to top-left corner
-        child_origin_in_parent.x = w->coord_space_grid.coord_space.local_origin.x + (res.x * 0.5f);
-        child_origin_in_parent.y = w->coord_space_grid.coord_space.local_origin.x + (res.y * 0.5f);
+        child_origin_in_parent.x = w->coord_space_grid.coord_space.system.origin_in_parent.x + (res.x * 0.5f);
+        child_origin_in_parent.y = w->coord_space_grid.coord_space.system.origin_in_parent.y + (res.y * 0.5f);
 
         // Boundary check and index mapping
         if (child_local.x >= 0.0f && child_local.y >= 0.0f &&
