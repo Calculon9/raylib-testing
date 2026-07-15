@@ -110,9 +110,9 @@ Vector3d VectorSumArray_3d(Vector3d *array, size_t count);
 Matrix3x3 MatrixMultiply_3x3_3x3(Matrix3x3 A, Matrix3x3 B);
 Matrix3x3 MatrixInvert_3x3(Matrix3x3 M);
 Frame2d CreateFrame2d(Basis2d basis, Vector2d origin);
-Matrix3x3 FrameTransform_2d(Frame2d source, Frame2d destination);
-Matrix3x3 FrameChainTransform_2d(Frame2d source, Frame2d middle, Frame2d destination);
-Vector2d BasisTransform_2d_Scale(Basis2d source, Basis2d destination);
+// Matrix3x3 FrameTransform_2d(Frame2d source, Frame2d destination);
+// Matrix3x3 FrameChainTransform_2d(Frame2d source, Frame2d middle, Frame2d destination);
+// Vector2d BasisTransform_2d_Scale(Basis2d source, Basis2d destination);
 //bool IsPointInPolygon(Vector2d point, Vector2d *vertices, Vector2d vertice_offset, int vertice_count);
 #endif
 

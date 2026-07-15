@@ -368,7 +368,7 @@ void MapEntityToASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 snapped_aa
             Vector2d cell_coords = (Vector2d){snapped_t_left.x + x, snapped_t_left.y + y};
             int cell_i = GetIndexFromCoords(space, cell_coords);
             Cell *cell = GetCellFromCoords(space, cell_coords);
-            bool out_of_bounds = VectorIsInSpace_2d(cell_coords, space);
+            bool out_of_bounds = Frame_ContainsPoint_Local(cell_coords, &space->system);
             if (cell == NULL || out_of_bounds == false)
             {
                 //LOG_WARN("Cell (index %d) not found in MapEntityToASpace or its coordinates are out of bounds. Skipping this object-->cell mapping.\n", cell_i);

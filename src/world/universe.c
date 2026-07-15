@@ -247,6 +247,8 @@ void Universe_Draw(Universe *u)
 }
 
 // ---------------------------------------------------------------------------
+Can we make this more generic than having to resolve a click to a world via Universe? This function assumes theres only 1 level of any hierarchy. 
+If we had a more generic function that could resolve a click to any coordinate space, we could use it for worlds, panels, and other coordinate spaces.
 bool Universe_ResolveClick(Universe *u, Vector2d universe_click, Vector2d *local_out)
 {
     // Find which world (if any) contains the click point.
@@ -264,9 +266,8 @@ bool Universe_ResolveClick(Universe *u, Vector2d universe_click, Vector2d *local
         {
             World2d *w = &u->worlds[clicked_world];
             Frame2d universe_space = CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D);
-            Frame2d world_space = CreateFrame2d(w->grid_space.space.system.basis,
-                                                           CalcSpaceOriginFromCenter(&w->grid_space.space, w->uni_coords_center));
-            Matrix3x3 universe_to_world_mtx = FrameTransform_2d(universe_space, world_space);
+            Frame2d world_space = w->grid_space.space.system; //CreateFrame2d(w->grid_space.space.system.basis, CalcSpaceOriginFromCenter(&w->grid_space.space, w->uni_coords_center));
+            Matrix3x3 universe_to_world_mtx = Frame_CalcTransform(universe_space, world_space);
             *local_out = TransformCoordinates(universe_to_world_mtx, universe_click);
         }
         return true;

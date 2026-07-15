@@ -19,7 +19,7 @@
 // // void CalculateLineSegmentVectors(Space2d *space);
 // void InitUnitCells(Space2d *coordinate_space);
 
-Vector2d TransformPoint_ToParent(Vector2d local_point, const Frame2d *frame)
+Vector2d Frame_TransformPoint_ToParent(Vector2d local_point, const Frame2d *frame)
 {
     if (!frame)
         return local_point;
@@ -31,7 +31,7 @@ Vector2d TransformPoint_ToParent(Vector2d local_point, const Frame2d *frame)
     return VectorSum_2d(frame->origin_in_parent, VectorSum_2d(u_part, v_part));
 }
 
-Vector2d TransformPoint_FromParent(Vector2d parent_point, const Frame2d *frame)
+Vector2d Frame_TransformPoint_FromParent(Vector2d parent_point, const Frame2d *frame)
 {
     if (!frame)
         return parent_point;
@@ -48,7 +48,7 @@ Vector2d TransformPoint_FromParent(Vector2d parent_point, const Frame2d *frame)
     return local_point;
 }
 
-static Matrix3x3 BuildFrameMatrix(Frame2d frame)
+static Matrix3x3 Frame_BuildMatrix(Frame2d frame)
 {
     return (Matrix3x3){
         .col1 = {frame.basis.u.x, frame.basis.u.y, 0.0f},
@@ -57,23 +57,23 @@ static Matrix3x3 BuildFrameMatrix(Frame2d frame)
     };
 }
 
-Matrix3x3 FrameTransform_2d(Frame2d source, Frame2d destination)
+Matrix3x3 Frame_CalcTransform(Frame2d source, Frame2d destination)
 {
-    Matrix3x3 source_frame = BuildFrameMatrix(source);
-    Matrix3x3 destination_frame = BuildFrameMatrix(destination);
+    Matrix3x3 source_frame = Frame_BuildMatrix(source);
+    Matrix3x3 destination_frame = Frame_BuildMatrix(destination);
 
     return MatrixMultiply_3x3_3x3(MatrixInvert_3x3(destination_frame), source_frame);
 }
 
-Matrix3x3 FrameChainTransform_2d(Frame2d source, Frame2d middle, Frame2d destination)
+Matrix3x3 Frame_CalcChainTransform(Frame2d source, Frame2d middle, Frame2d destination)
 {
-    Matrix3x3 source_to_middle = FrameTransform_2d(source, middle);
-    Matrix3x3 middle_to_destination = FrameTransform_2d(middle, destination);
+    Matrix3x3 source_to_middle = Frame_CalcTransform(source, middle);
+    Matrix3x3 middle_to_destination = Frame_CalcTransform(middle, destination);
 
     return MatrixMultiply_3x3_3x3(middle_to_destination, source_to_middle);
 }
 
-Vector2d BasisTransform_2d_Scale(Basis2d source, Basis2d destination)
+Vector2d Frame_GetBasisScaling(Basis2d source, Basis2d destination)
 {
     float source_u_magnitude = VectorMagnitude_2d(source.u);
     float source_v_magnitude = VectorMagnitude_2d(source.v);
@@ -91,7 +91,7 @@ Vector2d BasisTransform_2d_Scale(Basis2d source, Basis2d destination)
 }
 
 // Legacy draft block kept for reference only.
-Vector2d CalcFrameExtent_Local(const Frame2d *frame)
+Vector2d Frame_CalcExtent_Local(const Frame2d *frame)
 {
     if (!frame)
     {
@@ -106,7 +106,7 @@ Vector2d CalcFrameExtent_Local(const Frame2d *frame)
     return extent;
 }
 
-Vector2d GetFrameTopLeft_Local(const Frame2d *frame)
+Vector2d Frame_GetTopLeft_Local(const Frame2d *frame)
 {
     if (!frame)
         return ZERO_VECTOR_2D;
@@ -119,13 +119,29 @@ Vector2d GetFrameTopLeft_Local(const Frame2d *frame)
     return top_left;
 }
 
-Vector2d CalcFrameTopLeft_InParent(const Frame2d *frame)
+Matrix2x2 Frame_CalcAABB_Local(const Frame2d *frame)
+{
+    if (!frame)
+        return INFINITY_MATRIX_2x2;
+
+    Vector2d extent = Frame_CalcExtent_Local(frame);
+    Matrix2x2 aabb_box = {0};
+    aabb_box.col1.x = fminf(frame->local_min.x, frame->local_max.x);
+    aabb_box.col2.x = fmaxf(frame->local_min.x, frame->local_max.x);
+
+    aabb_box.col1.y = fminf(frame->local_min.y, frame->local_max.y);
+    aabb_box.col2.y = fmaxf(frame->local_min.y, frame->local_max.y);
+
+    return aabb_box;
+}
+
+Vector2d Frame_CalcTopLeft_InParent(const Frame2d *frame)
 {
     if (!frame)
         return ZERO_VECTOR_2D;
 
     // Get the local coordinate of the corner
-    Vector2d local_tl = GetFrameTopLeft_Local(frame);
+    Vector2d local_tl = Frame_GetTopLeft_Local(frame);
 
     // Project it into parent space using the basis and origin
     Vector2d u_part = VectorScale_2d(frame->basis.u, local_tl.x);
@@ -135,13 +151,13 @@ Vector2d CalcFrameTopLeft_InParent(const Frame2d *frame)
     return VectorSum_2d(frame->origin_in_parent, combined_basis);
 }
 
-Matrix2x2 CalcFrameExtents_InParent(const Frame2d *frame)
+Matrix2x2 Frame_CalcExtents_InParent(const Frame2d *frame)
 {
     if (!frame)
         return INFINITY_MATRIX_2x2;
 
     // Calculate the extent in local coordinates
-    Vector2d local_extent = CalcFrameExtent_Local(frame);
+    Vector2d local_extent = Frame_CalcExtent_Local(frame);
 
     // Project the local extent into parent space using the basis vectors
     Vector2d u_part = VectorScale_2d(frame->basis.u, local_extent.x);
@@ -150,82 +166,113 @@ Matrix2x2 CalcFrameExtents_InParent(const Frame2d *frame)
     return (Matrix2x2){u_part, v_part};
 }
 
-Matrix2x2 CalcFrameAABB_InParent(const Frame2d *frame)
+Matrix2x2 Frame_CalcAABB_InParent(const Frame2d *frame)
 {
-    if (!frame)
-        return INFINITY_MATRIX_2x2;
+    if (!frame) return INFINITY_MATRIX_2x2;
 
-    Matrix2x2 u_v_extents = CalcFrameExtents_InParent(frame);
-    Matrix2x2 aabb_box = {0};
-    aabb_box.col1.x = fminf(u_v_extents.col1.x, u_v_extents.col2.x);
-    aabb_box.col2.x = fmaxf(u_v_extents.col1.x, u_v_extents.col2.x);
+    // Define the 4 local corners of the frame
+    Vector2d local_corners[4] = {
+        { frame->local_min.x, frame->local_min.y }, // Bottom-Left
+        { frame->local_max.x, frame->local_min.y }, // Bottom-Right
+        { frame->local_min.x, frame->local_max.y }, // Top-Left
+        { frame->local_max.x, frame->local_max.y }  // Top-Right
+    };
 
-    aabb_box.col1.y = fminf(u_v_extents.col1.y, u_v_extents.col2.y);
-    aabb_box.col2.y = fmaxf(u_v_extents.col1.y, u_v_extents.col2.y);
+    // Transform the first corner to parent space to initialize our min/max bounds
+    Vector2d p0 = Frame_TransformPoint_ToParent(local_corners[0], frame);
+    Vector2d p_min = p0;
+    Vector2d p_max = p0;
 
-    return aabb_box;
+    // Transform the remaining 3 corners and expand the bounds
+    for (int i = 1; i < 4; i++)
+    {
+        Vector2d p = Frame_TransformPoint_ToParent(local_corners[i], frame);
+        
+        if (p.x < p_min.x) p_min.x = p.x;
+        if (p.y < p_min.y) p_min.y = p.y;
+        
+        if (p.x > p_max.x) p_max.x = p.x;
+        if (p.y > p_max.y) p_max.y = p.y;
+    }
+
+    // Pack the absolute min and max coordinates into your Matrix2x2
+    Matrix2x2 aabb;
+    aabb.col1 = p_min; // Column 1 holds the absolute Bottom-Left point (min)
+    aabb.col2 = p_max; // Column 2 holds the absolute Top-Right point (max)
+
+    return aabb;
 }
 
-bool FrameContainsPoint_FromParent(Vector2d parent_point, const Frame2d *frame)
+bool Frame_ContainsPoint_InParent(Vector2d parent_point, const Frame2d *frame)
 {
     if (!frame)
         return false;
 
     // Push the point down into local reality coordinates
-    Vector2d local_p = TransformPoint_FromParent(parent_point, frame);
+    Vector2d local_p = Frame_TransformPoint_FromParent(parent_point, frame);
 
     // Simple, clean bounding checks against Cartesian limits
     return (local_p.x >= frame->local_min.x && local_p.x <= frame->local_max.x &&
             local_p.y >= frame->local_min.y && local_p.y <= frame->local_max.y);
 }
 
-Vector2d CalcSpaceHalfExtent(const Space2d *space)
+bool Frame_ContainsPoint_Local(Vector2d local_point, const Frame2d *frame)
 {
-    if (!space)
-        return ZERO_VECTOR_2D;
+    if (!frame)
+        return false;
 
-    Vector2d half_resolution = {(float)space->columns * 0.5f, (float)space->rows * 0.5f};
-    Vector2d half_u_extent = VectorScale_2d(space->system.basis.u, half_resolution.x);
-    Vector2d half_v_extent = VectorScale_2d(space->system.basis.v, half_resolution.y);
-    return VectorSum_2d(half_u_extent, half_v_extent);
+    // Simple, clean bounding checks against Cartesian limits
+    return (local_point.x >= frame->local_min.x && local_point.x <= frame->local_max.x &&
+            local_point.y >= frame->local_min.y && local_point.y <= frame->local_max.y);
 }
 
-Vector2d CalcSpaceOriginFromCenter(const Space2d *space, Vector2d center)
-{
-    return VectorSum_2d(center, VectorScale_2d(CalcSpaceHalfExtent(space), -1.0f));
-}
+// Vector2d CalcSpaceHalfExtent(const Space2d *space)
+// {
+//     if (!space)
+//         return ZERO_VECTOR_2D;
 
-Matrix2x2 CalcSpaceBoundsFromCenter(const Space2d *space, Vector2d center)
-{
-    Matrix2x2 bounds = {0};
-    if (!space)
-        return bounds;
+//     Vector2d half_resolution = {(float)space->columns * 0.5f, (float)space->rows * 0.5f};
+//     Vector2d half_u_extent = VectorScale_2d(space->system.basis.u, half_resolution.x);
+//     Vector2d half_v_extent = VectorScale_2d(space->system.basis.v, half_resolution.y);
+//     return VectorSum_2d(half_u_extent, half_v_extent);
+// }
 
-    Vector2d origin = CalcSpaceOriginFromCenter(space, center);
-    Vector2d corners[4] = {
-        origin,
-        VectorSum_2d(origin, VectorScale_2d(space->system.basis.u, (float)space->columns)),
-        VectorSum_2d(VectorSum_2d(origin, VectorScale_2d(space->system.basis.u, (float)space->columns)), VectorScale_2d(space->system.basis.v, (float)space->rows)),
-        VectorSum_2d(origin, VectorScale_2d(space->system.basis.v, (float)space->rows)),
-    };
+// Vector2d CalcSpaceOriginFromCenter(const Space2d *space, Vector2d center)
+// {
+//     return VectorSum_2d(center, VectorScale_2d(CalcSpaceHalfExtent(space), -1.0f));
+// }
 
-    bounds.col1 = corners[0];
-    bounds.col2 = corners[0];
+// Matrix2x2 CalcSpaceBoundsFromCenter(const Space2d *space, Vector2d center)
+// {
+//     Matrix2x2 bounds = {0};
+//     if (!space)
+//         return bounds;
 
-    for (int i = 1; i < 4; i++)
-    {
-        if (corners[i].x < bounds.col1.x)
-            bounds.col1.x = corners[i].x;
-        if (corners[i].y < bounds.col1.y)
-            bounds.col1.y = corners[i].y;
-        if (corners[i].x > bounds.col2.x)
-            bounds.col2.x = corners[i].x;
-        if (corners[i].y > bounds.col2.y)
-            bounds.col2.y = corners[i].y;
-    }
+//     Vector2d origin = CalcSpaceOriginFromCenter(space, center);
+//     Vector2d corners[4] = {
+//         origin,
+//         VectorSum_2d(origin, VectorScale_2d(space->system.basis.u, (float)space->columns)),
+//         VectorSum_2d(VectorSum_2d(origin, VectorScale_2d(space->system.basis.u, (float)space->columns)), VectorScale_2d(space->system.basis.v, (float)space->rows)),
+//         VectorSum_2d(origin, VectorScale_2d(space->system.basis.v, (float)space->rows)),
+//     };
 
-    return bounds;
-}
+//     bounds.col1 = corners[0];
+//     bounds.col2 = corners[0];
+
+//     for (int i = 1; i < 4; i++)
+//     {
+//         if (corners[i].x < bounds.col1.x)
+//             bounds.col1.x = corners[i].x;
+//         if (corners[i].y < bounds.col1.y)
+//             bounds.col1.y = corners[i].y;
+//         if (corners[i].x > bounds.col2.x)
+//             bounds.col2.x = corners[i].x;
+//         if (corners[i].y > bounds.col2.y)
+//             bounds.col2.y = corners[i].y;
+//     }
+
+//     return bounds;
+// }
 
 // // Creates a local child coordinate space with physical attributes.
 // // Basis vectors in most cases (orthogonal dimensions) should be u = {1,0}, v = {0,1}.

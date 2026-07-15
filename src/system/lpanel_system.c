@@ -215,7 +215,7 @@ void InitPanelRoot(void)
     lpanel_root->data.root.space = lpanel_space;
     lpanel_root->child_spacing = lpanel_root_child_spacing;
 
-    Vector2d basis_scale = BasisTransform_2d_Scale(camera_lpanel.source_basis, camera_lpanel.destination_basis);
+    Vector2d basis_scale = Frame_GetBasisScaling(camera_lpanel.source_basis, camera_lpanel.destination_basis);
     seed_box.coords = (Vector2d){lpanel_pixel_origin.x, lpanel_pixel_origin.y};
     seed_box.dimensions = (Vector2d){lpanel_resolution.x * basis_scale.x, lpanel_resolution.y * basis_scale.y};
 }

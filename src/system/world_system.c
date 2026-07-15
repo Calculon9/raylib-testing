@@ -99,7 +99,7 @@ static Vector2d ResolveClickCoordSpaceCoords(const World2d *active_world, Vector
                                                            CalcSpaceOriginFromCenter(&active_world->grid_space.space,
                                                                                           active_world->uni_coords_center));
     Frame2d input_system = CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D);
-    Matrix3x3 input_to_child_local_mtx = FrameChainTransform_2d(input_system, parent_system, child_local_system);
+    Matrix3x3 input_to_child_local_mtx = Frame_CalcChainTransform(input_system, parent_system, child_local_system);
     Vector2d click_parent_coords = TransformCoordinates(G_Universe.camera.dest_to_source_mtx, click_pixel_coords);
     return TransformCoordinates(input_to_child_local_mtx, click_parent_coords);
 }

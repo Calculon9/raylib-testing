@@ -204,7 +204,7 @@ void InitRPanel(void)
     rpanel_create_view = &rpanel_create_view_storage;
     btn_action_rpanel_enumerate = 0;
 
-    Vector2d basis_scale = BasisTransform_2d_Scale(camera_rpanel.source_basis, camera_rpanel.destination_basis);
+    Vector2d basis_scale = Frame_GetBasisScaling(camera_rpanel.source_basis, camera_rpanel.destination_basis);
     rpanel_seed_box.coords = (Vector2d){rpanel_pixel_origin.x, rpanel_pixel_origin.y};
     rpanel_seed_box.dimensions = (Vector2d){rpanel_resolution.x * basis_scale.x, rpanel_resolution.y * basis_scale.y};
 

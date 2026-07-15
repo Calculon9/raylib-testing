@@ -187,11 +187,11 @@ Matrix3x3 MatrixInvert_3x3(Matrix3x3 M)
     return res;
 }
 
-Frame2d CreateFrame2d(Basis2d basis, Vector2d origin)
+Frame2d CreateFrame2d(Basis2d basis, Vector2d origin_in_parent)
 {
     return (Frame2d){
         .basis = basis,
-        .origin_in_parent = origin,
+        .origin_in_parent = origin_in_parent,
         .local_min = ZERO_VECTOR_2D,
         .local_max = ZERO_VECTOR_2D,
     };

@@ -137,8 +137,8 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
     // Save basis scale factors for panel coordinate conversions.
     Basis2d lpanel_basis = (Basis2d){lpanel_u, lpanel_v};
     Basis2d lpanel_pixel_basis = (Basis2d){lpanel_pixel_u, lpanel_pixel_v};
-    local_to_lpanel_scale = BasisTransform_2d_Scale(lpanel_basis, lpanel_pixel_basis);
-    lpanel_to_local_scale = BasisTransform_2d_Scale(lpanel_pixel_basis, lpanel_basis);
+    local_to_lpanel_scale = Frame_GetBasisScaling(lpanel_basis, lpanel_pixel_basis);
+    lpanel_to_local_scale = Frame_GetBasisScaling(lpanel_pixel_basis, lpanel_basis);
 
     // Calculate screen pixel-space origins for each region.
     lpanel_pixel_origin.x = (lpanel_pixel_u.x + lpanel_pixel_v.x) * lpanel_origin.x;

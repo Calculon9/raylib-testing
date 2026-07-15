@@ -135,7 +135,7 @@ void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d camera)
     Basis2d basis = panel_space.system.basis;
 
     Vector2d origin = panel_space.system.origin_in_parent;
-    Vector2d basis_scale = BasisTransform_2d_Scale(camera.source_basis, camera.destination_basis); // Need to scale dimensions from world units to pixel units using the camera's basis transform
+    Vector2d basis_scale = Frame_GetBasisScaling(camera.source_basis, camera.destination_basis); // Need to scale dimensions from world units to pixel units using the camera's basis transform
 
     // Resolve rendered position and dimensions of panel element
     UIBox box = ResolveElementBox(root_element, seed_box, basis_scale);
@@ -168,7 +168,7 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d camera)
 
     // The world position of the coordinate space object is the origin of the coordinate space, so (0,0).
     // But to make it more flexible for different coordinate space origins, we will add the world position to the start and end points of the lines to get their actual coordinates in world space, and then convert those to screen coordinates using the basis transform matrix
-    Vector2d basis_scale = BasisTransform_2d_Scale(camera.source_basis, camera.destination_basis); // Need to scale dimensions from world units to pixel units using the camera's basis transform
+    Vector2d basis_scale = Frame_GetBasisScaling(camera.source_basis, camera.destination_basis); // Need to scale dimensions from world units to pixel units using the camera's basis transform
 
     // Resolve rendered position and dimensions of panel element
     UIBox box = ResolveElementBox(e, parent_box, basis_scale);
