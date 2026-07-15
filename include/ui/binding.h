@@ -42,3 +42,4 @@ bool ValidatorIntPositive(const char *text, void *out_value, void *user_data);
 bool ValidatorFloatRange(const char *text, void *out_value, void *user_data);
 
 #endif // UI_BINDING_H
+

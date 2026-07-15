@@ -35,6 +35,7 @@
 #include "world/world.h"
 #include "world/universe.h"
 #include "camera/camera.h"
+#include "math/affine_space_ops.h"
 #include <math/helpers.h>
 // #include "screens.h"
 
@@ -93,30 +94,30 @@ static Vector2d ResolveClickCoordSpaceCoords(const World2d *active_world, Vector
         return ZERO_VECTOR_2D;
     }
 
-    CoordSystem2d parent_system = CreateCoordSystem2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D);
-    CoordSystem2d child_local_system = CreateCoordSystem2d(active_world->coord_space_grid.coord_space.system.basis,
-                                                           CalcCoordSpaceOriginFromCenter(&active_world->coord_space_grid.coord_space,
+    Frame2d parent_system = CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D);
+    Frame2d child_local_system = CreateFrame2d(active_world->grid_space.space.system.basis,
+                                                           CalcSpaceOriginFromCenter(&active_world->grid_space.space,
                                                                                           active_world->uni_coords_center));
-    CoordSystem2d input_system = CreateCoordSystem2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D);
-    Matrix3x3 input_to_child_local_mtx = CoordSystemChainTransform_2d(input_system, parent_system, child_local_system);
+    Frame2d input_system = CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D);
+    Matrix3x3 input_to_child_local_mtx = FrameChainTransform_2d(input_system, parent_system, child_local_system);
     Vector2d click_parent_coords = TransformCoordinates(G_Universe.camera.dest_to_source_mtx, click_pixel_coords);
     return TransformCoordinates(input_to_child_local_mtx, click_parent_coords);
 }
 
-static bool TryGetClickedCoordSpaceCell(CoordSpace2d *coord_space, Vector2d click_local_coords, int *out_cell_index, Cell **out_cell)
+static bool TryGetClickedSpaceCell(Space2d *space, Vector2d click_local_coords, int *out_cell_index, Cell **out_cell)
 {
-    if (!coord_space || !out_cell_index || !out_cell)
+    if (!space || !out_cell_index || !out_cell)
     {
         return false;
     }
 
-    if (click_local_coords.x < 0 || click_local_coords.y < 0 || click_local_coords.x >= coord_space->resolution_ixj.x || click_local_coords.y >= coord_space->resolution_ixj.y)
+    if (click_local_coords.x < 0 || click_local_coords.y < 0 || click_local_coords.x >= space->columns || click_local_coords.y >= space->rows)
     {
         return false;
     }
 
-    int cell_index = ((int)click_local_coords.y * (int)coord_space->resolution_ixj.x) + (int)click_local_coords.x;
-    Cell *cells = coord_space->cells.items;
+    int cell_index = ((int)click_local_coords.y * space->columns) + (int)click_local_coords.x;
+    Cell *cells = space->cells.items;
     if (!cells)
     {
         return false;
@@ -228,6 +229,7 @@ void InitWorldSystem(void)
     // Init Global World State
     G_WorldState.selected_object = NULL;
     G_WorldState.selected_cell = NULL;
+    G_WorldState.selected_cell_index = -1;
     G_WorldState.newtonoid_params = AllocateBytes(sizeof(Newtonoid2dParams));
     // Initialise command queue for UI->World commands
     extern void InitCommandQueue(void);
@@ -300,7 +302,7 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
     //     radius = GetRandomFloat(0.1, polygonoid_radius_default * 0.25);
     //     mass = radius * polygonoid_mass_default;
     //     velocity = (Vector2d){GetRandomFloat(polygonoid_velocity_default.x * -8, polygonoid_velocity_default.x * 8), GetRandomFloat(polygonoid_velocity_default.y * 0, polygonoid_velocity_default.y * 16)};
-    //     Vector2d top_middle_world = (Vector2d){world.coord_space_grid.object.boxed_dimensions.x * 0.5, 0.3};
+    //     Vector2d top_middle_world = (Vector2d){world.grid_space.object.boxed_dimensions.x * 0.5, 0.3};
     //     // Vector2d top_middle_world_pixel = TransformCoordinates(camera_world.source_to_dest_mtx, top_middle_world);
     //     CreateAddNewtonoid(vertice_count, radius, SHAPE_MATH_POLY_HULL, mass, colour, top_middle_world, velocity, acceleration);
     //     UpdateWorld(&G_WorldState, frame_counter.delta_time);
@@ -334,7 +336,7 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
     //     for (int i = 0; i < G_Universe.world_count; i++)
     //     {
     //         World2d *w = &G_Universe.worlds[i];
-    //         Vector2d res = w->coord_space_grid.coord_space.resolution_ixj;
+    //         Vector2d res = w->grid_space.space.resolution_ixj;
 
     //         // Un-map Universe Space to enter this specific World's Local Space.
     //         // This single matrix multiplication handles the world's custom rotation, scaling, and position.
@@ -410,7 +412,7 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
 
     int cell_index = 0;
     Cell *p_cell = NULL;
-    if (!TryGetClickedCoordSpaceCell(&active_world->coord_space_grid.coord_space, click_local_coords, &cell_index, &p_cell))
+    if (!TryGetClickedSpaceCell(&active_world->grid_space.space, click_local_coords, &cell_index, &p_cell))
     {
         // Click is outside the structural world viewport boundaries! Avoid resolving cell.
         return;
@@ -419,6 +421,7 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
     // Check if there are any objects in that cell and print info about those objects if so
     Cell cell = *p_cell;
     G_WorldState.selected_cell = p_cell;
+    G_WorldState.selected_cell_index = cell_index;
 
     // ----DEBUG--- //
     AppendLogLine(log,
@@ -431,8 +434,8 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
                   cell.occupancy,
                   cell.value);
 
-    Vector2d max_click_distance = {active_world->coord_space_grid.coord_space.resolution_ixj.x,
-                                   active_world->coord_space_grid.coord_space.resolution_ixj.y};
+    Vector2d max_click_distance = {(float)active_world->grid_space.space.columns,
+                                   (float)active_world->grid_space.space.rows};
     Newtonoid2d *p_closest = FindClosestObjectInCell(&cell,
                                                      click_local_coords,
                                                      max_click_distance,
@@ -480,7 +483,7 @@ void CreateAddNewtonoid(int vertice_count, float radius, ShapeType shape_type, f
     }
 
     if (new_newtonoid.radius > 0.0)
-        AddObjectToWorld(active_world, &new_newtonoid, active_world->coord_space_grid.object.id);
+        AddObjectToWorld(active_world, &new_newtonoid, active_world->grid_space.object.id);
 
 }
 
@@ -560,3 +563,5 @@ int FinishGameplayScreen(void)
 {
     return finishScreen;
 }
+
+

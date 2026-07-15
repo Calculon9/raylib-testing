@@ -100,7 +100,7 @@ typedef struct
 
 typedef struct
 {
-    CoordSpace2d coord_space;
+    Space2d space;
 } RootData;
 
 typedef struct
@@ -216,3 +216,4 @@ bool IsBtn(UIElement *e);
 void ToggleElementEnabled(UIElement *element);
 // UIElement *CreateTextField(float width, float height, Vector2d origin_coords, Vector2d parent_offset, Vector2d label_tbox_offset, Vector2d label_tbox_padding, char max_label_chars, char max_text_box_chars);
 #endif
+

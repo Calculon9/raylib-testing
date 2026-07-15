@@ -292,3 +292,4 @@ bool PoolOwns(Pool *p, void *element)
     uintptr_t top = base + p->element_size * (uintptr_t)p->capacity;
     return (e >= base && e < top);
 }
+

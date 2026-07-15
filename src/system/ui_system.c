@@ -247,7 +247,7 @@ void UpdateGlobalUIState()
     Cell *cell = G_WorldState.selected_cell;
     if (cell)
     {
-        int index = GetIndexFromCoords(&G_WorldState.world->coord_space_grid.coord_space, cell->local_center);
+        int index = G_WorldState.selected_cell_index;
         int occu = cell->occupancy;
         float val = cell->value;
         float fill = 0; // set to 0 for now
@@ -329,3 +329,5 @@ void UpdateGlobalUIState()
         // Unbind handled by ClearAndUnbindTextbox calls above.
     }
 }
+
+

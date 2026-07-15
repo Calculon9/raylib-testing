@@ -12,8 +12,8 @@ void PhysicsUpdateJob(void *context, int start, int end)
         return;
 
     WorldState *world_context = (WorldState *)context;
-    CoordSpace2d_Grid *space_entity = &world_context->world->coord_space_grid;
-    CoordSpace2d *space = &space_entity->coord_space;
+    GridSpace2d *space_entity = &world_context->world->grid_space;
+    Space2d *space = &space_entity->space;
     LArray *objects = &world_context->world->objects;
     FlatMapInt *entity_space_map = &world_context->world->entity_space_map;
     Newtonoid2d *newtonoids = (Newtonoid2d *)objects->items;
@@ -354,7 +354,7 @@ void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container)
     }
 }
 
-void MapEntityToASpace(CoordSpace2d *space, Newtonoid2d *object, Matrix2x2 snapped_aabb_box, FlatMapInt *O_entity_to_space_index_map)
+void MapEntityToASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 snapped_aabb_box, FlatMapInt *O_entity_to_space_index_map)
 {
     float snapped_w = (snapped_aabb_box.col2.x - snapped_aabb_box.col1.x);
     float snapped_h = (snapped_aabb_box.col2.y - snapped_aabb_box.col1.y);
@@ -431,3 +431,5 @@ void PrintVerticeCoords(LArray *vertices_arr, Vector2d offset)
     LOG_INFO("%s\n", x_buffer);
     LOG_INFO("%s\n", y_buffer);
 }
+
+

@@ -169,3 +169,4 @@ void DrawChar(char c, Vector2d origin_coords, int scale, Bitmap_Font font, Colou
         }
     }
 }
+

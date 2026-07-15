@@ -32,7 +32,7 @@ static Size lpanel_title_tfield_size = {{6.0f, 0.45f}, SIZE_FIXED};
 static Size lpanel_row_tfield_size = {{6.0f, 0.5f}, SIZE_FIXED};
 
 // Coordinate Space Properties
-static CoordSpace2d lpanel_space = {0};
+static Space2d lpanel_space = {0};
 
 UIBox seed_box = {0};
 UIElement *lpanel_root = {0};
@@ -210,9 +210,9 @@ void InitPanelRoot(void)
     Basis2d lpanel_pixel_basis = (Basis2d){lpanel_pixel_u, lpanel_pixel_v};
     camera_lpanel = CreateCamera2d(lpanel_pixel_basis, lpanel_basis, lpanel_pixel_origin, lpanel_origin);
 
-    lpanel_space = NewCoordSpace2d(lpanel_origin, lpanel_resolution, lpanel_basis);
+    lpanel_space = NewSpace2d(lpanel_origin, lpanel_resolution, lpanel_basis);
     lpanel_root = CreateUIElement(UI_ELEMENT_ROOT, lpanel_root_size, (Offset){ZERO_VECTOR_2D, OFFSET_FIXED}, lpanel_default_padding, COLOURLESS_RGBA, lpanel_fill_colour);
-    lpanel_root->data.root.coord_space = lpanel_space;
+    lpanel_root->data.root.space = lpanel_space;
     lpanel_root->child_spacing = lpanel_root_child_spacing;
 
     Vector2d basis_scale = BasisTransform_2d_Scale(camera_lpanel.source_basis, camera_lpanel.destination_basis);
@@ -394,3 +394,5 @@ void DrawLPanel(void)
 {
     DrawRootUIElement(lpanel_root, seed_box, camera_lpanel);
 }
+
+

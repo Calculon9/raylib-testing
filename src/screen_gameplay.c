@@ -80,7 +80,7 @@
 // static ColourRgba lpanel_text_colour = BEIGE_RGBA;
 // static ColourRgba lpanel_fill_colour = {150, 115, 70, 255};
 // // Coordinate Space Properties
-// static CoordSpace2d lpanel_space = {0};
+// static Space2d lpanel_space = {0};
 // // static Vector2d lpanel_origin, lpanel_end = {0}; // Dependent on the game world screen area
 // // static Vector2d lpanel_pixel_origin, lpanel_pixel_end = {0};
 // // static Vector2d lpanel_u = {1, 0};
@@ -165,9 +165,9 @@
 // // void InitPanelTextContainers();
 // // // void DrawCircloids();
 // // void DrawPolygonoids(Collection *polygonoids);
-// // void DrawPanelRegion(CoordSpace2d panel_space, Color fill_colour);
-// // void DrawPanelRegion_ObjectProps(CoordSpace2d panel_space, Color fill_colour);
-// // void DrawPanelRegion_Stats(CoordSpace2d panel_space, Color fill_colour);
+// // void DrawPanelRegion(Space2d panel_space, Color fill_colour);
+// // void DrawPanelRegion_ObjectProps(Space2d panel_space, Color fill_colour);
+// // void DrawPanelRegion_Stats(Space2d panel_space, Color fill_colour);
 // // void DrawWorldRegion(World2d *world, Camera2d world_camera);
 // // void DrawWorldCoordinateGrid();
 // // void DrawTextFieldElements(UIElement *text_field, Vector2d parent_pixel_coords, Bitmap_Font font, int font_scale, Camera2d camera);
@@ -225,14 +225,14 @@
 //     camera_lpanel = CreateCamera2d(lpanel_pixel_basis, lpanel_basis, lpanel_pixel_origin, lpanel_origin, 1, 0);
 
 //     // 2. INIT a LOCAL COORD SPACE for the SIDE PANEL using the resolutions, origins etc. from Step 0
-//     lpanel_space = NewCoordSpace2d(lpanel_origin, lpanel_resolution, lpanel_basis);
+//     lpanel_space = NewSpace2d(lpanel_origin, lpanel_resolution, lpanel_basis);
 
 //     // 3 CREATE GAME WORLD using the resolutions, origins etc. from Step 0
 //     // 3.1 Create the coordinate space for the world
 //     // 3.11 Initialise Objects
 //     polygonoids = NEW_DYNAMIC_ARRAY(initObjectCount, Polygonoid);
 //     // 3.2 Create the space then world
-//     CoordSpace2d_Grid space_g = NewCoordSpace2d_Grid(world_origin, world_resolution, world_basis, world_fill_colour, world_line_colour);
+//     GridSpace2d space_g = NewGridSpace2d(world_origin, world_resolution, world_basis, world_fill_colour, world_line_colour);
 //     world = CreateWorld(space_g, *polygonoids, gravity);
 
 //     // 4 CREATE TEST POLYGONOIDS
@@ -520,7 +520,7 @@
 //     int cell_index = ((int)click_world_coords.y * (int)world_resolution.x) + (int)click_world_coords.x;
 
 //     // Check if there are any objects in that cell and print info about those objects if so
-//     Cell *cells = world.coord_space_grid.coord_space.cells.coll.items;
+//     Cell *cells = world.grid_space.space.cells.coll.items;
 //     Cell cell = cells[cell_index];
 //     selectedCell = &cells[cell_index];
 
@@ -610,7 +610,7 @@
 // }
 
 // // Draws Left Panel
-// // void DrawPanelRegion(CoordSpace2d panel_space, Color fill_colour)
+// // void DrawPanelRegion(Space2d panel_space, Color fill_colour)
 // // {
 // //     // Need to convert world coordinates to screen coordinates
 // //     Basis2d basis = panel_space.basis;
@@ -625,8 +625,8 @@
 // //     Vector2d pixel_end = TransformCoordinates(camera_lpanel.source_to_dest_mtx, end);
 
 // //     // First: Draw background
-// //     ColourRgba colour_fill = world.coord_space_grid.colour_fill;
-// //     ColourRgba colour_line = world.coord_space_grid.colour_line;
+// //     ColourRgba colour_fill = world.grid_space.colour_fill;
+// //     ColourRgba colour_line = world.grid_space.colour_line;
 // //     DrawRectangle(pixel_origin.x, pixel_origin.y, abs(pixel_end.x - pixel_origin.x), abs(pixel_end.y - pixel_origin.y), fill_colour);
 
 // //     // DrawPanelRegion_Stats(panel_space, fill_colour);
@@ -643,7 +643,7 @@
 // //     // DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + 2 * lineSpacing.y}, font.baseSize * 2.0f, 2, (Color)BEIGE);
 // // }
 
-// // void DrawPanelRegion_Stats(CoordSpace2d panel_space, Color fill_colour)
+// // void DrawPanelRegion_Stats(Space2d panel_space, Color fill_colour)
 // // {
 // //     Vector2 pos = {20, 100};
 // //     Vector2 lineSpacing = {0, 40};
@@ -664,7 +664,7 @@
 // //     DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + 2 * lineSpacing.y}, font.baseSize * 2.0f, 2, (Color){lpanel_text_colour.r, lpanel_text_colour.g, lpanel_text_colour.b, lpanel_text_colour.a});
 // // }
 
-// // void DrawPanelRegion_ObjectProps(CoordSpace2d panel_space, Color fill_colour)
+// // void DrawPanelRegion_ObjectProps(Space2d panel_space, Color fill_colour)
 // //{
 // // Vector2 pos = {20, 250};
 // // Vector2 lineSpacing = {0, 40};
@@ -736,26 +736,26 @@
 
 // void DrawWorldCoordinateGrid()
 // {
-//     if (!world.coord_space_grid.coord_space.cells.coll.capacity > 0) // Don't need to check count here because we can still draw the field lines even if there are no items in the field
+//     if (!world.grid_space.space.cells.coll.capacity > 0) // Don't need to check count here because we can still draw the field lines even if there are no items in the field
 //     {
 //         return; // No field to draw
 //     }
 
 //     // Need to convert world coordinates to screen coordinates
-//     Basis2d basis = world.coord_space_grid.coord_space.basis;
+//     Basis2d basis = world.grid_space.space.basis;
 
 //     // The world position of the coordinate space object is the origin of the coordinate space, so (0,0).
 //     // But to make it more flexible for different coordinate space origins, we will add the world position to the start and end points of the lines to get their actual coordinates in world space, and then convert those to screen coordinates using the basis transform matrix
-//     Vector2d origin = world.coord_space_grid.coord_space.coords_origin;
-//     Vector2d end = VectorSum_2d(origin, world.coord_space_grid.coord_space.resolution_ixj);
+//     Vector2d origin = world.grid_space.space.coords_origin;
+//     Vector2d end = VectorSum_2d(origin, world.grid_space.space.resolution_ixj);
 
 //     // Transform local space position to pixel space
 //     Vector2d world_pixel_origin = TransformCoordinates(camera_world.source_to_dest_mtx, origin);
 //     Vector2d world_pixel_end = TransformCoordinates(camera_world.source_to_dest_mtx, end);
 
 //     // First: Draw background
-//     ColourRgba colour_fill = world.coord_space_grid.colour_fill;
-//     ColourRgba colour_line = world.coord_space_grid.colour_line;
+//     ColourRgba colour_fill = world.grid_space.colour_fill;
+//     ColourRgba colour_line = world.grid_space.colour_line;
 //     DrawRectangle(world_pixel_origin.x,
 //                   world_pixel_origin.y,
 //                   fabsf(world_pixel_end.x - world_pixel_origin.x),
@@ -763,12 +763,12 @@
 //                   (Color){colour_fill.r, colour_fill.g, colour_fill.b, colour_fill.a});
 
 //     // Need to know how the unit steps to take in each direction
-//     int stepsU = world.coord_space_grid.coord_space.stepsU; // ceilf((float)world_space.resolution_ixj.x / VectorMagnitude_2d(basis.u));
-//     int stepsV = world.coord_space_grid.coord_space.stepsV; // VectorMagnitude_2d(basis.v));
+//     int stepsU = world.grid_space.space.stepsU; // ceilf((float)world_space.resolution_ixj.x / VectorMagnitude_2d(basis.u));
+//     int stepsV = world.grid_space.space.stepsV; // VectorMagnitude_2d(basis.v));
 
 //     // 1. Draw "Horizontal-ish" lines (along the U direction)
 //     // Create a line at every 'v' step that spans the entire 'u' width
-//     ColourRgba colour = world.coord_space_grid.colour_line;
+//     ColourRgba colour = world.grid_space.colour_line;
 //     Vector2d line_origin, line_end = {0};
 //     Vector2d line_pixel_origin, line_pixel_end = {0};
 //     for (int j = 0; j <= stepsV; j++)
@@ -813,7 +813,7 @@
 
 //     // Draw values as text on top of each field unit
 //     int totalUnits = stepsU * stepsV; // (int)ceilf(totalArea / cellArea);
-//     Collection *cells = &(world.coord_space_grid.coord_space.cells.coll);
+//     Collection *cells = &(world.grid_space.space.cells.coll);
 
 //     for (int k = 0; k < totalUnits; k++)
 //     {
@@ -1271,3 +1271,4 @@
 // //     //      fprintf(stderr, "Failed to retrieve enumerated field unit\n"); // Enumerator failed to retrieve the first item
 // //     //  }
 // // }
+

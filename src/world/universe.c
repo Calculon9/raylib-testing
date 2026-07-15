@@ -8,6 +8,7 @@ UNIVERSE MODULE
 #include "world/world_internal.h"
 #include "system/systems.h"
 #include "math/cvectors.h"
+#include "math/affine_space_ops.h"
 #include "common/common.h"
 #include "camera/camera.h"
 
@@ -119,7 +120,7 @@ int Universe_CreateWorld(Universe *u,
     u->next_basis_u = world_basis.u;
     u->next_basis_v = world_basis.v;
 
-    CoordSpace2d_Grid space_g = NewCoordSpace2d_Grid(ZERO_VECTOR_2D, creation_res, world_basis, fill_colour, line_colour);
+    GridSpace2d space_g = NewGridSpace2d(ZERO_VECTOR_2D, creation_res, world_basis, fill_colour, line_colour);
     space_g.object.id = 0;
     space_g.object.flags = FLAG_ATTR_RIGID | FLAG_STATUS_ALIVE;
     space_g.object.collision_mask = FLAG_TYPE_NEWTONOID | FLAG_TYPE_PROJECTILE | FLAG_TYPE_WALL;
@@ -143,11 +144,11 @@ int Universe_CreateWorld(Universe *u,
     marker.flags = FLAG_STATUS_ALIVE;
     marker.line_colour = camera_marker_colour;
     marker.fill_colour = camera_marker_colour;
-    u->camera_marker_ids[new_index] = AddObjectToWorld(new_world, &marker, new_world->coord_space_grid.object.id);
+    u->camera_marker_ids[new_index] = AddObjectToWorld(new_world, &marker, new_world->grid_space.object.id);
 
     u->world_count++;
 
-    Matrix2x2 world_bounds = CalcCoordSpaceBoundsFromCenter(&new_world->coord_space_grid.coord_space, new_world->uni_coords_center);
+    Matrix2x2 world_bounds = CalcSpaceBoundsFromCenter(&new_world->grid_space.space, new_world->uni_coords_center);
     Vector2d world_bounds_min = world_bounds.col1;
     Vector2d world_bounds_max = world_bounds.col2;
     Universe_SetWorldBounds(u, new_index, world_bounds_min, world_bounds_max);
@@ -168,6 +169,7 @@ int Universe_CreateWorld(Universe *u,
         world_state->collisions = &new_world->collisions;
         world_state->selected_object = NULL;
         world_state->selected_cell = NULL;
+        world_state->selected_cell_index = -1;
     }
 
     LOG_INFO("Universe_CreateWorld -> index=%d universe_pos=(%.1f,%.1f) res=(%.0fx%.0f)\n",
@@ -261,10 +263,10 @@ bool Universe_ResolveClick(Universe *u, Vector2d universe_click, Vector2d *local
         if (local_out)
         {
             World2d *w = &u->worlds[clicked_world];
-            CoordSystem2d universe_space = CreateCoordSystem2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D);
-            CoordSystem2d world_space = CreateCoordSystem2d(w->coord_space_grid.coord_space.system.basis,
-                                                           CalcCoordSpaceOriginFromCenter(&w->coord_space_grid.coord_space, w->uni_coords_center));
-            Matrix3x3 universe_to_world_mtx = CoordSystemTransform_2d(universe_space, world_space);
+            Frame2d universe_space = CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D);
+            Frame2d world_space = CreateFrame2d(w->grid_space.space.system.basis,
+                                                           CalcSpaceOriginFromCenter(&w->grid_space.space, w->uni_coords_center));
+            Matrix3x3 universe_to_world_mtx = FrameTransform_2d(universe_space, world_space);
             *local_out = TransformCoordinates(universe_to_world_mtx, universe_click);
         }
         return true;
@@ -303,3 +305,4 @@ Camera2d *Universe_GetCamera(Universe *u)
 {
     return &u->camera;
 }
+

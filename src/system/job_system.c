@@ -99,3 +99,4 @@ bool IsJobSystemInitialized(void)
 {
     return g_initialized;
 }
+

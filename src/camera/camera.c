@@ -27,11 +27,11 @@ Camera2d CreateCamera2d(Basis2d destination_basis, Basis2d source_basis, Vector2
     camera.source_focus_coords = source_space_origin_coords;
     camera.target_source_focus_coords = source_space_origin_coords;
 
-    CoordSystem2d source_system = CreateCoordSystem2d(source_basis, source_space_origin_coords);
-    CoordSystem2d destination_system = CreateCoordSystem2d(destination_basis, destination_space_origin_coords);
+    Frame2d source_system = CreateFrame2d(source_basis, source_space_origin_coords);
+    Frame2d destination_system = CreateFrame2d(destination_basis, destination_space_origin_coords);
 
     // Calculate the source-to-destination transform for the two coordinate spaces.
-    camera.source_to_dest_mtx = CoordSystemTransform_2d(source_system, destination_system);
+    camera.source_to_dest_mtx = FrameTransform_2d(source_system, destination_system);
     camera.dest_to_source_mtx = MatrixInvert_3x3(camera.source_to_dest_mtx);
     return camera;
 }
@@ -100,9 +100,9 @@ void UpdateCameraSmoothingTick(Camera2d *cam)
         cam->source_basis = resolved_source_basis;
 
         // Rebuild the source-to-destination mapping with the updated source focus.
-        CoordSystem2d source_system = CreateCoordSystem2d(resolved_source_basis, cam->source_focus_coords);
-        CoordSystem2d destination_system = CreateCoordSystem2d(cam->destination_basis, cam->destination_space_origin_coords);
-        cam->source_to_dest_mtx = CoordSystemTransform_2d(source_system, destination_system);
+        Frame2d source_system = CreateFrame2d(resolved_source_basis, cam->source_focus_coords);
+        Frame2d destination_system = CreateFrame2d(cam->destination_basis, cam->destination_space_origin_coords);
+        cam->source_to_dest_mtx = FrameTransform_2d(source_system, destination_system);
     }
 
     // Always apply the current frame's smoothed camera position to translation columns
@@ -139,9 +139,9 @@ void UpdateCameraFull(Camera2d *cam)
     cam->source_basis = resolved_source_basis;
 
     // Generate the source-to-destination transform from the updated camera basis and focus.
-    CoordSystem2d source_system = CreateCoordSystem2d(resolved_source_basis, cam->source_focus_coords);
-    CoordSystem2d destination_system = CreateCoordSystem2d(cam->destination_basis, cam->destination_space_origin_coords);
-    cam->source_to_dest_mtx = CoordSystemTransform_2d(source_system, destination_system);
+    Frame2d source_system = CreateFrame2d(resolved_source_basis, cam->source_focus_coords);
+    Frame2d destination_system = CreateFrame2d(cam->destination_basis, cam->destination_space_origin_coords);
+    cam->source_to_dest_mtx = FrameTransform_2d(source_system, destination_system);
 
     // Re-anchor translation using the destination-space origin so the current source focus lands there.
     cam->source_to_dest_mtx.col3.x = cam->destination_space_origin_coords.x -
@@ -168,4 +168,6 @@ Vector2d TransformCoordinates(Matrix3x3 transformation_mtx, Vector2d coordinates
 
     return output_coords;
 }
+
+
 

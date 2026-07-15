@@ -17,3 +17,4 @@ static inline void safe_strncpy(char *dst, const char *src, size_t dst_size)
 }
 
 #endif
+

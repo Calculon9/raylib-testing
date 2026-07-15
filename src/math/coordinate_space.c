@@ -17,47 +17,42 @@
 //----------------------------------------------------------------------------------
 // Functions Definition
 //----------------------------------------------------------------------------------
-// void CalculateLineSegmentVectors(CoordSpace2d *coord_space);
-void InitUnitCells(CoordSpace2d *coordinate_space);
+// void CalculateLineSegmentVectors(Space2d *space);
+void InitUnitCells(Space2d *coordinate_space);
 
 // Creates a local child coordinate space with physical attributes.
 // Basis vectors in most cases (orthogonal dimensions) should be u = {1,0}, v = {0,1}.
 // The origin is in the child/local frame; parent-space placement is handled externally.
-CoordSpace2d_Grid NewCoordSpace2d_Grid(Vector2d origin, Vector2d resolution_ixj, Basis2d basis, ColourRgba colour_fill, ColourRgba colour_line)
+GridSpace2d NewGridSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d basis, ColourRgba colour_fill, ColourRgba colour_line)
 {
-   CoordSpace2d_Grid space_obj = {0};
-   space_obj.coord_space = NewCoordSpace2d(origin, resolution_ixj, basis);
+   GridSpace2d space_obj = {0};
+   space_obj.space = NewSpace2d(origin, resolution_ixj, basis);
    space_obj.colour_line = colour_line;
    space_obj.colour_fill = colour_fill;
 
-   Surface2d surface = CreateSurface_Rectangular(resolution_ixj, ZERO_VECTOR_2D);
+   Vector2d grid_size = {(float)space_obj.space.columns, (float)space_obj.space.rows};
+   Surface2d surface = CreateSurface_Rectangular(grid_size, ZERO_VECTOR_2D);
 
    // Calc coords_center - this is required when creating new objects
-   Vector2d coords_center = (Vector2d){origin.x + (resolution_ixj.x / 2.0), origin.y + (resolution_ixj.y / 2.0)};
+   Vector2d coords_center = (Vector2d){origin.x + (grid_size.x / 2.0f), origin.y + (grid_size.y / 2.0f)};
    space_obj.object = CreateNewtonoid2d_Static(coords_center, surface);
    return space_obj;
 }
 
 // Creates a local coordinate space. Basis vectors in most cases (orthogonal dimensions) should be u = {1,0}, v = {0,1}.
 // The origin is in local coordinates of this space, not a parent-space mapped coordinate.
-CoordSpace2d NewCoordSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d basis)
+Space2d NewSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d basis)
 {
-   CoordSpace2d space = {0};
-   space.system = CreateCoordSystem2d(basis, origin);
-   space.system.local_min = origin;
-   space.system.local_max = VectorSum_2d(origin, resolution_ixj);
-   // Needs a grid with resolution according to unit height and width - divide it up and handle the leftover height and width
-   // if (unitHeight > object.height || unitWidth > object.width)
-   // {
-   //    fprintf(stderr, "ERROR: unitHeight and/or unitWidth are greater than the desired height and/or width. Cannot create such a field!");
-   //    return field;
-   // };
-   // Create the underlying object and define its surface
+   Space2d space = {0};
+   int columns = (int)fmaxf(1.0f, ceilf(resolution_ixj.x));
+   int rows = (int)fmaxf(1.0f, ceilf(resolution_ixj.y));
+   Vector2d grid_size = {(float)columns, (float)rows};
 
-   space.resolution_ixj = resolution_ixj;
-   // Resolution is the number of addressable cells in local i/j coordinates.
-   space.stepsU = fmaxf(1.0f, ceilf(resolution_ixj.x));
-   space.stepsV = fmaxf(1.0f, ceilf(resolution_ixj.y));
+   space.system = CreateFrame2d(basis, origin);
+   space.system.local_min = origin;
+   space.system.local_max = VectorSum_2d(origin, grid_size);
+   space.columns = columns;
+   space.rows = rows;
    space.unitArea = fabsf((basis.u.x * basis.v.y) - (basis.u.y * basis.v.x)); // Calculate the 'Area' of a single basis tile; this is the determinant of the basis matrix, which gives us the area of the parallelogram formed by the basis vectors, which is the area of each cell in the coordinate space. We can then divide the total area of the field by this cell area to get the total number of cells needed to fill the field.
 
    // If cellArea is 0, the basis is invalid (it's a line, not a space)
@@ -67,7 +62,7 @@ CoordSpace2d NewCoordSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d b
    }
 
    // Total units are deterministic from requested i/j resolution.
-   int totalUnits = (int)(space.stepsU * space.stepsV);
+   int totalUnits = space.columns * space.rows;
 
    space.cells = MakeDArray(totalUnits, sizeof(Cell));
 
@@ -80,78 +75,27 @@ CoordSpace2d NewCoordSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d b
 
    // char text[64]; // Buffer to hold the text
    // snprintf(text, sizeof(text), "FIELD INITIALISED:  Dimensions (%d, %d); Units (%d); Basis -> u = [%d,%d], v = [%d,%d].\n", unitW, unitH, totalUnits, basis_u.x, basis_u.y, basis_v.x, basis_v.y);
-   printf("COORD.SPACE INITIALISED:  Dimensions (W:%0.2f, H:%0.2f); Units (%d); Basis -> u = [%0.2f,%0.2f], v = [%0.2f,%0.2f].\n", resolution_ixj.x, resolution_ixj.y, totalUnits, basis_u.x, basis_u.y, basis_v.x, basis_v.y);
+   printf("COORD.SPACE INITIALISED:  Dimensions (W:%d, H:%d); Units (%d); Basis -> u = [%0.2f,%0.2f], v = [%0.2f,%0.2f].\n", columns, rows, totalUnits, basis_u.x, basis_u.y, basis_v.x, basis_v.y);
 
    return space;
 }
 
-Vector2d CalcCoordSpaceHalfExtent(const CoordSpace2d *space)
-{
-   if (!space)
-   {
-      return ZERO_VECTOR_2D;
-   }
 
-   Vector2d half_resolution = VectorScale_2d(space->resolution_ixj, 0.5f);
-   Vector2d half_u_extent = VectorScale_2d(space->system.basis.u, half_resolution.x);
-   Vector2d half_v_extent = VectorScale_2d(space->system.basis.v, half_resolution.y);
-   return VectorSum_2d(half_u_extent, half_v_extent);
-}
-
-Vector2d CalcCoordSpaceOriginFromCenter(const CoordSpace2d *space, Vector2d center)
-{
-   return VectorSum_2d(center, VectorScale_2d(CalcCoordSpaceHalfExtent(space), -1.0f));
-}
-
-Matrix2x2 CalcCoordSpaceBoundsFromCenter(const CoordSpace2d *space, Vector2d center)
-{
-   Matrix2x2 bounds = {0};
-   if (!space)
-   {
-      return bounds;
-   }
-
-   Vector2d origin = CalcCoordSpaceOriginFromCenter(space, center);
-   Vector2d corners[4] = {
-      origin,
-      VectorSum_2d(origin, VectorScale_2d(space->system.basis.u, space->resolution_ixj.x)),
-      VectorSum_2d(VectorSum_2d(origin, VectorScale_2d(space->system.basis.u, space->resolution_ixj.x)), VectorScale_2d(space->system.basis.v, space->resolution_ixj.y)),
-      VectorSum_2d(origin, VectorScale_2d(space->system.basis.v, space->resolution_ixj.y)),
-   };
-
-   bounds.col1 = corners[0];
-   bounds.col2 = corners[0];
-
-   for (int i = 1; i < 4; i++)
-   {
-      if (corners[i].x < bounds.col1.x)
-         bounds.col1.x = corners[i].x;
-      if (corners[i].y < bounds.col1.y)
-         bounds.col1.y = corners[i].y;
-      if (corners[i].x > bounds.col2.x)
-         bounds.col2.x = corners[i].x;
-      if (corners[i].y > bounds.col2.y)
-         bounds.col2.y = corners[i].y;
-   }
-
-   return bounds;
-}
-
-void InitUnitCells(CoordSpace2d *space)
+void InitUnitCells(Space2d *space)
 {
    DArray *cells = &(space->cells);
    size_t cells_capacity = cells->capacity;
    MemorySet(cells->items, 0, cells->elem_bytes * cells_capacity);
 
    Vector2d local_origin = space->system.origin_in_parent;
-   int stepsU = space->stepsU;
-   int stepsV = space->stepsV;
+   int columns = space->columns;
+   int rows = space->rows;
 
    int count = 0;
-   for (int k = 0; k < stepsU * stepsV; k++)
+   for (int k = 0; k < columns * rows; k++)
    {
-      int i = k / stepsU; // Row index (based on horizontal lines)
-      int j = k % stepsU; // Column index (based on vertical lines)
+      int i = k / columns; // Row index (based on horizontal lines)
+      int j = k % columns; // Column index (based on vertical lines)
 
       Cell cell = {0}; // Create a new cell and initialize it to zero
 
@@ -163,36 +107,33 @@ void InitUnitCells(CoordSpace2d *space)
       // Add the displacement vector to the origin to get the coordinates of the cell
       cell.local_origin.x = local_origin.x + displacement.x;
       cell.local_origin.y = local_origin.y + displacement.y;
-      // Centre will always be 0.5 basis units since a cell is by definition the object representing the 2 basis vectors
-      cell.local_center.x = cell.local_origin.x + (0.5 * (space->system.basis.u.x + space->system.basis.v.x));
-      cell.local_center.y = cell.local_origin.y + (0.5 * (space->system.basis.u.y + space->system.basis.v.y));
 
       // Write the cell to the array
       Cell *address = (Cell *)((char *)cells->items + (k * cells->elem_bytes));
       MemoryCopy(address, &cell, cells->elem_bytes);
       count++;
    }
-   cells->count = stepsU * stepsV;
+   cells->count = columns * rows;
    LOG_INFO("Initialised %d cells\n", count);
 }
 
-int GetIndexFromCoords(CoordSpace2d *space, Vector2d space_coords)
+int GetIndexFromCoords(Space2d *space, Vector2d space_coords)
 {
    int i = (int)floorf(space_coords.y);
    int j = (int)floorf(space_coords.x);
-   int stepsU = (int)space->stepsU;
-   int stepsV = (int)space->stepsV;
+   int columns = space->columns;
+   int rows = space->rows;
 
-   if (i < 0 || j < 0 || i >= stepsV || j >= stepsU)
+   if (i < 0 || j < 0 || i >= rows || j >= columns)
    {
       return -1;
    }
 
-   int cell_index = (i * stepsU) + j;
+   int cell_index = (i * columns) + j;
    return cell_index;
 }
 
-Cell *GetCellFromCoords(CoordSpace2d *space, Vector2d coords)
+Cell *GetCellFromCoords(Space2d *space, Vector2d coords)
 {
    int cell_index = GetIndexFromCoords(space, coords);
    if (cell_index < 0 || cell_index >= space->cells.count)
@@ -206,29 +147,29 @@ Cell *GetCellFromCoords(CoordSpace2d *space, Vector2d coords)
 }
 
 
-Matrix2x2 CalcSpaceAABB(CoordSpace2d *space)
-{
-   Matrix2x2 u_v_extents = CalcSpaceExtents_2d(space);
-   Matrix2x2 aabb_box = {0};
-   aabb_box.col1.x = fminf(u_v_extents.col1.x, u_v_extents.col2.x);
-   aabb_box.col2.x = fmaxf(u_v_extents.col1.x, u_v_extents.col2.x);
+// Matrix2x2 CalcSpaceAABB(Space2d *space)
+// {
+//    Matrix2x2 u_v_extents = CalcSpaceExtents_2d(space);
+//    Matrix2x2 aabb_box = {0};
+//    aabb_box.col1.x = fminf(u_v_extents.col1.x, u_v_extents.col2.x);
+//    aabb_box.col2.x = fmaxf(u_v_extents.col1.x, u_v_extents.col2.x);
 
-   aabb_box.col1.y = fminf(u_v_extents.col1.y, u_v_extents.col2.y);
-   aabb_box.col2.y = fmaxf(u_v_extents.col1.y, u_v_extents.col2.y);
+//    aabb_box.col1.y = fminf(u_v_extents.col1.y, u_v_extents.col2.y);
+//    aabb_box.col2.y = fmaxf(u_v_extents.col1.y, u_v_extents.col2.y);
 
-   return aabb_box;
-}
+//    return aabb_box;
+// }
 
 // This function creates a footprint surface that represents the area of effect of an object based on its surface and the coordinate space's basis vectors.
 // It calculates the bounding box of the object's surface in world coordinates, determines which cells in the coordinate space it overlaps with, and then creates a rectangular surface that encompasses all those cells.
 // The object offset parameter allows you to specify the world coordinates of the object's center, which is necessary to correctly position the footprint in the coordinate space. Provide a zero vector if the object's surface vertices are already in world coordinates.
-void CalcSnappedAABB_Vertices(Vector2d *object_surface_vertices, int object_surface_vertices_count, Vector2d object_offset, Basis2d coord_space_basis, Vector2d out_vertices[4])
+void CalcSnappedAABB_Vertices(Vector2d *object_surface_vertices, int object_surface_vertices_count, Vector2d object_offset, Basis2d space_basis, Vector2d out_vertices[4])
 {
    // Correctly extract the physical grid cell size from the basis
-   float cell_w = sqrtf(coord_space_basis.u.x * coord_space_basis.u.x +
-                        coord_space_basis.u.y * coord_space_basis.u.y);
-   float cell_h = sqrtf(coord_space_basis.v.x * coord_space_basis.v.x +
-                        coord_space_basis.v.y * coord_space_basis.v.y);
+   float cell_w = sqrtf(space_basis.u.x * space_basis.u.x +
+                        space_basis.u.y * space_basis.u.y);
+   float cell_h = sqrtf(space_basis.v.x * space_basis.v.x +
+                        space_basis.v.y * space_basis.v.y);
 
    if (object_surface_vertices_count == 0)
    {
@@ -269,75 +210,21 @@ void CalcSnappedAABB_Vertices(Vector2d *object_surface_vertices, int object_surf
    out_vertices[3] = (Vector2d){start_cell_x, end_cell_y};   // Top-Left Cell Boundary
 }
 
-bool VectorIsInSpace_2d(Vector2d vector, CoordSpace2d *space)
-{
-   // Check if the vector is within the bounds of the coordinate space defined by its origin and the extents of its basis vectors multiplied by their respective steps
-   Matrix2x2 extents = CalcSpaceExtents_2d(space);
-   Vector2d origin = space->system.origin_in_parent;
-   float min_x = origin.x;
-   float max_x = origin.x + extents.col1.x + extents.col2.x;
-   float min_y = origin.y;
-   float max_y = origin.y + extents.col1.y + extents.col2.y;
+// bool VectorIsInSpace_2d(Vector2d vector, Space2d *space)
+// {
+//    // Check if the vector is within the bounds of the coordinate space defined by its origin and the extents of its basis vectors multiplied by their respective steps
+//    Matrix2x2 extents = CalcSpaceExtents_2d(space);
+//    Vector2d origin = space->system.origin_in_parent;
+//    float min_x = origin.x;
+//    float max_x = origin.x + extents.col1.x + extents.col2.x;
+//    float min_y = origin.y;
+//    float max_y = origin.y + extents.col1.y + extents.col2.y;
 
-   return (vector.x >= min_x && vector.x < max_x && vector.y >= min_y && vector.y < max_y);
-}
+//    return (vector.x >= min_x && vector.x < max_x && vector.y >= min_y && vector.y < max_y);
+// }
 
 // This function calculates the spatial extents of a coordinate space based on its origin and the extents of its basis vectors multiplied by their respective steps.
 // It returns a 2x2 matrix where col1 is the vector from the origin to the far corner along the u direction, and col2 is the vector from the origin to the far corner along the v direction.
-Matrix2x2 CalcSpaceExtents_2d(CoordSpace2d *space)
-{
-   // Check if the vector is within the bounds of the coordinate space defined by its origin and the extents of its basis vectors multiplied by their respective steps
-   Vector2d u_extent = {space->system.basis.u.x * space->stepsU, space->system.basis.u.y * space->stepsU};
-   Vector2d v_extent = {space->system.basis.v.x * space->stepsV, space->system.basis.v.y * space->stepsV};
-
-   return (Matrix2x2){u_extent, v_extent};
-}
-
-// Surface2d GetObjectFootprint_AsSurface(Basis2d coord_space_basis, Surface2d object_surface)
-// {
-//    // Min area of effect will be the cell in the middle + all bordering cells - this will apply if the obj width and height are < cell width and height
-//    Vector2d obj_midpoint = GetGeometricCentre_FromSurface(object_surface, ZERO_VECTOR_2D);
-//    float cell_w = coord_space_basis.u.x + coord_space_basis.v.x;
-//    float cell_h = coord_space_basis.u.y + coord_space_basis.v.y;
-
-//    // Go through each vertice and add/subtract
-//    Surface2d footprint = {0};
-//    //LArray *footprint_vectors = NewLArray(object_surface.surface_vectors.count, sizeof(Vector2d));
-//    footprint.surface_vectors = MakeLArray(object_surface.surface_vectors.count, sizeof(Vector2d));
-
-//    // Each vertice when either their x or y pos is fixed, can move along the variable dimension and therefore partially enter the 2 neighbouring cells on that axis while still having its midpoint in the original cell
-//    // the footprint will therefore be +/- 1 cell applied to each of the object's vertices
-//    for (size_t i = 0; i < object_surface.surface_vectors.count; i++)
-//    {
-//       Vector2d obj_vertice = ((Vector2d *)(object_surface.surface_vectors.items))[i]; // the [i] is the dereference
-//       Vector2d footprint_vertice = obj_vertice;
-//       if (obj_vertice.x <= obj_midpoint.x)
-//       {
-//          footprint_vertice.x -= cell_w;
-//       }
-//       else
-//       {
-//          footprint_vertice.x += cell_w;
-//       }
-//       if (obj_vertice.y <= obj_midpoint.y)
-//       {
-//          footprint_vertice.y -= cell_h;
-//       }
-//       else
-//       {
-//          footprint_vertice.y += cell_h;
-//       }
-//       printf("OBJ VERTICE: (%.2f, %.2f) -> FOOTPRINT VERTICE: (%.2f, %.2f)\n", obj_vertice.x, obj_vertice.y, footprint_vertice.x, footprint_vertice.y);
-//       LArray_Push(footprint.surface_vectors.items, &footprint_vertice);
-//    }
-//    return footprint;
-// }
-
-// Calculate coordinate space lines relative to the space's world position
-// void CalculateLineSegmentVectors(CoordSpace2d *coordinate_space)
-// {
-//    Vector2d space_coords = coordinate_space->object.newtonian_properties.world_position;
-//    int rows = coordinate_space->rows;
 //    int cols = coordinate_space->columns;
 
 //    // 1. Correct the counts
@@ -450,3 +337,4 @@ Matrix2x2 CalcSpaceExtents_2d(CoordSpace2d *space)
 
 //    return field;
 // }
+

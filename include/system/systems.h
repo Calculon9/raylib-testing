@@ -142,8 +142,9 @@ typedef struct
 {
     Newtonoid2d *selected_object;
     Newtonoid2dParams *newtonoid_params;
-    // CoordSpace2d_Grid *world_coord_space;
+    // GridSpace2d *world_coord_space;
     Cell *selected_cell;
+    int selected_cell_index;
     World2d *world;
     FlatMapInt *entity_world_index_registry;
     LArray *collisions;

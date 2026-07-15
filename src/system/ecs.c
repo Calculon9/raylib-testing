@@ -275,3 +275,4 @@ int ECS_GetEntityCount(ECS *ecs)
     }
     return count;
 }
+

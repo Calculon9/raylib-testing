@@ -4,10 +4,10 @@
 //  *
 //  **********************************************************************************************/
 
-// #include <stdio.h>
-// #include <string.h>
-// #include <math.h>
-// #include "math/coordinate_space.h"
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
+#include "math/affine_space_ops.h"
 
 // //----------------------------------------------------------------------------------
 // // Module Variables Definition (local)
@@ -16,17 +16,224 @@
 // //----------------------------------------------------------------------------------
 // // Functions Definition
 // //----------------------------------------------------------------------------------
-// // void CalculateLineSegmentVectors(CoordSpace2d *coord_space);
-// void InitUnitCells(CoordSpace2d *coordinate_space);
+// // void CalculateLineSegmentVectors(Space2d *space);
+// void InitUnitCells(Space2d *coordinate_space);
 
+Vector2d TransformPoint_ToParent(Vector2d local_point, const Frame2d *frame)
+{
+    if (!frame)
+        return local_point;
+
+    // Projecting local point coordinates onto the parent space basis lines
+    Vector2d u_part = VectorScale_2d(frame->basis.u, local_point.x);
+    Vector2d v_part = VectorScale_2d(frame->basis.v, local_point.y);
+
+    return VectorSum_2d(frame->origin_in_parent, VectorSum_2d(u_part, v_part));
+}
+
+Vector2d TransformPoint_FromParent(Vector2d parent_point, const Frame2d *frame)
+{
+    if (!frame)
+        return parent_point;
+
+    // Shift the vector relative to our local origin position
+    Vector2d relative_pos = VectorSum_2d(parent_point, VectorScale_2d(frame->origin_in_parent, -1.0f));
+
+    // Project onto our basis vectors via a 2D Dot Product operation
+    // (Assumes basis vectors are orthonormal: unit length and perpendicular)
+    Vector2d local_point;
+    local_point.x = VectorDot_2d(relative_pos, frame->basis.u);
+    local_point.y = VectorDot_2d(relative_pos, frame->basis.v);
+
+    return local_point;
+}
+
+static Matrix3x3 BuildFrameMatrix(Frame2d frame)
+{
+    return (Matrix3x3){
+        .col1 = {frame.basis.u.x, frame.basis.u.y, 0.0f},
+        .col2 = {frame.basis.v.x, frame.basis.v.y, 0.0f},
+        .col3 = {frame.origin_in_parent.x, frame.origin_in_parent.y, 1.0f},
+    };
+}
+
+Matrix3x3 FrameTransform_2d(Frame2d source, Frame2d destination)
+{
+    Matrix3x3 source_frame = BuildFrameMatrix(source);
+    Matrix3x3 destination_frame = BuildFrameMatrix(destination);
+
+    return MatrixMultiply_3x3_3x3(MatrixInvert_3x3(destination_frame), source_frame);
+}
+
+Matrix3x3 FrameChainTransform_2d(Frame2d source, Frame2d middle, Frame2d destination)
+{
+    Matrix3x3 source_to_middle = FrameTransform_2d(source, middle);
+    Matrix3x3 middle_to_destination = FrameTransform_2d(middle, destination);
+
+    return MatrixMultiply_3x3_3x3(middle_to_destination, source_to_middle);
+}
+
+Vector2d BasisTransform_2d_Scale(Basis2d source, Basis2d destination)
+{
+    float source_u_magnitude = VectorMagnitude_2d(source.u);
+    float source_v_magnitude = VectorMagnitude_2d(source.v);
+    float destination_u_magnitude = VectorMagnitude_2d(destination.u);
+    float destination_v_magnitude = VectorMagnitude_2d(destination.v);
+
+    Vector2d scale = {0.0f, 0.0f};
+    if ((source_u_magnitude > 0.0f) && (source_v_magnitude > 0.0f))
+    {
+        scale.x = destination_u_magnitude / source_u_magnitude;
+        scale.y = destination_v_magnitude / source_v_magnitude;
+    }
+
+    return scale;
+}
+
+// Legacy draft block kept for reference only.
+Vector2d CalcFrameExtent_Local(const Frame2d *frame)
+{
+    if (!frame)
+    {
+        return ZERO_VECTOR_2D;
+    }
+    // Pure Cartesian bounding math: Max minus Min.
+    // E.g., If min is -50 and max is 50, extent is 50 - (-50) = 100.
+    Vector2d extent;
+    extent.x = frame->local_max.x - frame->local_min.x;
+    extent.y = frame->local_max.y - frame->local_min.y;
+
+    return extent;
+}
+
+Vector2d GetFrameTopLeft_Local(const Frame2d *frame)
+{
+    if (!frame)
+        return ZERO_VECTOR_2D;
+
+    // In a Cartesian system (+Y is Up):
+    // The leftmost point is local_min.x
+    // The topmost point is local_max.y
+    Vector2d top_left = {frame->local_min.x, frame->local_max.y};
+
+    return top_left;
+}
+
+Vector2d CalcFrameTopLeft_InParent(const Frame2d *frame)
+{
+    if (!frame)
+        return ZERO_VECTOR_2D;
+
+    // Get the local coordinate of the corner
+    Vector2d local_tl = GetFrameTopLeft_Local(frame);
+
+    // Project it into parent space using the basis and origin
+    Vector2d u_part = VectorScale_2d(frame->basis.u, local_tl.x);
+    Vector2d v_part = VectorScale_2d(frame->basis.v, local_tl.y);
+
+    Vector2d combined_basis = VectorSum_2d(u_part, v_part);
+    return VectorSum_2d(frame->origin_in_parent, combined_basis);
+}
+
+Matrix2x2 CalcFrameExtents_InParent(const Frame2d *frame)
+{
+    if (!frame)
+        return INFINITY_MATRIX_2x2;
+
+    // Calculate the extent in local coordinates
+    Vector2d local_extent = CalcFrameExtent_Local(frame);
+
+    // Project the local extent into parent space using the basis vectors
+    Vector2d u_part = VectorScale_2d(frame->basis.u, local_extent.x);
+    Vector2d v_part = VectorScale_2d(frame->basis.v, local_extent.y);
+
+    return (Matrix2x2){u_part, v_part};
+}
+
+Matrix2x2 CalcFrameAABB_InParent(const Frame2d *frame)
+{
+    if (!frame)
+        return INFINITY_MATRIX_2x2;
+
+    Matrix2x2 u_v_extents = CalcFrameExtents_InParent(frame);
+    Matrix2x2 aabb_box = {0};
+    aabb_box.col1.x = fminf(u_v_extents.col1.x, u_v_extents.col2.x);
+    aabb_box.col2.x = fmaxf(u_v_extents.col1.x, u_v_extents.col2.x);
+
+    aabb_box.col1.y = fminf(u_v_extents.col1.y, u_v_extents.col2.y);
+    aabb_box.col2.y = fmaxf(u_v_extents.col1.y, u_v_extents.col2.y);
+
+    return aabb_box;
+}
+
+bool FrameContainsPoint_FromParent(Vector2d parent_point, const Frame2d *frame)
+{
+    if (!frame)
+        return false;
+
+    // Push the point down into local reality coordinates
+    Vector2d local_p = TransformPoint_FromParent(parent_point, frame);
+
+    // Simple, clean bounding checks against Cartesian limits
+    return (local_p.x >= frame->local_min.x && local_p.x <= frame->local_max.x &&
+            local_p.y >= frame->local_min.y && local_p.y <= frame->local_max.y);
+}
+
+Vector2d CalcSpaceHalfExtent(const Space2d *space)
+{
+    if (!space)
+        return ZERO_VECTOR_2D;
+
+    Vector2d half_resolution = {(float)space->columns * 0.5f, (float)space->rows * 0.5f};
+    Vector2d half_u_extent = VectorScale_2d(space->system.basis.u, half_resolution.x);
+    Vector2d half_v_extent = VectorScale_2d(space->system.basis.v, half_resolution.y);
+    return VectorSum_2d(half_u_extent, half_v_extent);
+}
+
+Vector2d CalcSpaceOriginFromCenter(const Space2d *space, Vector2d center)
+{
+    return VectorSum_2d(center, VectorScale_2d(CalcSpaceHalfExtent(space), -1.0f));
+}
+
+Matrix2x2 CalcSpaceBoundsFromCenter(const Space2d *space, Vector2d center)
+{
+    Matrix2x2 bounds = {0};
+    if (!space)
+        return bounds;
+
+    Vector2d origin = CalcSpaceOriginFromCenter(space, center);
+    Vector2d corners[4] = {
+        origin,
+        VectorSum_2d(origin, VectorScale_2d(space->system.basis.u, (float)space->columns)),
+        VectorSum_2d(VectorSum_2d(origin, VectorScale_2d(space->system.basis.u, (float)space->columns)), VectorScale_2d(space->system.basis.v, (float)space->rows)),
+        VectorSum_2d(origin, VectorScale_2d(space->system.basis.v, (float)space->rows)),
+    };
+
+    bounds.col1 = corners[0];
+    bounds.col2 = corners[0];
+
+    for (int i = 1; i < 4; i++)
+    {
+        if (corners[i].x < bounds.col1.x)
+            bounds.col1.x = corners[i].x;
+        if (corners[i].y < bounds.col1.y)
+            bounds.col1.y = corners[i].y;
+        if (corners[i].x > bounds.col2.x)
+            bounds.col2.x = corners[i].x;
+        if (corners[i].y > bounds.col2.y)
+            bounds.col2.y = corners[i].y;
+    }
+
+    return bounds;
+}
 
 // // Creates a local child coordinate space with physical attributes.
 // // Basis vectors in most cases (orthogonal dimensions) should be u = {1,0}, v = {0,1}.
 // // The origin is in the child/local frame; parent-space placement is handled externally.
-// CoordSpace2d_Grid NewCoordSpace2d_Grid(Vector2d origin, Vector2d resolution_ixj, Basis2d basis, ColourRgba colour_fill, ColourRgba colour_line)
+// GridSpace2d NewGridSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d basis, ColourRgba colour_fill, ColourRgba colour_line)
 // {
-//    CoordSpace2d_Grid space_obj = {0};
-//    space_obj.coord_space = NewCoordSpace2d(origin, resolution_ixj, basis);
+//    GridSpace2d space_obj = {0};
+//    space_obj.space = NewSpace2d(origin, resolution_ixj, basis);
 //    space_obj.colour_line = colour_line;
 //    space_obj.colour_fill = colour_fill;
 
@@ -40,9 +247,9 @@
 
 // // Creates a local coordinate space. Basis vectors in most cases (orthogonal dimensions) should be u = {1,0}, v = {0,1}.
 // // The origin is in local coordinates of this space, not a parent-space mapped coordinate.
-// CoordSpace2d NewCoordSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d basis)
+// Space2d NewSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d basis)
 // {
-//    CoordSpace2d space = {0};
+//    Space2d space = {0};
 //    space.local_origin = origin;
 //    // Needs a grid with resolution according to unit height and width - divide it up and handle the leftover height and width
 //    // if (unitHeight > object.height || unitWidth > object.width)
@@ -84,7 +291,7 @@
 //    return space;
 // }
 
-// Vector2d CalcCoordSpaceHalfExtent(const CoordSpace2d *space)
+// Vector2d CalcSpaceHalfExtent(const Space2d *space)
 // {
 //    if (!space)
 //    {
@@ -97,12 +304,12 @@
 //    return VectorSum_2d(half_u_extent, half_v_extent);
 // }
 
-// Vector2d CalcCoordSpaceOriginFromCenter(const CoordSpace2d *space, Vector2d center)
+// Vector2d CalcSpaceOriginFromCenter(const Space2d *space, Vector2d center)
 // {
-//    return VectorSum_2d(center, VectorScale_2d(CalcCoordSpaceHalfExtent(space), -1.0f));
+//    return VectorSum_2d(center, VectorScale_2d(CalcSpaceHalfExtent(space), -1.0f));
 // }
 
-// Matrix2x2 CalcCoordSpaceBoundsFromCenter(const CoordSpace2d *space, Vector2d center)
+// Matrix2x2 CalcSpaceBoundsFromCenter(const Space2d *space, Vector2d center)
 // {
 //    Matrix2x2 bounds = {0};
 //    if (!space)
@@ -110,7 +317,7 @@
 //       return bounds;
 //    }
 
-//    Vector2d origin = CalcCoordSpaceOriginFromCenter(space, center);
+//    Vector2d origin = CalcSpaceOriginFromCenter(space, center);
 //    Vector2d corners[4] = {
 //       origin,
 //       VectorSum_2d(origin, VectorScale_2d(space->basis.u, space->resolution_ixj.x)),
@@ -136,7 +343,7 @@
 //    return bounds;
 // }
 
-// void InitUnitCells(CoordSpace2d *space)
+// void InitUnitCells(Space2d *space)
 // {
 //    DArray *cells = &(space->cells);
 //    size_t cells_capacity = cells->capacity;
@@ -175,7 +382,7 @@
 //    LOG_INFO("Initialised %d cells\n", count);
 // }
 
-// int GetIndexFromCoords(CoordSpace2d *space, Vector2d space_coords)
+// int GetIndexFromCoords(Space2d *space, Vector2d space_coords)
 // {
 //    int i = (int)floorf(space_coords.y);
 //    int j = (int)floorf(space_coords.x);
@@ -191,7 +398,7 @@
 //    return cell_index;
 // }
 
-// Cell *GetCellFromCoords(CoordSpace2d *space, Vector2d coords)
+// Cell *GetCellFromCoords(Space2d *space, Vector2d coords)
 // {
 //    int cell_index = GetIndexFromCoords(space, coords);
 //    if (cell_index < 0 || cell_index >= space->cells.count)
@@ -204,8 +411,7 @@
 //    return target_cell;
 // }
 
-
-// Matrix2x2 CalcSpaceAABB(CoordSpace2d *space)
+// Matrix2x2 CalcSpaceAABB(Space2d *space)
 // {
 //    Matrix2x2 u_v_extents = CalcSpaceExtents_2d(space);
 //    Matrix2x2 aabb_box = {0};
@@ -221,13 +427,13 @@
 // // This function creates a footprint surface that represents the area of effect of an object based on its surface and the coordinate space's basis vectors.
 // // It calculates the bounding box of the object's surface in world coordinates, determines which cells in the coordinate space it overlaps with, and then creates a rectangular surface that encompasses all those cells.
 // // The object offset parameter allows you to specify the world coordinates of the object's center, which is necessary to correctly position the footprint in the coordinate space. Provide a zero vector if the object's surface vertices are already in world coordinates.
-// void CalcSnappedAABB_Vertices(Vector2d *object_surface_vertices, int object_surface_vertices_count, Vector2d object_offset, Basis2d coord_space_basis, Vector2d out_vertices[4])
+// void CalcSnappedAABB_Vertices(Vector2d *object_surface_vertices, int object_surface_vertices_count, Vector2d object_offset, Basis2d space_basis, Vector2d out_vertices[4])
 // {
 //    // Correctly extract the physical grid cell size from the basis
-//    float cell_w = sqrtf(coord_space_basis.u.x * coord_space_basis.u.x +
-//                         coord_space_basis.u.y * coord_space_basis.u.y);
-//    float cell_h = sqrtf(coord_space_basis.v.x * coord_space_basis.v.x +
-//                         coord_space_basis.v.y * coord_space_basis.v.y);
+//    float cell_w = sqrtf(space_basis.u.x * space_basis.u.x +
+//                         space_basis.u.y * space_basis.u.y);
+//    float cell_h = sqrtf(space_basis.v.x * space_basis.v.x +
+//                         space_basis.v.y * space_basis.v.y);
 
 //    if (object_surface_vertices_count == 0)
 //    {
@@ -268,7 +474,7 @@
 //    out_vertices[3] = (Vector2d){start_cell_x, end_cell_y};   // Top-Left Cell Boundary
 // }
 
-// bool VectorIsInSpace_2d(Vector2d vector, CoordSpace2d *space)
+// bool VectorIsInSpace_2d(Vector2d vector, Space2d *space)
 // {
 //    // Check if the vector is within the bounds of the coordinate space defined by its origin and the extents of its basis vectors multiplied by their respective steps
 //    Matrix2x2 extents = CalcSpaceExtents_2d(space);
@@ -283,7 +489,7 @@
 
 // // This function calculates the spatial extents of a coordinate space based on its origin and the extents of its basis vectors multiplied by their respective steps.
 // // It returns a 2x2 matrix where col1 is the vector from the origin to the far corner along the u direction, and col2 is the vector from the origin to the far corner along the v direction.
-// Matrix2x2 CalcSpaceExtents_2d(CoordSpace2d *space)
+// Matrix2x2 CalcSpaceExtents_2d(Space2d *space)
 // {
 //    // Check if the vector is within the bounds of the coordinate space defined by its origin and the extents of its basis vectors multiplied by their respective steps
 //    Vector2d u_extent = {space->basis.u.x * space->stepsU, space->basis.u.y * space->stepsU};

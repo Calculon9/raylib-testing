@@ -177,3 +177,4 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
     #endif
 }
 
+

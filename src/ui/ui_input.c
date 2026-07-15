@@ -74,7 +74,7 @@ Vector2d ResolvePixelToLocalDragScale(UIElement *element)
         return (Vector2d){1.0f, 1.0f};
     }
 
-    Vector2d local_size = root->data.root.coord_space.resolution_ixj;
+    Vector2d local_size = {(float)root->data.root.space.columns, (float)root->data.root.space.rows};
     Vector2d pixel_size = root->cached_box.dimensions;
 
     Vector2d scale = {1.0f, 1.0f};
@@ -104,7 +104,7 @@ bool ResolvePointerLocalCoords(UIElement *element, Vector2d mouse_pixel_coords, 
     }
 
     Vector2d pixels_to_local_scale = ResolvePixelToLocalDragScale(root);
-    Vector2d root_local_origin = root->data.root.coord_space.system.origin_in_parent;
+    Vector2d root_local_origin = root->data.root.space.system.origin_in_parent;
     Vector2d root_pixel_origin = root->cached_box.coords;
     Vector2d pixel_delta = VectorSum_2d(mouse_pixel_coords, (Vector2d){-root_pixel_origin.x, -root_pixel_origin.y});
 
@@ -705,3 +705,4 @@ UIElement *ResolveUIRootTarget(Vector2d mouse_coords)
 
     return target;
 }
+

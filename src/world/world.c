@@ -20,10 +20,10 @@ static int initObjectCount = 4;
 // Functions Definition
 //----------------------------------------------------------------------------------
 
-void CreateWorld(CoordSpace2d_Grid space_obj, Camera2d world_camera, float gravity, World2d *out_world)
+void CreateWorld(GridSpace2d space_obj, Camera2d world_camera, float gravity, World2d *out_world)
 {
    // World2d world = {0};
-   out_world->coord_space_grid = space_obj;
+   out_world->grid_space = space_obj;
    out_world->camera = world_camera;
    out_world->gravity = gravity;
    out_world->next_object_id = 1; // Initialize the next available ID for NewtonObjects
@@ -32,7 +32,7 @@ void CreateWorld(CoordSpace2d_Grid space_obj, Camera2d world_camera, float gravi
    out_world->temp_objects = MakeLArray(initObjectCount, sizeof(Newtonoid2d));
 
    // INIT WORLD INTERNAL STATE (PER-WORLD)
-   out_world->entity_space_map = MakeFlatMapInt(1 + (int)(space_obj.coord_space.cells.count / 5));
+   out_world->entity_space_map = MakeFlatMapInt(1 + (int)(space_obj.space.cells.count / 5));
    out_world->resolved_collisions = MakeFlatMapInt(1 + (int)(out_world->entity_space_map.count / 2));
    out_world->entity_world_index_registry = MakeFlatMapInt(1 + (int)(out_world->entity_space_map.count / 2));
    out_world->scheduled_world_cmds = MakeLArray(initObjectCount, sizeof(WorldCommand));
@@ -48,7 +48,7 @@ int AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id)
    // Object placement is center-based; grid occupancy still snaps that center into a cell index.
    Vector2d local_coords = object->coords_center;
    object->parent_id = parent_id;
-   if (local_coords.x < 0 || local_coords.y < 0 || local_coords.x >= world->coord_space_grid.coord_space.resolution_ixj.x || local_coords.y >= world->coord_space_grid.coord_space.resolution_ixj.y)
+   if (local_coords.x < 0 || local_coords.y < 0 || local_coords.x >= world->grid_space.space.columns || local_coords.y >= world->grid_space.space.rows)
    {
       LOG_WARN("Desired spawn point (%0.2f,%0.2f) out of bounds. Cannot add entity to the world.\n", local_coords.x, local_coords.y);
       return -1; // Click is outside the structural world viewport boundaries! Avoid resolving cell.
@@ -61,10 +61,10 @@ int AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id)
    int cell_index = -1;
    if (!(object->entity_layer & FLAG_TYPE_EFFECT))
    {
-      cell_index = ((int)local_coords.y * (int)world->coord_space_grid.coord_space.resolution_ixj.x) + (int)local_coords.x;
+      cell_index = ((int)local_coords.y * world->grid_space.space.columns) + (int)local_coords.x;
       // Add the object's ID to the cell's object_ids array if there is space, and update the object's footprint based on its surface and the coordinate space's basis vectors.
       // We also need to update the occupancy of the cell and ensure that we don't exceed the maximum
-      Cell *cells = world->coord_space_grid.coord_space.cells.items;
+      Cell *cells = world->grid_space.space.cells.items;
       Cell *target_cell = &cells[cell_index];
       if (target_cell->occupancy < MAX_CELL_OCCUPANCY)
       {
@@ -90,8 +90,8 @@ void UpdateWorld(WorldState *context, float delta_time)
    int obj_count = objects->count;
    if (obj_count < 1)
       return;
-   CoordSpace2d_Grid *space_entity = &context->world->coord_space_grid;
-   CoordSpace2d *space = &space_entity->coord_space;
+   GridSpace2d *space_entity = &context->world->grid_space;
+   Space2d *space = &space_entity->space;
 
    // RESET TRACKING-STATE - Zero out
    FlatMapInt *entity_space_map = &context->world->entity_space_map;
@@ -104,7 +104,7 @@ void UpdateWorld(WorldState *context, float delta_time)
    ResetFlatMapInt(resolved_collisions);
 
    // Zero out the occupancy and object_ids of all cells in the grid before we update them based on the new positions of the objects
-   Cell *cells = space_entity->coord_space.cells.items;
+   Cell *cells = space_entity->space.cells.items;
    int cell_count = space->cells.count;
    for (size_t i = 0; i < cell_count; i++)
    {
@@ -462,8 +462,8 @@ void UpdateWorld(WorldState *context, float delta_time)
 //       return;
 
 //    // Zero out the occupancy and object_ids of all cells in the grid before we update them based on the new positions of the objects
-//    Cell *cells = world->coord_space_grid.coord_space.cells.coll.items;
-//    int cell_count = world->coord_space_grid.coord_space.cells.coll.count;
+//    Cell *cells = world->grid_space.space.cells.coll.items;
+//    int cell_count = world->grid_space.space.cells.coll.count;
 //    for (size_t i = 0; i < cell_count; i++)
 //    {
 //       Cell *target_cell = &cells[i];
@@ -477,21 +477,21 @@ void UpdateWorld(WorldState *context, float delta_time)
 //       Newtonoid2d *obj = &polygonoids[i].newtonian_properties;
 
 //       // Ensure the object isn't outside the bounds of the world before we try to get the cell it's in, otherwise we could get an out of bounds error when we try to access the cell's object_ids array. We can just skip updating the cell for this object if it's out of bounds, but we should still update its vectors based on its acceleration and velocity so that it can move back into the bounds of the world.
-//       if (obj->coords_origin.x < 0 || obj->coords_origin.x >= world->coord_space_grid.coord_space.resolution_ixj.x ||
-//           obj->coords_origin.y < 0 || obj->coords_origin.y >= world->coord_space_grid.coord_space.resolution_ixj.y)
+//       if (obj->coords_origin.x < 0 || obj->coords_origin.x >= world->grid_space.space.resolution_ixj.x ||
+//           obj->coords_origin.y < 0 || obj->coords_origin.y >= world->grid_space.space.resolution_ixj.y)
 //       {
 //          printf("WARNING: Object ID %d is out of bounds at coordinates (%.1f, %.1f). Skipping cell update.\n", polygonoids[i].id, obj->coords_origin.x, obj->coords_origin.y);
 
 //          // Need to calculate a collision response to push the object back into the bounds of the world here, otherwise it will just keep moving out of bounds and we won't be able to track it anymore. For simplicity, let's just reverse the velocity of the object when it hits the boundary of the world, which will create a bouncing effect. We can also apply a damping factor to the velocity to simulate energy loss during the collision, which will prevent the object from bouncing indefinitely.
-//          if (obj->coords_origin.x < 0 || obj->coords_origin.x >= world->coord_space_grid.coord_space.resolution_ixj.x)
+//          if (obj->coords_origin.x < 0 || obj->coords_origin.x >= world->grid_space.space.resolution_ixj.x)
 //          {
 //             obj->velocity.x = -obj->velocity.x; // Reverse and dampen the x velocity
-//             // obj->coords_origin.x = obj->coords_origin.x < 0 ? 0 : world->coord_space_grid.coord_space.resolution_ixj.x - 1; // Move the object back within bounds
+//             // obj->coords_origin.x = obj->coords_origin.x < 0 ? 0 : world->grid_space.space.resolution_ixj.x - 1; // Move the object back within bounds
 //          }
-//          if (obj->coords_origin.y < 0 || obj->coords_origin.y >= world->coord_space_grid.coord_space.resolution_ixj.y)
+//          if (obj->coords_origin.y < 0 || obj->coords_origin.y >= world->grid_space.space.resolution_ixj.y)
 //          {
 //             obj->velocity.y = -obj->velocity.y; // Reverse and dampen the y velocity
-//             // obj->coords_origin.y = obj->coords_origin.y < 0 ? 0 : world->coord_space_grid.coord_space.resolution_ixj.y - 1; // Move the object back within bounds
+//             // obj->coords_origin.y = obj->coords_origin.y < 0 ? 0 : world->grid_space.space.resolution_ixj.y - 1; // Move the object back within bounds
 //          }
 //          //Recalc inverse_mass in case mass was changed
 //          obj->inverseMass = 1.0/obj->mass;
@@ -500,7 +500,7 @@ void UpdateWorld(WorldState *context, float delta_time)
 //       }
 
 //       // Add the object's ID to the cell's object_ids array if there is space
-//       Cell *target_cell = GetCellFromCoords(&world->coord_space_grid.coord_space, polygonoids[i].newtonian_properties.coords_origin);
+//       Cell *target_cell = GetCellFromCoords(&world->grid_space.space, polygonoids[i].newtonian_properties.coords_origin);
 
 //       if (target_cell != NULL && target_cell->occupancy < MAX_CELL_OCCUPANCY)
 //       {
@@ -573,10 +573,10 @@ void UpdateWorld(WorldState *context, float delta_time)
 //       }
 //    }
 //    // UpdateObjectVectors(objs, delta_time);
-//    // UpdateWorldState(objs, &world->coord_space_grid.coord_space, delta_time);
+//    // UpdateWorldState(objs, &world->grid_space.space, delta_time);
 // }
 
-// void UpdateWorldState(Collection *polygonoids, CoordSpace2d *space, float delta_time)
+// void UpdateWorldState(Collection *polygonoids, Space2d *space, float delta_time)
 //{
 //  // 1. Update Object state first
 //  // 1.1 Update Grid cells while we're here
@@ -652,3 +652,5 @@ void UpdateWorld(WorldState *context, float delta_time)
 
 // World CalculateFieldLines(Field field);
 // World InitialiseFieldCells(Field field);
+
+

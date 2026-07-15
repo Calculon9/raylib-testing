@@ -115,3 +115,4 @@ bool ValidatorFloatRange(const char *text, void *out_value, void *user_data)
     *(float *)out_value = f;
     return true;
 }
+

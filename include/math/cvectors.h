@@ -46,13 +46,13 @@ typedef struct Transform2d
     Vector2d origin; // The (0,0) point in world coordinates
 } Transform2d;
 
-typedef struct CoordSystem2d
+typedef struct Frame2d
 {
     Basis2d basis;
     Vector2d origin_in_parent;
     Vector2d local_min;
     Vector2d local_max;
-} CoordSystem2d;
+} Frame2d;
 
 typedef struct Vector3d
 {
@@ -109,9 +109,10 @@ Vector3d VectorSumArray_3d(Vector3d *array, size_t count);
 
 Matrix3x3 MatrixMultiply_3x3_3x3(Matrix3x3 A, Matrix3x3 B);
 Matrix3x3 MatrixInvert_3x3(Matrix3x3 M);
-CoordSystem2d CreateCoordSystem2d(Basis2d basis, Vector2d origin);
-Matrix3x3 CoordSystemTransform_2d(CoordSystem2d source, CoordSystem2d destination);
-Matrix3x3 CoordSystemChainTransform_2d(CoordSystem2d source, CoordSystem2d middle, CoordSystem2d destination);
+Frame2d CreateFrame2d(Basis2d basis, Vector2d origin);
+Matrix3x3 FrameTransform_2d(Frame2d source, Frame2d destination);
+Matrix3x3 FrameChainTransform_2d(Frame2d source, Frame2d middle, Frame2d destination);
 Vector2d BasisTransform_2d_Scale(Basis2d source, Basis2d destination);
 //bool IsPointInPolygon(Vector2d point, Vector2d *vertices, Vector2d vertice_offset, int vertice_count);
 #endif
+

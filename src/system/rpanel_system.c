@@ -19,7 +19,7 @@ UIElement *rpanel_root = NULL;
 Camera2d camera_rpanel = {0};
 UIBox rpanel_seed_box = {0};
 
-static CoordSpace2d rpanel_space = {0};
+static Space2d rpanel_space = {0};
 static View rpanel_state_view_storage = {0};
 static View rpanel_create_view_storage = {0};
 static View *rpanel_state_view = NULL;
@@ -187,16 +187,16 @@ void InitRPanel(void)
 
     camera_rpanel = CreateCamera2d(rpanel_pixel_basis, rpanel_basis, rpanel_pixel_origin, rpanel_origin);
 
-    rpanel_space = NewCoordSpace2d(rpanel_origin, rpanel_resolution, rpanel_basis);
+    rpanel_space = NewSpace2d(rpanel_origin, rpanel_resolution, rpanel_basis);
     rpanel_root = CreateUIElement(
         UI_ELEMENT_ROOT,
-        (Size){rpanel_space.resolution_ixj, SIZE_FILL},
+        (Size){{(float)rpanel_space.columns, (float)rpanel_space.rows}, SIZE_FILL},
         (Offset){ZERO_VECTOR_2D, OFFSET_FIXED},
         rpanel_default_padding,
         COLOURLESS_RGBA,
         COLOUR_PANEL_DARK_1);
 
-    rpanel_root->data.root.coord_space = rpanel_space;
+    rpanel_root->data.root.space = rpanel_space;
     rpanel_root->child_spacing = (Spacing){{0.0f, 0.0f}, PERCENT, SPACING_NORMAL};
 
     rpanel_views = MakeLArray(2, sizeof(View *));
@@ -457,7 +457,8 @@ void DrawRPanel(void)
         }
         if (rpanel_world_resolution_tbox)
         {
-            Vector2d world_size = selected_world->coord_space_grid.coord_space.resolution_ixj;
+            Vector2d world_size = {(float)selected_world->grid_space.space.columns,
+                                   (float)selected_world->grid_space.space.rows};
             snprintf(rpanel_world_resolution_tbox->data.textbox.text.string, sizeof(String64), "%.0fx%.0f", world_size.x, world_size.y);
         }
         if (rpanel_world_objects_tbox)
@@ -486,3 +487,5 @@ void DrawRPanel(void)
 
     DrawRootUIElement(rpanel_root, rpanel_seed_box, camera_rpanel);
 }
+
+

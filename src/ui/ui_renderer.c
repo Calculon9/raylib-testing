@@ -131,7 +131,7 @@ void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d camera)
     }
 
     // Need to convert world coordinates to screen coordinates
-    CoordSpace2d panel_space = root_element->data.root.coord_space;
+    Space2d panel_space = root_element->data.root.space;
     Basis2d basis = panel_space.system.basis;
 
     Vector2d origin = panel_space.system.origin_in_parent;
@@ -227,7 +227,7 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d camera)
 // void DrawPanelRegion(UIElement *element, Camera2d camera)
 // {
 //     // Need to convert world coordinates to screen coordinates
-//     CoordSpace2d panel_space = element->data.root.coord_space;
+//     Space2d panel_space = element->data.root.space;
 //     Basis2d basis = panel_space.basis;
 
 //     // The world position of the coordinate space object is the origin of the coordinate space, so (0,0).
@@ -256,7 +256,7 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d camera)
 //     // DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + 2 * lineSpacing.y}, font.baseSize * 2.0f, 2, (Color)BEIGE);
 // }
 
-// void DrawPanelRegion_Stats(CoordSpace2d panel_space, Color fill_colour)
+// void DrawPanelRegion_Stats(Space2d panel_space, Color fill_colour)
 // {
 //     Vector2 pos = {20, 100};
 //     Vector2 lineSpacing = {0, 40};
@@ -276,3 +276,4 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d camera)
 //     snprintf(text, sizeof(text), "Memory (bytes): %zu", GetCurrentMemoryAllocated()); // Format the FPS value into the buffer
 //     DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + 2 * lineSpacing.y}, font.baseSize * 2.0f, 2, (Color){lpanel_text_colour.r, lpanel_text_colour.g, lpanel_text_colour.b, lpanel_text_colour.a});
 // }
+

@@ -101,7 +101,7 @@ void ProcessCommandQueue(void)
             Newtonoid2d *new_entity = ResolveEntityParamsToEntity(&c->params);
             if (new_entity && G_WorldState.world)
             {
-                int entity_id = AddObjectToWorld(G_WorldState.world, new_entity, G_WorldState.world->coord_space_grid.object.id);
+                int entity_id = AddObjectToWorld(G_WorldState.world, new_entity, G_WorldState.world->grid_space.object.id);
                 if (entity_id >= 0)
                 {
                     Newtonoid2d *spawned = GetEntityByID(&G_WorldState, entity_id);
@@ -158,3 +158,5 @@ void ProcessCommandQueue(void)
         q_count--;
     }
 }
+
+

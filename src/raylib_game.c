@@ -470,3 +470,4 @@ static void RefreshViewportAndDependentSystems(bool viewport_scale_changed, bool
         printf("[Viewport] UI px-per-unit override set to %d (0 = follow game viewport scale).\n", viewport_ui_pixels_per_unit_override);
     }
 }
+

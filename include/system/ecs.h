@@ -65,3 +65,4 @@ void ECS_IterateEntities(ECS *ecs, const ComponentID *component_ids, int compone
 int ECS_GetEntityCount(ECS *ecs);
 
 #endif // ECS_H
+

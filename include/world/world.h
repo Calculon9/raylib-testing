@@ -44,7 +44,7 @@ typedef enum
 
 typedef struct World2d
 {
-    CoordSpace2d_Grid coord_space_grid; // The coordinate space of the world, containing the basis vectors and line segments for drawing the world (if applicable)
+    GridSpace2d grid_space; // The coordinate space of the world, containing the basis vectors and line segments for drawing the world (if applicable)
     Camera2d camera;
     LArray objects;
     LArray temp_objects;
@@ -83,7 +83,7 @@ typedef struct
 //     LArray *inhabitant_objects;
 //     LArray *temp_objects;
 //     LArray *collisions;
-//     CoordSpace2d_Grid *space_entity;
+//     GridSpace2d *space_entity;
 //     World2d *world;
 //     Vector2d game_region_origin;
 // } WorldContext;
@@ -123,3 +123,4 @@ int AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id);
 // Field UpdateFieldCellValues(Field field);
 
 #endif
+

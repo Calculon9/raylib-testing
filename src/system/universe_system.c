@@ -60,6 +60,7 @@ static void SyncWorldStateFromSelection(void)
     G_WorldState.collisions = w ? &w->collisions : NULL;
     G_WorldState.selected_object = NULL;
     G_WorldState.selected_cell = NULL;
+    G_WorldState.selected_cell_index = -1;
 }
 
 //----------------------------------------------------------------------------------
@@ -228,7 +229,7 @@ void DrawCoordinateDebugOverlay(void)
     if (target_world_index >= 0 && target_world_index < G_Universe.world_count)
     {
         World2d *w = &G_Universe.worlds[target_world_index];
-        Vector2d res = w->coord_space_grid.coord_space.resolution_ixj;
+        Vector2d res = {(float)w->grid_space.space.columns, (float)w->grid_space.space.rows};
         Matrix3x3 parent_to_child_center_mtx = w->camera.dest_to_source_mtx;
 
         // Transform the un-mapped universe mouse cursor directly into centered grid space
@@ -236,8 +237,8 @@ void DrawCoordinateDebugOverlay(void)
         child_local = TransformCoordinates(parent_to_child_center_mtx, parent_local);
 
         // Shift (0,0) to top-left corner
-        child_origin_in_parent.x = w->coord_space_grid.coord_space.system.origin_in_parent.x + (res.x * 0.5f);
-        child_origin_in_parent.y = w->coord_space_grid.coord_space.system.origin_in_parent.y + (res.y * 0.5f);
+        child_origin_in_parent.x = w->grid_space.space.system.origin_in_parent.x + (res.x * 0.5f);
+        child_origin_in_parent.y = w->grid_space.space.system.origin_in_parent.y + (res.y * 0.5f);
 
         // Boundary check and index mapping
         if (child_local.x >= 0.0f && child_local.y >= 0.0f &&
@@ -483,3 +484,4 @@ Vector2d *GetNextWorldResolutionPtr(void) { return &G_Universe.next_resolution; 
 Vector2d *GetNextWorldBasisUPtr(void) { return &G_Universe.next_basis_u; }
 Vector2d *GetNextWorldBasisVPtr(void) { return &G_Universe.next_basis_v; }
 float *GetNextWorldGravityPtr(void) { return &G_Universe.next_gravity; }
+
