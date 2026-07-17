@@ -48,6 +48,16 @@ typedef struct Universe
     float next_gravity;
 } Universe;
 
+typedef struct UniverseClickHit
+{
+    bool hit;
+    int world_index;
+    World2d *world;
+    Vector2d universe_coords;
+    Vector2d local_coords;
+    int depth;
+} UniverseClickHit;
+
 //----------------------------------------------------------------------------------
 // Global Instance
 //----------------------------------------------------------------------------------
@@ -84,6 +94,10 @@ void Universe_Draw(Universe *u);
 bool Universe_ResolveClick(Universe *u,
                            Vector2d universe_click,
                            Vector2d *local_out);
+
+// Rich hit data for hierarchy-aware click resolution. Keeps world auto-select behavior.
+UniverseClickHit Universe_ResolveClickHit(Universe *u,
+                                          Vector2d universe_click);
 
 // Register or update the universe-space bounds for a world.
 void Universe_SetWorldBounds(Universe *u, int index, Vector2d min_bound, Vector2d max_bound);

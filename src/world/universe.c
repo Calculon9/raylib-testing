@@ -11,10 +11,160 @@ UNIVERSE MODULE
 #include "math/affine_space_ops.h"
 #include "common/common.h"
 #include "camera/camera.h"
+#include "system/click_resolver.h"
 
 Universe G_Universe = {0};
 Vector2d game_viewport_u = {0};
 Vector2d game_viewport_v = {0};
+
+typedef struct UniverseClickResolveContext
+{
+    Universe *universe;
+} UniverseClickResolveContext;
+
+static bool UniverseNode_IsRoot(const UniverseClickResolveContext *ctx, ClickNodeHandle node)
+{
+    return ctx && ctx->universe && node == (ClickNodeHandle)ctx->universe;
+}
+
+static bool UniverseNode_IsWorld(const UniverseClickResolveContext *ctx, ClickNodeHandle node, int *out_index)
+{
+    if (!ctx || !ctx->universe || !node)
+    {
+        return false;
+    }
+
+    Universe *u = ctx->universe;
+    World2d *world = (World2d *)node;
+    if (world < &u->worlds[0] || world >= &u->worlds[u->world_count])
+    {
+        return false;
+    }
+
+    if (out_index)
+    {
+        *out_index = (int)(world - &u->worlds[0]);
+    }
+    return true;
+}
+
+static bool UniverseClick_IsNodeInteractive(void *context, ClickNodeHandle node)
+{
+    UniverseClickResolveContext *ctx = (UniverseClickResolveContext *)context;
+    int world_index = -1;
+    if (UniverseNode_IsRoot(ctx, node))
+    {
+        return true;
+    }
+
+    if (UniverseNode_IsWorld(ctx, node, &world_index))
+    {
+        return world_index >= 0 && world_index < ctx->universe->world_count && ctx->universe->world_bounds_valid[world_index];
+    }
+
+    return false;
+}
+
+static bool UniverseClick_ContainsPointInParent(void *context, ClickNodeHandle node, Vector2d point_in_parent)
+{
+    UniverseClickResolveContext *ctx = (UniverseClickResolveContext *)context;
+    int world_index = -1;
+    if (UniverseNode_IsRoot(ctx, node))
+    {
+        return true;
+    }
+
+    if (UniverseNode_IsWorld(ctx, node, &world_index))
+    {
+        Vector2d min_bound = ctx->universe->world_bounds_min[world_index];
+        Vector2d max_bound = ctx->universe->world_bounds_max[world_index];
+        return point_in_parent.x >= min_bound.x && point_in_parent.y >= min_bound.y &&
+               point_in_parent.x < max_bound.x && point_in_parent.y < max_bound.y;
+    }
+
+    return false;
+}
+
+static Vector2d UniverseClick_PointParentToLocal(void *context, ClickNodeHandle node, Vector2d point_in_parent)
+{
+    UniverseClickResolveContext *ctx = (UniverseClickResolveContext *)context;
+    if (UniverseNode_IsRoot(ctx, node))
+    {
+        return point_in_parent;
+    }
+
+    int world_index = -1;
+    if (UniverseNode_IsWorld(ctx, node, &world_index))
+    {
+        World2d *world = &ctx->universe->worlds[world_index];
+        return TransformCoordinates(world->camera.dest_to_source_mtx, point_in_parent);
+    }
+
+    return point_in_parent;
+}
+
+static ClickNodeHandle UniverseClick_GetFirstChild(void *context, ClickNodeHandle node)
+{
+    UniverseClickResolveContext *ctx = (UniverseClickResolveContext *)context;
+    if (!UniverseNode_IsRoot(ctx, node))
+    {
+        return NULL;
+    }
+
+    if (ctx->universe->world_count <= 0)
+    {
+        return NULL;
+    }
+
+    return (ClickNodeHandle)&ctx->universe->worlds[0];
+}
+
+static ClickNodeHandle UniverseClick_GetNextSibling(void *context, ClickNodeHandle parent, ClickNodeHandle node)
+{
+    UniverseClickResolveContext *ctx = (UniverseClickResolveContext *)context;
+    if (!UniverseNode_IsRoot(ctx, parent))
+    {
+        return NULL;
+    }
+
+    int world_index = -1;
+    if (!UniverseNode_IsWorld(ctx, node, &world_index))
+    {
+        return NULL;
+    }
+
+    int next_index = world_index + 1;
+    if (next_index < 0 || next_index >= ctx->universe->world_count)
+    {
+        return NULL;
+    }
+
+    return (ClickNodeHandle)&ctx->universe->worlds[next_index];
+}
+
+static bool UniverseClick_AcceptNodeHit(void *context, ClickNodeHandle node, Vector2d local_point)
+{
+    UniverseClickResolveContext *ctx = (UniverseClickResolveContext *)context;
+    (void)local_point;
+
+    // Universe root is only a container; only worlds are selectable hits.
+    if (UniverseNode_IsRoot(ctx, node))
+    {
+        return false;
+    }
+
+    int world_index = -1;
+    return UniverseNode_IsWorld(ctx, node, &world_index);
+}
+
+static const ClickHierarchyAdapter UNIVERSE_CLICK_ADAPTER = {
+    .IsNodeInteractive = UniverseClick_IsNodeInteractive,
+    .ContainsPointInParent = UniverseClick_ContainsPointInParent,
+    .PointParentToLocal = UniverseClick_PointParentToLocal,
+    .GetFirstChild = UniverseClick_GetFirstChild,
+    .GetNextSibling = UniverseClick_GetNextSibling,
+    .AcceptNodeHit = UniverseClick_AcceptNodeHit,
+};
 
 static Basis2d ResolveCoordSpaceBasis(Vector2d requested_u, Vector2d requested_v)
 {
@@ -247,33 +397,61 @@ void Universe_Draw(Universe *u)
 }
 
 // ---------------------------------------------------------------------------
-Can we make this more generic than having to resolve a click to a world via Universe? This function assumes theres only 1 level of any hierarchy. 
-If we had a more generic function that could resolve a click to any coordinate space, we could use it for worlds, panels, and other coordinate spaces.
+// Generic click resolver note:
+// Resolve clicks through a hierarchy of coordinate spaces so this path can be
+// reused by worlds, panels, and other nested spaces.
 bool Universe_ResolveClick(Universe *u, Vector2d universe_click, Vector2d *local_out)
 {
-    // Find which world (if any) contains the click point.
-    int clicked_world = Universe_FindWorldAt(u, universe_click);
-    if (clicked_world >= 0)
+    UniverseClickHit hit = Universe_ResolveClickHit(u, universe_click);
+    if (hit.hit && local_out)
     {
-        // Select the world immediately. Selection should occur regardless of the
-        // local coordinate check, because the world bounds already guarantee the
-        // click is inside the world.
-        if (clicked_world != u->selected_world_index)
-            Universe_SelectWorld(u, clicked_world);
-
-        // Compute local coordinates relative to the world top-left for callers that need it.
-        if (local_out)
-        {
-            World2d *w = &u->worlds[clicked_world];
-            Frame2d universe_space = CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D);
-            Frame2d world_space = w->grid_space.space.system; //CreateFrame2d(w->grid_space.space.system.basis, CalcSpaceOriginFromCenter(&w->grid_space.space, w->uni_coords_center));
-            Matrix3x3 universe_to_world_mtx = Frame_CalcTransform(universe_space, world_space);
-            *local_out = TransformCoordinates(universe_to_world_mtx, universe_click);
-        }
-        return true;
+        *local_out = hit.local_coords;
     }
-    // No world hit – indicate no selection.
-    return false;
+
+    return hit.hit;
+}
+
+UniverseClickHit Universe_ResolveClickHit(Universe *u, Vector2d universe_click)
+{
+    UniverseClickHit hit = {0};
+    hit.world_index = -1;
+    hit.universe_coords = universe_click;
+
+    if (!u)
+    {
+        return hit;
+    }
+
+    UniverseClickResolveContext context = {.universe = u};
+    ClickResolveResult resolved = {0};
+    bool has_hit = ClickResolver_ResolveDeepest(&context,
+                                                (ClickNodeHandle)u,
+                                                universe_click,
+                                                &UNIVERSE_CLICK_ADAPTER,
+                                                &resolved);
+    if (!has_hit)
+    {
+        return hit;
+    }
+
+    int clicked_world = -1;
+    if (!UniverseNode_IsWorld(&context, resolved.node, &clicked_world))
+    {
+        return hit;
+    }
+
+    hit.hit = true;
+    hit.world_index = clicked_world;
+    hit.world = &u->worlds[clicked_world];
+    hit.local_coords = resolved.local_point;
+    hit.depth = resolved.depth;
+
+    if (clicked_world != u->selected_world_index)
+    {
+        Universe_SelectWorld(u, clicked_world);
+    }
+
+    return hit;
 }
 
 // ---------------------------------------------------------------------------
