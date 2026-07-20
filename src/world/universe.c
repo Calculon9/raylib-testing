@@ -11,162 +11,11 @@ UNIVERSE MODULE
 #include "math/affine_space_ops.h"
 #include "common/common.h"
 #include "camera/camera.h"
-#include "system/click_resolver.h"
 
 Universe G_Universe = {0};
-Vector2d game_viewport_u = {0};
-Vector2d game_viewport_v = {0};
+static bool world_camera_diagnostic_printed = false;
 
-typedef struct UniverseClickResolveContext
-{
-    Universe *universe;
-} UniverseClickResolveContext;
-
-static bool UniverseNode_IsRoot(const UniverseClickResolveContext *ctx, ClickNodeHandle node)
-{
-    return ctx && ctx->universe && node == (ClickNodeHandle)ctx->universe;
-}
-
-static bool UniverseNode_IsWorld(const UniverseClickResolveContext *ctx, ClickNodeHandle node, int *out_index)
-{
-    if (!ctx || !ctx->universe || !node)
-    {
-        return false;
-    }
-
-    Universe *u = ctx->universe;
-    World2d *world = (World2d *)node;
-    if (world < &u->worlds[0] || world >= &u->worlds[u->world_count])
-    {
-        return false;
-    }
-
-    if (out_index)
-    {
-        *out_index = (int)(world - &u->worlds[0]);
-    }
-    return true;
-}
-
-static bool UniverseClick_IsNodeInteractive(void *context, ClickNodeHandle node)
-{
-    UniverseClickResolveContext *ctx = (UniverseClickResolveContext *)context;
-    int world_index = -1;
-    if (UniverseNode_IsRoot(ctx, node))
-    {
-        return true;
-    }
-
-    if (UniverseNode_IsWorld(ctx, node, &world_index))
-    {
-        return world_index >= 0 && world_index < ctx->universe->world_count && ctx->universe->world_bounds_valid[world_index];
-    }
-
-    return false;
-}
-
-static bool UniverseClick_ContainsPointInParent(void *context, ClickNodeHandle node, Vector2d point_in_parent)
-{
-    UniverseClickResolveContext *ctx = (UniverseClickResolveContext *)context;
-    int world_index = -1;
-    if (UniverseNode_IsRoot(ctx, node))
-    {
-        return true;
-    }
-
-    if (UniverseNode_IsWorld(ctx, node, &world_index))
-    {
-        Vector2d min_bound = ctx->universe->world_bounds_min[world_index];
-        Vector2d max_bound = ctx->universe->world_bounds_max[world_index];
-        return point_in_parent.x >= min_bound.x && point_in_parent.y >= min_bound.y &&
-               point_in_parent.x < max_bound.x && point_in_parent.y < max_bound.y;
-    }
-
-    return false;
-}
-
-static Vector2d UniverseClick_PointParentToLocal(void *context, ClickNodeHandle node, Vector2d point_in_parent)
-{
-    UniverseClickResolveContext *ctx = (UniverseClickResolveContext *)context;
-    if (UniverseNode_IsRoot(ctx, node))
-    {
-        return point_in_parent;
-    }
-
-    int world_index = -1;
-    if (UniverseNode_IsWorld(ctx, node, &world_index))
-    {
-        World2d *world = &ctx->universe->worlds[world_index];
-        return TransformCoordinates(world->camera.dest_to_source_mtx, point_in_parent);
-    }
-
-    return point_in_parent;
-}
-
-static ClickNodeHandle UniverseClick_GetFirstChild(void *context, ClickNodeHandle node)
-{
-    UniverseClickResolveContext *ctx = (UniverseClickResolveContext *)context;
-    if (!UniverseNode_IsRoot(ctx, node))
-    {
-        return NULL;
-    }
-
-    if (ctx->universe->world_count <= 0)
-    {
-        return NULL;
-    }
-
-    return (ClickNodeHandle)&ctx->universe->worlds[0];
-}
-
-static ClickNodeHandle UniverseClick_GetNextSibling(void *context, ClickNodeHandle parent, ClickNodeHandle node)
-{
-    UniverseClickResolveContext *ctx = (UniverseClickResolveContext *)context;
-    if (!UniverseNode_IsRoot(ctx, parent))
-    {
-        return NULL;
-    }
-
-    int world_index = -1;
-    if (!UniverseNode_IsWorld(ctx, node, &world_index))
-    {
-        return NULL;
-    }
-
-    int next_index = world_index + 1;
-    if (next_index < 0 || next_index >= ctx->universe->world_count)
-    {
-        return NULL;
-    }
-
-    return (ClickNodeHandle)&ctx->universe->worlds[next_index];
-}
-
-static bool UniverseClick_AcceptNodeHit(void *context, ClickNodeHandle node, Vector2d local_point)
-{
-    UniverseClickResolveContext *ctx = (UniverseClickResolveContext *)context;
-    (void)local_point;
-
-    // Universe root is only a container; only worlds are selectable hits.
-    if (UniverseNode_IsRoot(ctx, node))
-    {
-        return false;
-    }
-
-    int world_index = -1;
-    return UniverseNode_IsWorld(ctx, node, &world_index);
-}
-
-static const ClickHierarchyAdapter UNIVERSE_CLICK_ADAPTER = {
-    .IsNodeInteractive = UniverseClick_IsNodeInteractive,
-    .ContainsPointInParent = UniverseClick_ContainsPointInParent,
-    .PointParentToLocal = UniverseClick_PointParentToLocal,
-    .GetFirstChild = UniverseClick_GetFirstChild,
-    .GetNextSibling = UniverseClick_GetNextSibling,
-    .AcceptNodeHit = UniverseClick_AcceptNodeHit,
-};
-
-static Basis2d ResolveCoordSpaceBasis(Vector2d requested_u, Vector2d requested_v)
+static Basis2d ResolveFrameBasis_UserInput(Vector2d requested_u, Vector2d requested_v)
 {
     const float eps = 0.0001f;
     Basis2d result = IDENTITY_BASIS_2D;
@@ -176,10 +25,7 @@ static Basis2d ResolveCoordSpaceBasis(Vector2d requested_u, Vector2d requested_v
     if (u_mag < eps || v_mag < eps)
     {
         LOG_WARN("Invalid coord-space basis magnitude. Falling back to identity basis. u=(%.3f,%.3f), v=(%.3f,%.3f)\n",
-                 requested_u.x,
-                 requested_u.y,
-                 requested_v.x,
-                 requested_v.y);
+                 requested_u.x, requested_u.y, requested_v.x, requested_v.y);
         return result;
     }
 
@@ -203,24 +49,23 @@ static Basis2d ResolveCoordSpaceBasis(Vector2d requested_u, Vector2d requested_v
     return result;
 }
 
-static Camera2d BuildWorldToUniverseCameraTemplate(Vector2d space_resolution, Basis2d universe_basis, Basis2d world_basis, Vector2d world_center_in_universe)
+static Camera2d BuildWorldToUniverseCamera(Frame2d *source_frame, Frame2d *destination_frame)
 {
-    Vector2d source_focus_coords = VectorScale_2d(space_resolution, 0.5f);
+    Vector2d source_focus_coords = source_frame->origin_in_parent;
 
-    Camera2d coord_space_camera_template = CreateCamera2d(universe_basis, world_basis, world_center_in_universe, source_focus_coords);
-    coord_space_camera_template.source_focus_coords = source_focus_coords;
-    coord_space_camera_template.target_source_focus_coords = source_focus_coords;
-    coord_space_camera_template.zoom = 1.0f;
-    coord_space_camera_template.target_zoom = 1.0f;
-    coord_space_camera_template.rotation = 0.0f;
-    coord_space_camera_template.target_rotation = 0.0f;
-    UpdateCameraFull(&coord_space_camera_template);
+    Camera2d camera = CreateCamera2d(source_frame, destination_frame);
+    camera.source_focus_coords = source_focus_coords;
+    camera.target_source_focus_coords = source_focus_coords;
+    camera.zoom = 1.0f;
+    camera.target_zoom = 1.0f;
+    camera.rotation = 0.0f;
+    UpdateCameraFull(&camera);
 
-    return coord_space_camera_template;
+    return camera;
 }
 
 // ---------------------------------------------------------------------------
-void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_world_resolution, Vector2d universe_resolution, float default_gravity)
+void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_world_resolution, float default_gravity)
 {
     u->world_count = 0;
     u->selected_world_index = -1;
@@ -232,9 +77,6 @@ void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_wor
         u->world_bounds_min[i] = ZERO_VECTOR_2D;
         u->world_bounds_max[i] = ZERO_VECTOR_2D;
     }
-
-    u->camera_offset = ZERO_VECTOR_2D;
-    u->resolution = universe_resolution;
 
     u->next_spawn = default_spawn;
     u->next_resolution = default_new_world_resolution;
@@ -248,13 +90,8 @@ void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_wor
 }
 
 // ---------------------------------------------------------------------------
-int Universe_CreateWorld(Universe *u,
-                         ColourRgba fill_colour,
-                         ColourRgba line_colour,
-                         ColourRgba camera_marker_colour,
-                         Vector2d world_center_in_universe,
-                         WorldState *world_state,
-                         bool auto_select)
+int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_colour, ColourRgba camera_marker_colour, Vector2d world_center_in_universe,
+                         WorldState *world_state, bool auto_select)
 {
     if (u->world_count >= UNIVERSE_MAX_WORLDS)
     {
@@ -262,15 +99,15 @@ int Universe_CreateWorld(Universe *u,
         return -1;
     }
 
-    Vector2d creation_res = (u->next_resolution.x > 0.0f && u->next_resolution.y > 0.0f)
+    Vector2d requested_res = (u->next_resolution.x > 0.0f && u->next_resolution.y > 0.0f)
                                 ? u->next_resolution
                                 : (Vector2d){16.0f, 9.0f}; // sensible fallback
 
-    Basis2d world_basis = ResolveCoordSpaceBasis(u->next_basis_u, u->next_basis_v);
+    Basis2d world_basis = ResolveFrameBasis_UserInput(u->next_basis_u, u->next_basis_v);
     u->next_basis_u = world_basis.u;
     u->next_basis_v = world_basis.v;
 
-    GridSpace2d space_g = NewGridSpace2d(ZERO_VECTOR_2D, creation_res, world_basis, fill_colour, line_colour);
+    GridSpace2d space_g = NewGridSpace2d(ZERO_VECTOR_2D, requested_res, world_basis, fill_colour, line_colour);
     space_g.object.id = 0;
     space_g.object.flags = FLAG_ATTR_RIGID | FLAG_STATUS_ALIVE;
     space_g.object.collision_mask = FLAG_TYPE_NEWTONOID | FLAG_TYPE_PROJECTILE | FLAG_TYPE_WALL;
@@ -278,10 +115,17 @@ int Universe_CreateWorld(Universe *u,
 
     int new_index = u->world_count;
     World2d *new_world = &u->worlds[new_index];
+    new_world->camera.tunnel.source_frame = &space_g.space.frame;
+    new_world->camera.tunnel.destination_frame = u->camera.tunnel.source_frame;
 
-    Camera2d world_camera = BuildWorldToUniverseCameraTemplate(creation_res, u->camera.source_basis, world_basis, world_center_in_universe);
+    Camera2d world_camera = BuildWorldToUniverseCamera(new_world->camera.tunnel.source_frame, new_world->camera.tunnel.destination_frame);
 
     CreateWorld(space_g, world_camera, u->next_gravity, new_world);
+    // Rebind camera tunnel frames to persistent world-owned storage (avoid stack pointer lifetime issues).
+    new_world->camera.tunnel.source_frame = &new_world->grid_space.space.frame;
+    new_world->camera.tunnel.destination_frame = u->camera.tunnel.source_frame;
+    UpdateCameraFull(&new_world->camera);
+
     new_world->uni_coords_center = world_center_in_universe;
 
     // Place a camera-position marker at the world-space focus point.
@@ -298,7 +142,8 @@ int Universe_CreateWorld(Universe *u,
 
     u->world_count++;
 
-    Matrix2x2 world_bounds = CalcSpaceBoundsFromCenter(&new_world->grid_space.space, new_world->uni_coords_center);
+    Frame2d world_frame_in_universe = CreateFrame2d(world_basis, world_center_in_universe, requested_res);
+    Matrix2x2 world_bounds = Frame_CalcAABB_InParent(&world_frame_in_universe);
     Vector2d world_bounds_min = world_bounds.col1;
     Vector2d world_bounds_max = world_bounds.col2;
     Universe_SetWorldBounds(u, new_index, world_bounds_min, world_bounds_max);
@@ -325,7 +170,22 @@ int Universe_CreateWorld(Universe *u,
     LOG_INFO("Universe_CreateWorld -> index=%d universe_pos=(%.1f,%.1f) res=(%.0fx%.0f)\n",
              new_index,
              new_world->uni_coords_center.x, new_world->uni_coords_center.y,
-             creation_res.x, creation_res.y);
+             requested_res.x, requested_res.y);
+
+    if (!world_camera_diagnostic_printed)
+    {
+        Vector2d mapped_world_center = TransformCoordinates(new_world->camera.tunnel.source_to_dest_mtx, new_world->camera.source_focus_coords);
+        LOG_INFO("[WORLD CAMERA DIAG] src_focus=(%.2f, %.2f) dest_origin=(%.2f, %.2f) mapped_center_in_parent=(%.2f, %.2f) universe_center=(%.2f, %.2f)\n",
+               new_world->camera.source_focus_coords.x,
+               new_world->camera.source_focus_coords.y,
+               new_world->camera.tunnel.source_frame->origin_in_parent.x,
+               new_world->camera.tunnel.source_frame->origin_in_parent.y,
+               mapped_world_center.x,
+               mapped_world_center.y,
+               world_center_in_universe.x,
+               world_center_in_universe.y);
+        world_camera_diagnostic_printed = true;
+    }
 
     return new_index;
 }
@@ -397,61 +257,36 @@ void Universe_Draw(Universe *u)
 }
 
 // ---------------------------------------------------------------------------
-// Generic click resolver note:
-// Resolve clicks through a hierarchy of coordinate spaces so this path can be
-// reused by worlds, panels, and other nested spaces.
 bool Universe_ResolveClick(Universe *u, Vector2d universe_click, Vector2d *local_out)
 {
-    UniverseClickHit hit = Universe_ResolveClickHit(u, universe_click);
-    if (hit.hit && local_out)
-    {
-        *local_out = hit.local_coords;
-    }
-
-    return hit.hit;
-}
-
-UniverseClickHit Universe_ResolveClickHit(Universe *u, Vector2d universe_click)
-{
-    UniverseClickHit hit = {0};
-    hit.world_index = -1;
-    hit.universe_coords = universe_click;
-
     if (!u)
     {
-        return hit;
+        return false;
     }
 
-    UniverseClickResolveContext context = {.universe = u};
-    ClickResolveResult resolved = {0};
-    bool has_hit = ClickResolver_ResolveDeepest(&context,
-                                                (ClickNodeHandle)u,
-                                                universe_click,
-                                                &UNIVERSE_CLICK_ADAPTER,
-                                                &resolved);
-    if (!has_hit)
+    // Find which world (if any) contains the click point.
+    int clicked_world = Universe_FindWorldAt(u, universe_click);
+    if (clicked_world >= 0)
     {
-        return hit;
+        // Select the world immediately. Selection should occur regardless of the
+        // local coordinate check, because the world bounds already guarantee the
+        // click is inside the world.
+        if (clicked_world != u->selected_world_index)
+            Universe_SelectWorld(u, clicked_world);
+
+        // Compute local coordinates relative to the world top-left for callers that need it.
+        if (local_out)
+        {
+            World2d *w = &u->worlds[clicked_world];
+            //Frame2d universe_space = CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D, u->resolution);
+            //Frame2d world_space = w->grid_space.space.frame;
+            Matrix3x3 universe_to_world_mtx = w->camera.tunnel.dest_to_source_mtx; // Transform from universe space to world space
+            *local_out = TransformCoordinates(universe_to_world_mtx, universe_click);
+        }
+        return true;
     }
-
-    int clicked_world = -1;
-    if (!UniverseNode_IsWorld(&context, resolved.node, &clicked_world))
-    {
-        return hit;
-    }
-
-    hit.hit = true;
-    hit.world_index = clicked_world;
-    hit.world = &u->worlds[clicked_world];
-    hit.local_coords = resolved.local_point;
-    hit.depth = resolved.depth;
-
-    if (clicked_world != u->selected_world_index)
-    {
-        Universe_SelectWorld(u, clicked_world);
-    }
-
-    return hit;
+    // No world hit - indicate no selection.
+    return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -484,4 +319,3 @@ Camera2d *Universe_GetCamera(Universe *u)
 {
     return &u->camera;
 }
-

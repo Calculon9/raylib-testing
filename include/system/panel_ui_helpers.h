@@ -9,71 +9,55 @@ PANEL UI HELPERS MODULE
 #include "ui/ui.h"
 #include "ui/text_region.h"
 
-UIElement *CreatePanelTitleLabel(UIElement *parent,
-                                 const char *text,
-                                 Size size,
-                                 Vector2d padding,
-                                 Bitmap_Font font,
-                                 ColourRgba border,
-                                 ColourRgba fill);
+typedef struct PanelFieldSpec
+{
+    const char *label;
+    UIElementType type;
+    Size size;
+    DataType data_type;
+    UIElement **target;
+    String64 **text_target;
+} PanelFieldSpec;
 
-UIElement *CreatePanelTitleLabelDefault(UIElement *parent,
-                                        const char *text,
-                                        Size size,
-                                        Vector2d padding);
+UIElement *CreatePanelTitleLabel(UIElement *parent, const char *text, Size size,
+                                 Vector2d padding, Bitmap_Font font,
+                                 ColourRgba border, ColourRgba fill);
 
-UIElement *CreatePanelLabeledField(UIElement *parent,
-                                   const char *label_text,
-                                   UIElementType input_type,
-                                   Size row_size,
-                                   Size textbox_size,
-                                   Vector2d row_padding,
-                                   Vector2d label_offset,
-                                   ColourRgba row_border,
-                                   ColourRgba row_fill,
-                                   Vector2d cell_padding,
-                                   ColourRgba cell_border,
-                                   ColourRgba cell_fill,
+UIElement *CreatePanelTitleLabelDefault(UIElement *parent, const char *text,
+                                        Size size, Vector2d padding);
+
+UIElement *CreatePanelLabeledField(UIElement *parent, const char *label_text,
+                                   UIElementType input_type, Size row_size,
+                                   Size textbox_size, Vector2d row_padding,
+                                   Vector2d label_offset, ColourRgba row_border,
+                                   ColourRgba row_fill, Vector2d cell_padding,
+                                   ColourRgba cell_border, ColourRgba cell_fill,
                                    Bitmap_Font font);
 
-            UIElement *CreatePanelLabeledFieldDefault(UIElement *parent,
-                                    const char *label_text,
-                                    UIElementType input_type,
-                                    Size row_size,
-                                    Vector2d row_padding,
-                                    ColourRgba row_border,
-                                    ColourRgba row_fill);
+UIElement *CreatePanelLabeledFieldDefault(UIElement *parent, const char *label_text,
+                                          UIElementType input_type, Size row_size,
+                                          Vector2d row_padding, ColourRgba row_border,
+                                          ColourRgba row_fill);
 
-UIElement *CreatePanelButton(UIElement *parent,
-                             UIElementType type,
-                             const char *text,
-                             Size size,
-                             Vector2d padding,
-                             ColourRgba border,
-                             ColourRgba fill,
-                             Bitmap_Font font,
-                             UIEventHandler on_click,
-                             void *user_data,
+UIElement *CreatePanelButton(UIElement *parent, UIElementType type,
+                             const char *text, Size size,
+                             Vector2d padding, ColourRgba border,
+                             ColourRgba fill, Bitmap_Font font,
+                             UIEventHandler on_click, void *user_data,
                              void *data_bind);
 
-            UIElement *CreatePanelButtonDefault(UIElement *parent,
-                                 UIElementType type,
-                                 const char *text,
-                                 Size size,
-                                 Vector2d padding,
-                                 UIEventHandler on_click,
-                                 void *user_data,
-                                 void *data_bind);
+UIElement *CreatePanelButtonDefault(UIElement *parent, UIElementType type,
+                                    const char *text, Size size,
+                                    Vector2d padding, UIEventHandler on_click,
+                                    void *user_data, void *data_bind);
 
-UIElement *CreatePanelContainer(UIElement *parent,
-                                          Size size,
-                                          Offset offset,
-                                          Vector2d padding,
-                                          ColourRgba border,
-                                          ColourRgba fill,
-                                          Spacing child_spacing,
-                                          bool is_draggable,
-                                          bool is_enabled);
+UIElement *CreatePanelContainer(UIElement *parent, Size size, Offset offset,
+                                Vector2d padding, ColourRgba border,
+                                ColourRgba fill, Spacing child_spacing,
+                                bool is_draggable, bool is_enabled);
+
+void InitPanelFields(UIElement *parent, const PanelFieldSpec *specs, size_t count,
+                     Vector2d row_padding, ColourRgba row_border, ColourRgba row_fill);
 
 #endif
 

@@ -6,6 +6,43 @@
 
 #include "world/world_internal.h"
 
+static bool AABBOverlaps(Vector2d a_origin, Vector2d a_dimensions, Vector2d b_origin, Vector2d b_dimensions)
+{
+    float a_max_x = a_origin.x + a_dimensions.x;
+    float a_max_y = a_origin.y + a_dimensions.y;
+    float b_max_x = b_origin.x + b_dimensions.x;
+    float b_max_y = b_origin.y + b_dimensions.y;
+
+    if (a_max_x < b_origin.x || a_origin.x > b_max_x)
+        return false;
+    if (a_max_y < b_origin.y || a_origin.y > b_max_y)
+        return false;
+
+    return true;
+}
+
+static Vector2d CalcSeparationVector(Vector2d normal, float penetration_depth)
+{
+    return VectorScale_2d(normal, penetration_depth);
+}
+
+static void ApplyPositionSeparation(Newtonoid2d *entity, Vector2d separation_vector, float move_fraction)
+{
+    if (!entity)
+    {
+        return;
+    }
+
+    entity->coords_center = VectorSum_2d(entity->coords_center, VectorScale_2d(separation_vector, move_fraction));
+    entity->coords_origin = VectorSum_2d(entity->coords_origin, VectorScale_2d(separation_vector, move_fraction));
+}
+
+static float CalcElasticImpulseMagnitude(float normal_velocity_dot, float total_inv_mass)
+{
+    float e = 1.0f;
+    return -(1.0f + e) * normal_velocity_dot / total_inv_mass;
+}
+
 void PhysicsUpdateJob(void *context, int start, int end)
 {
     if (!context)
@@ -27,7 +64,7 @@ void PhysicsUpdateJob(void *context, int start, int end)
 
         // Use the current center position to derive the snapped grid footprint for this frame.
         Vector2d snapped_aabb_verts[4] = {0};
-        CalcSnappedAABB_Vertices(obj->surface.surface_vectors.items, obj->surface.surface_vectors.count, obj->coords_center, space->system.basis, snapped_aabb_verts);
+        CalcSnappedAABB_Vertices(obj->surface.surface_vectors.items, obj->surface.surface_vectors.count, obj->coords_center, space->frame.basis, snapped_aabb_verts);
         Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
 
         CalcVectors(obj, frame_counter.delta_time);
@@ -41,19 +78,7 @@ CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b)
     CollisionResult_SAT result = {0};
     result.is_colliding = false;
 
-    float a_min_x = a->coords_origin.x;
-    float a_max_x = a->coords_origin.x + a->boxed_dimensions.x;
-    float a_min_y = a->coords_origin.y;
-    float a_max_y = a->coords_origin.y + a->boxed_dimensions.y;
-
-    float b_min_x = b->coords_origin.x;
-    float b_max_x = b->coords_origin.x + b->boxed_dimensions.x;
-    float b_min_y = b->coords_origin.y;
-    float b_max_y = b->coords_origin.y + b->boxed_dimensions.y;
-
-    if (a_max_x < b_min_x || a_min_x > b_max_x)
-        return result;
-    if (a_max_y < b_min_y || a_min_y > b_max_y)
+    if (!AABBOverlaps(a->coords_origin, a->boxed_dimensions, b->coords_origin, b->boxed_dimensions))
         return result;
 
     LArray a_vertices_arr = a->surface.surface_vectors;
@@ -215,22 +240,7 @@ CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b)
 
 bool CheckForCollision_AABB(Newtonoid2d a, Newtonoid2d b)
 {
-    float a_min_x = a.coords_origin.x;
-    float a_max_x = a.coords_origin.x + a.boxed_dimensions.x;
-    float a_min_y = a.coords_origin.y;
-    float a_max_y = a.coords_origin.y + a.boxed_dimensions.y;
-
-    float b_min_x = b.coords_origin.x;
-    float b_max_x = b.coords_origin.x + b.boxed_dimensions.x;
-    float b_min_y = b.coords_origin.y;
-    float b_max_y = b.coords_origin.y + b.boxed_dimensions.y;
-
-    if (a_max_x < b_min_x || a_min_x > b_max_x)
-        return false;
-    if (a_max_y < b_min_y || a_min_y > b_max_y)
-        return false;
-
-    return true;
+    return AABBOverlaps(a.coords_origin, a.boxed_dimensions, b.coords_origin, b.boxed_dimensions);
 }
 
 void ResolveCollision(Newtonoid2d *a, Newtonoid2d *b)
@@ -268,21 +278,17 @@ void ResolveCollision(Newtonoid2d *a, Newtonoid2d *b)
 
     float a_move_fraction = a->inverse_mass / total_inv_mass;
     float b_move_fraction = b->inverse_mass / total_inv_mass;
-    Vector2d separation_vector = VectorScale_2d(normal, penetration_depth);
+    Vector2d separation_vector = CalcSeparationVector(normal, penetration_depth);
 
-    a->coords_center = VectorSum_2d(a->coords_center, VectorScale_2d(separation_vector, -a_move_fraction));
-    a->coords_origin = VectorSum_2d(a->coords_origin, VectorScale_2d(separation_vector, -a_move_fraction));
-
-    b->coords_center = VectorSum_2d(b->coords_center, VectorScale_2d(separation_vector, b_move_fraction));
-    b->coords_origin = VectorSum_2d(b->coords_origin, VectorScale_2d(separation_vector, b_move_fraction));
+    ApplyPositionSeparation(a, separation_vector, -a_move_fraction);
+    ApplyPositionSeparation(b, separation_vector, b_move_fraction);
 
     Vector2d a_b_vel_diff = VectorSum_2d(a->velocity, VectorScale_2d(b->velocity, -1));
     float a_b_vel_dot = VectorDot_2d(a_b_vel_diff, normal);
 
     if (a_b_vel_dot > 0.0f)
     {
-        float e = 1.0f;
-        float j = -(1.0f + e) * a_b_vel_dot / total_inv_mass;
+        float j = CalcElasticImpulseMagnitude(a_b_vel_dot, total_inv_mass);
         Vector2d impulse_vector = VectorScale_2d(normal, j);
         a->velocity = VectorSum_2d(a->velocity, VectorScale_2d(impulse_vector, a->inverse_mass));
         b->velocity = VectorSum_2d(b->velocity, VectorScale_2d(impulse_vector, -b->inverse_mass));
@@ -336,18 +342,16 @@ void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container)
             return;
 
         float entity_move_fraction = entity->inverse_mass / total_inv_mass;
-        Vector2d separation_vector = VectorScale_2d(inward_normal, penetration_depth);
+        Vector2d separation_vector = CalcSeparationVector(inward_normal, penetration_depth);
 
-        entity->coords_center = VectorSum_2d(entity->coords_center, VectorScale_2d(separation_vector, entity_move_fraction));
-        entity->coords_origin = VectorSum_2d(entity->coords_origin, VectorScale_2d(separation_vector, entity_move_fraction));
+        ApplyPositionSeparation(entity, separation_vector, entity_move_fraction);
 
         Vector2d c_e_vel_diff = VectorSum_2d(entity->velocity, VectorScale_2d(container->velocity, -1.0f));
         float c_e_vel_dot = VectorDot_2d(c_e_vel_diff, inward_normal);
 
         if (c_e_vel_dot < 0.0f)
         {
-            float e = 1.0f;
-            float j = -(1.0f + e) * c_e_vel_dot / total_inv_mass;
+            float j = CalcElasticImpulseMagnitude(c_e_vel_dot, total_inv_mass);
             Vector2d impulse_vector = VectorScale_2d(inward_normal, j);
             entity->velocity = VectorSum_2d(entity->velocity, VectorScale_2d(impulse_vector, entity->inverse_mass));
         }
@@ -368,7 +372,7 @@ void MapEntityToASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 snapped_aa
             Vector2d cell_coords = (Vector2d){snapped_t_left.x + x, snapped_t_left.y + y};
             int cell_i = GetIndexFromCoords(space, cell_coords);
             Cell *cell = GetCellFromCoords(space, cell_coords);
-            bool out_of_bounds = Frame_ContainsPoint_Local(cell_coords, &space->system);
+            bool out_of_bounds = Frame_ContainsPoint_Local(cell_coords, &space->frame);
             if (cell == NULL || out_of_bounds == false)
             {
                 //LOG_WARN("Cell (index %d) not found in MapEntityToASpace or its coordinates are out of bounds. Skipping this object-->cell mapping.\n", cell_i);

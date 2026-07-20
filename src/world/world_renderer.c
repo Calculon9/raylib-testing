@@ -24,11 +24,7 @@ static Color ToRaylibColor(ColourRgba colour)
     return (Color){colour.r, colour.g, colour.b, colour.a};
 }
 
-static void TransformLineEndpoints(Vector2d start,
-                                   Vector2d end,
-                                   Matrix3x3 world_to_pixel_mtx,
-                                   Vector2d *out_start,
-                                   Vector2d *out_end)
+static void TransformLineEndpoints(Vector2d start, Vector2d end, Matrix3x3 world_to_pixel_mtx, Vector2d *out_start, Vector2d *out_end)
 {
     if (out_start != NULL)
     {
@@ -41,10 +37,7 @@ static void TransformLineEndpoints(Vector2d start,
     }
 }
 
-static void DrawTransformedLineV(Vector2d start,
-                                 Vector2d end,
-                                 Matrix3x3 world_to_pixel_mtx,
-                                 ColourRgba line_colour)
+static void DrawTransformedLineV(Vector2d start, Vector2d end, Matrix3x3 world_to_pixel_mtx, ColourRgba line_colour)
 {
     Vector2d line_pixel_origin = {0};
     Vector2d line_pixel_end = {0};
@@ -57,8 +50,10 @@ static void DrawTransformedLineV(Vector2d start,
 
 void DrawWorldRegion(World2d *world, Camera2d *world_camera, Camera2d *universe_camera)
 {
-    Matrix3x3 world_to_pixel_mtx = MatrixMultiply_3x3_3x3(universe_camera->source_to_dest_mtx,
-                                                          world_camera->source_to_dest_mtx);
+    Matrix3x3 world_to_game_viewport_mtx = MatrixMultiply_3x3_3x3(universe_camera->tunnel.source_to_dest_mtx,
+                                                                  world_camera->tunnel.source_to_dest_mtx);
+    Matrix3x3 world_to_pixel_mtx = MatrixMultiply_3x3_3x3(game_viewport_tunnel.source_to_dest_mtx,
+                                                          world_to_game_viewport_mtx);
 
     DrawGridSpace(&world->grid_space, world_to_pixel_mtx);
     DrawNewtonoids(&world->objects, world_to_pixel_mtx);
@@ -73,9 +68,9 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
         return;
     }
 
-    Basis2d basis = grid_space->space.system.basis;
+    Basis2d basis = grid_space->space.frame.basis;
 
-    Vector2d local_origin = grid_space->space.system.origin_in_parent;
+    Vector2d local_origin = grid_space->space.frame.origin_in_parent;
     Vector2d origin = local_origin;
     Vector2d end = VectorSum_2d(origin, (Vector2d){(float)grid_space->space.columns, (float)grid_space->space.rows});
 
@@ -217,5 +212,3 @@ void DrawObjectVertices(Vector2d *local_vertices, int vertices_count, Vector2d o
              line_pixel_end.y,
              colour);
 }
-
-

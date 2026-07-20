@@ -40,7 +40,7 @@ typedef struct LineSegment2d
 // THE SIMULATION DATA CONTAINER (Belongs in world.h / grid.h)
 // This is the domain object that represents your physical game worlds.
 typedef struct Space2d {
-    Frame2d system;       // Math representation! Brings basis, tracking, and boundaries
+    Frame2d frame;       // Math representation! Brings basis, tracking, and boundaries
     int rows;
     int columns;
     DArray cells;               // The grid data buffer (linear form)
@@ -67,15 +67,16 @@ typedef struct GridSpace2d {
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-GridSpace2d NewGridSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d basis, ColourRgba colour_fill, ColourRgba colour_line);
-Space2d NewSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d basis);
-Cell *GetCellFromCoords(Space2d *space, Vector2d coords);
-int GetIndexFromCoords(Space2d *space, Vector2d space_coords);
+GridSpace2d NewGridSpace2d(Vector2d origin_in_parent, Vector2d local_resolution, Basis2d basis, ColourRgba colour_fill, ColourRgba colour_line);
+Space2d NewSpace2d(Vector2d origin_in_parent, Vector2d local_resolution, Basis2d basis);
+Cell *GetCellFromCoords(Space2d *space, Vector2d local_coords);
+int GetIndexFromCoords(Space2d *space, Vector2d local_coords);
 void CalcSnappedAABB_Vertices(Vector2d *object_surface_vertices, int object_surface_vertices_count, Vector2d object_offset, Basis2d space_basis, Vector2d out_vertices[4]); // Returns the 4 vertices of the AABB of the object in world coordinates
-Vector2d CalcSpaceHalfExtent(const Space2d *space);
-Vector2d CalcSpaceOriginFromCenter(const Space2d *space, Vector2d center);
-Matrix2x2 CalcSpaceExtents_2d(Space2d *space);
-Matrix2x2 CalcSpaceBoundsFromCenter(const Space2d *space, Vector2d center);
+Frame2d CreateFrame2d(Basis2d basis, Vector2d origin_in_parent, Vector2d local_resolution);
+//Vector2d CalcSpaceHalfExtent(const Space2d *space);
+//Vector2d CalcSpaceOriginFromCenter(const Space2d *space, Vector2d center);
+//Matrix2x2 CalcSpaceExtents_2d(Space2d *space);
+//Matrix2x2 CalcSpaceBoundsFromCenter(const Space2d *space, Vector2d center);
 // Matrix2x2 CalcSpaceExtents_2d(Space2d *space);
 // Matrix2x2 CalcSpaceAABB(Space2d *space);
 // bool VectorIsInSpace_2d(Vector2d vector, Space2d *space);

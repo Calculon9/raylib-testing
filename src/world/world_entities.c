@@ -6,6 +6,41 @@
 
 #include "world/world_internal.h"
 
+static LArray *GetWorldObjectArrayForArchetype(WorldState *context, ArchetypeID array_type)
+{
+    if (!context || !context->world)
+    {
+        return NULL;
+    }
+
+    return (array_type == ARCHETYPE_CLOCKED) ? &context->world->temp_objects : &context->world->objects;
+}
+
+static void EnqueueWorldCommand(LArray *scheduled_events,
+                                WorldCmdType type,
+                                int object_id,
+                                int payload_value,
+                                int initial_frame_delay,
+                                int interval_frames,
+                                int run_limit)
+{
+    if (!scheduled_events)
+    {
+        return;
+    }
+
+    WorldCommand cmd = {
+        .type = type,
+        .target_id = object_id,
+        .payload_value = payload_value,
+        .interval_frames = interval_frames <= 0 ? 1 : interval_frames,
+        .run_limit = run_limit,
+        .frame_count = 0,
+        .initial_frame_delay = initial_frame_delay,
+        .active = true};
+    LArray_Push(scheduled_events, &cmd);
+}
+
 void SetObjectFlag(WorldState *context, int object_id, int flag_to_update)
 {
     Newtonoid2d *object = GetEntityByID(context, object_id);
@@ -39,18 +74,21 @@ void UpdateEntityWorldRegistry(FlatMapInt *entity_world_index_registry, int enti
 
 int RegisterEntity(WorldState *context, Newtonoid2d *entity)
 {
-    LArray *world_objects = NULL;
     ArchetypeID array_type;
 
     if (!(entity->flags & FLAG_LIFETIME_CLOCKED))
     {
-        world_objects = &context->world->objects;
         array_type = ARCHETYPE_INHABITANT;
     }
     else
     {
-        world_objects = &context->world->temp_objects;
         array_type = ARCHETYPE_CLOCKED;
+    }
+
+    LArray *world_objects = GetWorldObjectArrayForArchetype(context, array_type);
+    if (!world_objects)
+    {
+        return 0;
     }
 
     entity->id = context->world->next_object_id++;
@@ -76,7 +114,7 @@ void DeregisterEntity(WorldState *context, int entity_id)
 
     int type = UNPACK_INT_HIGH(packed_value);
     int deleted_idx = UNPACK_INT_LOW(packed_value);
-    LArray *world_objects = (type == ARCHETYPE_CLOCKED) ? &context->world->temp_objects : &context->world->objects;
+    LArray *world_objects = GetWorldObjectArrayForArchetype(context, (ArchetypeID)type);
 
     if (!world_objects || world_objects->count <= 0)
     {
@@ -134,55 +172,41 @@ void *GetEntityByID(WorldState *context, int entity_id)
     int type_flag = UNPACK_INT_HIGH(packed_value);
     int index = UNPACK_INT_LOW(packed_value);
 
-    switch (type_flag)
-    {
-        case ARCHETYPE_CLOCKED:
-            return LArray_Get(&context->world->temp_objects, index);
-        default:
-            return LArray_Get(&context->world->objects, index);
-    }
+    LArray *world_objects = GetWorldObjectArrayForArchetype(context, (ArchetypeID)type_flag);
+    return world_objects ? LArray_Get(world_objects, index) : NULL;
 }
 
 void ScheduleEntityFlagSet(LArray *scheduled_events, int object_id, int flag_to_set, int initial_frame_delay, int interval_frames, int run_limit)
 {
-    WorldCommand cmd = {
-        .type = CMD_SET_OBJECT_FLAG,
-        .target_id = object_id,
-        .payload_value = flag_to_set,
-        .interval_frames = interval_frames <= 0 ? 1 : interval_frames,
-        .run_limit = run_limit,
-        .frame_count = 0,
-        .initial_frame_delay = initial_frame_delay,
-        .active = true};
-    LArray_Push(scheduled_events, &cmd);
+    EnqueueWorldCommand(scheduled_events,
+                        CMD_SET_OBJECT_FLAG,
+                        object_id,
+                        flag_to_set,
+                        initial_frame_delay,
+                        interval_frames,
+                        run_limit);
 }
 
 void ScheduleEntityFlagClear(LArray *scheduled_events, int object_id, int flag_to_set, int initial_frame_delay, int interval_frames, int run_limit)
 {
-    WorldCommand cmd = {
-        .type = CMD_CLEAR_OBJECT_FLAG,
-        .target_id = object_id,
-        .payload_value = flag_to_set,
-        .interval_frames = interval_frames <= 0 ? 1 : interval_frames,
-        .run_limit = run_limit,
-        .frame_count = 0,
-        .initial_frame_delay = initial_frame_delay,
-        .active = true};
-    LArray_Push(scheduled_events, &cmd);
+    EnqueueWorldCommand(scheduled_events,
+                        CMD_CLEAR_OBJECT_FLAG,
+                        object_id,
+                        flag_to_set,
+                        initial_frame_delay,
+                        interval_frames,
+                        run_limit);
 }
 
 void ScheduleEntityDeletion(LArray *scheduled_events, int object_id, int flag_to_set, int initial_frame_delay, int interval_frames, int run_limit)
 {
-    WorldCommand cmd = {
-        .type = CMD_DELETE_OBJECT,
-        .target_id = object_id,
-        .payload_value = flag_to_set,
-        .interval_frames = interval_frames <= 0 ? 1 : interval_frames,
-        .run_limit = run_limit,
-        .frame_count = 0,
-        .initial_frame_delay = initial_frame_delay,
-        .active = true};
-    LArray_Push(scheduled_events, &cmd);
+    EnqueueWorldCommand(scheduled_events,
+                        CMD_DELETE_OBJECT,
+                        object_id,
+                        flag_to_set,
+                        initial_frame_delay,
+                        interval_frames,
+                        run_limit);
 }
 
 void RunScheduledWorldCmds(LArray *scheduled_cmds, WorldState *context)

@@ -17,6 +17,7 @@ MEMORY MANAGEMENT MODULE
 #define INFINITY_VECTOR_3D (Vector3d){INFINITY, INFINITY, INFINITY}
 #define INFINITY_MATRIX_3x3 (Matrix3x3){INFINITY_VECTOR_3D, INFINITY_VECTOR_3D, INFINITY_VECTOR_3D}
 #define IDENTITY_MATRIX_2x2 (Matrix2x2){(Vector2d){1, 0}, (Vector2d){0, 1}}
+#define IDENTITY_MATRIX_3x3 (Matrix3x3){(Vector3d){1, 0, 0}, (Vector3d){0, 1, 0}, (Vector3d){0, 0, 1}}
 #define IDENTITY_BASIS_2D (Basis2d){(Vector2d){1, 0}, (Vector2d){0, 1}}
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
@@ -43,7 +44,7 @@ typedef struct Transform2d
 {
     Vector2d u;      // X-Axis basis
     Vector2d v;      // Y-Axis basis
-    Vector2d origin; // The (0,0) point in world coordinates
+    Vector2d origin; // The (0,0) point in local coordinates
 } Transform2d;
 
 typedef struct Frame2d
@@ -109,7 +110,8 @@ Vector3d VectorSumArray_3d(Vector3d *array, size_t count);
 
 Matrix3x3 MatrixMultiply_3x3_3x3(Matrix3x3 A, Matrix3x3 B);
 Matrix3x3 MatrixInvert_3x3(Matrix3x3 M);
-Frame2d CreateFrame2d(Basis2d basis, Vector2d origin);
+Vector2d MatrixMultiply_3x3_Vector2d(Matrix3x3 A, Vector2d v);
+
 // Matrix3x3 FrameTransform_2d(Frame2d source, Frame2d destination);
 // Matrix3x3 FrameChainTransform_2d(Frame2d source, Frame2d middle, Frame2d destination);
 // Vector2d BasisTransform_2d_Scale(Basis2d source, Basis2d destination);

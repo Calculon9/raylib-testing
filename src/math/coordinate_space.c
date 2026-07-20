@@ -20,13 +20,23 @@
 // void CalculateLineSegmentVectors(Space2d *space);
 void InitUnitCells(Space2d *coordinate_space);
 
+Frame2d CreateFrame2d(Basis2d basis, Vector2d origin_in_parent, Vector2d local_resolution)
+{
+    return (Frame2d){
+        .basis = basis,
+        .origin_in_parent = origin_in_parent,
+        .local_min = ZERO_VECTOR_2D,
+        .local_max = local_resolution
+    };
+}
+
 // Creates a local child coordinate space with physical attributes.
 // Basis vectors in most cases (orthogonal dimensions) should be u = {1,0}, v = {0,1}.
 // The origin is in the child/local frame; parent-space placement is handled externally.
-GridSpace2d NewGridSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d basis, ColourRgba colour_fill, ColourRgba colour_line)
+GridSpace2d NewGridSpace2d(Vector2d origin_in_parent, Vector2d local_resolution, Basis2d basis, ColourRgba colour_fill, ColourRgba colour_line)
 {
    GridSpace2d space_obj = {0};
-   space_obj.space = NewSpace2d(origin, resolution_ixj, basis);
+   space_obj.space = NewSpace2d(origin_in_parent, local_resolution, basis);
    space_obj.colour_line = colour_line;
    space_obj.colour_fill = colour_fill;
 
@@ -34,23 +44,23 @@ GridSpace2d NewGridSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d bas
    Surface2d surface = CreateSurface_Rectangular(grid_size, ZERO_VECTOR_2D);
 
    // Calc coords_center - this is required when creating new objects
-   Vector2d coords_center = (Vector2d){origin.x + (grid_size.x / 2.0f), origin.y + (grid_size.y / 2.0f)};
+   Vector2d coords_center = (Vector2d){origin_in_parent.x + (grid_size.x / 2.0f), origin_in_parent.y + (grid_size.y / 2.0f)};
    space_obj.object = CreateNewtonoid2d_Static(coords_center, surface);
    return space_obj;
 }
 
 // Creates a local coordinate space. Basis vectors in most cases (orthogonal dimensions) should be u = {1,0}, v = {0,1}.
 // The origin is in local coordinates of this space, not a parent-space mapped coordinate.
-Space2d NewSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d basis)
+Space2d NewSpace2d(Vector2d origin_in_parent, Vector2d local_resolution, Basis2d basis)
 {
    Space2d space = {0};
-   int columns = (int)fmaxf(1.0f, ceilf(resolution_ixj.x));
-   int rows = (int)fmaxf(1.0f, ceilf(resolution_ixj.y));
+   int columns = (int)fmaxf(1.0f, ceilf(local_resolution.x));
+   int rows = (int)fmaxf(1.0f, ceilf(local_resolution.y));
    Vector2d grid_size = {(float)columns, (float)rows};
 
-   space.system = CreateFrame2d(basis, origin);
-   space.system.local_min = origin;
-   space.system.local_max = VectorSum_2d(origin, grid_size);
+   space.frame = CreateFrame2d(basis, origin_in_parent,local_resolution);
+   //space.frame.local_min = origin_in_parent;
+   //space.frame.local_max = VectorSum_2d(origin_in_parent, grid_size);
    space.columns = columns;
    space.rows = rows;
    space.unitArea = fabsf((basis.u.x * basis.v.y) - (basis.u.y * basis.v.x)); // Calculate the 'Area' of a single basis tile; this is the determinant of the basis matrix, which gives us the area of the parallelogram formed by the basis vectors, which is the area of each cell in the coordinate space. We can then divide the total area of the field by this cell area to get the total number of cells needed to fill the field.
@@ -70,8 +80,8 @@ Space2d NewSpace2d(Vector2d origin, Vector2d resolution_ixj, Basis2d basis)
    InitUnitCells(&space);
 
    // LOG FIELD INFO
-   Vector2d basis_u = space.system.basis.u;
-   Vector2d basis_v = space.system.basis.v;
+   Vector2d basis_u = space.frame.basis.u;
+   Vector2d basis_v = space.frame.basis.v;
 
    // char text[64]; // Buffer to hold the text
    // snprintf(text, sizeof(text), "FIELD INITIALISED:  Dimensions (%d, %d); Units (%d); Basis -> u = [%d,%d], v = [%d,%d].\n", unitW, unitH, totalUnits, basis_u.x, basis_u.y, basis_v.x, basis_v.y);
@@ -87,7 +97,7 @@ void InitUnitCells(Space2d *space)
    size_t cells_capacity = cells->capacity;
    MemorySet(cells->items, 0, cells->elem_bytes * cells_capacity);
 
-   Vector2d local_origin = space->system.origin_in_parent;
+   Vector2d local_origin = space->frame.origin_in_parent;
    int columns = space->columns;
    int rows = space->rows;
 
@@ -100,8 +110,8 @@ void InitUnitCells(Space2d *space)
       Cell cell = {0}; // Create a new cell and initialize it to zero
 
       // Scale the basis vectors (u,v) and add them to get the displacement from the origin
-      Vector2d scaled_u = {j * space->system.basis.u.x, j * space->system.basis.u.y};
-      Vector2d scaled_v = {i * space->system.basis.v.x, i * space->system.basis.v.y};
+      Vector2d scaled_u = {j * space->frame.basis.u.x, j * space->frame.basis.u.y};
+      Vector2d scaled_v = {i * space->frame.basis.v.x, i * space->frame.basis.v.y};
       Vector2d displacement = {scaled_u.x + scaled_v.x, scaled_u.y + scaled_v.y};
 
       // Add the displacement vector to the origin to get the coordinates of the cell
@@ -117,10 +127,10 @@ void InitUnitCells(Space2d *space)
    LOG_INFO("Initialised %d cells\n", count);
 }
 
-int GetIndexFromCoords(Space2d *space, Vector2d space_coords)
+int GetIndexFromCoords(Space2d *space, Vector2d local_coords)
 {
-   int i = (int)floorf(space_coords.y);
-   int j = (int)floorf(space_coords.x);
+   int i = (int)floorf(local_coords.y);
+   int j = (int)floorf(local_coords.x);
    int columns = space->columns;
    int rows = space->rows;
 
@@ -133,9 +143,9 @@ int GetIndexFromCoords(Space2d *space, Vector2d space_coords)
    return cell_index;
 }
 
-Cell *GetCellFromCoords(Space2d *space, Vector2d coords)
+Cell *GetCellFromCoords(Space2d *space, Vector2d local_coords)
 {
-   int cell_index = GetIndexFromCoords(space, coords);
+   int cell_index = GetIndexFromCoords(space, local_coords);
    if (cell_index < 0 || cell_index >= space->cells.count)
    {
       return NULL;

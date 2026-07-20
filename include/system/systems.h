@@ -11,6 +11,7 @@ SYSTEMS MODULE
 #include "camera/camera.h"
 #include "raylib.h"
 #include "system/utility_system.h"
+#include "system/viewport_system.h"
 // #include "ui/ui.h"
 
 //----------------------------------------------------------------------------------
@@ -206,6 +207,25 @@ Newtonoid2d *ResolveEntityParamsToEntity(Newtonoid2dParams *newtonoid_params);
 bool PipelineTextToVector(char *input_buffer, Vector2d *target_vector);
 bool PipelineTextToFloat(char *input_buffer, float *target_float);
 bool PipelineTextToInt(char *input_buffer, int *target_int);
-void PipelineVectorToText(Vector2d input_vector, char *target_buffer, size_t target_buffer_bytes);            //, NewtonProperty object_property);
+void PipelineVectorToText(Vector2d input_vector, char *target_buffer, size_t target_buffer_bytes); //, NewtonProperty object_property);
 void PipelineNumberToText(float input_float, int precision, char *target_buffer, size_t target_buffer_bytes); //, NewtonProperty object_property);
+void BindTextbox(UIElement *textbox, void *data_bind);
+void BindTextboxData(UIElement *textbox, DataType type, void *data_bind);
+void BindTextboxGroup(UIElement **textboxes, void **bindings, size_t count);
+void ClearTextbox(UIElement *textbox);
+void ClearAndUnbindTextbox(UIElement *textbox);
+void ClearAndUnbindTextboxGroup(UIElement **textboxes, size_t count);
+void WriteTextboxText(UIElement *textbox, const char *value);
+void WriteTextboxInt(UIElement *textbox, int value);
+void WriteTextboxFloat(UIElement *textbox, float value, int precision);
+void WriteTextboxVector(Vector2d value, UIElement *textbox);
+void WriteTextboxVectorPair(UIElement *textbox, Vector2d value);
+void WriteTextboxNumberIfUnfocused(UIElement *textbox, float value, int precision);
+void WriteTextboxVectorIfUnfocused(UIElement *textbox, Vector2d value);
+
+//----------------------------------------------------------------------------------
+// Viewport Functions Declaration
+//----------------------------------------------------------------------------------
+Vector2d ResolveGameViewportPixelCenter(void);
+Vector2d ResolveGameViewportLocalCenter(void);
 #endif

@@ -46,7 +46,8 @@ void ShutdownJobSystem(void)
     g_initialized = false;
 }
 
-bool SubmitJob(JobFunction function, void *context, int item_count, int chunk_size)
+bool SubmitJob(JobFunction function, void *context,
+               int item_count, int chunk_size)
 {
     if (!g_initialized || !function || item_count <= 0 || chunk_size <= 0)
         return false;

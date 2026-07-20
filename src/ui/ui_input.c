@@ -50,6 +50,43 @@ void InitTextBuffers(UIElement *e, Text_64_IOState *t_bufs);
 UIElement *ResolveUIRootTarget(Vector2d mouse_coords);
 Vector2d ResolvePixelToLocalDragScale(UIElement *element);
 bool ResolvePointerLocalCoords(UIElement *element, Vector2d mouse_pixel_coords, Vector2d *out_local_coords);
+void UpdateUIFocus(UIElement *element);
+void UpdateDragFocus(UIElement *element, Vector2d mouse_coords);
+void ClearUIFocus(void);
+void ResetDragState(void);
+
+static void ResetTextBuffers(Text_64_IOState *tbox_buffers)
+{
+    if (!tbox_buffers)
+    {
+        return;
+    }
+
+    tbox_buffers->input_buffer.string[0] = '\0';
+    tbox_buffers->temp_buffer.string[0] = '\0';
+}
+
+static void SnapshotTextBuffers(Text_64_IOState *tbox_buffers, const char *text)
+{
+    if (!tbox_buffers || !text)
+    {
+        return;
+    }
+
+    safe_strncpy(tbox_buffers->temp_buffer.string, text, MAX_TEXTBOX_CHARS);
+    tbox_buffers->input_buffer.string[0] = '\0';
+}
+
+static bool HasPendingTextEdit(const Text_64_IOState *tbox_buffers)
+{
+    return tbox_buffers && tbox_buffers->input_buffer.string[0] != '\0';
+}
+
+static void ClearTextFocus(Text_64_IOState *tbox_buffers)
+{
+    ResetTextBuffers(tbox_buffers);
+    ClearUIFocus();
+}
 
 static UIElement *FindOwningRoot(UIElement *element)
 {
@@ -104,7 +141,7 @@ bool ResolvePointerLocalCoords(UIElement *element, Vector2d mouse_pixel_coords, 
     }
 
     Vector2d pixels_to_local_scale = ResolvePixelToLocalDragScale(root);
-    Vector2d root_local_origin = root->data.root.space.system.origin_in_parent;
+    Vector2d root_local_origin = root->data.root.space.frame.origin_in_parent;
     Vector2d root_pixel_origin = root->cached_box.coords;
     Vector2d pixel_delta = VectorSum_2d(mouse_pixel_coords, (Vector2d){-root_pixel_origin.x, -root_pixel_origin.y});
 
@@ -112,12 +149,6 @@ bool ResolvePointerLocalCoords(UIElement *element, Vector2d mouse_pixel_coords, 
     out_local_coords->y = root_local_origin.y + (pixel_delta.y * pixels_to_local_scale.y);
     return true;
 }
-// -----Global Helpers-----
-void UpdateUIFocus(UIElement *element);
-void UpdateDragFocus(UIElement *element, Vector2d mouse_coords);
-void ClearUIFocus(void);
-void ResetDragState(void);
-
 // DISPATCHER - UI activities
 void ProcessUIInput(int mouse_x, int mouse_y, bool cursor_in_region)
 {
@@ -131,7 +162,7 @@ void ProcessUIInput(int mouse_x, int mouse_y, bool cursor_in_region)
     if (G_UIState.focused_element && !G_UIState.focused_element->is_enabled)
     {
         RevertTextChanges(G_UIState.focused_element, &tbox_io_buffers);
-        ClearUIFocus();
+        ClearTextFocus(&tbox_io_buffers);
     }
 
     UIElement *target = ResolveUIRootTarget(mouse_coords);
@@ -449,8 +480,7 @@ void RevertTextChanges(UIElement *e, Text_64_IOState *tbox_buffers)
     safe_strncpy(output_buf, tbox_buffers->temp_buffer.string, MAX_TEXTBOX_CHARS);
 
     // Reset tracking buffers
-    tbox_buffers->input_buffer.string[0] = '\0';
-    tbox_buffers->temp_buffer.string[0] = '\0';
+    ResetTextBuffers(tbox_buffers);
 }
 
 void HandleTextCommit(UIElement *element, Text_64_IOState *tbox_buffers)
@@ -504,8 +534,7 @@ void HandleTextCommit(UIElement *element, Text_64_IOState *tbox_buffers)
     }
 
     // Clear buffers
-    tbox_io_buffers.input_buffer.string[0] = '\0';
-    tbox_io_buffers.temp_buffer.string[0] = '\0';
+    ResetTextBuffers(tbox_buffers);
 }
 
 // HANDLER - MOUSE CLICK
@@ -543,7 +572,7 @@ void UpdateTextIO()
     if (G_UIState.focused_element && !G_UIState.focused_element->is_enabled)
     {
         RevertTextChanges(G_UIState.focused_element, &tbox_io_buffers);
-        ClearUIFocus();
+        ClearTextFocus(&tbox_io_buffers);
         return;
     }
 
@@ -554,10 +583,9 @@ void UpdateTextIO()
 
     // "Snapshot" for Undo/Cancel
     // If this is the very first time we are typing, save the original state
-    if (strlen(tbox_io_buffers.input_buffer.string) == 0 && strlen(tbox_io_buffers.temp_buffer.string) == 0)
+    if (!HasPendingTextEdit(&tbox_io_buffers) && tbox_io_buffers.temp_buffer.string[0] == '\0')
     {
-        safe_strncpy(tbox_io_buffers.input_buffer.string, output_buf, MAX_TEXTBOX_CHARS);
-        tbox_io_buffers.temp_buffer.string[MAX_TEXTBOX_CHARS - 1] = '\0';
+        SnapshotTextBuffers(&tbox_io_buffers, output_buf);
     }
 
     // Handle Character Input
@@ -591,20 +619,14 @@ void UpdateTextIO()
         // Restore from backup
         safe_strncpy(output_buf, tbox_io_buffers.temp_buffer.string, MAX_TEXTBOX_CHARS);
         // Reset tracking buffers
-        tbox_io_buffers.input_buffer.string[0] = '\0';
-        tbox_io_buffers.temp_buffer.string[0] = '\0';
-        G_UIState.focused_element->is_focused = false;
-        G_UIState.focused_element = NULL;
+        ClearTextFocus(&tbox_io_buffers);
     }
 
     // Handle Enter (Commit)
     if (IsKeyPressed(KEY_ENTER))
     {
         HandleTextCommit(G_UIState.focused_element, &tbox_io_buffers);
-        tbox_io_buffers.input_buffer.string[0] = '\0';
-        tbox_io_buffers.temp_buffer.string[0] = '\0';
-        G_UIState.focused_element->is_focused = false;
-        G_UIState.focused_element = NULL;
+        ClearTextFocus(&tbox_io_buffers);
         // Trigger physics update here! (e.g., UpdateObjectMass())
     }
 }
@@ -681,11 +703,11 @@ void ResetDragState()
 
 void InitTextBuffers(UIElement *e, Text_64_IOState *t_bufs)
 {
-    t_bufs->input_buffer.string[0] = '\0';
+    ResetTextBuffers(t_bufs);
 
     if (IsTextbox(e))
     {
-        t_bufs->temp_buffer = e->data.textbox.text;
+        SnapshotTextBuffers(t_bufs, e->data.textbox.text.string);
     }
 }
 

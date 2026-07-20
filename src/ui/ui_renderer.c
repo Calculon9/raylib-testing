@@ -18,7 +18,7 @@
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
 //
-void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d camera);
+void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d viewport_camera, Matrix3x3 M_ui_to_pixel);
 void DrawTextArea(UIElement *e);
 
 void DrawElementBox(UIElement *e)
@@ -123,7 +123,7 @@ void DrawTextBoxText(UIElement *e)
 }
 
 // NEED TO CREATE BOX FOR ENTIRE SCREEN AND PASS THAT AS THE PARENT BOX FOR THE ROOT ELEMENT, SO THAT THE ROOT ELEMENT AND ALL OTHER ELEMENTS CAN CALCULATE THEIR POSITIONS AND DIMENSIONS BASED ON THAT, RATHER THAN HAVING THE ROOT ELEMENT CALCULATE ITS POSITION AND DIMENSIONS BASED ON A ZERO VECTOR, WHICH IS NOT FLEXIBLE IF WE WANT TO CHANGE THE PANEL OR ROOT ELEMENT PROPERTIES LATER
-void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d camera)
+void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d viewport_camera, Matrix3x3 M_ui_to_pixel)
 {
     if (!root_element)
     {
@@ -132,13 +132,16 @@ void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d camera)
 
     // Need to convert world coordinates to screen coordinates
     Space2d panel_space = root_element->data.root.space;
-    Basis2d basis = panel_space.system.basis;
+    Basis2d basis = panel_space.frame.basis;
 
-    Vector2d origin = panel_space.system.origin_in_parent;
-    Vector2d basis_scale = Frame_GetBasisScaling(camera.source_basis, camera.destination_basis); // Need to scale dimensions from world units to pixel units using the camera's basis transform
+    Vector2d origin = panel_space.frame.origin_in_parent;
+    Vector2d basis_scale = Camera_GetBasisScale(&viewport_camera); // Need to scale dimensions from world units to pixel units using the camera's basis transform
 
     // Resolve rendered position and dimensions of panel element
     UIBox box = ResolveElementBox(root_element, seed_box, basis_scale);
+    Vector2d pixel_coords = MatrixMultiply_3x3_Vector2d(M_ui_to_pixel, box.coords);
+    box.coords = (Vector2d){(int)pixel_coords.x, (int)pixel_coords.y};
+    box.dimensions = (Vector2d){(int)box.dimensions.x * basis_scale.x, (int)box.dimensions.y * basis_scale.y};
     root_element->cached_box = box;
 
     DistributeChildrenRecursiveResolved(root_element, box, basis_scale);
@@ -151,29 +154,27 @@ void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d camera)
     UIElement *child = root_element->first_child;
     while (child)
     {
-        DrawUIElement(child, box, camera);
+        DrawUIElement(child, box, viewport_camera, M_ui_to_pixel);
         child = child->next_sibling;
     }
 }
 
-void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d camera)
+void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d viewport_camera, Matrix3x3 M_ui_to_pixel)
 {
     if (!e || !e->is_enabled)
     {
         return;
     }
 
-    // Need to convert world coordinates to screen coordinates
-    Basis2d basis = camera.destination_basis;
-
     // The world position of the coordinate space object is the origin of the coordinate space, so (0,0).
     // But to make it more flexible for different coordinate space origins, we will add the world position to the start and end points of the lines to get their actual coordinates in world space, and then convert those to screen coordinates using the basis transform matrix
-    Vector2d basis_scale = Frame_GetBasisScaling(camera.source_basis, camera.destination_basis); // Need to scale dimensions from world units to pixel units using the camera's basis transform
+    Vector2d basis_scale = Camera_GetBasisScale(&viewport_camera); // Need to scale dimensions from world units to pixel units using the camera's basis transform
 
     // Resolve rendered position and dimensions of panel element
     UIBox box = ResolveElementBox(e, parent_box, basis_scale);
-    box.coords = (Vector2d){(int)box.coords.x, (int)box.coords.y};
-    box.dimensions = (Vector2d){(int)box.dimensions.x, (int)box.dimensions.y};
+    Vector2d pixel_coords = MatrixMultiply_3x3_Vector2d(M_ui_to_pixel, box.coords);
+    box.coords = (Vector2d){(int)pixel_coords.x, (int)pixel_coords.y};
+    box.dimensions = (Vector2d){(int)box.dimensions.x * basis_scale.x, (int)box.dimensions.y * basis_scale.y};
     e->cached_box = box;
 
     // DRAW IT ... IF it's within the ranged coordinates of its parent
@@ -218,7 +219,7 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d camera)
     UIElement *child = e->first_child;
     while (child)
     {
-        DrawUIElement(child, box, camera);
+        DrawUIElement(child, box, viewport_camera, M_ui_to_pixel);
         child = child->next_sibling;
     }
 }

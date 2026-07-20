@@ -9,6 +9,7 @@ WORLD MODULE
 #include "math/cvectors.h"
 #include "camera/camera.h"
 #include "system/systems.h"
+#include "system/viewport_system.h"
 #include "world/universe.h"
 
 //----------------------------------------------------------------------------------
@@ -34,14 +35,14 @@ WORLD MODULE
 
 
 
-// Game-region placement in logical units inside the full screen layout.
-extern Vector2d game_region_origin, game_region_end;// = {0};
-extern Vector2d game_region_resolution;// = {0};
+// Game viewport placement in logical units inside the full screen layout.
+// extern Vector2d game_viewport_local_origin, game_viewport_local_end;// = {0};
+// extern Vector2d game_viewport_local_resolution;// = {0};
 
 // Game viewport in pixel-space (destination area for world/universe rendering).
-extern Vector2d game_viewport_origin, game_viewport_end;// = {0};
-extern Vector2d game_viewport_u;// = {75, 0};
-extern Vector2d game_viewport_v;// = {0, 75};
+// extern Vector2d game_viewport_pixel_origin, game_viewport_pixel_end;// = {0};
+// extern Vector2d game_viewport_pixel_u;// = {75, 0};
+// extern Vector2d game_viewport_pixel_v;// = {0, 75};
 //extern Camera2d camera_world;// = {0};
 
 extern bool world_grid_debug_labels_enabled;

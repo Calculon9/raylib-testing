@@ -3,21 +3,13 @@
 #include "system/str_helpers.h"
 #include "system/ui_system.h"
 
-UIElement *CreatePanelTitleLabel(UIElement *parent,
-                                 const char *text,
-                                 Size size,
-                                 Vector2d padding,
-                                 Bitmap_Font font,
-                                 ColourRgba border,
-                                 ColourRgba fill)
+UIElement *CreatePanelTitleLabel(UIElement *parent, const char *text, Size size,
+                                 Vector2d padding, Bitmap_Font font,
+                                 ColourRgba border, ColourRgba fill)
 {
-    UIElement *title = CreateUIElementInTree(UI_ELEMENT_LABEL,
-                                             size,
-                                             parent,
+    UIElement *title = CreateUIElementInTree(UI_ELEMENT_LABEL, size, parent,
                                              (Offset){ZERO_VECTOR_2D, OFFSET_FIXED},
-                                             padding,
-                                             border,
-                                             fill);
+                                             padding, border, fill);
 
     if (!title)
     {
@@ -31,42 +23,21 @@ UIElement *CreatePanelTitleLabel(UIElement *parent,
     return title;
 }
 
-UIElement *CreatePanelTitleLabelDefault(UIElement *parent,
-                                        const char *text,
-                                        Size size,
-                                        Vector2d padding)
+UIElement *CreatePanelTitleLabelDefault(UIElement *parent, const char *text, Size size, Vector2d padding)
 {
-    return CreatePanelTitleLabel(parent,
-                                 text,
-                                 size,
-                                 padding,
-                                 FONT_BASIC,
-                                 COLOURLESS_RGBA,
-                                 COLOURLESS_RGBA);
+    return CreatePanelTitleLabel(parent, text, size, padding, FONT_BASIC, COLOURLESS_RGBA, COLOURLESS_RGBA);
 }
 
-UIElement *CreatePanelLabeledField(UIElement *parent,
-                                   const char *label_text,
-                                   UIElementType input_type,
-                                   Size row_size,
-                                   Size textbox_size,
-                                   Vector2d row_padding,
-                                   Vector2d label_offset,
-                                   ColourRgba row_border,
-                                   ColourRgba row_fill,
-                                   Vector2d cell_padding,
-                                   ColourRgba cell_border,
-                                   ColourRgba cell_fill,
+UIElement *CreatePanelLabeledField(UIElement *parent, const char *label_text, UIElementType input_type,
+                                   Size row_size, Size textbox_size, Vector2d row_padding,
+                                   Vector2d label_offset, ColourRgba row_border, ColourRgba row_fill,
+                                   Vector2d cell_padding, ColourRgba cell_border, ColourRgba cell_fill,
                                    Bitmap_Font font)
 {
-    UIElement *tfield = CreateTextFieldInTree(row_size,
-                                              parent,
+    UIElement *tfield = CreateTextFieldInTree(row_size, parent,
                                               (Offset){ZERO_VECTOR_2D, OFFSET_FIXED},
-                                              textbox_size,
-                                              row_padding,
-                                              label_offset,
-                                              row_border,
-                                              row_fill);
+                                              textbox_size, row_padding, label_offset,
+                                              row_border, row_fill);
     if (!tfield)
     {
         return NULL;
@@ -97,48 +68,26 @@ UIElement *CreatePanelLabeledField(UIElement *parent,
     return input_child;
 }
 
-UIElement *CreatePanelLabeledFieldDefault(UIElement *parent,
-                                          const char *label_text,
-                                          UIElementType input_type,
-                                          Size row_size,
-                                          Vector2d row_padding,
-                                          ColourRgba row_border,
+UIElement *CreatePanelLabeledFieldDefault(UIElement *parent, const char *label_text,
+                                          UIElementType input_type, Size row_size,
+                                          Vector2d row_padding, ColourRgba row_border,
                                           ColourRgba row_fill)
 {
-    return CreatePanelLabeledField(parent,
-                                   label_text,
-                                   input_type,
-                                   row_size,
-                                   tbox_default_size,
-                                   row_padding,
-                                   tbox_tlabel_default_offset.offset,
-                                   row_border,
-                                   row_fill,
-                                   tbox_default_padding,
-                                   tbox_default_colour_border,
-                                   tbox_default_colour_fill,
+    return CreatePanelLabeledField(parent, label_text, input_type, row_size,
+                                   tbox_default_size, row_padding, tbox_tlabel_default_offset.offset,
+                                   row_border, row_fill, tbox_default_padding,
+                                   tbox_default_colour_border, tbox_default_colour_fill,
                                    FONT_BASIC);
 }
 
-UIElement *CreatePanelButton(UIElement *parent,
-                             UIElementType type,
-                             const char *text,
-                             Size size,
-                             Vector2d padding,
-                             ColourRgba border,
-                             ColourRgba fill,
-                             Bitmap_Font font,
-                             UIEventHandler on_click,
-                             void *user_data,
-                             void *data_bind)
+UIElement *CreatePanelButton(UIElement *parent, UIElementType type, const char *text,
+                             Size size, Vector2d padding, ColourRgba border,
+                             ColourRgba fill, Bitmap_Font font, UIEventHandler on_click,
+                             void *user_data, void *data_bind)
 {
-    UIElement *btn = CreateUIElementInTree(type,
-                                           size,
-                                           parent,
+    UIElement *btn = CreateUIElementInTree(type, size, parent,
                                            (Offset){ZERO_VECTOR_2D, OFFSET_FIXED},
-                                           padding,
-                                           border,
-                                           fill);
+                                           padding, border, fill);
     if (!btn)
     {
         return NULL;
@@ -154,45 +103,23 @@ UIElement *CreatePanelButton(UIElement *parent,
     return btn;
 }
 
-UIElement *CreatePanelButtonDefault(UIElement *parent,
-                                    UIElementType type,
-                                    const char *text,
-                                    Size size,
-                                    Vector2d padding,
-                                    UIEventHandler on_click,
-                                    void *user_data,
+UIElement *CreatePanelButtonDefault(UIElement *parent, UIElementType type,
+                                    const char *text, Size size, Vector2d padding,
+                                    UIEventHandler on_click, void *user_data,
                                     void *data_bind)
 {
-    return CreatePanelButton(parent,
-                             type,
-                             text,
-                             size,
-                             padding,
-                             btn_default_colour_border,
-                             btn_default_colour_fill,
-                             FONT_BASIC,
-                             on_click,
-                             user_data,
-                             data_bind);
+    return CreatePanelButton(parent, type, text, size, padding,
+                             btn_default_colour_border, btn_default_colour_fill,
+                             FONT_BASIC, on_click, user_data, data_bind);
 }
 
-UIElement *CreatePanelContainer(UIElement *parent,
-                                Size size,
-                                Offset offset,
-                                Vector2d padding,
-                                ColourRgba border,
-                                ColourRgba fill,
-                                Spacing child_spacing,
-                                bool is_draggable,
-                                bool is_enabled)
+UIElement *CreatePanelContainer(UIElement *parent, Size size, Offset offset,
+                                Vector2d padding, ColourRgba border,
+                                ColourRgba fill, Spacing child_spacing,
+                                bool is_draggable, bool is_enabled)
 {
-    UIElement *cont = CreateUIElementInTree(UI_ELEMENT_CONTAINER,
-                                            size,
-                                            parent,
-                                            offset,
-                                            padding,
-                                            border,
-                                            fill);
+    UIElement *cont = CreateUIElementInTree(UI_ELEMENT_CONTAINER, size, parent, offset,
+                                            padding, border, fill);
     if (!cont)
     {
         return NULL;
@@ -205,3 +132,38 @@ UIElement *CreatePanelContainer(UIElement *parent,
     return cont;
 }
 
+void InitPanelFields(UIElement *parent, const PanelFieldSpec *specs, size_t count,
+                     Vector2d row_padding, ColourRgba row_border, ColourRgba row_fill)
+{
+    if (!parent || !specs)
+    {
+        return;
+    }
+
+    for (size_t i = 0; i < count; i++)
+    {
+        UIElement *input_child = CreatePanelLabeledFieldDefault(parent, specs[i].label,
+                                    specs[i].type, specs[i].size,
+                                    row_padding, row_border, row_fill);
+        if (!input_child)
+        {
+            continue;
+        }
+
+        input_child->type = specs[i].type;
+        if (specs[i].data_type >= FLOAT && specs[i].data_type <= STRING256)
+        {
+            input_child->data.textbox.data_type = specs[i].data_type;
+        }
+
+        if (specs[i].target)
+        {
+            *specs[i].target = input_child;
+        }
+
+        if (specs[i].text_target)
+        {
+            *specs[i].text_target = &input_child->data.textbox.text;
+        }
+    }
+}

@@ -42,8 +42,8 @@ ColourRgba tfield_default_colour_fill = COLOURLESS_RGBA;
 Size tfield_default_size = {{6, 0.5}, SIZE_FIXED};
 // Give labels more room in inline text fields (label width = 1.0 - textbox width).
 Size tbox_default_size = {{0.45, 1}, SIZE_PERCENT};
-Size btn_default_size = {{6, 0.5}, SIZE_FIXED};    // Assuming it's in a container
-//Size btn_default_size = {{1, 1}, SIZE_PERCENT};    // Assuming it's in a container
+Size btn_default_size = {{6, 0.5}, SIZE_FIXED}; // Assuming it's in a container
+// Size btn_default_size = {{1, 1}, SIZE_PERCENT};    // Assuming it's in a container
 Size tcont_default_size = {{1, 0.5}, SIZE_PERCENT};
 Spacing tcont_default_child_spacing = {{0, 0.015}, PERCENT, SPACING_STACKED};
 Spacing cont_default_child_spacing = {{0, 0.015}, PERCENT, SPACING_STACKED};
@@ -56,78 +56,6 @@ Spacing btn_cont_default_child_spacing = {{0.0, 0.0}, PERCENT, SPACING_NONE};
 //----------------------------------------------------------------------------------
 
 void UpdateGlobalUIState();
-
-static void BindTextbox(UIElement *textbox, void *data_bind)
-{
-    if (!textbox)
-    {
-        return;
-    }
-
-    textbox->data.textbox.data_bind = data_bind;
-}
-
-static void ClearTextbox(UIElement *textbox)
-{
-    if (!textbox)
-    {
-        return;
-    }
-
-    textbox->data.textbox.text.string[0] = '\0';
-}
-
-static void ClearAndUnbindTextbox(UIElement *textbox)
-{
-    ClearTextbox(textbox);
-    BindTextbox(textbox, NULL);
-}
-
-static void BindTextboxGroup(UIElement **textboxes, void **bindings, size_t count)
-{
-    if (!textboxes || !bindings)
-    {
-        return;
-    }
-
-    for (size_t i = 0; i < count; i++)
-    {
-        BindTextbox(textboxes[i], bindings[i]);
-    }
-}
-
-static void ClearAndUnbindTextboxGroup(UIElement **textboxes, size_t count)
-{
-    if (!textboxes)
-    {
-        return;
-    }
-
-    for (size_t i = 0; i < count; i++)
-    {
-        ClearAndUnbindTextbox(textboxes[i]);
-    }
-}
-
-static void WriteNumberIfUnfocused(UIElement *textbox, float value, int precision)
-{
-    if (!textbox || textbox->is_focused)
-    {
-        return;
-    }
-
-    PipelineNumberToText(value, precision, textbox->data.textbox.text.string, sizeof(String64));
-}
-
-static void WriteVectorIfUnfocused(UIElement *textbox, Vector2d value)
-{
-    if (!textbox || textbox->is_focused)
-    {
-        return;
-    }
-
-    PipelineVectorToText(value, textbox->data.textbox.text.string, sizeof(String64));
-}
 
 static void ClearString64(String64 *value)
 {
@@ -150,10 +78,10 @@ void InitUI(void)
 
 void UpdateUISystem(int mouse_x, int mouse_y)
 {
-    bool cursor_in_lpanel = mouse_x >= lpanel_pixel_origin.x && mouse_x <= (lpanel_pixel_origin.x + (lpanel_pixel_u.x * lpanel_resolution.x)) &&
-                            mouse_y >= lpanel_pixel_origin.y && mouse_y <= (lpanel_pixel_origin.y + (lpanel_pixel_v.y * lpanel_resolution.y));
-    bool cursor_in_rpanel = mouse_x >= rpanel_pixel_origin.x && mouse_x <= (rpanel_pixel_origin.x + (rpanel_pixel_u.x * rpanel_resolution.x)) &&
-                            mouse_y >= rpanel_pixel_origin.y && mouse_y <= (rpanel_pixel_origin.y + (rpanel_pixel_v.y * rpanel_resolution.y));
+    bool cursor_in_lpanel = mouse_x >= lpanel_pixel_origin.x && mouse_x <= (lpanel_pixel_origin.x + (lpanel_pixel_u.x * lpanel_viewport_resolution.x)) &&
+                            mouse_y >= lpanel_pixel_origin.y && mouse_y <= (lpanel_pixel_origin.y + (lpanel_pixel_v.y * lpanel_viewport_resolution.y));
+    bool cursor_in_rpanel = mouse_x >= rpanel_pixel_origin.x && mouse_x <= (rpanel_pixel_origin.x + (rpanel_pixel_u.x * rpanel_viewport_resolution.x)) &&
+                            mouse_y >= rpanel_pixel_origin.y && mouse_y <= (rpanel_pixel_origin.y + (rpanel_pixel_v.y * rpanel_viewport_resolution.y));
     bool cursor_in_ui = cursor_in_lpanel || cursor_in_rpanel;
 
     // Send useful data to the Dispatcher for it triage and process/update affected elements
@@ -187,10 +115,8 @@ void UpdateGlobalUIState()
     if (frame_counter.total_frames % 900 == 0)
     {
         LOG_INFO("[Telemetry Update] FPS: %s  | F.TIME: %s | MEM: %sKB | POLY: %s\n",
-                 G_UIState.lpanel_stats_fps_str->string,
-                 G_UIState.lpanel_stats_ftime_str->string,
-                 G_UIState.lpanel_stats_mem_str->string,
-                 G_UIState.lpanel_stats_polygs_str->string);
+                 G_UIState.lpanel_stats_fps_str->string, G_UIState.lpanel_stats_ftime_str->string,
+                 G_UIState.lpanel_stats_mem_str->string, G_UIState.lpanel_stats_polygs_str->string);
     }
     // ----DEBUG //
 
@@ -221,13 +147,13 @@ void UpdateGlobalUIState()
 
         // PIPELINE data to text only when the element is NOT focused
         // so that editing of the text by the user doesn't keep getting overwritten with the value stored in the object
-        WriteNumberIfUnfocused(G_UIState.lpanel_entity_state_id_tbox, (float)obj->id, 0);
-        WriteNumberIfUnfocused(G_UIState.lpanel_entity_state_mass_tbox, obj->mass, 2);
-        WriteVectorIfUnfocused(G_UIState.lpanel_entity_state_pos_tl_tbox, obj->coords_origin);
-        WriteVectorIfUnfocused(G_UIState.lpanel_entity_state_pos_c_tbox, obj->coords_center);
-        WriteVectorIfUnfocused(G_UIState.lpanel_entity_state_vel_tbox, obj->velocity);
-        WriteVectorIfUnfocused(G_UIState.lpanel_entity_state_accel_tbox, obj->acceleration);
-        WriteVectorIfUnfocused(G_UIState.lpanel_entity_state_moment_tbox, obj->momentum);
+        WriteTextboxNumberIfUnfocused(G_UIState.lpanel_entity_state_id_tbox, (float)obj->id, 0);
+        WriteTextboxNumberIfUnfocused(G_UIState.lpanel_entity_state_mass_tbox, obj->mass, 2);
+        WriteTextboxVectorIfUnfocused(G_UIState.lpanel_entity_state_pos_tl_tbox, obj->coords_origin);
+        WriteTextboxVectorIfUnfocused(G_UIState.lpanel_entity_state_pos_c_tbox, obj->coords_center);
+        WriteTextboxVectorIfUnfocused(G_UIState.lpanel_entity_state_vel_tbox, obj->velocity);
+        WriteTextboxVectorIfUnfocused(G_UIState.lpanel_entity_state_accel_tbox, obj->acceleration);
+        WriteTextboxVectorIfUnfocused(G_UIState.lpanel_entity_state_moment_tbox, obj->momentum);
     }
     else // Reset the bounded textbox output buffers AND unbind
     {
@@ -270,9 +196,9 @@ void UpdateGlobalUIState()
     // Determine if the Edit View is active.
     Newtonoid2dParams *params = G_WorldState.newtonoid_params;
     if (G_UIState.active_panel_view == LPANEL_EDIT_ENTITY_VIEW && params)
-    {   
+    {
         // Bind selected_object data to the Object Properties TextBoxes
-        //G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.data_bind = &params->edge_count;
+        // G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.data_bind = &params->edge_count;
         UIElement *edit_boxes[] = {
             G_UIState.lpanel_entity_edit_vertice_count_tbox,
             G_UIState.lpanel_entity_edit_width_tbox,
@@ -299,19 +225,19 @@ void UpdateGlobalUIState()
         // so that editing of the text by the user doesn't keep getting overwritten with the value stored in the object
         // if (!G_UIState.lpanel_entity_edit_edge_count_tbox->is_focused)
         //     PipelineNumberToText(params->edge_count, 0, G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.text.string, str_64);
-        WriteNumberIfUnfocused(G_UIState.lpanel_entity_edit_vertice_count_tbox, params->vertice_count, 0);
-        WriteNumberIfUnfocused(G_UIState.lpanel_entity_edit_width_tbox, params->width, 2);
-        WriteNumberIfUnfocused(G_UIState.lpanel_entity_edit_height_tbox, params->height, 2);
-        WriteNumberIfUnfocused(G_UIState.lpanel_entity_edit_mass_tbox, params->mass, 2);
-        WriteVectorIfUnfocused(G_UIState.lpanel_entity_edit_pos_c_tbox, params->coords_center);
-        WriteVectorIfUnfocused(G_UIState.lpanel_entity_edit_vel_tbox, params->velocity);
-        WriteVectorIfUnfocused(G_UIState.lpanel_entity_edit_accel_tbox, params->acceleration);
-        WriteVectorIfUnfocused(G_UIState.lpanel_entity_edit_moment_tbox, params->momentum);
+        WriteTextboxNumberIfUnfocused(G_UIState.lpanel_entity_edit_vertice_count_tbox, params->vertice_count, 0);
+        WriteTextboxNumberIfUnfocused(G_UIState.lpanel_entity_edit_width_tbox, params->width, 2);
+        WriteTextboxNumberIfUnfocused(G_UIState.lpanel_entity_edit_height_tbox, params->height, 2);
+        WriteTextboxNumberIfUnfocused(G_UIState.lpanel_entity_edit_mass_tbox, params->mass, 2);
+        WriteTextboxVectorIfUnfocused(G_UIState.lpanel_entity_edit_pos_c_tbox, params->coords_center);
+        WriteTextboxVectorIfUnfocused(G_UIState.lpanel_entity_edit_vel_tbox, params->velocity);
+        WriteTextboxVectorIfUnfocused(G_UIState.lpanel_entity_edit_accel_tbox, params->acceleration);
+        WriteTextboxVectorIfUnfocused(G_UIState.lpanel_entity_edit_moment_tbox, params->momentum);
     }
     else
     {
         // Reset the bounded textbox output buffers
-        //G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.text.string[0] = '\0';
+        // G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.text.string[0] = '\0';
         UIElement *edit_boxes[] = {
             G_UIState.lpanel_entity_edit_vertice_count_tbox,
             G_UIState.lpanel_entity_edit_width_tbox,
@@ -325,9 +251,7 @@ void UpdateGlobalUIState()
         ClearAndUnbindTextboxGroup(edit_boxes, sizeof(edit_boxes) / sizeof(edit_boxes[0]));
 
         // Unbind data
-        //G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.data_bind = NULL;
+        // G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.data_bind = NULL;
         // Unbind handled by ClearAndUnbindTextbox calls above.
     }
 }
-
-

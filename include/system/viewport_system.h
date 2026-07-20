@@ -7,10 +7,34 @@ VIEWPORT SYSTEM MODULE
 #define VIEWPORT_SYSTEM_H
 
 #include "math/cvectors.h"
+#include "camera/camera.h"
+
+extern Frame2d viewport_frame;
+extern Frame2d screen_frame;
+extern FrameTunnel viewport_tunnel;
+extern Frame2d lpanel_viewport_frame;
+extern Frame2d rpanel_viewport_frame;
+extern Frame2d game_viewport_frame;
+extern FrameTunnel lpanel_tunnel;
+extern FrameTunnel rpanel_tunnel;
+extern FrameTunnel game_viewport_tunnel;
+
+// Game viewport region resolved during viewport layout.
+extern Vector2d game_viewport_local_origin;
+extern Vector2d game_viewport_local_end;
+extern Vector2d game_viewport_local_resolution;
+extern Vector2d game_viewport_resolution;
+extern Vector2d game_viewport_pixel_origin;
+extern Vector2d game_viewport_pixel_end;
+extern Vector2d game_viewport_pixel_u;
+extern Vector2d game_viewport_pixel_v;
 
 // Left panel region resolved during viewport layout.
 extern Vector2d lpanel_u;
 extern Vector2d lpanel_v;
+extern Vector2d lpanel_viewport_local_origin;
+extern Vector2d lpanel_viewport_local_end;
+extern Vector2d lpanel_viewport_resolution;
 extern Vector2d lpanel_origin;
 extern Vector2d lpanel_end;
 extern Vector2d lpanel_resolution;
@@ -21,6 +45,9 @@ extern Vector2d local_to_lpanel_scale;
 extern Vector2d lpanel_to_local_scale;
 
 // Right panel region resolved during viewport layout.
+extern Vector2d rpanel_viewport_local_origin;
+extern Vector2d rpanel_viewport_local_end;
+extern Vector2d rpanel_viewport_resolution;
 extern Vector2d rpanel_origin;
 extern Vector2d rpanel_end;
 extern Vector2d rpanel_resolution;
@@ -40,5 +67,14 @@ void SetViewportUIScaleScalar(int ui_pixels_per_unit_override);
 
 // Configure left/right panel width ratios before layout initialisation.
 void SetViewportPanelRatios(float left_panel_ratio, float right_panel_ratio);
+
+// Viewport debug overlay helpers.
+void DrawViewportDebugGrid(void);
+void ToggleViewportDebugGrid(void);
+int IsViewportDebugGridEnabled(void);
+
+// Viewport center helpers.
+Vector2d ResolveGameViewportPixelCenter(void);
+Vector2d ResolveGameViewportLocalCenter(void);
 
 #endif

@@ -46,7 +46,8 @@ void ECS_DestroyEntity(ECS *ecs, Entity e);
 bool ECS_IsEntityAlive(ECS *ecs, Entity e);
 
 // Attach a component to an entity; component_data is copied into internal storage
-void ECS_AddComponent(ECS *ecs, Entity e, ComponentID comp_id, const void *component_data, size_t component_size);
+void ECS_AddComponent(ECS *ecs, Entity e, ComponentID comp_id,
+                      const void *component_data, size_t component_size);
 
 // Remove a component from an entity
 void ECS_RemoveComponent(ECS *ecs, Entity e, ComponentID comp_id);
@@ -58,7 +59,7 @@ void *ECS_GetComponent(ECS *ecs, Entity e, ComponentID comp_id);
 // For each entity, invoke fn with user context and an array of component pointers.
 // component_ids is an array of ComponentID to query (e.g., {COMPONENT_PHYSICS, COMPONENT_RENDER})
 // component_count is the size of component_ids array
-void ECS_IterateEntities(ECS *ecs, const ComponentID *component_ids, int component_count, 
+void ECS_IterateEntities(ECS *ecs, const ComponentID *component_ids, int component_count,
                          SystemIteratorFn fn, void *user_ctx);
 
 // Convenience: get entity count

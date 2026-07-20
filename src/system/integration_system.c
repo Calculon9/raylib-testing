@@ -5,9 +5,144 @@
  **********************************************************************************************/
 #include "raylib.h"
 #include "system/systems.h"
+#include "system/str_helpers.h"
 #include "ui/ui.h"
+#include "ui/text_region.h"
 #include "physics/newtonoid.h"
 #include "common/common.h"
+
+void BindTextbox(UIElement *textbox, void *data_bind)
+{
+    if (!textbox)
+    {
+        return;
+    }
+
+    textbox->data.textbox.data_bind = data_bind;
+}
+
+void BindTextboxData(UIElement *textbox, DataType type, void *data_bind)
+{
+    if (!textbox)
+    {
+        return;
+    }
+
+    textbox->data.textbox.data_type = type;
+    textbox->data.textbox.data_bind = data_bind;
+}
+
+void BindTextboxGroup(UIElement **textboxes, void **bindings, size_t count)
+{
+    if (!textboxes || !bindings)
+    {
+        return;
+    }
+
+    for (size_t i = 0; i < count; i++)
+    {
+        BindTextbox(textboxes[i], bindings[i]);
+    }
+}
+
+void ClearTextbox(UIElement *textbox)
+{
+    if (!textbox)
+    {
+        return;
+    }
+
+    textbox->data.textbox.text.string[0] = '\0';
+}
+
+void ClearAndUnbindTextbox(UIElement *textbox)
+{
+    ClearTextbox(textbox);
+    BindTextbox(textbox, NULL);
+}
+
+void ClearAndUnbindTextboxGroup(UIElement **textboxes, size_t count)
+{
+    if (!textboxes)
+    {
+        return;
+    }
+
+    for (size_t i = 0; i < count; i++)
+    {
+        ClearAndUnbindTextbox(textboxes[i]);
+    }
+}
+
+void WriteTextboxText(UIElement *textbox, const char *value)
+{
+    if (!textbox || !value)
+    {
+        return;
+    }
+
+    safe_strncpy(textbox->data.textbox.text.string, value, MAX_LABEL_CHARS);
+}
+
+void WriteTextboxInt(UIElement *textbox, int value)
+{
+    if (!textbox)
+    {
+        return;
+    }
+
+    snprintf(textbox->data.textbox.text.string, sizeof(String64), "%d", value);
+}
+
+void WriteTextboxFloat(UIElement *textbox, float value, int precision)
+{
+    if (!textbox)
+    {
+        return;
+    }
+
+    PipelineNumberToText(value, precision, textbox->data.textbox.text.string, sizeof(String64));
+}
+
+void WriteTextboxVector(Vector2d value, UIElement *textbox)
+{
+    if (!textbox)
+    {
+        return;
+    }
+
+    PipelineVectorToText(value, textbox->data.textbox.text.string, sizeof(String64));
+}
+
+void WriteTextboxVectorPair(UIElement *textbox, Vector2d value)
+{
+    if (!textbox)
+    {
+        return;
+    }
+
+    snprintf(textbox->data.textbox.text.string, sizeof(String64), "(%.1f,%.1f)", value.x, value.y);
+}
+
+void WriteTextboxNumberIfUnfocused(UIElement *textbox, float value, int precision)
+{
+    if (!textbox || textbox->is_focused)
+    {
+        return;
+    }
+
+    WriteTextboxFloat(textbox, value, precision);
+}
+
+void WriteTextboxVectorIfUnfocused(UIElement *textbox, Vector2d value)
+{
+    if (!textbox || textbox->is_focused)
+    {
+        return;
+    }
+
+    WriteTextboxVector(value, textbox);
+}
 
 // Text must be in the following format: "x,y", "(x,y)", "(magnitude)(x,y)" and assumes the text has already been committed by the user (e.g. pressed enter)
 bool PipelineTextToVector(char *input_buffer, Vector2d *target_vector) //, NewtonProperty object_property)

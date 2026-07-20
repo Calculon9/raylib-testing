@@ -150,6 +150,16 @@ Matrix3x3 MatrixMultiply_3x3_3x3(Matrix3x3 A, Matrix3x3 B)
     return result;
 }
 
+Vector2d MatrixMultiply_3x3_Vector2d(Matrix3x3 A, Vector2d v)
+{
+    Vector2d result = {0};
+
+    result.x = (A.col1.x * v.x) + (A.col2.x * v.y) + (A.col3.x * 1.0f);
+    result.y = (A.col1.y * v.x) + (A.col2.y * v.y) + (A.col3.y * 1.0f);
+
+    return result;
+}
+
 Matrix3x3 MatrixInvert_3x3(Matrix3x3 M)
 {
     float a = M.col1.x, b = M.col2.x, c = M.col3.x;
@@ -168,34 +178,22 @@ Matrix3x3 MatrixInvert_3x3(Matrix3x3 M)
     Matrix3x3 res = {0};
 
     // Inverse entries (row-major symbols), then pack into column vectors.
-    float r11 = (e * i - f * h) * invDet;
-    float r12 = (c * h - b * i) * invDet;
-    float r13 = (b * f - c * e) * invDet;
+    res.col1.x = (e * i - f * h) * invDet;
+    res.col1.y = (f * g - d * i) * invDet;
+    res.col1.z = (d * h - e * g) * invDet;
 
-    float r21 = (f * g - d * i) * invDet;
-    float r22 = (a * i - c * g) * invDet;
-    float r23 = (c * d - a * f) * invDet;
+    res.col2.x = (c * h - b * i) * invDet;
+    res.col2.y = (a * i - c * g) * invDet;
+    res.col2.z = (b * g - a * h) * invDet;
 
-    float r31 = (d * h - e * g) * invDet;
-    float r32 = (b * g - a * h) * invDet;
-    float r33 = (a * e - b * d) * invDet;
-
-    res.col1 = (Vector3d){r11, r21, r31};
-    res.col2 = (Vector3d){r12, r22, r32};
-    res.col3 = (Vector3d){r13, r23, r33};
+    res.col3.x = (b * f - c * e) * invDet;
+    res.col3.y = (c * d - a * f) * invDet;
+    res.col3.z = (a * e - b * d) * invDet;
 
     return res;
 }
 
-Frame2d CreateFrame2d(Basis2d basis, Vector2d origin_in_parent)
-{
-    return (Frame2d){
-        .basis = basis,
-        .origin_in_parent = origin_in_parent,
-        .local_min = ZERO_VECTOR_2D,
-        .local_max = ZERO_VECTOR_2D,
-    };
-}
+
 
 float VectorBox_2d(Vector2d vector)
 {

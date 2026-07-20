@@ -36,8 +36,10 @@ typedef struct Universe
 
     // Universe-space camera (operates in world-local units)
     Camera2d camera;
+    //Frame2d system;
+    //FrameTunnel tunnel; // Tunnel linking universe frame to viewport frame
     Vector2d resolution;    // Total universe dimensions in universe logical units
-    Vector2d camera_offset; // Pan offset applied when a world is selected (not used when universe camera is active)
+    //Vector2d camera_offset; // Pan offset applied when a world is selected (not used when universe camera is active)
 
     // Creation parameters for the next world
     Vector2d next_spawn;    // World center in universe space; top-left is derived from this and world size
@@ -47,16 +49,6 @@ typedef struct Universe
     Vector2d next_basis_v;
     float next_gravity;
 } Universe;
-
-typedef struct UniverseClickHit
-{
-    bool hit;
-    int world_index;
-    World2d *world;
-    Vector2d universe_coords;
-    Vector2d local_coords;
-    int depth;
-} UniverseClickHit;
 
 //----------------------------------------------------------------------------------
 // Global Instance
@@ -71,7 +63,6 @@ extern Universe G_Universe;
 void Universe_Init(Universe *u,
                    Vector2d default_spawn,
                    Vector2d default_new_world_resolution,
-                   Vector2d universe_resolution,
                    float default_gravity);
 
 // Create a new world using the universe creation params; returns its index or -1 on failure.
@@ -94,10 +85,6 @@ void Universe_Draw(Universe *u);
 bool Universe_ResolveClick(Universe *u,
                            Vector2d universe_click,
                            Vector2d *local_out);
-
-// Rich hit data for hierarchy-aware click resolution. Keeps world auto-select behavior.
-UniverseClickHit Universe_ResolveClickHit(Universe *u,
-                                          Vector2d universe_click);
 
 // Register or update the universe-space bounds for a world.
 void Universe_SetWorldBounds(Universe *u, int index, Vector2d min_bound, Vector2d max_bound);

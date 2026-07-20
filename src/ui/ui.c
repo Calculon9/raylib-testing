@@ -7,6 +7,94 @@
 #include "ui/ui.h"
 #include "raylib.h"
 
+static Vector2d GetContentAreaFromDimensions(Vector2d dimensions, Vector2d padding)
+{
+    float content_w = fmaxf(0.0f, dimensions.x - (2.0f * padding.x));
+    float content_h = fmaxf(0.0f, dimensions.y - (2.0f * padding.y));
+    return (Vector2d){content_w, content_h};
+}
+
+static Vector2d ResolveSpacingStep(Spacing spacing, Vector2d content_area_local, OffsetMode offset_mode)
+{
+    if (spacing.spacing_mode == PERCENT)
+    {
+        return (offset_mode == OFFSET_PERCENT)
+                   ? spacing.spacing
+                   : (Vector2d){content_area_local.x * spacing.spacing.x,
+                                content_area_local.y * spacing.spacing.y};
+    }
+
+    return (offset_mode == OFFSET_PERCENT)
+               ? (Vector2d){content_area_local.x > 0.0f ? spacing.spacing.x / content_area_local.x : 0.0f,
+                            content_area_local.y > 0.0f ? spacing.spacing.y / content_area_local.y : 0.0f}
+               : spacing.spacing;
+}
+
+static Vector2d ResolveChildSizeFixed(const UIElement *child, Vector2d content_area_local, float consumed_fixed_y)
+{
+    if (!child)
+    {
+        return ZERO_VECTOR_2D;
+    }
+
+    if (child->size.size_mode == SIZE_PERCENT)
+    {
+        return (Vector2d){content_area_local.x * child->size.dimensions.x,
+                          content_area_local.y * child->size.dimensions.y};
+    }
+
+    if (child->size.size_mode == SIZE_FILL)
+    {
+        return (Vector2d){content_area_local.x,
+                          fmaxf(0.0f, content_area_local.y - consumed_fixed_y)};
+    }
+
+    return child->size.dimensions;
+}
+
+static void DistributeChildrenNormal(UIElement *parent,
+                                     Vector2d spacing_step_fixed,
+                                     Vector2d spacing_step_percent)
+{
+    int child_count = 0;
+    for (UIElement *child = parent->first_child; child; child = child->next_sibling)
+    {
+        Vector2d step = child->parent_offset.offset_mode == OFFSET_PERCENT ? spacing_step_percent : spacing_step_fixed;
+        Vector2d distributed = (Vector2d){step.x * child_count, step.y * child_count};
+
+        child->parent_offset.offset.x = child->manual_parent_offset.x + distributed.x;
+        child->parent_offset.offset.y = child->manual_parent_offset.y + distributed.y;
+        child_count++;
+    }
+}
+
+static void DistributeChildrenStacked(UIElement *parent,
+                                      Vector2d content_area_local,
+                                      Vector2d spacing_step_fixed,
+                                      Vector2d spacing_step_percent)
+{
+    float cursor_fixed_y = 0.0f;
+    float cursor_percent_y = 0.0f;
+
+    for (UIElement *child = parent->first_child; child; child = child->next_sibling)
+    {
+        Vector2d child_size_fixed = ResolveChildSizeFixed(child, content_area_local, cursor_fixed_y);
+        float child_size_percent_y = content_area_local.y > 0.0f ? child_size_fixed.y / content_area_local.y : 0.0f;
+
+        if (child->parent_offset.offset_mode == OFFSET_PERCENT)
+        {
+            child->parent_offset.offset = (Vector2d){child->manual_parent_offset.x, child->manual_parent_offset.y + cursor_percent_y};
+        }
+        else
+        {
+            child->parent_offset.offset = (Vector2d){child->manual_parent_offset.x, child->manual_parent_offset.y + cursor_fixed_y};
+        }
+
+        cursor_fixed_y += child_size_fixed.y + spacing_step_fixed.y;
+        cursor_percent_y += child_size_percent_y + spacing_step_percent.y;
+    }
+}
+
 static Vector2d GetContentAreaInLocalUnits(const UIElement *parent)
 {
     if (!parent)
@@ -14,26 +102,7 @@ static Vector2d GetContentAreaInLocalUnits(const UIElement *parent)
         return ZERO_VECTOR_2D;
     }
 
-    float content_w = 0.0f;
-    float content_h = 0.0f;
-
-    // Preferred fallback for init-time layout where cached boxes are not yet resolved.
-    if (parent->size.size_mode == SIZE_FIXED)
-    {
-        content_w = parent->size.dimensions.x;
-        content_h = parent->size.dimensions.y;
-    }
-    else
-    {
-        // Percent-sized parents still need a non-zero basis for relative spacing.
-        content_w = parent->size.dimensions.x;
-        content_h = parent->size.dimensions.y;
-    }
-
-    content_w = fmaxf(0.0f, content_w - (2.0f * parent->padding.x));
-    content_h = fmaxf(0.0f, content_h - (2.0f * parent->padding.y));
-
-    return (Vector2d){content_w, content_h};
+    return GetContentAreaFromDimensions(parent->size.dimensions, parent->padding);
 }
 
 static Vector2d GetContentAreaInResolvedLocalUnits(const UIElement *parent, UIBox resolved_box, Vector2d basis_scale)
@@ -43,24 +112,13 @@ static Vector2d GetContentAreaInResolvedLocalUnits(const UIElement *parent, UIBo
         return ZERO_VECTOR_2D;
     }
 
-    float content_w = resolved_box.dimensions.x;
-    float content_h = resolved_box.dimensions.y;
-
-    if (parent->padding.x > 0.0f)
-    {
-        content_w -= (2.0f * parent->padding.x * basis_scale.x);
-    }
-    if (parent->padding.y > 0.0f)
-    {
-        content_h -= (2.0f * parent->padding.y * basis_scale.y);
-    }
-
-    content_w = fmaxf(0.0f, content_w);
-    content_h = fmaxf(0.0f, content_h);
+    Vector2d content_area_pixels = GetContentAreaFromDimensions(
+        resolved_box.dimensions,
+        (Vector2d){parent->padding.x * basis_scale.x, parent->padding.y * basis_scale.y});
 
     return (Vector2d){
-        basis_scale.x > 0.0f ? content_w / basis_scale.x : 0.0f,
-        basis_scale.y > 0.0f ? content_h / basis_scale.y : 0.0f};
+        basis_scale.x > 0.0f ? content_area_pixels.x / basis_scale.x : 0.0f,
+        basis_scale.y > 0.0f ? content_area_pixels.y / basis_scale.y : 0.0f};
 }
 
 static void DistributeChildrenWithContentArea(UIElement *e, Vector2d content_area_local)
@@ -76,71 +134,16 @@ static void DistributeChildrenWithContentArea(UIElement *e, Vector2d content_are
         return;
     }
 
-    Vector2d spacing_step_fixed = s.spacing;
-    Vector2d spacing_step_percent = s.spacing;
-
-    if (s.spacing_mode == PERCENT)
-    {
-        spacing_step_fixed.x = content_area_local.x * s.spacing.x;
-        spacing_step_fixed.y = content_area_local.y * s.spacing.y;
-    }
-    else
-    {
-        spacing_step_percent.x = content_area_local.x > 0.0f ? s.spacing.x / content_area_local.x : 0.0f;
-        spacing_step_percent.y = content_area_local.y > 0.0f ? s.spacing.y / content_area_local.y : 0.0f;
-    }
+    Vector2d spacing_step_fixed = ResolveSpacingStep(s, content_area_local, OFFSET_FIXED);
+    Vector2d spacing_step_percent = ResolveSpacingStep(s, content_area_local, OFFSET_PERCENT);
 
     if (s.spacing_type == SPACING_NORMAL)
     {
-        int child_count = 0;
-        for (UIElement *child = e->first_child; child; child = child->next_sibling)
-        {
-            Vector2d step = child->parent_offset.offset_mode == OFFSET_PERCENT ? spacing_step_percent : spacing_step_fixed;
-            Vector2d distributed = (Vector2d){step.x * child_count, step.y * child_count};
-
-            child->parent_offset.offset.x = child->manual_parent_offset.x + distributed.x;
-            child->parent_offset.offset.y = child->manual_parent_offset.y + distributed.y;
-            child_count++;
-        }
+        DistributeChildrenNormal(e, spacing_step_fixed, spacing_step_percent);
     }
     else if (s.spacing_type == SPACING_STACKED)
     {
-        float cursor_fixed_y = 0.0f;
-        float cursor_percent_y = 0.0f;
-
-        for (UIElement *child = e->first_child; child; child = child->next_sibling)
-        {
-            Vector2d child_size_fixed = ZERO_VECTOR_2D;
-
-            if (child->size.size_mode == SIZE_PERCENT)
-            {
-                child_size_fixed.x = content_area_local.x * child->size.dimensions.x;
-                child_size_fixed.y = content_area_local.y * child->size.dimensions.y;
-            }
-            else if (child->size.size_mode == SIZE_FILL)
-            {
-                child_size_fixed.x = content_area_local.x;
-                child_size_fixed.y = fmaxf(0.0f, content_area_local.y - cursor_fixed_y);
-            }
-            else
-            {
-                child_size_fixed = child->size.dimensions;
-            }
-
-            float child_size_percent_y = content_area_local.y > 0.0f ? child_size_fixed.y / content_area_local.y : 0.0f;
-
-            if (child->parent_offset.offset_mode == OFFSET_PERCENT)
-            {
-                child->parent_offset.offset = (Vector2d){child->manual_parent_offset.x, child->manual_parent_offset.y + cursor_percent_y};
-            }
-            else
-            {
-                child->parent_offset.offset = (Vector2d){child->manual_parent_offset.x, child->manual_parent_offset.y + cursor_fixed_y};
-            }
-
-            cursor_fixed_y += child_size_fixed.y + spacing_step_fixed.y;
-            cursor_percent_y += child_size_percent_y + spacing_step_percent.y;
-        }
+        DistributeChildrenStacked(e, content_area_local, spacing_step_fixed, spacing_step_percent);
     }
 }
 

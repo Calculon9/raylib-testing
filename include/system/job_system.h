@@ -8,7 +8,8 @@ typedef void (*JobFunction)(void *context, int start, int end);
 
 bool InitJobSystem(int max_jobs);
 void ShutdownJobSystem(void);
-bool SubmitJob(JobFunction function, void *context, int item_count, int chunk_size);
+bool SubmitJob(JobFunction function, void *context,
+			   int item_count, int chunk_size);
 void ExecuteJobs(void);
 void ClearJobs(void);
 bool IsJobSystemInitialized(void);

@@ -18,6 +18,27 @@
 // //----------------------------------------------------------------------------------
 // // void CalculateLineSegmentVectors(Space2d *space);
 // void InitUnitCells(Space2d *coordinate_space);
+// void Frame_InitBounds_Local(Vector2d local_resolution, const Frame2d *frame)
+// {
+//     if (!frame)
+//         return local_point;
+
+//     // Projecting local point coordinates onto the parent space basis lines
+//     Vector2d u_part = VectorScale_2d(frame->basis.u, local_point.x);
+//     Vector2d v_part = VectorScale_2d(frame->basis.v, local_point.y);
+
+//     return VectorSum_2d(frame->origin_in_parent, VectorSum_2d(u_part, v_part));
+// }
+
+void Frame_CentreBounds(Frame2d *frame, Vector2d local_point)
+{
+    if (!frame)
+        return;
+    Vector2d extent = Frame_CalcExtent_Local(frame);
+    // Projecting local point coordinates onto the parent space basis lines
+    frame->local_min = VectorSum_2d(local_point, VectorScale_2d(extent, -0.5f));
+    frame->local_max = VectorSum_2d(local_point, VectorScale_2d(extent, 0.5f));
+}
 
 Vector2d Frame_TransformPoint_ToParent(Vector2d local_point, const Frame2d *frame)
 {
@@ -48,8 +69,10 @@ Vector2d Frame_TransformPoint_FromParent(Vector2d parent_point, const Frame2d *f
     return local_point;
 }
 
-static Matrix3x3 Frame_BuildMatrix(Frame2d frame)
+// Gets the matrix that transforms a vector from this child (Source) frame directly into its parent (Destination) frame.
+Matrix3x3 MtxTransform_GetLocalToParent(Frame2d frame)
 {
+    // The child's basis vectors and origin are in the parent's (destination) space. We just pack them directly.
     return (Matrix3x3){
         .col1 = {frame.basis.u.x, frame.basis.u.y, 0.0f},
         .col2 = {frame.basis.v.x, frame.basis.v.y, 0.0f},
@@ -57,19 +80,61 @@ static Matrix3x3 Frame_BuildMatrix(Frame2d frame)
     };
 }
 
-Matrix3x3 Frame_CalcTransform(Frame2d source, Frame2d destination)
+// Every object in your hierarchy needs a matrix that describes its position, rotation, and scale relative to its immediate parent.
+Matrix3x3 MtxTransform_BuildLocalToParent(Vector2d origin_in_parent, float rotation_radians, Vector2d scale)
 {
-    Matrix3x3 source_frame = Frame_BuildMatrix(source);
-    Matrix3x3 destination_frame = Frame_BuildMatrix(destination);
+    // Compute local basis vectors using rotation and scale
+    Basis2d basis = Basis_BuildLocalToParent(origin_in_parent, rotation_radians, scale);
 
-    return MatrixMultiply_3x3_3x3(MatrixInvert_3x3(destination_frame), source_frame);
+    Frame2d object_frame = {
+        .basis = basis,
+        .origin_in_parent = origin_in_parent};
+
+    // This matrix maps Child coordinates into Parent coordinates
+    return MtxTransform_GetLocalToParent(object_frame);
 }
 
-Matrix3x3 Frame_CalcChainTransform(Frame2d source, Frame2d middle, Frame2d destination)
+// Every object in your hierarchy needs a matrix that describes its position, rotation, and scale relative to its immediate parent.
+Basis2d Basis_BuildLocalToParent(Vector2d origin_in_parent, float rotation_radians, Vector2d scale)
 {
-    Matrix3x3 source_to_middle = Frame_CalcTransform(source, middle);
-    Matrix3x3 middle_to_destination = Frame_CalcTransform(middle, destination);
+    // Compute local basis vectors using rotation and scale
+    float cos_r = cosf(rotation_radians);
+    float sin_r = sinf(rotation_radians);
 
+    return (Basis2d){
+        .u = {cos_r * scale.x, sin_r * scale.x},
+        .v = {-sin_r * scale.y, cos_r * scale.y}};
+}
+
+// Assumes both frames are in the same parent space. This is a common case for sibling objects in a hierarchy.
+Matrix3x3 MtxTransform_CalcSiblingToSibling_Mtx(Matrix3x3 source_mtx, Matrix3x3 destination_mtx)
+{
+    // Invert the destination matrix to get the path from Parent -> Destination sibling
+    Matrix3x3 inv_dest_mtx = MatrixInvert_3x3(destination_mtx);
+    // Combine them (Right-to-Left): Source -> Parent -> Destination
+    return MatrixMultiply_3x3_3x3(inv_dest_mtx, source_mtx);
+}
+
+// Assumes both frames are in the same parent space. This is a common case for sibling objects in a hierarchy.
+Matrix3x3 MtxTransform_CalcSiblingToSibling_Frame(Frame2d source, Frame2d destination)
+{
+    // Turn both frames into standard parent-relative matrices
+    Matrix3x3 source_matrix = MtxTransform_GetLocalToParent(source);
+    Matrix3x3 dest_matrix = MtxTransform_GetLocalToParent(destination);
+
+    return MtxTransform_CalcSiblingToSibling_Mtx(source_matrix, dest_matrix);
+}
+
+// Assumes frames are in a hierarchy of destination <-> middle <-> source.
+Matrix3x3 MtxTransform_CalcChainToAncestor_Frame(Frame2d source, Frame2d middle)
+{
+    // Step up from deep child to middle parent space
+    Matrix3x3 source_to_middle = MtxTransform_GetLocalToParent(source);
+
+    // Step up from middle parent space to grandparent (destination) space
+    Matrix3x3 middle_to_destination = MtxTransform_GetLocalToParent(middle);
+
+    // Combine right-to-left: Source -> Middle -> Destination
     return MatrixMultiply_3x3_3x3(middle_to_destination, source_to_middle);
 }
 
@@ -168,14 +233,15 @@ Matrix2x2 Frame_CalcExtents_InParent(const Frame2d *frame)
 
 Matrix2x2 Frame_CalcAABB_InParent(const Frame2d *frame)
 {
-    if (!frame) return INFINITY_MATRIX_2x2;
+    if (!frame)
+        return INFINITY_MATRIX_2x2;
 
     // Define the 4 local corners of the frame
     Vector2d local_corners[4] = {
-        { frame->local_min.x, frame->local_min.y }, // Bottom-Left
-        { frame->local_max.x, frame->local_min.y }, // Bottom-Right
-        { frame->local_min.x, frame->local_max.y }, // Top-Left
-        { frame->local_max.x, frame->local_max.y }  // Top-Right
+        {frame->local_min.x, frame->local_min.y}, // Bottom-Left
+        {frame->local_max.x, frame->local_min.y}, // Bottom-Right
+        {frame->local_min.x, frame->local_max.y}, // Top-Left
+        {frame->local_max.x, frame->local_max.y}  // Top-Right
     };
 
     // Transform the first corner to parent space to initialize our min/max bounds
@@ -187,12 +253,16 @@ Matrix2x2 Frame_CalcAABB_InParent(const Frame2d *frame)
     for (int i = 1; i < 4; i++)
     {
         Vector2d p = Frame_TransformPoint_ToParent(local_corners[i], frame);
-        
-        if (p.x < p_min.x) p_min.x = p.x;
-        if (p.y < p_min.y) p_min.y = p.y;
-        
-        if (p.x > p_max.x) p_max.x = p.x;
-        if (p.y > p_max.y) p_max.y = p.y;
+
+        if (p.x < p_min.x)
+            p_min.x = p.x;
+        if (p.y < p_min.y)
+            p_min.y = p.y;
+
+        if (p.x > p_max.x)
+            p_max.x = p.x;
+        if (p.y > p_max.y)
+            p_max.y = p.y;
     }
 
     // Pack the absolute min and max coordinates into your Matrix2x2

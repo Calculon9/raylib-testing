@@ -384,6 +384,7 @@ void DrawGameplayScreen(void)
     DrawUniverse();
     DrawRPanel();
     DrawUI();
+    DrawViewportDebugGrid();
 }
 
 void UpdateGameplayScreen(void)
@@ -403,6 +404,12 @@ static void HandleViewportDebugHotkeys(void)
 {
     bool viewport_scale_changed = false;
     bool ui_scale_changed = false;
+
+    if (IsKeyPressed(KEY_F6))
+    {
+        ToggleViewportDebugGrid();
+        printf("[Viewport] Debug region grid: %s\n", IsViewportDebugGridEnabled() ? "ON" : "OFF");
+    }
 
     if (IsKeyPressed(KEY_F7))
     {
@@ -453,6 +460,7 @@ static void RefreshViewportAndDependentSystems(bool viewport_scale_changed, bool
     SetViewportTargetLogicalHeight(viewport_target_game_logical_height);
     SetViewportUIScaleScalar(viewport_ui_pixels_per_unit_override);
     InitViewportLayout(screenWidth, screenHeight, screen_resolution_scalar);
+    SyncUniverseCameraToViewport();
 
     if (viewport_scale_changed)
     {

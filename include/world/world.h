@@ -85,7 +85,7 @@ typedef struct
 //     LArray *collisions;
 //     GridSpace2d *space_entity;
 //     World2d *world;
-//     Vector2d game_region_origin;
+//     Vector2d game_viewport_local_origin;
 // } WorldContext;
 
 typedef struct AxisIntersectionRange2d

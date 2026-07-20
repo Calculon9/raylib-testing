@@ -133,7 +133,8 @@ bool ECS_IsEntityAlive(ECS *ecs, Entity e)
     return false;
 }
 
-void ECS_AddComponent(ECS *ecs, Entity e, ComponentID comp_id, const void *component_data, size_t component_size)
+void ECS_AddComponent(ECS *ecs, Entity e, ComponentID comp_id,
+                      const void *component_data, size_t component_size)
 {
     if (!ecs || e == 0 || comp_id == COMPONENT_INVALID || !component_data)
         return;
@@ -226,7 +227,8 @@ void *ECS_GetComponent(ECS *ecs, Entity e, ComponentID comp_id)
     return NULL;
 }
 
-void ECS_IterateEntities(ECS *ecs, const ComponentID *component_ids, int component_count, SystemIteratorFn fn, void *user_ctx)
+void ECS_IterateEntities(ECS *ecs, const ComponentID *component_ids, int component_count,
+                         SystemIteratorFn fn, void *user_ctx)
 {
     if (!ecs || !component_ids || component_count <= 0 || !fn || component_count > MAX_COMPONENT_TYPES)
         return;
