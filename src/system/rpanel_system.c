@@ -16,10 +16,13 @@
 #include "ui/ui_renderer.h"
 
 UIElement *rpanel_root = NULL;
-Camera2d viewport_camera_rpanel = {0};
+Camera2d camera_rpanel = {0};
 UIBox rpanel_seed_box = {0};
 
 static Space2d rpanel_space = {0};
+static int rpanel_resolution_x = 0;
+static int rpanel_resolution_y = 0;
+static float rpanel_grid_cell_size = 1.0f;
 static View rpanel_state_view_storage = {0};
 static View rpanel_create_view_storage = {0};
 static View *rpanel_state_view = NULL;
@@ -66,20 +69,27 @@ static void CreateRPanelSubmitButton(UIElement *parent, const char *label, int *
                              (Vector2d){0.02f, 0.02f}, HandleBtnSubmitClick, action, NULL);
 }
 
-//Suspect I might be creating the wrong basis going from panel_viewport->screen. Might be too small?
+// Suspect I might be creating the wrong basis going from panel_viewport->screen. Might be too small?
 void InitRPanel(void)
 {
-    Basis2d rpanel_basis = (Basis2d){lpanel_u, lpanel_v};
-    rpanel_space = NewSpace2d(rpanel_viewport_local_origin, rpanel_viewport_resolution, rpanel_basis);
+    float rpanel_space_to_viewport_scale = 2.0f; // Scale factor to convert from panel space to viewport space
+    Vector2d rpanel_resolution = VectorScale_2d(rpanel_viewport_resolution, rpanel_space_to_viewport_scale);
+    Basis2d rpanel_viewport_basis = (Basis2d){(Vector2d){1.0f / rpanel_space_to_viewport_scale, 0.0f}, (Vector2d){0.0f, 1.0f / rpanel_space_to_viewport_scale}};
 
-    if (viewport_camera_rpanel.zoom <= 0.0f)
+    // Establish universe_frame with centered spatial alignment
+    // =========================================================================
+    rpanel_space = NewSpace2d(rpanel_viewport_local_origin, rpanel_resolution, rpanel_viewport_basis);
+
+    camera_rpanel = CreateCamera2d(&rpanel_space.frame, &rpanel_viewport_frame);
+
+    if (camera_rpanel.zoom <= 0.0f)
     {
-        viewport_camera_rpanel = CreateCamera2d(&rpanel_space.frame, &rpanel_viewport_frame);
+        camera_rpanel = CreateCamera2d(&rpanel_space.frame, &rpanel_viewport_frame);
     }
     else
     {
-        Camera_SetSourceFrame(&viewport_camera_rpanel, &rpanel_space.frame);
-        Camera_SetDestinationFrame(&viewport_camera_rpanel, &rpanel_viewport_frame);
+        Camera_SetSourceFrame(&camera_rpanel, &rpanel_space.frame);
+        Camera_SetDestinationFrame(&camera_rpanel, &rpanel_viewport_frame);
     }
 
     rpanel_root = CreateUIElement(UI_ELEMENT_ROOT,
@@ -95,7 +105,8 @@ void InitRPanel(void)
     rpanel_create_view = &rpanel_create_view_storage;
     btn_action_rpanel_enumerate = 0;
 
-    Vector2d basis_scale = Camera_GetBasisScale(&viewport_camera_rpanel);
+    // Check here for a wildly incorrect basis scale that would cause the panel to be drawn off-screen or at an unexpected size.
+    Vector2d basis_scale = Camera_GetBasisScale(&camera_rpanel);
     rpanel_seed_box.coords = (Vector2d){rpanel_pixel_origin.x, rpanel_pixel_origin.y};
     rpanel_seed_box.dimensions = (Vector2d){rpanel_viewport_resolution.x * basis_scale.x, rpanel_viewport_resolution.y * basis_scale.y};
 
@@ -364,9 +375,9 @@ void DrawRPanel(void)
         if (rpanel_world_next_id_tbox)
             WriteTextboxText(rpanel_world_next_id_tbox, "0");
     }
-    ISSUE IS HERE. COL3 is like 60000!
+    // ISSUE IS HERE. COL3 is like 60000!
     Matrix3x3 M_ui_to_pixel = MatrixMultiply_3x3_3x3(
-        rpanel_tunnel.source_to_dest_mtx,
-        viewport_camera_rpanel.tunnel.source_to_dest_mtx);
-    DrawRootUIElement(rpanel_root, rpanel_seed_box, viewport_camera_rpanel, M_ui_to_pixel);
+        camera_rpanel.tunnel.source_to_dest_mtx,
+        rpanel_viewport_tunnel.source_to_dest_mtx);
+    DrawRootUIElement(rpanel_root, rpanel_seed_box, camera_lpanel, M_ui_to_pixel);
 }

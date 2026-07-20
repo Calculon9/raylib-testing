@@ -123,19 +123,19 @@ void DrawTextBoxText(UIElement *e)
 }
 
 // NEED TO CREATE BOX FOR ENTIRE SCREEN AND PASS THAT AS THE PARENT BOX FOR THE ROOT ELEMENT, SO THAT THE ROOT ELEMENT AND ALL OTHER ELEMENTS CAN CALCULATE THEIR POSITIONS AND DIMENSIONS BASED ON THAT, RATHER THAN HAVING THE ROOT ELEMENT CALCULATE ITS POSITION AND DIMENSIONS BASED ON A ZERO VECTOR, WHICH IS NOT FLEXIBLE IF WE WANT TO CHANGE THE PANEL OR ROOT ELEMENT PROPERTIES LATER
-void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d viewport_camera, Matrix3x3 M_ui_to_pixel)
+void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d space_camera, Matrix3x3 M_ui_to_pixel)
 {
     if (!root_element)
     {
         return;
     }
 
-    // Need to convert world coordinates to screen coordinates
+    // Need to convert world coordinates --> viewport --> screen coordinates
     Space2d panel_space = root_element->data.root.space;
     Basis2d basis = panel_space.frame.basis;
 
     Vector2d origin = panel_space.frame.origin_in_parent;
-    Vector2d basis_scale = Camera_GetBasisScale(&viewport_camera); // Need to scale dimensions from world units to pixel units using the camera's basis transform
+    Vector2d basis_scale = Camera_GetBasisScale(&space_camera); THIS IS NOT CORRECT, ITS SKIPPING THE SPACE->VIEWPORT TRANSFORMATION. SHOULD BE 0.5*50. NOT (50/0.5). DONT EVEN USE BASIS SCALING. // Need to scale dimensions from world units to pixel units using the camera's basis transform
 
     // Resolve rendered position and dimensions of panel element
     UIBox box = ResolveElementBox(root_element, seed_box, basis_scale);
@@ -154,7 +154,7 @@ void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d viewpor
     UIElement *child = root_element->first_child;
     while (child)
     {
-        DrawUIElement(child, box, viewport_camera, M_ui_to_pixel);
+        DrawUIElement(child, box, space_camera, M_ui_to_pixel);
         child = child->next_sibling;
     }
 }

@@ -5,6 +5,7 @@
 #include "math/cvectors.h"
 #include "common/common.h"
 #include "camera/camera.h"
+#include "system/viewport_system.h"
 #include "ui/ui.h"
 #include "ui/text_region.h"
 #include "ui/ui_renderer.h"
@@ -33,7 +34,7 @@ static Size lpanel_row_tfield_size = {{6.0f, 0.5f}, SIZE_FIXED};
 
 // Coordinate Space Properties
 static Space2d lpanel_space = {0};
-Camera2d viewport_camera_lpanel = {0};
+Camera2d camera_lpanel = {0};
 UIBox seed_box = {0};
 UIElement *lpanel_root = {0};
 View *lpanel_state_view = {0};
@@ -122,9 +123,25 @@ void InitPanelEditView(void)
 
 void InitPanelRoot(void)
 {
+    float lpanel_space_to_viewport_scale = 2.0f; // Scale factor to convert from panel space to viewport space
+    Vector2d lpanel_resolution = VectorScale_2d(lpanel_viewport_resolution, lpanel_space_to_viewport_scale);
+    Basis2d lpanel_viewport_basis = (Basis2d){(Vector2d){1.0f / lpanel_space_to_viewport_scale, 0.0f}, (Vector2d){0.0f, 1.0f / lpanel_space_to_viewport_scale}};
+
+    // Establish universe_frame with centered spatial alignment
+    // =========================================================================
     // Initialize the logical UI layout space
-    Basis2d lpanel_basis = (Basis2d){lpanel_u, lpanel_v};
-    lpanel_space = NewSpace2d(lpanel_viewport_local_origin, lpanel_viewport_resolution, lpanel_basis);
+    lpanel_space = NewSpace2d(lpanel_viewport_local_origin, lpanel_resolution, lpanel_viewport_basis);
+    camera_lpanel = CreateCamera2d(&lpanel_space.frame, &lpanel_viewport_frame);
+
+    if (camera_lpanel.zoom <= 0.0f)
+    {
+        camera_lpanel = CreateCamera2d(&lpanel_space.frame, &lpanel_viewport_frame);
+    }
+    else
+    {
+        Camera_SetSourceFrame(&camera_lpanel, &lpanel_space.frame);
+        Camera_SetDestinationFrame(&camera_lpanel, &lpanel_viewport_frame);
+    }
 
     // Setup the UI Tree Root Element
     lpanel_root = CreateUIElement(UI_ELEMENT_ROOT, lpanel_root_size, (Offset){ZERO_VECTOR_2D, OFFSET_FIXED}, lpanel_default_padding, COLOURLESS_RGBA, lpanel_fill_colour);
@@ -134,23 +151,14 @@ void InitPanelRoot(void)
     // Configure the Panel Camera Lens
     // Source: The local math coordinate system owned by the UI space
     // Destination: The persistent layout viewport frame initialized in your viewport setup
-    if (viewport_camera_lpanel.zoom <= 0.0f)
-    {
-        viewport_camera_lpanel = CreateCamera2d(&lpanel_space.frame, &lpanel_viewport_frame);
-    }
-    else
-    {
-        Camera_SetSourceFrame(&viewport_camera_lpanel, &lpanel_space.frame);
-        Camera_SetDestinationFrame(&viewport_camera_lpanel, &lpanel_viewport_frame);
-    }
 
-    // Calculate bounding box parameters using our clean matrix metrics
-    Vector2d basis_scale = Camera_GetBasisScale(&viewport_camera_lpanel);
+    // Calculate bounding box parameters using clean matrix metrics
+    //Vector2d basis_scale = Camera_GetBasisScale(&viewport_camera_lpanel);
 
     // Its origin is the unscaled logical layout position, NOT the pixel offset.
-    seed_box.coords = lpanel_viewport_local_origin;
+    seed_box.coords = ZERO_VECTOR_2D;// lpanel_viewport_local_origin;
     // Its dimensions are the pure unscaled logical resolution units.
-    seed_box.dimensions = lpanel_viewport_resolution;
+    seed_box.dimensions = lpanel_resolution;
 }
 
 // seed_box.coords = lpanel_viewport_frame.origin_in_parent;
@@ -320,7 +328,7 @@ void DrawLPanel(void)
 {
     // Combine the UI scrolling camera matrix with the physical screen layout matrix
     Matrix3x3 M_ui_to_pixel = MatrixMultiply_3x3_3x3(
-        lpanel_tunnel.source_to_dest_mtx,
-        viewport_camera_lpanel.tunnel.source_to_dest_mtx);
-    DrawRootUIElement(lpanel_root, seed_box, viewport_camera_lpanel, M_ui_to_pixel);
+        lpanel_viewport_tunnel.source_to_dest_mtx,
+        camera_lpanel.tunnel.source_to_dest_mtx);
+    DrawRootUIElement(lpanel_root, seed_box, camera_lpanel, M_ui_to_pixel);
 }

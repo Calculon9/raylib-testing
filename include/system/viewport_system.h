@@ -9,14 +9,15 @@ VIEWPORT SYSTEM MODULE
 #include "math/cvectors.h"
 #include "camera/camera.h"
 
+// Viewport frames and tunnels for left panel, game region, and right panel.
 extern Frame2d viewport_frame;
 extern Frame2d screen_frame;
 extern FrameTunnel viewport_tunnel;
 extern Frame2d lpanel_viewport_frame;
 extern Frame2d rpanel_viewport_frame;
 extern Frame2d game_viewport_frame;
-extern FrameTunnel lpanel_tunnel;
-extern FrameTunnel rpanel_tunnel;
+extern FrameTunnel lpanel_viewport_tunnel;
+extern FrameTunnel rpanel_viewport_tunnel;
 extern FrameTunnel game_viewport_tunnel;
 
 // Game viewport region resolved during viewport layout.

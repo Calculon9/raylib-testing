@@ -260,22 +260,23 @@ void UpdateCameraFull(Camera2d *cam)
     M_cam_view.col3.z = 1.0f;
 
     // Build Viewport Center Matrix (Offsets origin to screen viewport center)
-    Vector2d view_center = {
-        cam->tunnel.destination_frame->origin_in_parent.x + (cam->tunnel.destination_frame->local_max.x - cam->tunnel.destination_frame->local_min.x) * 0.5f,
-        cam->tunnel.destination_frame->origin_in_parent.y + (cam->tunnel.destination_frame->local_max.y - cam->tunnel.destination_frame->local_min.y) * 0.5f};
+    // Vector2d view_center = {//THIS SHOULD NOT BE USING DESTINATION FRAMES ORIGIN-IN-PARENT. IT SHOULD BE USING THE SOURCE FRAMES ORIGIN-IN-PARENT INSTEAD. THIS IS WHY EVERYTHING IS CENTERED ON THE SCREEN.
+    //     cam->tunnel.source_frame->origin_in_parent.x + (cam->tunnel.destination_frame->local_max.x - cam->tunnel.destination_frame->local_min.x) * 0.5f,
+    //     cam->tunnel.source_frame->origin_in_parent.y + (cam->tunnel.destination_frame->local_max.y - cam->tunnel.destination_frame->local_min.y) * 0.5f};
 
-    Matrix3x3 M_view_center;
-    // Identity for basis columns
-    M_view_center.col1 = (Vector3d){1.0f, 0.0f, 0.0f};
-    M_view_center.col2 = (Vector3d){0.0f, 1.0f, 0.0f};
-    // Translation to screen space center
-    M_view_center.col3 = (Vector3d){view_center.x, view_center.y, 1.0f};
+    // Matrix3x3 M_view_center;
+    // // Identity for basis columns
+    // M_view_center.col1 = (Vector3d){1.0f, 0.0f, 0.0f};
+    // M_view_center.col2 = (Vector3d){0.0f, 1.0f, 0.0f};
+    // // Translation to screen space center
+    // M_view_center.col3 = (Vector3d){view_center.x, view_center.y, 1.0f};
 
     // Combine: M_total = M_view_center * M_cam_view
     // Vectors are transformed right-to-left: v_pixel = M_view_center * (M_cam_view * v_world)
-    cam->tunnel.source_to_dest_mtx = MatrixMultiply_3x3_3x3(M_view_center, M_cam_view);
+    cam->tunnel.source_to_dest_mtx = M_cam_view;
+    //cam->tunnel.source_to_dest_mtx = MatrixMultiply_3x3_3x3(M_view_center, M_cam_view);
     cam->tunnel.dest_to_source_mtx = MatrixInvert_3x3(cam->tunnel.source_to_dest_mtx);
-}
+}//THIS IS CENTERING EVERYTHING ON THE SCREEN. WE NEED TO OFFSET IT BY THE VIEWPORT ORIGIN INSTEAD OF CENTERING IT. ITS ADDING TO THE TRANSLATION COLUMN OF THE MATRIX.
 
 Vector2d TransformCoordinates(Matrix3x3 transformation_mtx, Vector2d coordinates_to_transform)
 {

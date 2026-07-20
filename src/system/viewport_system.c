@@ -45,7 +45,7 @@ Vector2d lpanel_pixel_u = {0};
 Vector2d lpanel_pixel_v = {0};
 Vector2d local_to_lpanel_scale = {0};
 Vector2d lpanel_to_local_scale = {0};
-//Camera2d camera_lpanel = {0};
+// Camera2d camera_lpanel = {0};
 
 Vector2d rpanel_viewport_local_origin = {0};
 Vector2d rpanel_viewport_local_end = {0};
@@ -63,8 +63,8 @@ FrameTunnel viewport_tunnel = {0};
 Frame2d lpanel_viewport_frame = {0};
 Frame2d rpanel_viewport_frame = {0};
 Frame2d game_viewport_frame = {0};
-FrameTunnel lpanel_tunnel = {0};
-FrameTunnel rpanel_tunnel = {0};
+FrameTunnel lpanel_viewport_tunnel = {0};
+FrameTunnel rpanel_viewport_tunnel = {0};
 FrameTunnel game_viewport_tunnel = {0};
 
 static void DrawViewportRegionGrid(Vector2d origin,
@@ -239,12 +239,18 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
     float rpanel_logical_area = VectorBox_2d(rpanel_viewport_resolution);
 
     // Keep legacy names in sync while viewport rename migration is in progress.
-    lpanel_origin = lpanel_viewport_local_origin;
-    lpanel_end = lpanel_viewport_local_end;
-    lpanel_resolution = lpanel_viewport_resolution;
-    rpanel_origin = rpanel_viewport_local_origin;
-    rpanel_end = rpanel_viewport_local_end;
-    rpanel_resolution = rpanel_viewport_resolution;
+    // lpanel_origin = ;
+    // lpanel_end = ;
+    // lpanel_resolution = ;
+    // rpanel_origin = ;
+    // rpanel_end = ;
+    // rpanel_resolution = ;
+    // lpanel_origin = lpanel_viewport_local_origin;
+    // lpanel_end = lpanel_viewport_local_end;
+    // lpanel_resolution = lpanel_viewport_resolution;
+    // rpanel_origin = rpanel_viewport_local_origin;
+    // rpanel_end = rpanel_viewport_local_end;
+    // rpanel_resolution = rpanel_viewport_resolution;
 
     game_viewport_resolution = (Vector2d){logical_screen_size.x - lpanel_viewport_resolution.x - rpanel_viewport_resolution.x, logical_screen_size.y};
     game_viewport_local_resolution = game_viewport_resolution;
@@ -265,10 +271,10 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
     rpanel_pixel_v = lpanel_pixel_v;
 
     // Save basis scale factors for panel coordinate conversions.
-    Basis2d lpanel_basis = (Basis2d){lpanel_u, lpanel_v};
+    // Basis2d lpanel_basis = (Basis2d){lpanel_u, lpanel_v};
     Basis2d lpanel_pixel_basis = (Basis2d){lpanel_pixel_u, lpanel_pixel_v};
-    local_to_lpanel_scale = Frame_GetBasisScaling(lpanel_basis, lpanel_pixel_basis);
-    lpanel_to_local_scale = Frame_GetBasisScaling(lpanel_pixel_basis, lpanel_basis);
+    // local_to_lpanel_scale = Frame_GetBasisScaling(lpanel_basis, lpanel_pixel_basis);
+    // lpanel_to_local_scale = Frame_GetBasisScaling(lpanel_pixel_basis, lpanel_basis);
 
     // Calculate screen pixel-space origins for each region.
     lpanel_pixel_origin.x = (lpanel_pixel_u.x + lpanel_pixel_v.x) * lpanel_viewport_local_origin.x;
@@ -293,22 +299,26 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
 
     // Core Window Boundaries
     screen_frame = CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D, (Vector2d){(float)screen_width, (float)screen_height});
-    // Viewport frame represents the entire screen canvas in logical game layout units
-    viewport_frame = CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D, logical_screen_size);
 
-    // Initialize Master Viewport-to-Screen Root Tunnel
-    viewport_tunnel.source_frame = &viewport_frame;
-    viewport_tunnel.destination_frame = &screen_frame;
+    
+    // Viewport frame represents the entire screen canvas in logical game layout units
+    //Basis2d viewport_basis = (Basis2d){game_viewport_pixel_u, game_viewport_pixel_v};
+    //viewport_frame = CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D, logical_screen_size);
+
+    //  Initialize Master Viewport-to-Screen Root Tunnel
+    //viewport_tunnel.source_frame = &viewport_frame;
+    //viewport_tunnel.destination_frame = &screen_frame;
     // Build the structural matrix transformation bypassing manual hacks
-    viewport_tunnel.source_to_dest_mtx = MtxTransform_GetLocalToParent(*viewport_tunnel.source_frame);
+    //viewport_tunnel.source_to_dest_mtx = MtxTransform_GetLocalToParent(*viewport_tunnel.source_frame);
 
     // Construct Frame2d Instances for Each Unique Region
     // These frames translate from regional local viewport spaces straight into Screen parent coordinates
-    
+
+    // WE NEED TO CALCULATE A BASIS FOR THE VIEWPORT FRAMEs SO THAT IT TRANSFORMS ITS LOCAL COORDINATES INTO SCREEN SPACE.
     // Left UI Panel Frame
-    //Basis2d lpanel_pixel_basis = (Basis2d){lpanel_pixel_u, lpanel_pixel_v};
+    // Basis2d lpanel_pixel_basis = (Basis2d){lpanel_pixel_u, lpanel_pixel_v};
     lpanel_viewport_frame = CreateFrame2d(lpanel_pixel_basis, lpanel_pixel_origin, lpanel_viewport_resolution);
-    
+
     // Right UI Panel Frame
     Basis2d rpanel_pixel_basis = (Basis2d){rpanel_pixel_u, rpanel_pixel_v};
     rpanel_viewport_frame = CreateFrame2d(rpanel_pixel_basis, rpanel_pixel_origin, rpanel_viewport_resolution);
@@ -322,18 +332,17 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
     game_viewport_tunnel.source_to_dest_mtx = MtxTransform_GetLocalToParent(*game_viewport_tunnel.source_frame);
 
     // Initialize the Viewport -> Screen Display Layout Tunnels
-    lpanel_tunnel.source_frame = &lpanel_viewport_frame;
-    lpanel_tunnel.destination_frame = &screen_frame;
-    lpanel_tunnel.source_to_dest_mtx = MtxTransform_GetLocalToParent(*lpanel_tunnel.source_frame);
+    lpanel_viewport_tunnel.source_frame = &lpanel_viewport_frame;
+    lpanel_viewport_tunnel.destination_frame = &screen_frame;
+    lpanel_viewport_tunnel.source_to_dest_mtx = MtxTransform_GetLocalToParent(*lpanel_viewport_tunnel.source_frame);
 
-    rpanel_tunnel.source_frame = &rpanel_viewport_frame;
-    rpanel_tunnel.destination_frame = &screen_frame;
-    rpanel_tunnel.source_to_dest_mtx = MtxTransform_GetLocalToParent(*rpanel_tunnel.source_frame);
+    rpanel_viewport_tunnel.source_frame = &rpanel_viewport_frame;
+    rpanel_viewport_tunnel.destination_frame = &screen_frame;
+    rpanel_viewport_tunnel.source_to_dest_mtx = MtxTransform_GetLocalToParent(*rpanel_viewport_tunnel.source_frame);
 
     game_viewport_tunnel.source_frame = &game_viewport_frame;
     game_viewport_tunnel.destination_frame = &screen_frame;
     game_viewport_tunnel.source_to_dest_mtx = MtxTransform_GetLocalToParent(*game_viewport_tunnel.source_frame);
-
 
     printf("LOGICAL REGIONS --> SCREEN(AREA:%0.1f SIZE:%0.1f,%0.1f); LPANEL(AREA:%0.1f SIZE:%0.1f,%0.1f); GAME(AREA:%0.1f SIZE:%0.1f,%0.1f); RPANEL(AREA:%0.1f SIZE:%0.1f,%0.1f); RECONSTRUCTED_AREA(%0.1f);\n",
            total_logical_area, logical_screen_size.x, logical_screen_size.y,
@@ -343,10 +352,8 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
            reconstructed_logical_area);
     printf("PIXEL ORIGINS --> LPANEL(%0.1f,%0.1f); GAME_VIEWPORT (%0.1f,%0.1f); RPANEL(%0.1f,%0.1f);\n",
            lpanel_pixel_origin.x, lpanel_pixel_origin.y,
-            game_viewport_pixel_origin.x, game_viewport_pixel_origin.y,
+           game_viewport_pixel_origin.x, game_viewport_pixel_origin.y,
            rpanel_pixel_origin.x, rpanel_pixel_origin.y);
     printf("VIEWPORT SCALE --> GAME_PX_PER_UNIT:%d UI_PX_PER_UNIT:%d TARGET_GAME_H:%.1f\n",
            screen_pixels_per_unit, ui_pixels_per_unit, viewport_target_game_logical_height);
-
 }
-
