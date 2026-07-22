@@ -12,6 +12,7 @@ SYSTEMS MODULE
 #include "raylib.h"
 #include "system/utility_system.h"
 #include "system/viewport_system.h"
+// #include "system/ui_system.h"
 // #include "ui/ui.h"
 
 //----------------------------------------------------------------------------------
@@ -151,6 +152,8 @@ typedef struct
     LArray *collisions;
     WorldMode mode;
 } WorldState;
+
+//typedef struct UIBox UIBox;
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
 //----------------------------------------------------------------------------------

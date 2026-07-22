@@ -23,7 +23,7 @@ void DrawTextArea(UIElement *e);
 
 void DrawElementBox(UIElement *e)
 {
-    UIBox box = e->cached_box;
+    UIBox box = e->screen_box;
     ColourRgba colour_fill = e->colour_fill;
     ColourRgba colour_border = e->colour_border;
     DrawRectangle((int)box.coords.x, (int)box.coords.y, (int)box.dimensions.x, (int)box.dimensions.y, (Color){colour_fill.r, colour_fill.g, colour_fill.b, colour_fill.a});
@@ -53,7 +53,7 @@ void DrawTextArea(UIElement *e)
         text_ptr = e->data.label.text.string;
         font = e->data.label.font;
     }
-    Vector2d available_space = e->cached_box.dimensions;
+    Vector2d available_space = e->screen_box.dimensions;
 
     // 2. Metrics calculation
     int glyph_advance = (8 * font.scale) + (font.scale * (int)font.spacing);
@@ -65,7 +65,7 @@ void DrawTextArea(UIElement *e)
     int rows_that_fit = (int)(available_space.y / row_height);
     int char_ptr = 0;
     int current_row = 0;
-    float last_row_x_end = e->cached_box.coords.x;
+    float last_row_x_end = e->screen_box.coords.x;
     // if (rows_that_fit <= 0)
     // return;
 
@@ -94,8 +94,8 @@ void DrawTextArea(UIElement *e)
 
         // Draw the row
         Vector2d draw_pos = {
-            e->cached_box.coords.x,
-            e->cached_box.coords.y + (current_row * row_height)};
+            e->screen_box.coords.x,
+            e->screen_box.coords.y + (current_row * row_height)};
 
         // Draw and capture the end X position for the cursor
         last_row_x_end = DrawTextCustom(row_buffer, draw_pos, font.scale, font, font.colour);
@@ -109,7 +109,7 @@ void DrawTextArea(UIElement *e)
         // Note: Subtract 1 from current_row because it was incremented after the last draw
         // Adjust x_coord because the '|' is drawn in the middle of the 8x8 bitmap, and we need the cursor to be closer to the prev char
         float adjusted_x = last_row_x_end - (font.scale * fabs(font.spacing));
-        float adjusted_y = char_ptr > 0 ? e->cached_box.coords.y + ((current_row - 1) * row_height) : e->cached_box.coords.y;
+        float adjusted_y = char_ptr > 0 ? e->screen_box.coords.y + ((current_row - 1) * row_height) : e->screen_box.coords.y;
         Vector2d cursor_pos = {adjusted_x, adjusted_y};
         DrawTextCustom("|", cursor_pos, font.scale, font, font.colour);
     }
@@ -131,24 +131,24 @@ void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d space_c
     }
 
     // Need to convert world coordinates --> viewport --> screen coordinates
-    Space2d panel_space = root_element->data.root.space;
-    Basis2d basis = space_camera.tunnel.source_frame->basis;
-    //Vector2d origin = panel_space.frame.origin_in_parent;
-    //Vector2d basis_scale = Camera_GetBasisScale(&space_camera); //THIS IS NOT CORRECT, ITS SKIPPING THE SPACE->VIEWPORT TRANSFORMATION. SHOULD BE 0.5*50. NOT (50/0.5). DONT EVEN USE BASIS SCALING. // Need to scale dimensions from world units to pixel units using the camera's basis transform
-    
-    Matrix2x2 basis_matrix = {
-        {M_ui_to_pixel.col1.x, M_ui_to_pixel.col1.y},
-        {M_ui_to_pixel.col2.x, M_ui_to_pixel.col2.y}};
-    Vector2d basis_tfrm = VectorSum_2d(basis_matrix.col1,basis_matrix.col2);//THIS IS NOT CORRECT, ITS SKIPPING THE SPACE->VIEWPORT TRANSFORMATION. SHOULD BE 0.5*50. NOT (50/0.5). DONT EVEN USE BASIS SCALING. // Need to scale dimensions from world units to pixel units using the camera's basis transform
+    // Space2d panel_space = root_element->data.root.space;
+    // Basis2d basis = space_camera.tunnel.source_frame->basis;
+    // //Vector2d origin = panel_space.frame.origin_in_parent;
+    // //Vector2d basis_scale = Camera_GetBasisScale(&space_camera); //THIS IS NOT CORRECT, ITS SKIPPING THE SPACE->VIEWPORT TRANSFORMATION. SHOULD BE 0.5*50. NOT (50/0.5). DONT EVEN USE BASIS SCALING. // Need to scale dimensions from world units to pixel units using the camera's basis transform
+
+    // Matrix2x2 basis_matrix = {
+    //     {M_ui_to_pixel.col1.x, M_ui_to_pixel.col1.y},
+    //     {M_ui_to_pixel.col2.x, M_ui_to_pixel.col2.y}};
+    // Vector2d basis_tfrm = VectorSum_2d(basis_matrix.col1,basis_matrix.col2);//THIS IS NOT CORRECT, ITS SKIPPING THE SPACE->VIEWPORT TRANSFORMATION. SHOULD BE 0.5*50. NOT (50/0.5). DONT EVEN USE BASIS SCALING. // Need to scale dimensions from world units to pixel units using the camera's basis transform
 
     // Resolve rendered position and dimensions of panel element
-    UIBox box = ResolveElementBox(root_element, seed_box, basis_tfrm);
+    root_element->screen_box.coords = TransformCoordinates(M_ui_to_pixel, seed_box.coords);
+    root_element->screen_box.dimensions = TransformCoordinates(M_ui_to_pixel, seed_box.dimensions);
     //Vector2d pixel_coords = MatrixMultiply_3x3_Vector2d(M_ui_to_pixel, box.coords);
     //box.coords = (Vector2d){(int)pixel_coords.x, (int)pixel_coords.y};
     //box.dimensions = (Vector2d){(int)box.dimensions.x * basis_tfrm.x, (int)box.dimensions.y * basis_tfrm.y};
-    root_element->cached_box = box;
 
-    DistributeChildrenRecursiveResolved(root_element, box, basis_tfrm);
+    // DistributeChildrenRecursiveResolved(root_element, box);
 
     // Draw background & border
     DrawElementBox(root_element);
@@ -158,7 +158,7 @@ void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d space_c
     UIElement *child = root_element->first_child;
     while (child)
     {
-        DrawUIElement(child, box, space_camera, M_ui_to_pixel);
+        DrawUIElement(child, root_element->screen_box, space_camera, M_ui_to_pixel);
         child = child->next_sibling;
     }
 }
@@ -173,21 +173,24 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d space_camera, Matrix
     // The world position of the coordinate space object is the origin of the coordinate space, so (0,0).
     // But to make it more flexible for different coordinate space origins, we will add the world position to the start and end points of the lines to get their actual coordinates in world space, and then convert those to screen coordinates using the basis transform matrix
     // Need to convert world coordinates --> viewport --> screen coordinates
-    Space2d panel_space = e->data.root.space;
-    Basis2d basis = space_camera.tunnel.source_frame->basis;
-    //Vector2d origin = panel_space.frame.origin_in_parent;
+    // Space2d panel_space = e->data.root.space;
+    // Basis2d basis = space_camera.tunnel.source_frame->basis;
+    // //Vector2d origin = panel_space.frame.origin_in_parent;
 
-    Matrix2x2 basis_matrix = {
-        {M_ui_to_pixel.col1.x, M_ui_to_pixel.col1.y},
-        {M_ui_to_pixel.col2.x, M_ui_to_pixel.col2.y}};
-    Vector2d basis_tfrm = VectorSum_2d(basis_matrix.col1,basis_matrix.col2);
+    // Matrix2x2 basis_matrix = {
+    //     {M_ui_to_pixel.col1.x, M_ui_to_pixel.col1.y},
+    //     {M_ui_to_pixel.col2.x, M_ui_to_pixel.col2.y}};
+    // Vector2d basis_tfrm = VectorSum_2d(basis_matrix.col1,basis_matrix.col2);
 
     // Resolve rendered position and dimensions of panel element
-    UIBox box = ResolveElementBox(e, parent_box, basis_tfrm);
-    //Vector2d pixel_coords = MatrixMultiply_3x3_Vector2d(M_ui_to_pixel, box.coords);
-    //box.coords = (Vector2d){(int)pixel_coords.x, (int)pixel_coords.y};
-    //box.dimensions = (Vector2d){(int)box.dimensions.x * basis_tfrm.x, (int)box.dimensions.y * basis_tfrm.y};
-    e->cached_box = box;
+    // UIBox box = ResolveElementBox(e, parent_box);
+    // Vector2d pixel_coords = MatrixMultiply_3x3_Vector2d(M_ui_to_pixel, box.coords);
+    // box.coords = (Vector2d){(int)pixel_coords.x, (int)pixel_coords.y};
+    // box.dimensions = (Vector2d){(int)box.dimensions.x * basis_tfrm.x, (int)box.dimensions.y * basis_tfrm.y};
+    // e->cached_box = box;
+
+    e->screen_box.coords = TransformCoordinates(M_ui_to_pixel, e->local_box.coords);
+    e->screen_box.dimensions = TransformCoordinates(M_ui_to_pixel, e->local_box.dimensions);
 
     // DRAW IT ... IF it's within the ranged coordinates of its parent
     Vector2d parent_verts_arr[4];
@@ -200,8 +203,8 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d space_camera, Matrix
             parent_box.coords.x + (i == 1 || i == 2 ? parent_box.dimensions.x : 0),
             parent_box.coords.y + (i >= 2 ? parent_box.dimensions.y : 0)};
         verts_arr[i] = (Vector2d){
-            box.coords.x + (i == 1 || i == 2 ? box.dimensions.x : 0),
-            box.coords.y + (i >= 2 ? box.dimensions.y : 0)};
+            e->screen_box.coords.x + (i == 1 || i == 2 ? e->screen_box.dimensions.x : 0),
+            e->screen_box.coords.y + (i >= 2 ? e->screen_box.dimensions.y : 0)};
     }
 
     bool is_within_parent = ShapeFitsWithinShape(&verts, &parent_verts, ZERO_VECTOR_2D, ZERO_VECTOR_2D);
@@ -231,7 +234,7 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d space_camera, Matrix
     UIElement *child = e->first_child;
     while (child)
     {
-        DrawUIElement(child, box, space_camera, M_ui_to_pixel);
+        DrawUIElement(child, e->screen_box, space_camera, M_ui_to_pixel);
         child = child->next_sibling;
     }
 }
@@ -289,4 +292,3 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d space_camera, Matrix
 //     snprintf(text, sizeof(text), "Memory (bytes): %zu", GetCurrentMemoryAllocated()); // Format the FPS value into the buffer
 //     DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + 2 * lineSpacing.y}, font.baseSize * 2.0f, 2, (Color){lpanel_text_colour.r, lpanel_text_colour.g, lpanel_text_colour.b, lpanel_text_colour.a});
 // }
-

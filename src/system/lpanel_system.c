@@ -82,7 +82,7 @@ void InitCellStateContainer(void);
 void InitEntityStateContainer(void);
 void InitEntityEditorContainer(void);
 
-void InitPanel()
+void InitLPanel()
 {
     lpanel_views = MakeLArray(3, sizeof(UIElement *));
     lpanel_state_view = &lpanel_state_view_storage;
@@ -91,6 +91,7 @@ void InitPanel()
     InitPanelToggleButtons();
     InitPanelStateView();
     InitPanelEditView();
+    UpdateUISpace(lpanel_root, seed_box); // Update the UI space after initializing the panel views and containers
 }
 
 void InitPanelStateView(void)
@@ -313,16 +314,6 @@ void InitEntityEditorContainer(void)
                              HandleBtnSubmitClick, &btn_action_create_entity, NULL);
 }
 
-void InitLPanel(void)
-{
-    InitPanel();
-}
-
-void UpdateLPanel(int mouse_x, int mouse_y)
-{
-    (void)mouse_x;
-    (void)mouse_y;
-}
 
 void DrawLPanel(void)
 {

@@ -166,7 +166,8 @@ typedef struct UIElement
     Size size;
     UIElementType type;
     UIElementData data;
-    UIBox cached_box;
+    UIBox local_box;
+    UIBox screen_box;
     bool is_focused, is_dirty, is_draggable, is_enabled; // For interactive elements like TextBoxes and Buttons
 
     UIElement *parent;
@@ -199,9 +200,9 @@ bool IsMouseOverElement(UIElement *el, Vector2d mouse_pos);
 // Vector2d ResolveElementPosition(UIElement *element, UIBox parent_box, Vector2d basis_scale);
 void DistributeChildren(UIElement *e);
 void DistributeChildrenRecursive(UIElement *e);
-void DistributeChildrenResolved(UIElement *e, UIBox resolved_box, Vector2d basis_scale);
-void DistributeChildrenRecursiveResolved(UIElement *e, UIBox resolved_box, Vector2d basis_scale);
-UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_scale);
+void DistributeChildrenResolved(UIElement *e, UIBox resolved_box);
+void DistributeChildrenRecursiveResolved(UIElement *e, UIBox resolved_box);
+UIBox ResolveElementBox(UIElement *element, UIBox parent_box);
 const char *GetElementTypeName(UIElementType type);
 UIElement *GetLastChild(UIElement *e);
 void AddElementToTree(UIElement *element, UIElement *parent);

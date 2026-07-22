@@ -16,12 +16,12 @@
         },
         {
             "name": "Build and Debug (PATH)",
-            "type": "cppvsdbg",
+            "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/raylib-game/Debug/raylib-game.exe",
+            "program": "${workspaceFolder}/build/Debug/raylib-game/raylib-game.exe",
             "args": [],
             "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/build/raylib-game/Debug",
+            "cwd": "${workspaceFolder}/build/Debug/raylib-game/",
             "environment": [],
             "externalConsole": false,
             "preLaunchTask": "Build (PATH)"

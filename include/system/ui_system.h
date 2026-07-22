@@ -72,5 +72,6 @@ extern Spacing cont_default_child_spacing;
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 // void UpdateUISystem(int mouse_x, int mouse_y);
+void UpdateUISpace(UIElement *root_element, UIBox seed_box);
 
 #endif

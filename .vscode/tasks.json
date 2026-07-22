@@ -38,16 +38,7 @@
             "type": "shell",
             "label": "CMake-Create-Makefile (PATH)",
             "command": "cmake",
-            "args": [
-                "-G",
-                "Visual Studio 18 2026",
-                "-A",
-                "x64",
-                "-S",
-                "${workspaceFolder}",
-                "-B",
-                "${workspaceFolder}/build"
-            ]
+            "args": ["-DCMAKE_BUILD_TYPE=Debug", "-S", "${workspaceFolder}", "-B","${workspaceFolder}/build/Debug" ]  
         },
         {
             "type": "shell",
@@ -55,7 +46,7 @@
             "command": "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
             "args": [
                 "--build",
-                "${workspaceFolder}/build",
+                "${workspaceFolder}/build/Debug",
                 "--config",
                 "Debug"
             ],
@@ -68,7 +59,7 @@
             "command": "cmake",
             "args": [
                 "--build",
-                "${workspaceFolder}/build",
+                "${workspaceFolder}/build/Debug",
                 "--config",
                 "Debug"
             ],
@@ -81,13 +72,17 @@
             "dependsOrder": "sequence",
             "group": {
                 "kind": "build",
-                "isDefault": true
+                "isDefault": false
             }
         },
         {
             "label": "Build (PATH)",
             "dependsOn": ["CMake-Execute-Makefile (PATH)"],
-            "dependsOrder": "sequence"
+            "dependsOrder": "sequence",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
         }
     ],
     "version": "2.0.0"

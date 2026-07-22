@@ -7,7 +7,7 @@
 #include "ui/ui.h"
 #include "raylib.h"
 
-static Vector2d GetContentAreaFromDimensions(Vector2d dimensions, Vector2d padding)
+static Vector2d GetContentArea(Vector2d dimensions, Vector2d padding)
 {
     float content_w = fmaxf(0.0f, dimensions.x - (2.0f * padding.x));
     float content_h = fmaxf(0.0f, dimensions.y - (2.0f * padding.y));
@@ -52,9 +52,7 @@ static Vector2d ResolveChildSizeFixed(const UIElement *child, Vector2d content_a
     return child->size.dimensions;
 }
 
-static void DistributeChildrenNormal(UIElement *parent,
-                                     Vector2d spacing_step_fixed,
-                                     Vector2d spacing_step_percent)
+static void DistributeChildrenNormal(UIElement *parent, Vector2d spacing_step_fixed, Vector2d spacing_step_percent)
 {
     int child_count = 0;
     for (UIElement *child = parent->first_child; child; child = child->next_sibling)
@@ -68,10 +66,7 @@ static void DistributeChildrenNormal(UIElement *parent,
     }
 }
 
-static void DistributeChildrenStacked(UIElement *parent,
-                                      Vector2d content_area_local,
-                                      Vector2d spacing_step_fixed,
-                                      Vector2d spacing_step_percent)
+static void DistributeChildrenStacked(UIElement *parent, Vector2d content_area_local, Vector2d spacing_step_fixed, Vector2d spacing_step_percent)
 {
     float cursor_fixed_y = 0.0f;
     float cursor_percent_y = 0.0f;
@@ -93,32 +88,6 @@ static void DistributeChildrenStacked(UIElement *parent,
         cursor_fixed_y += child_size_fixed.y + spacing_step_fixed.y;
         cursor_percent_y += child_size_percent_y + spacing_step_percent.y;
     }
-}
-
-static Vector2d GetContentAreaInLocalUnits(const UIElement *parent)
-{
-    if (!parent)
-    {
-        return ZERO_VECTOR_2D;
-    }
-
-    return GetContentAreaFromDimensions(parent->size.dimensions, parent->padding);
-}
-
-static Vector2d GetContentAreaInResolvedLocalUnits(const UIElement *parent, UIBox resolved_box, Vector2d basis_scale)
-{
-    if (!parent)
-    {
-        return ZERO_VECTOR_2D;
-    }
-
-    Vector2d content_area_pixels = GetContentAreaFromDimensions(
-        resolved_box.dimensions,
-        (Vector2d){parent->padding.x * basis_scale.x, parent->padding.y * basis_scale.y});
-
-    return (Vector2d){
-        basis_scale.x > 0.0f ? content_area_pixels.x / basis_scale.x : 0.0f,
-        basis_scale.y > 0.0f ? content_area_pixels.y / basis_scale.y : 0.0f};
 }
 
 static void DistributeChildrenWithContentArea(UIElement *e, Vector2d content_area_local)
@@ -154,7 +123,6 @@ static void DistributeChildrenWithContentArea(UIElement *e, Vector2d content_are
 // Pool for UIElement instances (uses memory pool API)
 #include "memory/cmemory.h"
 static Pool *ui_element_pool = NULL;
-
 
 //----------------------------------------------------------------------------------
 // Functions Definition
@@ -203,7 +171,6 @@ UIElement *CreateUIElement(UIElementType type, Size size, Offset parent_offset, 
     e->is_dirty = true;
     e->is_draggable = false;
     e->child_spacing = (Spacing){{0, 0}, PERCENT, SPACING_NONE};
-   
 
     return e;
 }
@@ -381,7 +348,7 @@ void DistributeChildren(UIElement *e)
         return;
     }
 
-    Vector2d content_area_local = GetContentAreaInLocalUnits(e);
+    Vector2d content_area_local = GetContentArea(e->local_box.dimensions, e->padding);
     DistributeChildrenWithContentArea(e, content_area_local);
 }
 
@@ -402,30 +369,33 @@ void DistributeChildrenRecursive(UIElement *e)
     }
 }
 
-void DistributeChildrenResolved(UIElement *e, UIBox resolved_box, Vector2d basis_scale)
+void DistributeChildrenResolved(UIElement *e, UIBox parent_box)
 {
     if (!e || !e->first_child)
     {
         return;
     }
 
-    Vector2d content_area_local = GetContentAreaInResolvedLocalUnits(e, resolved_box, basis_scale);
+    Vector2d content_area_local = GetContentArea(parent_box.dimensions, e->padding);
     DistributeChildrenWithContentArea(e, content_area_local);
 }
 
-void DistributeChildrenRecursiveResolved(UIElement *e, UIBox resolved_box, Vector2d basis_scale)
+//Call this to kick of the recursive distribution of children for a given parent element and its resolved box. This function will traverse the entire subtree of the parent element, applying the appropriate spacing rules to each child based on the parent's configuration.
+void DistributeChildrenRecursiveResolved(UIElement *e, UIBox parent_box)
 {
     if (!e)
     {
         return;
     }
 
-    DistributeChildrenResolved(e, resolved_box, basis_scale);
+    DistributeChildrenResolved(e, parent_box);
+    e->local_box = ResolveElementBox(e, parent_box);
 
     for (UIElement *child = e->first_child; child; child = child->next_sibling)
     {
-        UIBox child_box = ResolveElementBox(child, resolved_box, basis_scale);
-        DistributeChildrenRecursiveResolved(child, child_box, basis_scale);
+        //child->local_box = ResolveElementBox(child, e->local_box);
+        //UIBox child_box = ResolveElementBox(child, e->local_box);
+        DistributeChildrenRecursiveResolved(child, e->local_box);
     }
 }
 
@@ -605,22 +575,22 @@ void DisposeUIElement(UIElement *e)
 
 void GetUIElementVertices(UIElement *e, Vector2d out_vertices[4])
 {
-    out_vertices[0] = e->cached_box.coords;
-    out_vertices[1] = (Vector2d){e->cached_box.coords.x + e->cached_box.dimensions.x, e->cached_box.coords.y};
-    out_vertices[2] = (Vector2d){e->cached_box.coords.x + e->cached_box.dimensions.x, e->cached_box.coords.y + e->cached_box.dimensions.y};
-    out_vertices[3] = (Vector2d){e->cached_box.coords.x, e->cached_box.coords.y + e->cached_box.dimensions.y};
+    out_vertices[0] = e->screen_box.coords;
+    out_vertices[1] = (Vector2d){e->screen_box.coords.x + e->screen_box.dimensions.x, e->screen_box.coords.y};
+    out_vertices[2] = (Vector2d){e->screen_box.coords.x + e->screen_box.dimensions.x, e->screen_box.coords.y + e->screen_box.dimensions.y};
+    out_vertices[3] = (Vector2d){e->screen_box.coords.x, e->screen_box.coords.y + e->screen_box.dimensions.y};
     // out_vertices[0] = e->origin;
     // out_vertices[1] = (Vector2d){e->origin.x + e->width, e->origin.y};
     // out_vertices[2] = (Vector2d){e->origin.x + e->width, e->origin.y + e->height};
     // out_vertices[3] = (Vector2d){e->origin.x, e->origin.y + e->height};
 }
 
-bool IsMouseOverElement(UIElement *el, Vector2d mouse_pos)
+bool IsMouseOverElement(UIElement *e, Vector2d mouse_pos)
 {
-    return (mouse_pos.x >= el->cached_box.coords.x &&
-            mouse_pos.x <= el->cached_box.coords.x + el->cached_box.dimensions.x &&
-            mouse_pos.y >= el->cached_box.coords.y &&
-            mouse_pos.y <= el->cached_box.coords.y + el->cached_box.dimensions.y);
+    return (mouse_pos.x >= e->screen_box.coords.x &&
+            mouse_pos.x <= e->screen_box.coords.x + e->screen_box.dimensions.x &&
+            mouse_pos.y >= e->screen_box.coords.y &&
+            mouse_pos.y <= e->screen_box.coords.y + e->screen_box.dimensions.y);
 }
 
 // Calculates the final screen-space pixel coordinates for an element
@@ -650,9 +620,7 @@ bool IsMouseOverElement(UIElement *el, Vector2d mouse_pos)
 //     return resolved;
 // }
 
-// WE NEED TO BE PASSING IN THE PARENT'S BOX BECAUSE WE NEED TO KNOW THE ADJUSTED SPACE WE HAVE TO RENDER IN (I.E., THE PARENT'S DIMENSIONS MINUS PADDING) TO BE ABLE TO CLAMP THE CHILD ELEMENT'S SIZE AND PREVENT IT FROM LEAKING OUT OF THE PARENT
-// The basis scale needs to be able to convert to pixels, so we can apply the parent's padding and the child's offset in pixels
-UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_tfrm)
+UIBox ResolveElementBox(UIElement *element, UIBox parent_box)
 {
     if (!element)
         return ZERO_BOX;
@@ -698,8 +666,8 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_tfr
     }
     else
     {
-        adj_offset_x = safe_offset_x * basis_tfrm.x;
-        adj_offset_y = safe_offset_y * basis_tfrm.y;
+        adj_offset_x = safe_offset_x; // * basis_tfrm.x;
+        adj_offset_y = safe_offset_y; // * basis_tfrm.y;
     }
 
     // Apply the offset to the final coordinates
@@ -714,8 +682,8 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_tfr
     }
     else
     {
-        box.dimensions.x = element->size.dimensions.x * basis_tfrm.x;
-        box.dimensions.y = element->size.dimensions.y * basis_tfrm.y;
+        box.dimensions.x = element->size.dimensions.x; // * basis_tfrm.x;
+        box.dimensions.y = element->size.dimensions.y; // * basis_tfrm.y;
     }
 
     // Resolve Size with Right/Bottom clamping
@@ -727,13 +695,98 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_tfr
     box.dimensions.y = fminf(box.dimensions.y, remaining_h);
 
     // Pixel Snapping
-    box.coords.x = floorf(box.coords.x);
-    box.coords.y = floorf(box.coords.y);
-    box.dimensions.x = floorf(box.dimensions.x);
-    box.dimensions.y = floorf(box.dimensions.y);
+    // box.coords.x = floorf(box.coords.x);
+    // box.coords.y = floorf(box.coords.y);
+    // box.dimensions.x = floorf(box.dimensions.x);
+    // box.dimensions.y = floorf(box.dimensions.y);
 
     return box;
 }
+
+// WE NEED TO BE PASSING IN THE PARENT'S BOX BECAUSE WE NEED TO KNOW THE ADJUSTED SPACE WE HAVE TO RENDER IN (I.E., THE PARENT'S DIMENSIONS MINUS PADDING) TO BE ABLE TO CLAMP THE CHILD ELEMENT'S SIZE AND PREVENT IT FROM LEAKING OUT OF THE PARENT
+// The basis scale needs to be able to convert to pixels, so we can apply the parent's padding and the child's offset in pixels
+// UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_tfrm)
+// {
+//     if (!element)
+//         return ZERO_BOX;
+
+//     UIBox box;
+//     box.coords = parent_box.coords; // Start at parent origin
+//     float p_mid_x = parent_box.dimensions.x / 2;
+//     float p_mid_y = parent_box.dimensions.y / 2;
+
+//     // Calculate the available content area inside the parent
+//     float content_area_w = parent_box.dimensions.x;
+//     float content_area_h = parent_box.dimensions.y;
+
+//     // Apply any padding to correct the available area
+//     if (element->parent)
+//     {
+//         // Account for padding
+//         float pad_x = element->parent->padding.x;
+//         float pad_y = element->parent->padding.y;
+
+//         box.coords.x += pad_x;
+//         box.coords.y += pad_y;
+
+//         content_area_w -= (pad_x * 2.0f);
+//         content_area_h -= (pad_y * 2.0f);
+//     }
+
+//     // Resolve the local Offset (Relative to the content area)
+//     float safe_offset_x = fmaxf(0.0f, element->parent_offset.offset.x);
+//     float safe_offset_y = fmaxf(0.0f, element->parent_offset.offset.y);
+//     float adj_offset_x, adj_offset_y;
+
+//     // if (element->parent_offset.offset_mode == ALIGNED_CENTRE)
+//     // {
+//     //     // ALIGNED_CENTRE will overide the set Offset value for the element
+//     //     // Determine the dimensions, then use them to calculate the offset
+
+//     // }
+//     if (element->parent_offset.offset_mode == OFFSET_PERCENT)
+//     {
+//         adj_offset_x = content_area_w * safe_offset_x;
+//         adj_offset_y = content_area_h * safe_offset_y;
+//     }
+//     else
+//     {
+//         adj_offset_x = safe_offset_x * basis_tfrm.x;
+//         adj_offset_y = safe_offset_y * basis_tfrm.y;
+//     }
+
+//     // Apply the offset to the final coordinates
+//     box.coords.x += adj_offset_x;
+//     box.coords.y += adj_offset_y;
+
+//     // Resolve Dimensions
+//     if (element->size.size_mode == SIZE_PERCENT)
+//     {
+//         box.dimensions.x = element->size.dimensions.x * content_area_w;
+//         box.dimensions.y = element->size.dimensions.y * content_area_h;
+//     }
+//     else
+//     {
+//         box.dimensions.x = element->size.dimensions.x * basis_tfrm.x;
+//         box.dimensions.y = element->size.dimensions.y * basis_tfrm.y;
+//     }
+
+//     // Resolve Size with Right/Bottom clamping
+//     // The "Space Left" is the content area minus how far we shifted in
+//     float remaining_w = fmaxf(0.0f, content_area_w - adj_offset_x);
+//     float remaining_h = fmaxf(0.0f, content_area_h - adj_offset_y);
+
+//     box.dimensions.x = fminf(box.dimensions.x, remaining_w);
+//     box.dimensions.y = fminf(box.dimensions.y, remaining_h);
+
+//     // Pixel Snapping
+//     box.coords.x = floorf(box.coords.x);
+//     box.coords.y = floorf(box.coords.y);
+//     box.dimensions.x = floorf(box.dimensions.x);
+//     box.dimensions.y = floorf(box.dimensions.y);
+
+//     return box;
+// }
 
 // // This needs to be called after ResolveElementDimensions because the resolved dimensions are required to determine mid-points which are used here
 // Offset ResolveElementOffset(UIElement *element, Vector2d available_area, Vector2d basis_scale)

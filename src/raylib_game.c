@@ -21,6 +21,7 @@
 #include "system/universe_system.h"
 #include "system/viewport_system.h"
 #include "system/rpanel_system.h"
+#include "system/debug_overlay_system.h"
 #if defined(PLATFORM_WEB)
 #include <emscripten/emscripten.h>
 #endif
@@ -384,7 +385,7 @@ void DrawGameplayScreen(void)
     DrawUniverse();
     DrawRPanel();
     DrawUI();
-    DrawViewportDebugGrid();
+    DrawGlobalDebugOverlays();
 }
 
 void UpdateGameplayScreen(void)
@@ -407,8 +408,8 @@ static void HandleViewportDebugHotkeys(void)
 
     if (IsKeyPressed(KEY_F6))
     {
-        ToggleViewportDebugGrid();
-        printf("[Viewport] Debug region grid: %s\n", IsViewportDebugGridEnabled() ? "ON" : "OFF");
+        ToggleDebugOverlay(DEBUG_OVERLAY_VIEWPORT_GRID);
+        printf("[Viewport] Debug region grid: %s\n", IsDebugOverlayEnabled(DEBUG_OVERLAY_VIEWPORT_GRID) ? "ON" : "OFF");
     }
 
     if (IsKeyPressed(KEY_F7))

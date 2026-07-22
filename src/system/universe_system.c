@@ -16,6 +16,7 @@
 #include "ui/cfont.h"
 #include "ui/text_region.h"
 #include "system/viewport_system.h"
+#include "system/debug_overlay_system.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -25,7 +26,6 @@ static int universe_grid_cells_y = 60;
 static float universe_grid_cell_size = 1.0f;
 static int create_world_auto_select = 0;
 static bool universe_grid_debug_labels_enabled = true;
-static bool coordinate_debug_overlay_enabled = false;
 static bool universe_camera_diagnostic_printed = false;
 static bool universe_grid_aabb_diagnostic_printed = false;
 ColourRgba camera_marker_colour = {255, 80, 80, 100};
@@ -36,7 +36,6 @@ FrameTunnel universe_tunnel = {0}; // Tunnel linking universe frame to viewport 
 //----------------------------------------------------------------------------------
 void DrawUniverseCameraMarker(Matrix3x3 M_root_world_to_pixel);
 void DrawUniverseGrid(Matrix3x3 M_root_world_to_pixel);
-void DrawCoordinateDebugOverlay(Matrix3x3 M_root_world_to_pixel);
 
 static void DrawUniverseGridLine(Vector2d start, Vector2d end, Matrix3x3 M_root_world_to_pixel, ColourRgba colour)
 {
@@ -225,8 +224,8 @@ void UpdateUniverseInput(int mouse_x, int mouse_y, bool cursor_in_game_viewport)
 
     if (IsKeyPressed(KEY_F11))
     {
-        coordinate_debug_overlay_enabled = !coordinate_debug_overlay_enabled;
-        printf("[Debug] Coordinate overlay: %s\n", coordinate_debug_overlay_enabled ? "ON" : "OFF");
+        ToggleDebugOverlay(DEBUG_OVERLAY_COORDINATE_SPACE);
+        printf("[Debug] Coordinate overlay: %s\n", IsDebugOverlayEnabled(DEBUG_OVERLAY_COORDINATE_SPACE) ? "ON" : "OFF");
     }
 
     UpdateCameraSmoothingTick(&G_Universe.camera);
@@ -240,104 +239,7 @@ void DrawUniverse(void)
 
     Universe_Draw(&G_Universe);
     DrawUniverseCameraMarker(M_root_world_to_pixel);
-    DrawCoordinateDebugOverlay(M_root_world_to_pixel);
-}
-
-void DrawCoordinateDebugOverlay(Matrix3x3 M_root_world_to_pixel)
-{
-    if (!coordinate_debug_overlay_enabled)
-    {
-        return;
-    }
-
-    // 1. Fetch raw mouse position from the hardware OS layer
-    int mouse_x = GetMouseX();
-    int mouse_y = GetMouseY();
-    Vector2d pixel = {(float)mouse_x, (float)mouse_y};
-
-    bool cursor_in_game_viewport = mouse_x >= game_viewport_pixel_origin.x && mouse_x <= game_viewport_pixel_end.x &&
-                                   mouse_y >= game_viewport_pixel_origin.y && mouse_y <= game_viewport_pixel_end.y;
-
-    //  Unproject Screen Pixels completely into Universe (World) Coordinates
-    // =========================================================================
-    Matrix3x3 M_pixel_to_world = MatrixInvert_3x3(M_root_world_to_pixel);
-    Vector2d parent_local = TransformCoordinates(M_pixel_to_world, pixel);
-
-    int selected_index = G_Universe.selected_world_index;
-    int hovered_world_index = Universe_FindWorldAt(&G_Universe, parent_local);
-    int target_world_index = (hovered_world_index >= 0) ? hovered_world_index : selected_index;
-
-    bool has_child_local = false;
-    Vector2d child_origin_in_parent = ZERO_VECTOR_2D;
-    Vector2d child_local = ZERO_VECTOR_2D;
-    int world_cell_index = -1;
-
-    if (target_world_index >= 0 && target_world_index < G_Universe.world_count)
-    {
-        World2d *w = &G_Universe.worlds[target_world_index];
-        Vector2d res = {(float)w->grid_space.space.columns, (float)w->grid_space.space.rows};
-
-        // Unproject from Universe Space down into the targeted World Space
-        // Calculate the world's master positioning matrix within the universe,
-        // then invert it to transform the universe cursor position cleanly into sub-grid units.
-        Matrix3x3 M_world_to_universe = w->camera.tunnel.source_to_dest_mtx;
-        Matrix3x3 M_universe_to_world = w->camera.tunnel.dest_to_source_mtx; // Inverse of the above
-
-        has_child_local = true;
-        child_local = TransformCoordinates(M_universe_to_world, parent_local);
-
-        // Track structural frame origins using their persistent coordinate values
-        child_origin_in_parent.x = w->grid_space.space.frame.origin_in_parent.x + (res.x * 0.5f);
-        child_origin_in_parent.y = w->grid_space.space.frame.origin_in_parent.y + (res.y * 0.5f);
-
-        // Bounding box index validation
-        if (child_local.x >= 0.0f && child_local.y >= 0.0f &&
-            child_local.x < res.x && child_local.y < res.y)
-        {
-            int cell_x = (int)floorf(child_local.x);
-            int cell_y = (int)floorf(child_local.y);
-            world_cell_index = (cell_y * (int)res.x) + cell_x;
-        }
-    }
-
-    // DRAW OVERLAY BOX (Drawn using absolute pixel units inside the game viewport)
-    // =========================================================================
-    const int panel_x = (int)game_viewport_pixel_origin.x + 6;
-    const int panel_y = (int)game_viewport_pixel_origin.y + 6;
-    const int panel_w = 660;
-    const int panel_h = 188;
-
-    DrawRectangle(panel_x, panel_y, panel_w, panel_h, (Color){12, 16, 24, 210});
-    DrawRectangleLines(panel_x, panel_y, panel_w, panel_h, (Color){210, 230, 255, 180});
-
-    char line1[256], line2[256], line3[256], line4[256], line5[256], line6[256];
-
-    snprintf(line1, sizeof(line1), "Cursor px: (%.1f, %.1f) [%s]", pixel.x, pixel.y, cursor_in_game_viewport ? "in viewport" : "outside viewport");
-    snprintf(line2, sizeof(line2), "Parent coords (Universe): (%.3f, %.3f)", parent_local.x, parent_local.y);
-
-    if (has_child_local)
-    {
-        snprintf(line3, sizeof(line3), "Child local [world %d]: (%.3f, %.3f)", target_world_index, child_local.x, child_local.y);
-        snprintf(line4, sizeof(line4), "Child origin in parent: (%.3f, %.3f)", child_origin_in_parent.x, child_origin_in_parent.y);
-        snprintf(line5, sizeof(line5), "Child cell index: %d", world_cell_index);
-    }
-    else
-    {
-        snprintf(line3, sizeof(line3), "Child local: n/a (no selected/hovered world)");
-        snprintf(line4, sizeof(line4), "Child origin in parent: n/a");
-        snprintf(line5, sizeof(line5), "Child cell index: n/a");
-    }
-
-    snprintf(line6, sizeof(line6), "Selected world: %d | Hovered world: %d | Toggle: F11", selected_index, hovered_world_index);
-
-    Bitmap_Font overlay_font = FONT_BASIC;
-
-    DrawTextCustom(line1, (Vector2d){(float)panel_x + 10, (float)panel_y + 10}, overlay_font.scale, overlay_font, (ColourRgba){240, 246, 255, 230});
-    DrawTextCustom(line2, (Vector2d){(float)panel_x + 10, (float)panel_y + 38}, overlay_font.scale, overlay_font, (ColourRgba){240, 246, 255, 230});
-    DrawTextCustom(line3, (Vector2d){(float)panel_x + 10, (float)panel_y + 66}, overlay_font.scale, overlay_font, (ColourRgba){240, 246, 255, 230});
-    DrawTextCustom(line4, (Vector2d){(float)panel_x + 10, (float)panel_y + 94}, overlay_font.scale, overlay_font, (ColourRgba){190, 220, 255, 230});
-    DrawTextCustom(line5, (Vector2d){(float)panel_x + 10, (float)panel_y + 122}, overlay_font.scale, overlay_font, (ColourRgba){190, 220, 255, 230});
-    DrawTextCustom(line6, (Vector2d){(float)panel_x + 10, (float)panel_y + 150}, overlay_font.scale, overlay_font, (ColourRgba){190, 220, 255, 230});
+    DrawUniverseDebugOverlays(M_root_world_to_pixel);
 }
 
 void DrawUniverseCameraMarker(Matrix3x3 M_root_world_to_pixel)

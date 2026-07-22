@@ -97,8 +97,62 @@ void DrawUI()
 void UpdateUILogicalSpace()
 {
     // Update Left Panel space
-
+    
 }
+
+void UpdateUISpace(UIElement *root_element, UIBox seed_box)
+{
+    // Resolve logical units
+    if (!root_element)
+    {
+        return;
+    }
+
+    // Resolve space position and dimensions of panel element
+    // UIBox box = ResolveElementBox(root_element, seed_box);
+    // root_element->cached_box = box;
+
+    DistributeChildrenRecursiveResolved(root_element, seed_box);
+
+    // frame_counter.total_frames % 800 == 0 ? printf("DREW [%s] Pos: (%.1f, %.1f) | Size: (%.1f, %.1f)\n", GetElementTypeName(root_element->type), box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y) : (void)0;
+
+    // Recursively draw children
+    // UIElement *child = root_element->first_child;
+    // while (child)
+    // {
+    //     UpdateUISpaceElement(child, seed_box);
+    //     child = child->next_sibling;
+    // }
+}
+
+// static void UpdateUISpaceElement(UIElement *e, UIBox parent_box)
+// {
+//     // Resolve logical units
+//     if (!e)
+//     {
+//         return;
+//     }
+
+//     // Need to convert world coordinates --> viewport --> screen coordinates
+//     Space2d panel_space = e->data.root.space;
+//     //Vector2d origin = panel_space.frame.origin_in_parent;    
+
+//     // Resolve rendered position and dimensions of panel element
+//     UIBox box = ResolveElementBox(e, seed_box);
+//     e->cached_box = box;
+
+//     DistributeChildrenRecursiveResolved(e, box);
+
+//     // frame_counter.total_frames % 800 == 0 ? printf("DREW [%s] Pos: (%.1f, %.1f) | Size: (%.1f, %.1f)\n", GetElementTypeName(root_element->type), box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y) : (void)0;
+
+//     // Recursively draw children
+//     UIElement *child = e->first_child;
+//     while (child)
+//     {
+//         UpdateLPanelSpace(child, box);
+//         child = child->next_sibling;
+//     }
+// }
 
 void UpdateGlobalUIState()
 {
@@ -261,3 +315,5 @@ void UpdateGlobalUIState()
         // Unbind handled by ClearAndUnbindTextbox calls above.
     }
 }
+
+
