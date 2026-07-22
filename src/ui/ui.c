@@ -663,15 +663,15 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_tfr
     float p_mid_y = parent_box.dimensions.y / 2;
 
     // Calculate the available content area inside the parent
-    float content_area_w = parent_box.dimensions.x * basis_tfrm.x;ISSUE IS HERE
-    float content_area_h = parent_box.dimensions.y * basis_tfrm.y;
+    float content_area_w = parent_box.dimensions.x;
+    float content_area_h = parent_box.dimensions.y;
 
     // Apply any padding to correct the available area
     if (element->parent)
     {
         // Account for padding
-        float pad_x = element->parent->padding.x * basis_tfrm.x;
-        float pad_y = element->parent->padding.y * basis_tfrm.y;
+        float pad_x = element->parent->padding.x;
+        float pad_y = element->parent->padding.y;
 
         box.coords.x += pad_x;
         box.coords.y += pad_y;
@@ -683,7 +683,7 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_tfr
     // Resolve the local Offset (Relative to the content area)
     float safe_offset_x = fmaxf(0.0f, element->parent_offset.offset.x);
     float safe_offset_y = fmaxf(0.0f, element->parent_offset.offset.y);
-    float pixel_offset_x, pixel_offset_y;
+    float adj_offset_x, adj_offset_y;
 
     // if (element->parent_offset.offset_mode == ALIGNED_CENTRE)
     // {
@@ -693,18 +693,18 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_tfr
     // }
     if (element->parent_offset.offset_mode == OFFSET_PERCENT)
     {
-        pixel_offset_x = content_area_w * safe_offset_x;
-        pixel_offset_y = content_area_h * safe_offset_y;
+        adj_offset_x = content_area_w * safe_offset_x;
+        adj_offset_y = content_area_h * safe_offset_y;
     }
     else
     {
-        pixel_offset_x = safe_offset_x * basis_tfrm.x;
-        pixel_offset_y = safe_offset_y * basis_tfrm.y;
+        adj_offset_x = safe_offset_x * basis_tfrm.x;
+        adj_offset_y = safe_offset_y * basis_tfrm.y;
     }
 
     // Apply the offset to the final coordinates
-    box.coords.x += pixel_offset_x;
-    box.coords.y += pixel_offset_y;
+    box.coords.x += adj_offset_x;
+    box.coords.y += adj_offset_y;
 
     // Resolve Dimensions
     if (element->size.size_mode == SIZE_PERCENT)
@@ -720,8 +720,8 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_tfr
 
     // Resolve Size with Right/Bottom clamping
     // The "Space Left" is the content area minus how far we shifted in
-    float remaining_w = fmaxf(0.0f, content_area_w - pixel_offset_x);
-    float remaining_h = fmaxf(0.0f, content_area_h - pixel_offset_y);
+    float remaining_w = fmaxf(0.0f, content_area_w - adj_offset_x);
+    float remaining_h = fmaxf(0.0f, content_area_h - adj_offset_y);
 
     box.dimensions.x = fminf(box.dimensions.x, remaining_w);
     box.dimensions.y = fminf(box.dimensions.y, remaining_h);

@@ -26,7 +26,7 @@ static View lpanel_edit_entity_view_storage = {0};
 
 // ----------LEFT PANEL SCREEN----------
 // Visual Properties
-static ColourRgba lpanel_fill_colour = COLOUR_PANEL_DARK_1;
+static ColourRgba lpanel_fill_colour = {40, 54, 24, 255};
 static Vector2d lpanel_default_padding = {0.1, 0.1};
 static Vector2d lpanel_tfield_padding = {0.03f, 0.03f};
 static Size lpanel_title_tfield_size = {{6.0f, 0.45f}, SIZE_FIXED};

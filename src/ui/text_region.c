@@ -84,10 +84,17 @@ UIElement *CreateTextFieldContainerInTree(Size size, UIElement *parent, Offset p
 
 ShortString GetText_TextField(TextField *text_box)
 {
-    // ShortString str[64] = {0};
-    // strncpy(str, text_box->text, sizeof(str) - 1); // Copy text with safety check to prevent overflow
+    ShortString str = {0};
 
-    // return str;
+    if (!text_box)
+    {
+        return str;
+    }
+
+    strncpy(str.text, text_box->text_box.text, sizeof(str.text) - 1);
+    str.text[sizeof(str.text) - 1] = '\0';
+
+    return str;
 }
 
 int GetTextWidth(char *text, char font_spacing, char scale)

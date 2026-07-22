@@ -43,7 +43,7 @@
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
-WorldState G_WorldState = (WorldState){0};
+WorldState G_WorldState = {0};
 // ----------WORLD SCREEN----------
 static int finishScreen = 0;
 bool world_grid_debug_labels_enabled = true;

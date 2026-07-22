@@ -21,7 +21,7 @@
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
-UIState G_UIState = (UIState){0};
+UIState G_UIState = {0};
 // ------------------TOTAL SCREEN-------------------------
 // Logical->pixel-space conversion properties
 
@@ -32,13 +32,13 @@ Vector2d tlabel_default_padding = {0.00, 0.00};
 Vector2d tfield_default_padding = {0.01, 0.01};
 Vector2d tcont_default_padding = {0.06, 0.06};
 Vector2d btn_default_padding = {0.025, 0.025};
-ColourRgba btn_default_colour_border = COLOUR_PANEL_DARK_2;
-ColourRgba btn_default_colour_fill = COLOUR_PANEL_LIGHT_1;
-ColourRgba tbox_default_colour_border = COLOUR_PANEL_DARK_1; // {150, 115, 70, 255};//MAROON_RGBA; //{128, 99, 42, 100};
-ColourRgba tbox_default_colour_fill = COLOUR_PANEL_LIGHT_3;  // COLOUR_PANEL_DARK_1;
-ColourRgba tcont_default_colour_fill = COLOUR_PANEL_LIGHT_1;
-ColourRgba tcont_default_colour_border = COLOUR_PANEL_DARK_2; // {150, 115, 70, 255};//MAROON_RGBA; //{128, 99, 42, 100};
-ColourRgba tfield_default_colour_fill = COLOURLESS_RGBA;
+ColourRgba btn_default_colour_border = {188, 108, 37, 255};
+ColourRgba btn_default_colour_fill = {96, 108, 56, 255};
+ColourRgba tbox_default_colour_border = {40, 54, 24, 255}; // {150, 115, 70, 255};//MAROON_RGBA; //{128, 99, 42, 100};
+ColourRgba tbox_default_colour_fill = {254, 250, 224, 255};  // COLOUR_PANEL_DARK_1;
+ColourRgba tcont_default_colour_fill = {96, 108, 56, 255};
+ColourRgba tcont_default_colour_border = {188, 108, 37, 255}; // {150, 115, 70, 255};//MAROON_RGBA; //{128, 99, 42, 100};
+ColourRgba tfield_default_colour_fill = {0, 0, 0, 0};
 Size tfield_default_size = {{6, 0.5}, SIZE_FIXED};
 // Give labels more room in inline text fields (label width = 1.0 - textbox width).
 Size tbox_default_size = {{0.45, 1}, SIZE_PERCENT};
@@ -92,6 +92,12 @@ void UpdateUISystem(int mouse_x, int mouse_y)
 void DrawUI()
 {
     DrawLPanel();
+}
+
+void UpdateUILogicalSpace()
+{
+    // Update Left Panel space
+
 }
 
 void UpdateGlobalUIState()

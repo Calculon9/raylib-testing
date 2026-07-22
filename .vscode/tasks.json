@@ -20,16 +20,60 @@
         {
             "type": "shell",
             "label": "CMake-Create-Makefile",
+            "command": "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
+            "args": [
+                "-G",
+                "Visual Studio 18 2026",
+                "-A",
+                "x64",
+                "-DCMAKE_C_COMPILER=C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe",
+                "-DCMAKE_CXX_COMPILER=C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe",
+                "-S",
+                "${workspaceFolder}",
+                "-B",
+                "${workspaceFolder}/build"
+            ]
+        },
+        {
+            "type": "shell",
+            "label": "CMake-Create-Makefile (PATH)",
             "command": "cmake",
-            "args": ["-DCMAKE_BUILD_TYPE=Debug", "-S", "${workspaceFolder}", "-B","${workspaceFolder}/build" ]          
+            "args": [
+                "-G",
+                "Visual Studio 18 2026",
+                "-A",
+                "x64",
+                "-S",
+                "${workspaceFolder}",
+                "-B",
+                "${workspaceFolder}/build"
+            ]
         },
         {
             "type": "shell",
             "label": "CMake-Execute-Makefile",
-            "command": "cmake",
-            "args": ["--build", "${workspaceFolder}/build" ],
+            "command": "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
+            "args": [
+                "--build",
+                "${workspaceFolder}/build",
+                "--config",
+                "Debug"
+            ],
             "dependsOn": ["CMake-Create-Makefile"],
             "problemMatcher": ["$gcc"]      
+        },
+        {
+            "type": "shell",
+            "label": "CMake-Execute-Makefile (PATH)",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "${workspaceFolder}/build",
+                "--config",
+                "Debug"
+            ],
+            "dependsOn": ["CMake-Create-Makefile (PATH)"],
+            "problemMatcher": ["$gcc"]
         },
         {
             "label": "Build",
@@ -39,6 +83,11 @@
                 "kind": "build",
                 "isDefault": true
             }
+        },
+        {
+            "label": "Build (PATH)",
+            "dependsOn": ["CMake-Execute-Makefile (PATH)"],
+            "dependsOrder": "sequence"
         }
     ],
     "version": "2.0.0"
