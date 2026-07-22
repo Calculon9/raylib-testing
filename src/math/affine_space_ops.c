@@ -80,6 +80,16 @@ Matrix3x3 MtxTransform_GetLocalToParent(Frame2d frame)
     };
 }
 
+Matrix3x3 BasisTransform_GetLocalToParent(Frame2d frame)
+{
+    // The child's basis vectors and origin are in the parent's (destination) space. We just pack them directly.
+    return (Matrix3x3){
+        .col1 = {frame.basis.u.x, frame.basis.u.y, 0.0f},
+        .col2 = {frame.basis.v.x, frame.basis.v.y, 0.0f},
+        .col3 = {frame.origin_in_parent.x, frame.origin_in_parent.y, 1.0f},
+    };
+}
+
 // Every object in your hierarchy needs a matrix that describes its position, rotation, and scale relative to its immediate parent.
 Matrix3x3 MtxTransform_BuildLocalToParent(Vector2d origin_in_parent, float rotation_radians, Vector2d scale)
 {
@@ -137,6 +147,24 @@ Matrix3x3 MtxTransform_CalcChainToAncestor_Frame(Frame2d source, Frame2d middle)
     // Combine right-to-left: Source -> Middle -> Destination
     return MatrixMultiply_3x3_3x3(middle_to_destination, source_to_middle);
 }
+
+// Basis2d BasisTransform_CalcChainToAncestor_Basis(Basis2d source, Basis2d middle)
+// {
+//     // Step up from deep child to middle parent space
+//     Basis2d basis_tfrm = {
+//         .u = (middle.u.x * source.u.x) + (middle.u.x * source.u.y),
+//         .v = (middle.v, source.v.x), VectorScale_2d(middle.v, source.v.y))};
+//     Matrix2x2 basis_matrix = {
+//         {M_ui_to_pixel.col1.x, M_ui_to_pixel.col1.y},
+//         {M_ui_to_pixel.col2.x, M_ui_to_pixel.col2.y}};
+//     Matrix3x3 source_to_middle = MtxTransform_GetLocalToParent(source);
+
+//     // Step up from middle parent space to grandparent (destination) space
+//     Matrix3x3 middle_to_destination = MtxTransform_GetLocalToParent(middle);
+
+//     // Combine right-to-left: Source -> Middle -> Destination
+//     return MatrixMultiply_3x3_3x3(middle_to_destination, source_to_middle);
+// }
 
 Vector2d Frame_GetBasisScaling(Basis2d source, Basis2d destination)
 {

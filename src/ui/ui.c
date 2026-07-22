@@ -651,7 +651,8 @@ bool IsMouseOverElement(UIElement *el, Vector2d mouse_pos)
 // }
 
 // WE NEED TO BE PASSING IN THE PARENT'S BOX BECAUSE WE NEED TO KNOW THE ADJUSTED SPACE WE HAVE TO RENDER IN (I.E., THE PARENT'S DIMENSIONS MINUS PADDING) TO BE ABLE TO CLAMP THE CHILD ELEMENT'S SIZE AND PREVENT IT FROM LEAKING OUT OF THE PARENT
-UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_scale)
+// The basis scale needs to be able to convert to pixels, so we can apply the parent's padding and the child's offset in pixels
+UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_tfrm)
 {
     if (!element)
         return ZERO_BOX;
@@ -662,15 +663,15 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_sca
     float p_mid_y = parent_box.dimensions.y / 2;
 
     // Calculate the available content area inside the parent
-    float content_area_w = parent_box.dimensions.x;
-    float content_area_h = parent_box.dimensions.y;
+    float content_area_w = parent_box.dimensions.x * basis_tfrm.x;ISSUE IS HERE
+    float content_area_h = parent_box.dimensions.y * basis_tfrm.y;
 
     // Apply any padding to correct the available area
     if (element->parent)
     {
         // Account for padding
-        float pad_x = element->parent->padding.x * basis_scale.x;
-        float pad_y = element->parent->padding.y * basis_scale.y;
+        float pad_x = element->parent->padding.x * basis_tfrm.x;
+        float pad_y = element->parent->padding.y * basis_tfrm.y;
 
         box.coords.x += pad_x;
         box.coords.y += pad_y;
@@ -697,8 +698,8 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_sca
     }
     else
     {
-        pixel_offset_x = safe_offset_x * basis_scale.x;
-        pixel_offset_y = safe_offset_y * basis_scale.y;
+        pixel_offset_x = safe_offset_x * basis_tfrm.x;
+        pixel_offset_y = safe_offset_y * basis_tfrm.y;
     }
 
     // Apply the offset to the final coordinates
@@ -713,8 +714,8 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_sca
     }
     else
     {
-        box.dimensions.x = element->size.dimensions.x * basis_scale.x;
-        box.dimensions.y = element->size.dimensions.y * basis_scale.y;
+        box.dimensions.x = element->size.dimensions.x * basis_tfrm.x;
+        box.dimensions.y = element->size.dimensions.y * basis_tfrm.y;
     }
 
     // Resolve Size with Right/Bottom clamping

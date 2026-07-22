@@ -106,12 +106,13 @@ float VectorDot_2d(Vector2d a, Vector2d b);
 float VectorRadians_2d(Vector2d vector);
 Vector2d VectorComponents_2d(float magnitude, float radians);
 Vector3d VectorSumArray_3d(Vector3d *array, size_t count);
+Vector2d VectorMultiply_2d(Vector2d a, Vector2d b);
 // Matrix3x3 VectorTransform_Scale_Rotate_2d(Vector2d origin, float scale_u, float scale_v, float radians_u, float radians_v);
 
 Matrix3x3 MatrixMultiply_3x3_3x3(Matrix3x3 A, Matrix3x3 B);
 Matrix3x3 MatrixInvert_3x3(Matrix3x3 M);
 Vector2d MatrixMultiply_3x3_Vector2d(Matrix3x3 A, Vector2d v);
-
+Matrix2x2 MatrixMultiply_2x2_2x2(Matrix2x2 A, Matrix2x2 B);
 // Matrix3x3 FrameTransform_2d(Frame2d source, Frame2d destination);
 // Matrix3x3 FrameChainTransform_2d(Frame2d source, Frame2d middle, Frame2d destination);
 // Vector2d BasisTransform_2d_Scale(Basis2d source, Basis2d destination);

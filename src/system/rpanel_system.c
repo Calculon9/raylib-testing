@@ -106,9 +106,16 @@ void InitRPanel(void)
     btn_action_rpanel_enumerate = 0;
 
     // Check here for a wildly incorrect basis scale that would cause the panel to be drawn off-screen or at an unexpected size.
-    Vector2d basis_scale = Camera_GetBasisScale(&camera_rpanel);
-    rpanel_seed_box.coords = (Vector2d){rpanel_pixel_origin.x, rpanel_pixel_origin.y};
-    rpanel_seed_box.dimensions = (Vector2d){rpanel_viewport_resolution.x * basis_scale.x, rpanel_viewport_resolution.y * basis_scale.y};
+    // Vector2d basis_scale = Camera_GetBasisScale(&camera_rpanel);
+    rpanel_seed_box.coords = ZERO_VECTOR_2D;// lpanel_viewport_local_origin;
+    // Its dimensions are the pure unscaled logical resolution units.
+    rpanel_seed_box.dimensions = rpanel_resolution;
+    // Basis2d basis_a = camera_rpanel.tunnel.source_frame->basis;
+    // Basis2d basis_b = camera_rpanel.tunnel.destination_frame->basis;
+    // Matrix2x2 basis_matrix = MatrixMultiply_2x2_2x2((Matrix2x2){basis_a.u, basis_a.v}, (Matrix2x2){basis_b.u, basis_b.v});
+    // Vector2d basis_tfrm = VectorSum_2d(basis_matrix.col1, basis_matrix.col2);
+    // rpanel_seed_box.coords = (Vector2d){rpanel_pixel_origin.x, rpanel_pixel_origin.y};
+    // rpanel_seed_box.dimensions = (Vector2d){rpanel_viewport_resolution.x * basis_tfrm.x, rpanel_viewport_resolution.y * basis_tfrm.y};
 
     rpanel_toggle_cont = CreatePanelContainer(
         rpanel_root, (Size){{1.0f, 0.08f}, SIZE_PERCENT},

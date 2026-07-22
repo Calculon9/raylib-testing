@@ -116,6 +116,14 @@ Vector3d VectorSumArray_3d(Vector3d *array, size_t count)
     return result;
 };
 
+Vector2d VectorMultiply_2d(Vector2d a, Vector2d b)
+{
+    Vector2d result = {0.0f, 0.0f};
+    result.x = a.x * b.x; // Use . because it's a contiguous array of structs
+    result.y = a.y * b.y;
+    return result;
+}
+
 // Sum all Vector3 in a contiguous array, return dynamic allocation (Heap)
 // Vector3d *VectorSumArray_3d_Dynamic(Vector3d *array, size_t count)
 // {
@@ -146,6 +154,21 @@ Matrix3x3 MatrixMultiply_3x3_3x3(Matrix3x3 A, Matrix3x3 B)
     result.col3.x = (A.col1.x * B.col3.x) + (A.col2.x * B.col3.y) + (A.col3.x * B.col3.z);
     result.col3.y = (A.col1.y * B.col3.x) + (A.col2.y * B.col3.y) + (A.col3.y * B.col3.z);
     result.col3.z = (A.col1.z * B.col3.x) + (A.col2.z * B.col3.y) + (A.col3.z * B.col3.z);
+
+    return result;
+}
+
+Matrix2x2 MatrixMultiply_2x2_2x2(Matrix2x2 A, Matrix2x2 B)
+{
+    Matrix2x2 result = {0};
+
+    // Column 1 = A * B.col1
+    result.col1.x = (A.col1.x * B.col1.x) + (A.col2.x * B.col1.y);
+    result.col1.y = (A.col1.y * B.col1.x) + (A.col2.y * B.col1.y);
+
+    // Column 2 = A * B.col2
+    result.col2.x = (A.col1.x * B.col2.x) + (A.col2.x * B.col2.y);
+    result.col2.y = (A.col1.y * B.col2.x) + (A.col2.y * B.col2.y);
 
     return result;
 }
