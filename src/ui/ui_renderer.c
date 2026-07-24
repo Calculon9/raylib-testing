@@ -26,8 +26,9 @@ void DrawElementBox(UIElement *e)
     UIBox box = e->screen_box;
     ColourRgba colour_fill = e->colour_fill;
     ColourRgba colour_border = e->colour_border;
+    ColourRgba colour_border1 = BLACK_RGBA;
     DrawRectangle((int)box.coords.x, (int)box.coords.y, (int)box.dimensions.x, (int)box.dimensions.y, (Color){colour_fill.r, colour_fill.g, colour_fill.b, colour_fill.a});
-    DrawRectangleLines((int)box.coords.x, (int)box.coords.y, (int)(box.dimensions.x), (int)(box.dimensions.y), (Color){colour_border.r, colour_border.g, colour_border.b, colour_border.a});
+    DrawRectangleLines((int)box.coords.x, (int)box.coords.y, (int)(box.dimensions.x), (int)(box.dimensions.y), (Color){colour_border1.r, colour_border1.g, colour_border1.b, colour_border1.a});
 }
 
 void DrawTextArea(UIElement *e)

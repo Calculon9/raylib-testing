@@ -30,5 +30,8 @@ extern Camera2d camera_lpanel;
 void InitLPanel(void);
 void UpdateLPanel(int mouse_x, int mouse_y);
 void DrawLPanel(void);
+Frame2d *GetLPanelSpaceFrame(void);
+bool SetLPanelSpaceBasis(Vector2d basis_u, Vector2d basis_v);
+void ResetLPanelSpaceBasis(void);
 
 #endif

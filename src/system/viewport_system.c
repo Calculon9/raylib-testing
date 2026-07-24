@@ -18,6 +18,7 @@ static const float viewport_min_panel_ratio = 0.05f;
 static const float viewport_max_panel_ratio = 0.45f;
 static const float viewport_max_combined_panel_ratio = 0.90f;
 static int viewport_debug_grid_enabled = 0;
+static const float viewport_basis_min_magnitude = 0.0001f;
 
 #ifndef VIEWPORT_VERBOSE_LOGGING
 #define VIEWPORT_VERBOSE_LOGGING 0
@@ -53,9 +54,15 @@ Vector2d rpanel_viewport_resolution = {0};
 Vector2d rpanel_origin = {0};
 Vector2d rpanel_end = {0};
 Vector2d rpanel_resolution = {0};
+Vector2d rpanel_u = {1, 0};
+Vector2d rpanel_v = {0, 1};
 Vector2d rpanel_pixel_origin = {0};
 Vector2d rpanel_pixel_u = {0};
 Vector2d rpanel_pixel_v = {0};
+
+static bool game_viewport_basis_override_enabled = false;
+static Vector2d game_viewport_basis_override_u = {1, 0};
+static Vector2d game_viewport_basis_override_v = {0, 1};
 
 Frame2d viewport_frame = {0};
 Frame2d screen_frame = {0};
@@ -147,6 +154,56 @@ void SetViewportPanelRatios(float left_panel_ratio, float right_panel_ratio)
 
     viewport_left_panel_ratio = left;
     viewport_right_panel_ratio = right;
+}
+
+bool SetViewportSpaceBasis(ViewportSpaceId space_id, Vector2d basis_u, Vector2d basis_v)
+{
+    if (VectorMagnitude_2d(basis_u) < viewport_basis_min_magnitude ||
+        VectorMagnitude_2d(basis_v) < viewport_basis_min_magnitude)
+    {
+        return false;
+    }
+
+    switch (space_id)
+    {
+    case VIEWPORT_SPACE_LPANEL:
+        lpanel_u = basis_u;
+        lpanel_v = basis_v;
+        return true;
+    case VIEWPORT_SPACE_GAME:
+        game_viewport_basis_override_enabled = true;
+        game_viewport_basis_override_u = basis_u;
+        game_viewport_basis_override_v = basis_v;
+        return true;
+    case VIEWPORT_SPACE_RPANEL:
+        rpanel_u = basis_u;
+        rpanel_v = basis_v;
+        return true;
+    default:
+        return false;
+    }
+}
+
+void ResetViewportSpaceBasis(ViewportSpaceId space_id)
+{
+    switch (space_id)
+    {
+    case VIEWPORT_SPACE_LPANEL:
+        lpanel_u = (Vector2d){1.0f, 0.0f};
+        lpanel_v = (Vector2d){0.0f, 1.0f};
+        break;
+    case VIEWPORT_SPACE_GAME:
+        game_viewport_basis_override_enabled = false;
+        game_viewport_basis_override_u = (Vector2d){1.0f, 0.0f};
+        game_viewport_basis_override_v = (Vector2d){0.0f, 1.0f};
+        break;
+    case VIEWPORT_SPACE_RPANEL:
+        rpanel_u = (Vector2d){1.0f, 0.0f};
+        rpanel_v = (Vector2d){0.0f, 1.0f};
+        break;
+    default:
+        break;
+    }
 }
 
 void DrawViewportDebugGrid(void)
@@ -259,16 +316,26 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
     float game_viewport_local_area = VectorBox_2d(game_viewport_resolution);
 
     // Resolve pixel-space basis vectors for each region.
-    Vector2d *world_u = GetNextWorldBasisUPtr();
-    Vector2d *world_v = GetNextWorldBasisVPtr();
-    Vector2d resolved_world_u = (world_u && VectorMagnitude_2d(*world_u) > 0.0f) ? *world_u : (Vector2d){1.0f, 0.0f};
-    Vector2d resolved_world_v = (world_v && VectorMagnitude_2d(*world_v) > 0.0f) ? *world_v : (Vector2d){0.0f, 1.0f};
+    Vector2d resolved_world_u = {1.0f, 0.0f};
+    Vector2d resolved_world_v = {0.0f, 1.0f};
+    if (game_viewport_basis_override_enabled)
+    {
+        resolved_world_u = game_viewport_basis_override_u;
+        resolved_world_v = game_viewport_basis_override_v;
+    }
+    else
+    {
+        Vector2d *world_u = GetNextWorldBasisUPtr();
+        Vector2d *world_v = GetNextWorldBasisVPtr();
+        resolved_world_u = (world_u && VectorMagnitude_2d(*world_u) > 0.0f) ? *world_u : (Vector2d){1.0f, 0.0f};
+        resolved_world_v = (world_v && VectorMagnitude_2d(*world_v) > 0.0f) ? *world_v : (Vector2d){0.0f, 1.0f};
+    }
     game_viewport_pixel_u = VectorScale_2d(resolved_world_u, (float)screen_pixels_per_unit);
     game_viewport_pixel_v = VectorScale_2d(resolved_world_v, (float)screen_pixels_per_unit);
     lpanel_pixel_u = VectorScale_2d(lpanel_u, (float)ui_pixels_per_unit);
     lpanel_pixel_v = VectorScale_2d(lpanel_v, (float)ui_pixels_per_unit);
-    rpanel_pixel_u = lpanel_pixel_u;
-    rpanel_pixel_v = lpanel_pixel_v;
+    rpanel_pixel_u = VectorScale_2d(rpanel_u, (float)ui_pixels_per_unit);
+    rpanel_pixel_v = VectorScale_2d(rpanel_v, (float)ui_pixels_per_unit);
 
     // Save basis scale factors for panel coordinate conversions.
     // Basis2d lpanel_basis = (Basis2d){lpanel_u, lpanel_v};

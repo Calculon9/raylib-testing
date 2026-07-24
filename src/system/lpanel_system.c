@@ -29,8 +29,11 @@ static View lpanel_edit_entity_view_storage = {0};
 static ColourRgba lpanel_fill_colour = {40, 54, 24, 255};
 static Vector2d lpanel_default_padding = {0.1, 0.1};
 static Vector2d lpanel_tfield_padding = {0.03f, 0.03f};
-static Size lpanel_title_tfield_size = {{6.0f, 0.45f}, SIZE_FIXED};
-static Size lpanel_row_tfield_size = {{6.0f, 0.5f}, SIZE_FIXED};
+static Size lpanel_title_tfield_size = {{10.0f, 1.0f}, SIZE_FIXED};
+static Size lpanel_row_tfield_size = {{10.0f, 1.0f}, SIZE_FIXED};
+static bool lpanel_space_basis_override_enabled = false;
+static Vector2d lpanel_space_basis_override_u = {0};
+static Vector2d lpanel_space_basis_override_v = {0};
 
 // Coordinate Space Properties
 static Space2d lpanel_space = {0};
@@ -127,6 +130,11 @@ void InitPanelRoot(void)
     float lpanel_space_to_viewport_scale = 2.0f; // Scale factor to convert from panel space to viewport space
     Vector2d lpanel_resolution = VectorScale_2d(lpanel_viewport_resolution, lpanel_space_to_viewport_scale);
     Basis2d lpanel_viewport_basis = (Basis2d){(Vector2d){1.0f / lpanel_space_to_viewport_scale, 0.0f}, (Vector2d){0.0f, 1.0f / lpanel_space_to_viewport_scale}};
+    if (lpanel_space_basis_override_enabled)
+    {
+        lpanel_viewport_basis.u = lpanel_space_basis_override_u;
+        lpanel_viewport_basis.v = lpanel_space_basis_override_v;
+    }
 
     // Establish universe_frame with centered spatial alignment
     // =========================================================================
@@ -322,4 +330,29 @@ void DrawLPanel(void)
         lpanel_viewport_tunnel.source_to_dest_mtx,
         camera_lpanel.tunnel.source_to_dest_mtx);
     DrawRootUIElement(lpanel_root, seed_box, camera_lpanel, M_ui_to_pixel);
+}
+
+Frame2d *GetLPanelSpaceFrame(void)
+{
+    return &lpanel_space.frame;
+}
+
+bool SetLPanelSpaceBasis(Vector2d basis_u, Vector2d basis_v)
+{
+    if (VectorMagnitude_2d(basis_u) < 0.0001f || VectorMagnitude_2d(basis_v) < 0.0001f)
+    {
+        return false;
+    }
+
+    lpanel_space_basis_override_enabled = true;
+    lpanel_space_basis_override_u = basis_u;
+    lpanel_space_basis_override_v = basis_v;
+    return true;
+}
+
+void ResetLPanelSpaceBasis(void)
+{
+    lpanel_space_basis_override_enabled = false;
+    lpanel_space_basis_override_u = ZERO_VECTOR_2D;
+    lpanel_space_basis_override_v = ZERO_VECTOR_2D;
 }

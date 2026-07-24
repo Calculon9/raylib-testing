@@ -62,6 +62,9 @@ static Size rpanel_row_tfield_size = {{5.8f, 0.5f}, SIZE_FIXED};
 static Size rpanel_stat_row_tfield_size = {{5.8f, 0.55f}, SIZE_FIXED};
 static Size rpanel_button_size = {{5.8f, 0.45f}, SIZE_FIXED};
 static Spacing rpanel_world_btn_child_spacing = {{0.0f, 0.03f}, NONE, SPACING_STACKED};
+static bool rpanel_space_basis_override_enabled = false;
+static Vector2d rpanel_space_basis_override_u = {0};
+static Vector2d rpanel_space_basis_override_v = {0};
 
 static void CreateRPanelSubmitButton(UIElement *parent, const char *label, int *action)
 {
@@ -75,6 +78,11 @@ void InitRPanel(void)
     float rpanel_space_to_viewport_scale = 2.0f; // Scale factor to convert from panel space to viewport space
     Vector2d rpanel_resolution = VectorScale_2d(rpanel_viewport_resolution, rpanel_space_to_viewport_scale);
     Basis2d rpanel_viewport_basis = (Basis2d){(Vector2d){1.0f / rpanel_space_to_viewport_scale, 0.0f}, (Vector2d){0.0f, 1.0f / rpanel_space_to_viewport_scale}};
+    if (rpanel_space_basis_override_enabled)
+    {
+        rpanel_viewport_basis.u = rpanel_space_basis_override_u;
+        rpanel_viewport_basis.v = rpanel_space_basis_override_v;
+    }
 
     // Establish universe_frame with centered spatial alignment
     // =========================================================================
@@ -387,4 +395,29 @@ void DrawRPanel(void)
         camera_rpanel.tunnel.source_to_dest_mtx,
         rpanel_viewport_tunnel.source_to_dest_mtx);
     DrawRootUIElement(rpanel_root, rpanel_seed_box, camera_lpanel, M_ui_to_pixel);
+}
+
+Frame2d *GetRPanelSpaceFrame(void)
+{
+    return &rpanel_space.frame;
+}
+
+bool SetRPanelSpaceBasis(Vector2d basis_u, Vector2d basis_v)
+{
+    if (VectorMagnitude_2d(basis_u) < 0.0001f || VectorMagnitude_2d(basis_v) < 0.0001f)
+    {
+        return false;
+    }
+
+    rpanel_space_basis_override_enabled = true;
+    rpanel_space_basis_override_u = basis_u;
+    rpanel_space_basis_override_v = basis_v;
+    return true;
+}
+
+void ResetRPanelSpaceBasis(void)
+{
+    rpanel_space_basis_override_enabled = false;
+    rpanel_space_basis_override_u = ZERO_VECTOR_2D;
+    rpanel_space_basis_override_v = ZERO_VECTOR_2D;
 }

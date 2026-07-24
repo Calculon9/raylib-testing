@@ -124,7 +124,7 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
     float cell_px_w = VectorMagnitude_2d(VectorSum_2d(p10, VectorScale_2d(p00, -1.0f)));
     float cell_px_h = VectorMagnitude_2d(VectorSum_2d(p01, VectorScale_2d(p00, -1.0f)));
 
-    if (cell_px_w < 28.0f || cell_px_h < 18.0f)
+    if (cell_px_w < 40.0f)
     {
         return;
     }
@@ -136,9 +136,9 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
         Cell *cell = (Cell *)((char *)cells.items + (k * cells.elem_bytes));
         Vector2d cell_coords = cell->local_origin;
         Vector2d cell_pixel_coords = TransformCoordinates(world_to_pixel_mtx, cell_coords);
-        const char *displayText = TextFormat(" %d (%d,%d)\n (%.0f,%.0f)\n", k, i, j, cell_pixel_coords.x, cell_pixel_coords.y);
+        const char *displayText = TextFormat("%d(%d,%d)\n(%.0f,%.0f)\n", k, i, j, cell_pixel_coords.x, cell_pixel_coords.y);
 
-        DrawTextEx(font, displayText, (Vector2){cell_pixel_coords.x, cell_pixel_coords.y}, 16, 1, text_colour);
+        DrawTextEx(font, displayText, (Vector2){cell_pixel_coords.x + 2, cell_pixel_coords.y + 2}, 16, 1, text_colour);
     }
 }
 

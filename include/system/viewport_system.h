@@ -9,6 +9,14 @@ VIEWPORT SYSTEM MODULE
 #include "math/cvectors.h"
 #include "camera/camera.h"
 
+typedef enum ViewportSpaceId
+{
+	VIEWPORT_SPACE_LPANEL = 0,
+	VIEWPORT_SPACE_GAME,
+	VIEWPORT_SPACE_RPANEL,
+	VIEWPORT_SPACE_COUNT
+} ViewportSpaceId;
+
 // Viewport frames and tunnels for left panel, game region, and right panel.
 extern Frame2d viewport_frame;
 extern Frame2d screen_frame;
@@ -52,6 +60,8 @@ extern Vector2d rpanel_viewport_resolution;
 extern Vector2d rpanel_origin;
 extern Vector2d rpanel_end;
 extern Vector2d rpanel_resolution;
+extern Vector2d rpanel_u;
+extern Vector2d rpanel_v;
 extern Vector2d rpanel_pixel_origin;
 extern Vector2d rpanel_pixel_u;
 extern Vector2d rpanel_pixel_v;
@@ -68,6 +78,10 @@ void SetViewportUIScaleScalar(int ui_pixels_per_unit_override);
 
 // Configure left/right panel width ratios before layout initialisation.
 void SetViewportPanelRatios(float left_panel_ratio, float right_panel_ratio);
+
+// Runtime debug utilities to inspect and modify viewport-space basis vectors.
+bool SetViewportSpaceBasis(ViewportSpaceId space_id, Vector2d basis_u, Vector2d basis_v);
+void ResetViewportSpaceBasis(ViewportSpaceId space_id);
 
 // Viewport debug overlay helpers.
 void DrawViewportDebugGrid(void);

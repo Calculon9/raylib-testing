@@ -25,7 +25,6 @@ static int universe_grid_cells_x = 60;
 static int universe_grid_cells_y = 60;
 static float universe_grid_cell_size = 1.0f;
 static int create_world_auto_select = 0;
-static bool universe_grid_debug_labels_enabled = true;
 static bool universe_camera_diagnostic_printed = false;
 static bool universe_grid_aabb_diagnostic_printed = false;
 ColourRgba camera_marker_colour = {255, 80, 80, 100};
@@ -216,18 +215,6 @@ void UpdateUniverseInput(int mouse_x, int mouse_y, bool cursor_in_game_viewport)
         SyncWorldStateFromSelection();
     }
 
-    if (IsKeyPressed(KEY_F6))
-    {
-        universe_grid_debug_labels_enabled = !universe_grid_debug_labels_enabled;
-        printf("[Universe] Grid debug labels: %s\n", universe_grid_debug_labels_enabled ? "ON" : "OFF");
-    }
-
-    if (IsKeyPressed(KEY_F11))
-    {
-        ToggleDebugOverlay(DEBUG_OVERLAY_COORDINATE_SPACE);
-        printf("[Debug] Coordinate overlay: %s\n", IsDebugOverlayEnabled(DEBUG_OVERLAY_COORDINATE_SPACE) ? "ON" : "OFF");
-    }
-
     UpdateCameraSmoothingTick(&G_Universe.camera);
 }
 
@@ -334,7 +321,7 @@ void DrawUniverseGrid(Matrix3x3 M_root_world_to_pixel)
     DrawLineEx((Vector2){(float)y_axis_start_px.x, (float)y_axis_start_px.y}, (Vector2){(float)y_axis_end_px.x, (float)y_axis_end_px.y}, 2.5f, axis_y_colour);
 
     // --- DEBUG LABELS SECTOR ---
-    if (!universe_grid_debug_labels_enabled)
+    if (!IsDebugOverlayEnabled(DEBUG_OVERLAY_UNIVERSE_GRID_LABELS))
         return;
 
     // Check zoom level text density limits

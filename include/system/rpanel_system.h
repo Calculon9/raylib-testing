@@ -16,5 +16,8 @@ extern UIBox rpanel_seed_box;
 void InitRPanel(void);
 void UpdateRPanel(int mouse_x, int mouse_y);
 void DrawRPanel(void);
+Frame2d *GetRPanelSpaceFrame(void);
+bool SetRPanelSpaceBasis(Vector2d basis_u, Vector2d basis_v);
+void ResetRPanelSpaceBasis(void);
 
 #endif

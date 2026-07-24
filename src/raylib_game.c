@@ -63,22 +63,6 @@ static void TransitionToScreen(int screen); // Request transition to next screen
 static void UpdateTransition(void);         // Update transition effect
 static void DrawTransition(void);           // Draw transition effect (full-screen rectangle)
 static void UpdateDrawFrame(void);          // Update and draw one frame
-static void HandleViewportDebugHotkeys(void);
-static void RefreshViewportAndDependentSystems(bool viewport_scale_changed, bool ui_scale_changed);
-
-static float ClampViewportLogicalHeight(float height)
-{
-    if (height < 8.0f)
-    {
-        return 8.0f;
-    }
-    if (height > 400.0f)
-    {
-        return 400.0f;
-    }
-
-    return height;
-}
 
 //----------------------------------------------------------------------------------
 // Program main entry point
@@ -390,7 +374,9 @@ void DrawGameplayScreen(void)
 
 void UpdateGameplayScreen(void)
 {
-    HandleViewportDebugHotkeys();
+    UpdateDebugOverlayHotkeys(screenWidth, screenHeight, screen_resolution_scalar,
+                              &viewport_target_game_logical_height,
+                              &viewport_ui_pixels_per_unit_override);
 
     int mouse_x = GetMouseX();
     int mouse_y = GetMouseY();
@@ -399,84 +385,5 @@ void UpdateGameplayScreen(void)
     UpdateUISystem(mouse_x, mouse_y);
     UpdateUniverseSystem(mouse_x, mouse_y);
     UpdateWorldSystem(mouse_x, mouse_y);
-}
-
-static void HandleViewportDebugHotkeys(void)
-{
-    bool viewport_scale_changed = false;
-    bool ui_scale_changed = false;
-
-    if (IsKeyPressed(KEY_F6))
-    {
-        ToggleDebugOverlay(DEBUG_OVERLAY_VIEWPORT_GRID);
-        printf("[Viewport] Debug region grid: %s\n", IsDebugOverlayEnabled(DEBUG_OVERLAY_VIEWPORT_GRID) ? "ON" : "OFF");
-    }
-
-    if (IsKeyPressed(KEY_F7))
-    {
-        viewport_target_game_logical_height = ClampViewportLogicalHeight(viewport_target_game_logical_height - 1.0f);
-        viewport_scale_changed = true;
-    }
-    if (IsKeyPressed(KEY_F8))
-    {
-        viewport_target_game_logical_height = ClampViewportLogicalHeight(viewport_target_game_logical_height + 1.0f);
-        viewport_scale_changed = true;
-    }
-
-    if (IsKeyPressed(KEY_F9))
-    {
-        if (viewport_ui_pixels_per_unit_override <= 1)
-        {
-            viewport_ui_pixels_per_unit_override = 0;
-        }
-        else
-        {
-            viewport_ui_pixels_per_unit_override -= 1;
-        }
-        ui_scale_changed = true;
-    }
-    if (IsKeyPressed(KEY_F10))
-    {
-        if (viewport_ui_pixels_per_unit_override == 0)
-        {
-            viewport_ui_pixels_per_unit_override = 10;
-        }
-        else
-        {
-            viewport_ui_pixels_per_unit_override += 1;
-        }
-        ui_scale_changed = true;
-    }
-
-    if (!viewport_scale_changed && !ui_scale_changed)
-    {
-        return;
-    }
-
-    RefreshViewportAndDependentSystems(viewport_scale_changed, ui_scale_changed);
-}
-
-static void RefreshViewportAndDependentSystems(bool viewport_scale_changed, bool ui_scale_changed)
-{
-    SetViewportTargetLogicalHeight(viewport_target_game_logical_height);
-    SetViewportUIScaleScalar(viewport_ui_pixels_per_unit_override);
-    InitViewportLayout(screenWidth, screenHeight, screen_resolution_scalar);
-    SyncUniverseCameraToViewport();
-
-    if (viewport_scale_changed)
-    {
-        // World logical dimensions changed, so rebuild world and dependent UI.
-        InitWorldSystem();
-        InitUI();
-        printf("[Viewport] Target game logical height set to %.1f. UI px-per-unit override: %d\n", viewport_target_game_logical_height, viewport_ui_pixels_per_unit_override);
-        return;
-    }
-
-    // UI-only scale change, refresh panel trees.
-    if (ui_scale_changed)
-    {
-        InitUI();
-        printf("[Viewport] UI px-per-unit override set to %d (0 = follow game viewport scale).\n", viewport_ui_pixels_per_unit_override);
-    }
 }
 
