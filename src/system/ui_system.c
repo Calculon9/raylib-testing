@@ -72,7 +72,7 @@ void InitUI(void)
     // Init Global UI State
     G_UIState.focused_element = NULL;
     InitLPanel();
-    InitRPanel();
+    //InitRPanel();
     // G_UIState.active_panel_view = LPANEL_STATE_VIEW;
 }
 

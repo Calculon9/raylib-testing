@@ -46,7 +46,7 @@
             "command": "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
             "args": [
                 "--build",
-                "${workspaceFolder}/build/Debug",
+                "${workspaceFolder}/build",
                 "--config",
                 "Debug"
             ],
@@ -59,9 +59,7 @@
             "command": "cmake",
             "args": [
                 "--build",
-                "${workspaceFolder}/build/Debug",
-                "--config",
-                "Debug"
+                "${workspaceFolder}/build/Debug"
             ],
             "dependsOn": ["CMake-Create-Makefile (PATH)"],
             "problemMatcher": ["$gcc"]
@@ -72,7 +70,7 @@
             "dependsOrder": "sequence",
             "group": {
                 "kind": "build",
-                "isDefault": false
+                "isDefault": true
             }
         },
         {
@@ -81,7 +79,7 @@
             "dependsOrder": "sequence",
             "group": {
                 "kind": "build",
-                "isDefault": true
+                "isDefault": false
             }
         }
     ],

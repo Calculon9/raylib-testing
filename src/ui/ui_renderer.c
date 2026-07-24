@@ -26,7 +26,7 @@ void DrawElementBox(UIElement *e)
     UIBox box = e->screen_box;
     ColourRgba colour_fill = e->colour_fill;
     ColourRgba colour_border = e->colour_border;
-    ColourRgba colour_border1 = BLACK_RGBA;
+    ColourRgba colour_border1 = RED_RGBA;
     DrawRectangle((int)box.coords.x, (int)box.coords.y, (int)box.dimensions.x, (int)box.dimensions.y, (Color){colour_fill.r, colour_fill.g, colour_fill.b, colour_fill.a});
     DrawRectangleLines((int)box.coords.x, (int)box.coords.y, (int)(box.dimensions.x), (int)(box.dimensions.y), (Color){colour_border1.r, colour_border1.g, colour_border1.b, colour_border1.a});
 }
@@ -137,14 +137,14 @@ void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d space_c
     // //Vector2d origin = panel_space.frame.origin_in_parent;
     // //Vector2d basis_scale = Camera_GetBasisScale(&space_camera); //THIS IS NOT CORRECT, ITS SKIPPING THE SPACE->VIEWPORT TRANSFORMATION. SHOULD BE 0.5*50. NOT (50/0.5). DONT EVEN USE BASIS SCALING. // Need to scale dimensions from world units to pixel units using the camera's basis transform
 
-    // Matrix2x2 basis_matrix = {
-    //     {M_ui_to_pixel.col1.x, M_ui_to_pixel.col1.y},
-    //     {M_ui_to_pixel.col2.x, M_ui_to_pixel.col2.y}};
-    // Vector2d basis_tfrm = VectorSum_2d(basis_matrix.col1,basis_matrix.col2);//THIS IS NOT CORRECT, ITS SKIPPING THE SPACE->VIEWPORT TRANSFORMATION. SHOULD BE 0.5*50. NOT (50/0.5). DONT EVEN USE BASIS SCALING. // Need to scale dimensions from world units to pixel units using the camera's basis transform
+    Matrix2x2 basis_matrix = {
+        {M_ui_to_pixel.col1.x, M_ui_to_pixel.col1.y},
+        {M_ui_to_pixel.col2.x, M_ui_to_pixel.col2.y}};
+    Vector2d basis_tfrm = VectorSum_2d(basis_matrix.col1,basis_matrix.col2);
 
     // Resolve rendered position and dimensions of panel element
     root_element->screen_box.coords = TransformCoordinates(M_ui_to_pixel, seed_box.coords);
-    root_element->screen_box.dimensions = TransformCoordinates(M_ui_to_pixel, seed_box.dimensions);
+    root_element->screen_box.dimensions = (Vector2d){seed_box.dimensions.x * basis_tfrm.x, seed_box.dimensions.y * basis_tfrm.y};
     //Vector2d pixel_coords = MatrixMultiply_3x3_Vector2d(M_ui_to_pixel, box.coords);
     //box.coords = (Vector2d){(int)pixel_coords.x, (int)pixel_coords.y};
     //box.dimensions = (Vector2d){(int)box.dimensions.x * basis_tfrm.x, (int)box.dimensions.y * basis_tfrm.y};
@@ -178,10 +178,10 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d space_camera, Matrix
     // Basis2d basis = space_camera.tunnel.source_frame->basis;
     // //Vector2d origin = panel_space.frame.origin_in_parent;
 
-    // Matrix2x2 basis_matrix = {
-    //     {M_ui_to_pixel.col1.x, M_ui_to_pixel.col1.y},
-    //     {M_ui_to_pixel.col2.x, M_ui_to_pixel.col2.y}};
-    // Vector2d basis_tfrm = VectorSum_2d(basis_matrix.col1,basis_matrix.col2);
+    Matrix2x2 basis_matrix = {
+        {M_ui_to_pixel.col1.x, M_ui_to_pixel.col1.y},
+        {M_ui_to_pixel.col2.x, M_ui_to_pixel.col2.y}};
+    Vector2d basis_tfrm = VectorSum_2d(basis_matrix.col1,basis_matrix.col2);
 
     // Resolve rendered position and dimensions of panel element
     // UIBox box = ResolveElementBox(e, parent_box);
@@ -191,7 +191,12 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d space_camera, Matrix
     // e->cached_box = box;
 
     e->screen_box.coords = TransformCoordinates(M_ui_to_pixel, e->local_box.coords);
-    e->screen_box.dimensions = TransformCoordinates(M_ui_to_pixel, e->local_box.dimensions);
+    e->screen_box.dimensions = (Vector2d){e->local_box.dimensions.x * basis_tfrm.x, e->local_box.dimensions.y * basis_tfrm.y};
+
+    if(IsTextbox(e))
+    {
+        //LOG_INFO("I'm a textbox, check my dimensions.");
+    }
 
     // DRAW IT ... IF it's within the ranged coordinates of its parent
     Vector2d parent_verts_arr[4];
