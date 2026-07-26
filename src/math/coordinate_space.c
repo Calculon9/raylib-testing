@@ -97,7 +97,8 @@ void InitUnitCells(Space2d *space)
    size_t cells_capacity = cells->capacity;
    MemorySet(cells->items, 0, cells->elem_bytes * cells_capacity);
 
-   Vector2d local_origin = space->frame.origin_in_parent;
+   // Cell coordinates are stored in this space's local frame; parent placement is applied by transforms.
+   Vector2d local_origin = ZERO_VECTOR_2D;
    int columns = space->columns;
    int rows = space->rows;
 

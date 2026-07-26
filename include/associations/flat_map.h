@@ -6,6 +6,8 @@ QUEUE MODULE
 #ifndef FLAT_MAP_H
 #define FLAT_MAP_H
 #include <stddef.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
@@ -21,8 +23,15 @@ typedef struct FlatMapIntEntry
 {
     int key;       // Native integer ID key
     int value;     // Associated integer value
-    bool occupied; // Slot state tracker
+    uint8_t state; // Slot state tracker (empty/occupied/deleted)
 } FlatMapIntEntry;
+
+typedef enum FlatMapSlotState
+{
+    FLAT_MAP_SLOT_EMPTY = 0,
+    FLAT_MAP_SLOT_OCCUPIED = 1,
+    FLAT_MAP_SLOT_DELETED = 2
+} FlatMapSlotState;
 
 // Master Hash Map structure
 typedef struct FlatMapInt

@@ -1,28 +1,40 @@
 /**********************************************************************************************
-*
-* WORLD ENTITY MANAGEMENT
-*
-**********************************************************************************************/
+ *
+ * WORLD ENTITY MANAGEMENT
+ *
+ **********************************************************************************************/
 
 #include "world/world_internal.h"
 
-static LArray *GetWorldObjectArrayForArchetype(WorldState *context, ArchetypeID array_type)
+static LArray *GetWorldObjectArrayForArchetype(World2d *world, ArchetypeID array_type)
 {
-    if (!context || !context->world)
+    if (!world)
     {
         return NULL;
     }
 
-    return (array_type == ARCHETYPE_CLOCKED) ? &context->world->temp_objects : &context->world->objects;
+    return (array_type == ARCHETYPE_CLOCKED) ? &world->temp_objects : &world->objects;
 }
 
-static void EnqueueWorldCommand(LArray *scheduled_events,
-                                WorldCmdType type,
-                                int object_id,
-                                int payload_value,
-                                int initial_frame_delay,
-                                int interval_frames,
-                                int run_limit)
+static void FreeEntitySurfaceVectors(Newtonoid2d *entity)
+{
+    if (!entity)
+    {
+        return;
+    }
+
+    LArray *vectors = &entity->surface.surface_vectors;
+    if (vectors->items && vectors->capacity > 0 && vectors->elem_bytes > 0)
+    {
+        size_t bytes = (size_t)vectors->capacity * vectors->elem_bytes;
+        Deallocate(&vectors->items, bytes);
+    }
+
+    MemorySet(vectors, 0, sizeof(*vectors));
+}
+
+static void EnqueueWorldCommand(LArray *scheduled_events, WorldCmdType type, int object_id, int payload_value,
+                                int initial_frame_delay, int interval_frames, int run_limit)
 {
     if (!scheduled_events)
     {
@@ -41,18 +53,18 @@ static void EnqueueWorldCommand(LArray *scheduled_events,
     LArray_Push(scheduled_events, &cmd);
 }
 
-void SetObjectFlag(WorldState *context, int object_id, int flag_to_update)
+void SetObjectFlag(World2d *world, int object_id, int flag_to_update)
 {
-    Newtonoid2d *object = GetEntityByID(context, object_id);
+    Newtonoid2d *object = GetEntityByID(world, object_id);
     if (!object)
         return;
 
     object->flags = (object->flags | flag_to_update);
 }
 
-void ClearObjectFlag(WorldState *context, int object_id, int flag_to_update)
+void ClearObjectFlag(World2d *world, int object_id, int flag_to_update)
 {
-    Newtonoid2d *object = GetEntityByID(context, object_id);
+    Newtonoid2d *object = GetEntityByID(world, object_id);
     if (!object)
         return;
 
@@ -72,7 +84,7 @@ void UpdateEntityWorldRegistry(FlatMapInt *entity_world_index_registry, int enti
     FlatMapInt_InsertOrUpdate(entity_world_index_registry, entity_id, packed);
 }
 
-int RegisterEntity(WorldState *context, Newtonoid2d *entity)
+int RegisterEntity(World2d *world, Newtonoid2d *entity)
 {
     ArchetypeID array_type;
 
@@ -85,48 +97,51 @@ int RegisterEntity(WorldState *context, Newtonoid2d *entity)
         array_type = ARCHETYPE_CLOCKED;
     }
 
-    LArray *world_objects = GetWorldObjectArrayForArchetype(context, array_type);
+    LArray *world_objects = GetWorldObjectArrayForArchetype(world, array_type);
     if (!world_objects)
     {
         return 0;
     }
 
-    entity->id = context->world->next_object_id++;
+    entity->id = world->next_object_id++;
     LArray_Push(world_objects, entity);
     int assigned_index = world_objects->count - 1;
-    UpdateEntityWorldRegistry(context->entity_world_index_registry, entity->id, array_type, assigned_index);
+    UpdateEntityWorldRegistry(&world->entity_world_index_registry, entity->id, array_type, assigned_index);
     LOG_INFO("Registered entity %d at index %d in array type %d", entity->id, assigned_index, array_type);
     return entity->id;
 }
 
-void DeregisterEntity(WorldState *context, int entity_id)
+void DeregisterEntity(World2d *world, int entity_id)
 {
-    if (!context || !context->world || !context->entity_world_index_registry)
+    if (!world)
     {
         return;
     }
 
     int packed_value = 0;
-    if (!FlatMapInt_GetValue(context->entity_world_index_registry, entity_id, &packed_value))
+    if (!FlatMapInt_GetValue(&world->entity_world_index_registry, entity_id, &packed_value))
     {
         return;
     }
 
     int type = UNPACK_INT_HIGH(packed_value);
     int deleted_idx = UNPACK_INT_LOW(packed_value);
-    LArray *world_objects = GetWorldObjectArrayForArchetype(context, (ArchetypeID)type);
+    LArray *world_objects = GetWorldObjectArrayForArchetype(world, (ArchetypeID)type);
 
     if (!world_objects || world_objects->count <= 0)
     {
         LOG_WARN("DeregisterEntity: world array empty for entity %d (type=%d). Clearing stale registry entry.\n", entity_id, type);
-        FlatMapInt_DeactivateSlot(context->entity_world_index_registry, entity_id);
+        FlatMapInt_DeactivateSlot(&world->entity_world_index_registry, entity_id);
         return;
     }
+
+    Newtonoid2d *entity_to_delete = (Newtonoid2d *)LArray_Get(world_objects, deleted_idx);
+    FreeEntitySurfaceVectors(entity_to_delete);
 
     if (deleted_idx < 0 || deleted_idx >= world_objects->count)
     {
         LOG_WARN("DeregisterEntity: stale index %d for entity %d (count=%d). Clearing stale registry entry.\n", deleted_idx, entity_id, world_objects->count);
-        FlatMapInt_DeactivateSlot(context->entity_world_index_registry, entity_id);
+        FlatMapInt_DeactivateSlot(&world->entity_world_index_registry, entity_id);
         return;
     }
 
@@ -136,7 +151,7 @@ void DeregisterEntity(WorldState *context, int entity_id)
         Newtonoid2d *last_entity = (Newtonoid2d *)LArray_Get(world_objects, last_idx);
         if (last_entity)
         {
-            UpdateEntityWorldRegistry(context->entity_world_index_registry, last_entity->id, type, deleted_idx);
+            UpdateEntityWorldRegistry(&world->entity_world_index_registry, last_entity->id, type, deleted_idx);
         }
         else
         {
@@ -145,11 +160,11 @@ void DeregisterEntity(WorldState *context, int entity_id)
     }
 
     LArray_SwapPopAt(world_objects, deleted_idx);
-    FlatMapInt_DeactivateSlot(context->entity_world_index_registry, entity_id);
+    FlatMapInt_DeactivateSlot(&world->entity_world_index_registry, entity_id);
     LOG_INFO("Entity %d safely deregistered and removed from slot %d\n", entity_id, deleted_idx);
 }
 
-void StickEntity(WorldState *context, Newtonoid2d *child, Newtonoid2d *parent)
+void StickEntity(World2d *world, Newtonoid2d *child, Newtonoid2d *parent)
 {
     if (!child || !parent)
         return;
@@ -161,10 +176,10 @@ void StickEntity(WorldState *context, Newtonoid2d *child, Newtonoid2d *parent)
     child->velocity.y = 0;
 }
 
-void *GetEntityByID(WorldState *context, int entity_id)
+void *GetEntityByID(World2d *world, int entity_id)
 {
     int packed_value = 0;
-    if (!FlatMapInt_GetValue(context->entity_world_index_registry, entity_id, &packed_value))
+    if (!FlatMapInt_GetValue(&world->entity_world_index_registry, entity_id, &packed_value))
     {
         return NULL;
     }
@@ -172,7 +187,7 @@ void *GetEntityByID(WorldState *context, int entity_id)
     int type_flag = UNPACK_INT_HIGH(packed_value);
     int index = UNPACK_INT_LOW(packed_value);
 
-    LArray *world_objects = GetWorldObjectArrayForArchetype(context, (ArchetypeID)type_flag);
+    LArray *world_objects = GetWorldObjectArrayForArchetype(world, (ArchetypeID)type_flag);
     return world_objects ? LArray_Get(world_objects, index) : NULL;
 }
 
@@ -209,7 +224,7 @@ void ScheduleEntityDeletion(LArray *scheduled_events, int object_id, int flag_to
                         run_limit);
 }
 
-void RunScheduledWorldCmds(LArray *scheduled_cmds, WorldState *context)
+void RunScheduledWorldCmds(LArray *scheduled_cmds, World2d *world)
 {
     WorldCommand *cmds = (WorldCommand *)scheduled_cmds->items;
     size_t i = 0;
@@ -232,18 +247,18 @@ void RunScheduledWorldCmds(LArray *scheduled_cmds, WorldState *context)
 
         switch (cmds[i].type)
         {
-            case CMD_SET_OBJECT_FLAG:
-                SetObjectFlag(context, cmds[i].target_id, cmds[i].payload_value);
-                break;
-            case CMD_CLEAR_OBJECT_FLAG:
-                ClearObjectFlag(context, cmds[i].target_id, cmds[i].payload_value);
-                break;
-            case CMD_DELETE_OBJECT:
-                DeregisterEntity(context, cmds[i].target_id);
-                break;
-            default:
-                LOG_ERROR("Unknown command type %d\n", cmds[i].type);
-                break;
+        case CMD_SET_OBJECT_FLAG:
+            SetObjectFlag(world, cmds[i].target_id, cmds[i].payload_value);
+            break;
+        case CMD_CLEAR_OBJECT_FLAG:
+            ClearObjectFlag(world, cmds[i].target_id, cmds[i].payload_value);
+            break;
+        case CMD_DELETE_OBJECT:
+            DeregisterEntity(world, cmds[i].target_id);
+            break;
+        default:
+            LOG_ERROR("Unknown command type %d\n", cmds[i].type);
+            break;
         }
 
         cmds[i].run_count++;
@@ -263,4 +278,3 @@ void RunScheduledWorldCmds(LArray *scheduled_cmds, WorldState *context)
         }
     }
 }
-

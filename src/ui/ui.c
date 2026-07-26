@@ -16,18 +16,20 @@ static Vector2d GetContentArea(Vector2d dimensions, Vector2d padding)
 
 static Vector2d ResolveSpacingStep(Spacing spacing, Vector2d content_area_local, OffsetMode offset_mode)
 {
-    if (spacing.spacing_mode == PERCENT)
+    Vector2d result = spacing.spacing;
+
+    if (spacing.spacing_mode == PERCENT && offset_mode == OFFSET_FIXED)
     {
-        return (offset_mode == OFFSET_PERCENT)
-                   ? spacing.spacing
-                   : (Vector2d){content_area_local.x * spacing.spacing.x,
-                                content_area_local.y * spacing.spacing.y};
+        result.x *= content_area_local.x;
+        result.y *= content_area_local.y;
+    }
+    else if (spacing.spacing_mode == NONE && offset_mode == OFFSET_PERCENT)
+    {
+        result.x = content_area_local.x > 0.0f ? result.x / content_area_local.x : 0.0f;
+        result.y = content_area_local.y > 0.0f ? result.y / content_area_local.y : 0.0f;
     }
 
-    return (offset_mode == OFFSET_PERCENT)
-               ? (Vector2d){content_area_local.x > 0.0f ? spacing.spacing.x / content_area_local.x : 0.0f,
-                            content_area_local.y > 0.0f ? spacing.spacing.y / content_area_local.y : 0.0f}
-               : spacing.spacing;
+    return result; // If modes match, no conversion needed, just return the raw spacing
 }
 
 static Vector2d ResolveChildSizeFixed(const UIElement *child, Vector2d content_area_local, float consumed_fixed_y)
@@ -66,27 +68,69 @@ static void DistributeChildrenNormal(UIElement *parent, Vector2d spacing_step_fi
     }
 }
 
-static void DistributeChildrenStacked(UIElement *parent, Vector2d content_area_local, Vector2d spacing_step_fixed, Vector2d spacing_step_percent)
+static void DistributeChildrenStacked(UIElement *parent, Vector2d content_area_local, Vector2d spacing_step_fixed)
 {
-    float cursor_fixed_y = 0.0f;
-    float cursor_percent_y = 0.0f;
+    int fill_count = 0;
+    float occupied_height = 0.0f;
+    int child_count = 0;
 
+    // PASS 1: Calculate total fixed height and count SIZE_FILL elements
     for (UIElement *child = parent->first_child; child; child = child->next_sibling)
     {
-        Vector2d child_size_fixed = ResolveChildSizeFixed(child, content_area_local, cursor_fixed_y);
-        float child_size_percent_y = content_area_local.y > 0.0f ? child_size_fixed.y / content_area_local.y : 0.0f;
-
-        if (child->parent_offset.offset_mode == OFFSET_PERCENT)
+        child_count++;
+        if (child->size.size_mode == SIZE_FILL)
         {
-            child->parent_offset.offset = (Vector2d){child->manual_parent_offset.x, child->manual_parent_offset.y + cursor_percent_y};
+            fill_count++;
+        }
+        else if (child->size.size_mode == SIZE_PERCENT)
+        {
+            occupied_height += content_area_local.y * child->size.dimensions.y;
         }
         else
         {
-            child->parent_offset.offset = (Vector2d){child->manual_parent_offset.x, child->manual_parent_offset.y + cursor_fixed_y};
+            occupied_height += child->size.dimensions.y;
+        }
+    }
+
+    if (child_count == 0)
+        return;
+
+    // Add total spacing consumed between items
+    float total_spacing = spacing_step_fixed.y * (child_count - 1);
+    float remaining_space = fmaxf(0.0f, content_area_local.y - occupied_height - total_spacing);
+    float fill_height_per_child = (fill_count > 0) ? (remaining_space / fill_count) : 0.0f;
+
+    // PASS 2: Position elements using a single unified cursor
+    float cursor_y = 0.0f;
+
+    for (UIElement *child = parent->first_child; child; child = child->next_sibling)
+    {
+        // Preserve authored offset units per child when applying stacked cursor placement.
+        if (child->parent_offset.offset_mode == OFFSET_PERCENT)
+        {
+            float cursor_y_percent = content_area_local.y > 0.0f ? (cursor_y / content_area_local.y) : 0.0f;
+            child->parent_offset.offset = (Vector2d){
+                child->manual_parent_offset.x,
+                child->manual_parent_offset.y + cursor_y_percent};
+        }
+        else
+        {
+            child->parent_offset.offset = (Vector2d){
+                child->manual_parent_offset.x,
+                child->manual_parent_offset.y + cursor_y};
         }
 
-        cursor_fixed_y += child_size_fixed.y + spacing_step_fixed.y;
-        cursor_percent_y += child_size_percent_y + spacing_step_percent.y;
+        // Determine height consumed by this child
+        float child_h = 0.0f;
+        if (child->size.size_mode == SIZE_FILL)
+            child_h = fill_height_per_child;
+        else if (child->size.size_mode == SIZE_PERCENT)
+            child_h = content_area_local.y * child->size.dimensions.y;
+        else
+            child_h = child->size.dimensions.y;
+
+        // Advance single unified cursor
+        cursor_y += child_h + spacing_step_fixed.y;
     }
 }
 
@@ -112,7 +156,7 @@ static void DistributeChildrenWithContentArea(UIElement *e, Vector2d content_are
     }
     else if (s.spacing_type == SPACING_STACKED)
     {
-        DistributeChildrenStacked(e, content_area_local, spacing_step_fixed, spacing_step_percent);
+        DistributeChildrenStacked(e, content_area_local, spacing_step_fixed);
     }
 }
 
@@ -128,31 +172,19 @@ static Pool *ui_element_pool = NULL;
 // Functions Definition
 //----------------------------------------------------------------------------------
 
-// // Takes in pixel coord point and determines if they are in the target region
-// bool IsFocused(Vector2d pixel_coords, Vector2d *vertices, int vertex_count)
-// {
-//     // Vector2d *vertices = polygon->vertices.coll.items;
-//     return IsPointInPolygon(pixel_coords, vertices, vertex_count);
-// }
-
 UIElement *CreateUIElement(UIElementType type, Size size, Offset parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill)
 {
     // Fast-path: allocate from a simple static pool to reduce heap churn for UI elements
     if (!ui_element_pool)
-    {
         ui_element_pool = PoolCreate(sizeof(UIElement), 512);
-    }
 
     UIElement *e = NULL;
     if (ui_element_pool)
-    {
         e = (UIElement *)PoolAlloc(ui_element_pool);
-    }
+
     if (!e)
-    {
         e = AllocateBytes(sizeof(UIElement));
-    }
-    // e->origin = origin_coords;
+
     e->colour_fill = colour_fill;
     e->colour_border = colour_border;
     e->size = size;
@@ -182,11 +214,6 @@ UIElement *CreateBtnUIElementInTree(UIElementType type, Size size, UIElement *pa
     if (!btn)
         return NULL;
 
-    btn->is_enabled = true;
-    btn->is_draggable = false;
-    btn->is_focused = false;
-    btn->is_dirty = true;
-
     btn->data.button.on_click = NULL;
     btn->data.button.slave = NULL;
     btn->data.button.data_bind = NULL;
@@ -204,12 +231,6 @@ UIElement *CreateUIElementInTree(UIElementType type, Size size, UIElement *paren
     AddElementToTree(e, parent);
 
     return e;
-    // e->children = *NewLArray(2, sizeof(UIElement *)); // Initialise the children array for this element
-
-    // Get the parent Element and add this as a child
-    // bool success = LArray_Push(&parent->children, &e);
-
-    // printf("Error: Failed to add UIElement to parent's children array.\n");
 }
 
 void AddElementToTree(UIElement *e, UIElement *parent)
@@ -248,26 +269,25 @@ void RemoveElementFromTree(UIElement *e)
     {
         return;
     }
-    UIElement *parent = e->parent;
     UIElement *p = e->parent;
-
-    UIElement *next_sibling = e->next_sibling;
-    UIElement *prev_sibling = GetPreviousSibling(parent);
+    UIElement *prev_sibling = GetPreviousSibling(p);
 
     // Remove element from siblings list by pointing prev_sibling to the removed element's next_sibling
     if (prev_sibling)
     {
-        prev_sibling->next_sibling = next_sibling;
+        prev_sibling->next_sibling = e->next_sibling;
     }
     else
     {
         // The element we want to remove must've been the first_child, need to update this
-        if (next_sibling)
+        // if (next_sibling)
         {
-            p->first_child = next_sibling;
+            p->first_child = e->next_sibling;
         }
     }
-
+    // Unlink the element from the tree completely
+    e->parent = NULL;
+    e->next_sibling = NULL;
     // Dispose of the element
 }
 
@@ -317,87 +337,51 @@ UIElement *GetPreviousSibling(UIElement *e)
 
 bool ElementHasSibling(UIElement *e)
 {
-    if (!e)
-    {
-        return NULL;
-    }
-    if (e->next_sibling != NULL)
-        return true;
-
-    UIElement *p = e->parent;
-    if (!p)
-    {
+    if (!e || !e->parent)
         return false;
-    }
-    if (p->first_child != NULL && p->first_child != e)
-    {
-        return true;
-    }
-    else
-    {
-        return false;
-    }
+    return (e->next_sibling != NULL) || (e->parent->first_child != e);
 }
 
 // This needs to be called BEFORE the child's box is resolved, so that the child can use the parent's child_spacing to determine its position
 // Purpose: Distribute the children of a parent container according to its configured spacing rules. This function modifies the parent_offset of each child based on the parent's child_spacing settings.
-void DistributeChildren(UIElement *e)
-{
-    if (!e || !e->first_child)
-    {
-        return;
-    }
-
-    Vector2d content_area_local = GetContentArea(e->local_box.dimensions, e->padding);
-    DistributeChildrenWithContentArea(e, content_area_local);
-}
-
-void DistributeChildrenRecursive(UIElement *e)
+void UI_LayoutSubtree(UIElement *e, UIBox parent_box)
 {
     if (!e)
-    {
         return;
-    }
 
-    // Apply spacing at this level when configured.
-    DistributeChildren(e);
+    // ResolveElementBox looks UP at parent_box to figure out e's own dimensions.
+    // UI_DistributeChildren looks DOWN at its children using e's own resolved content area to position them.
 
-    // Always recurse so nested containers can still distribute their own children.
-    for (UIElement *child = e->first_child; child; child = child->next_sibling)
-    {
-        DistributeChildrenRecursive(child);
-    }
-}
-
-void DistributeChildrenResolved(UIElement *e, UIBox parent_box)
-{
-    if (!e || !e->first_child)
-    {
-        return;
-    }
-
-    Vector2d content_area_local = GetContentArea(parent_box.dimensions, e->padding);
-    DistributeChildrenWithContentArea(e, content_area_local);
-}
-
-//Call this to kick of the recursive distribution of children for a given parent element and its resolved box. This function will traverse the entire subtree of the parent element, applying the appropriate spacing rules to each child based on the parent's configuration.
-void DistributeChildrenRecursiveResolved(UIElement *e, UIBox parent_box)
-{
-    if (!e)
-    {
-        return;
-    }
-
-    DistributeChildrenResolved(e, parent_box);
+    // Resolve THIS element's box based on parent context
     e->local_box = ResolveElementBox(e, parent_box);
 
+    // Now that e's box is resolved we can distribute immediate children inside its resovled content area
+    if (e->first_child)
+    {
+        Vector2d content_area = GetContentArea(e->local_box.dimensions, e->padding);
+        DistributeChildrenWithContentArea(e, content_area);
+    }
+
+    // 3. Recurse down into children
     for (UIElement *child = e->first_child; child; child = child->next_sibling)
     {
-        //child->local_box = ResolveElementBox(child, e->local_box);
-        //UIBox child_box = ResolveElementBox(child, e->local_box);
-        DistributeChildrenRecursiveResolved(child, e->local_box);
+        UI_LayoutSubtree(child, e->local_box);
     }
 }
+
+// looks DOWN at its children using e's own resolved content area to position them.
+// ResolveElementBox looks UP at parent_box to figure out e's own dimensions.
+void UI_DistributeChildren(UIElement *e)
+{
+    if (!e || !e->first_child)
+        return;
+
+    Vector2d content_area = GetContentArea(e->local_box.dimensions, e->padding);
+    DistributeChildrenWithContentArea(e, content_area);
+}
+
+// Call this to kick of the recursive distribution of children for a given parent element and its resolved box. This function will traverse the entire subtree of the parent element, applying the appropriate spacing rules to each child based on the parent's configuration.
+//  Correct top-down recursion
 
 UIElement *GetElementAt(UIElement *e, Vector2d pixel_coords)
 {
@@ -453,51 +437,20 @@ bool IsTextbox(UIElement *e)
 {
     if (!e)
         return false;
-
-    if (e->type == UI_ELEMENT_TEXTBOX_O || e->type == UI_ELEMENT_TEXTBOX_SAFE_IO || e->type == UI_ELEMENT_TEXTBOX_IO)
-    {
-        return true;
-    }
-    return false;
+    return (e->type == UI_ELEMENT_TEXTBOX_O ||
+            e->type == UI_ELEMENT_TEXTBOX_SAFE_IO ||
+            e->type == UI_ELEMENT_TEXTBOX_IO);
 }
 
 bool IsBtn(UIElement *e)
 {
     if (!e)
         return false;
-
-    if (e->type == UI_ELEMENT_BUTTON_SIMPLE || e->type == UI_ELEMENT_BUTTON_SWITCH || e->type == UI_ELEMENT_BUTTON_ENUMERATE || e->type == UI_ELEMENT_BUTTON_SUBMIT)
-    {
-        return true;
-    }
-    return false;
+    return (e->type == UI_ELEMENT_BUTTON_SIMPLE ||
+            e->type == UI_ELEMENT_BUTTON_SWITCH ||
+            e->type == UI_ELEMENT_BUTTON_ENUMERATE ||
+            e->type == UI_ELEMENT_BUTTON_SUBMIT);
 }
-
-// bool DisposeUITree(UIElement *e)
-// {
-//     // Remove from parent's children array
-//     if (e->parent != NULL)
-//     {
-//         LArray *siblings = &e->parent->children;
-//         for (size_t i = 0; i < siblings->count; i++)
-//         {
-//             if (((UIElement **)siblings->items)[i] == e)
-//             {
-//                 LArray_RemoveAt(siblings, i);
-//                 break;
-//             }
-//         }
-//     }
-
-//     // Free the element's own resources
-//     // Note: If the element has its own children, you may want to recursively destroy them here as well. We will.
-//     for (size_t i = 0; i < e->children.count; i++)
-//     {
-//         DisposeUIElement(((UIElement **)e->children.items)[i]);
-//     }
-//     free(e);
-//     return true;
-// }
 
 // Disposes Element - assumes it has already been removed from its UI Tree if in one
 void DisposeUIElement(UIElement *e)
@@ -547,42 +500,12 @@ void DisposeUIElement(UIElement *e)
     }
 }
 
-// bool DisposeUIElement(UIElement *e)
-// {
-//     // Remove from parent's children array
-//     if (e->parent != NULL)
-//     {
-//         LArray *siblings = &e->parent->children;
-//         for (size_t i = 0; i < siblings->count; i++)
-//         {
-//             if (((UIElement **)siblings->items)[i] == e)
-//             {
-//                 LArray_RemoveAt(siblings, i);
-//                 break;
-//             }
-//         }
-//     }
-
-//     // Free the element's own resources
-//     // Note: If the element has its own children, you may want to recursively destroy them here as well. We will.
-//     for (size_t i = 0; i < e->children.count; i++)
-//     {
-//         DisposeUIElement(((UIElement **)e->children.items)[i]);
-//     }
-//     free(e);
-//     return true;
-// }
-
 void GetUIElementVertices(UIElement *e, Vector2d out_vertices[4])
 {
     out_vertices[0] = e->screen_box.coords;
     out_vertices[1] = (Vector2d){e->screen_box.coords.x + e->screen_box.dimensions.x, e->screen_box.coords.y};
     out_vertices[2] = (Vector2d){e->screen_box.coords.x + e->screen_box.dimensions.x, e->screen_box.coords.y + e->screen_box.dimensions.y};
     out_vertices[3] = (Vector2d){e->screen_box.coords.x, e->screen_box.coords.y + e->screen_box.dimensions.y};
-    // out_vertices[0] = e->origin;
-    // out_vertices[1] = (Vector2d){e->origin.x + e->width, e->origin.y};
-    // out_vertices[2] = (Vector2d){e->origin.x + e->width, e->origin.y + e->height};
-    // out_vertices[3] = (Vector2d){e->origin.x, e->origin.y + e->height};
 }
 
 bool IsMouseOverElement(UIElement *e, Vector2d mouse_pos)
@@ -593,33 +516,7 @@ bool IsMouseOverElement(UIElement *e, Vector2d mouse_pos)
             mouse_pos.y <= e->screen_box.coords.y + e->screen_box.dimensions.y);
 }
 
-// Calculates the final screen-space pixel coordinates for an element
-// Vector2d ResolveElementPosition(UIElement *element, UIBox parent_box, Vector2d basis_scale)
-// {
-//     if (!element)
-//         return ZERO_VECTOR_2D;
-
-//     // 1. Start with the Parent's top-left anchor (already in pixels)
-//     Vector2d resolved = parent_box.coords;
-
-//     // 2. Add Parent's Padding (if the parent exists)
-//     // Note: We scale the padding by the basis so it shrinks/grows with zoom
-//     if (element->parent)
-//     {
-//         resolved.x += element->parent->padding.x * basis_scale.x;
-//         resolved.y += element->parent->padding.y * basis_scale.y;
-//     }
-
-//     // 3. Add the Child's specific Local Offset
-//     resolved.x += element->parent_offset.x * basis_scale.x;
-//     resolved.y += element->parent_offset.y * basis_scale.y;
-
-//     resolved.x = floorf(resolved.x);
-//     resolved.y = floorf(resolved.y);
-
-//     return resolved;
-// }
-
+// looks UP at parent_box to figure out e's own dimensions.
 UIBox ResolveElementBox(UIElement *element, UIBox parent_box)
 {
     if (!element)
@@ -653,12 +550,6 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box)
     float safe_offset_y = fmaxf(0.0f, element->parent_offset.offset.y);
     float adj_offset_x, adj_offset_y;
 
-    // if (element->parent_offset.offset_mode == ALIGNED_CENTRE)
-    // {
-    //     // ALIGNED_CENTRE will overide the set Offset value for the element
-    //     // Determine the dimensions, then use them to calculate the offset
-
-    // }
     if (element->parent_offset.offset_mode == OFFSET_PERCENT)
     {
         adj_offset_x = content_area_w * safe_offset_x;
@@ -694,15 +585,109 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box)
     box.dimensions.x = fminf(box.dimensions.x, remaining_w);
     box.dimensions.y = fminf(box.dimensions.y, remaining_h);
 
-    // Pixel Snapping
-    // box.coords.x = floorf(box.coords.x);
-    // box.coords.y = floorf(box.coords.y);
-    // box.dimensions.x = floorf(box.dimensions.x);
-    // box.dimensions.y = floorf(box.dimensions.y);
-
     return box;
 }
 
+bool UI_AABB_Intersects(UIBox a, UIBox b) 
+{
+    return (a.coords.x < b.coords.x + b.dimensions.x &&
+            a.coords.x + a.dimensions.x > b.coords.x &&
+            a.coords.y < b.coords.y + b.dimensions.y &&
+            a.coords.y + a.dimensions.y > b.coords.y);
+}
+
+const char *GetElementTypeName(UIElementType type)
+{
+    switch (type)
+    {
+    case UI_ELEMENT_ROOT:
+        return "ROOT";
+    case UI_ELEMENT_TEXTFIELD:
+        return "TEXTFIELD";
+    case UI_ELEMENT_CONTAINER:
+        return "CONTAINER";
+    case UI_ELEMENT_LABEL:
+        return "LABEL";
+    case UI_ELEMENT_TEXTBOX_O:
+        return "TEXTBOX_O";
+    case UI_ELEMENT_TEXTBOX_IO:
+        return "TEXTBOX_IO";
+    case UI_ELEMENT_TEXTBOX_SAFE_IO:
+        return "TEXTBOX_SAFE_IO";
+    case UI_ELEMENT_BUTTON_SWITCH:
+        return "BUTTON_SWITCH";
+    case UI_ELEMENT_BUTTON_SIMPLE:
+        return "BUTTON_SIMPLE";
+    case UI_ELEMENT_BUTTON_ENUMERATE:
+        return "BUTTON_ENUMERATE";
+    case UI_ELEMENT_BUTTON_SUBMIT:
+        return "BUTTON_SUBMIT";
+    case UI_ELEMENT_IMAGE:
+        return "IMAGE";
+    default:
+        return "UNKNOWN_TYPE";
+    }
+}
+
+// // Takes in pixel coord point and determines if they are in the target region
+// bool IsFocused(Vector2d pixel_coords, Vector2d *vertices, int vertex_count)
+// {
+//     // Vector2d *vertices = polygon->vertices.coll.items;
+//     return IsPointInPolygon(pixel_coords, vertices, vertex_count);
+// }
+
+// bool DisposeUIElement(UIElement *e)
+// {
+//     // Remove from parent's children array
+//     if (e->parent != NULL)
+//     {
+//         LArray *siblings = &e->parent->children;
+//         for (size_t i = 0; i < siblings->count; i++)
+//         {
+//             if (((UIElement **)siblings->items)[i] == e)
+//             {
+//                 LArray_RemoveAt(siblings, i);
+//                 break;
+//             }
+//         }
+//     }
+
+//     // Free the element's own resources
+//     // Note: If the element has its own children, you may want to recursively destroy them here as well. We will.
+//     for (size_t i = 0; i < e->children.count; i++)
+//     {
+//         DisposeUIElement(((UIElement **)e->children.items)[i]);
+//     }
+//     free(e);
+//     return true;
+// }
+
+// Calculates the final screen-space pixel coordinates for an element
+// Vector2d ResolveElementPosition(UIElement *element, UIBox parent_box, Vector2d basis_scale)
+// {
+//     if (!element)
+//         return ZERO_VECTOR_2D;
+
+//     // 1. Start with the Parent's top-left anchor (already in pixels)
+//     Vector2d resolved = parent_box.coords;
+
+//     // 2. Add Parent's Padding (if the parent exists)
+//     // Note: We scale the padding by the basis so it shrinks/grows with zoom
+//     if (element->parent)
+//     {
+//         resolved.x += element->parent->padding.x * basis_scale.x;
+//         resolved.y += element->parent->padding.y * basis_scale.y;
+//     }
+
+//     // 3. Add the Child's specific Local Offset
+//     resolved.x += element->parent_offset.x * basis_scale.x;
+//     resolved.y += element->parent_offset.y * basis_scale.y;
+
+//     resolved.x = floorf(resolved.x);
+//     resolved.y = floorf(resolved.y);
+
+//     return resolved;
+// }
 // WE NEED TO BE PASSING IN THE PARENT'S BOX BECAUSE WE NEED TO KNOW THE ADJUSTED SPACE WE HAVE TO RENDER IN (I.E., THE PARENT'S DIMENSIONS MINUS PADDING) TO BE ABLE TO CLAMP THE CHILD ELEMENT'S SIZE AND PREVENT IT FROM LEAKING OUT OF THE PARENT
 // The basis scale needs to be able to convert to pixels, so we can apply the parent's padding and the child's offset in pixels
 // UIBox ResolveElementBox(UIElement *element, UIBox parent_box, Vector2d basis_tfrm)
@@ -826,39 +811,6 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box)
 //         }
 //     }
 // }
-
-const char *GetElementTypeName(UIElementType type)
-{
-    switch (type)
-    {
-    case UI_ELEMENT_ROOT:
-        return "ROOT";
-    case UI_ELEMENT_TEXTFIELD:
-        return "TEXTFIELD";
-    case UI_ELEMENT_CONTAINER:
-        return "CONTAINER";
-    case UI_ELEMENT_LABEL:
-        return "LABEL";
-    case UI_ELEMENT_TEXTBOX_O:
-        return "TEXTBOX_O";
-    case UI_ELEMENT_TEXTBOX_IO:
-        return "TEXTBOX_IO";
-    case UI_ELEMENT_TEXTBOX_SAFE_IO:
-        return "TEXTBOX_SAFE_IO";
-    case UI_ELEMENT_BUTTON_SWITCH:
-        return "BUTTON_SWITCH";
-    case UI_ELEMENT_BUTTON_SIMPLE:
-        return "BUTTON_SIMPLE";
-    case UI_ELEMENT_BUTTON_ENUMERATE:
-        return "BUTTON_ENUMERATE";
-    case UI_ELEMENT_BUTTON_SUBMIT:
-        return "BUTTON_SUBMIT";
-    case UI_ELEMENT_IMAGE:
-        return "IMAGE";
-    default:
-        return "UNKNOWN_TYPE";
-    }
-}
 
 // UIElement *CreateTextField(float width, float height, Vector2d origin_coords, Vector2d parent_offset, Vector2d label_tbox_offset, Vector2d label_tbox_padding, char max_label_chars, char max_text_box_chars)
 // {
@@ -1074,4 +1026,30 @@ const char *GetElementTypeName(UIElementType type)
 
 //     text_field->text_box.origin = VectorSum_2d(tfield_origin, tbox_parent_offset);
 //     text_field->label.origin = VectorSum_2d(tfield_origin, tlabel_parent_offset);
+// }
+
+// bool DisposeUITree(UIElement *e)
+// {
+//     // Remove from parent's children array
+//     if (e->parent != NULL)
+//     {
+//         LArray *siblings = &e->parent->children;
+//         for (size_t i = 0; i < siblings->count; i++)
+//         {
+//             if (((UIElement **)siblings->items)[i] == e)
+//             {
+//                 LArray_RemoveAt(siblings, i);
+//                 break;
+//             }
+//         }
+//     }
+
+//     // Free the element's own resources
+//     // Note: If the element has its own children, you may want to recursively destroy them here as well. We will.
+//     for (size_t i = 0; i < e->children.count; i++)
+//     {
+//         DisposeUIElement(((UIElement **)e->children.items)[i]);
+//     }
+//     free(e);
+//     return true;
 // }

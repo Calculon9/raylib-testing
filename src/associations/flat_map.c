@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include "associations/flat_map.h"
 #include "memory/cmemory.h"
+#include "common/common.h"
 
 //----------------------------------------------------------------------------------
 // Global Variables Definition (local to this module)
@@ -74,13 +75,19 @@ bool FlatMapInt_GetValue(FlatMapInt *m, int key, int *out_value)
     unsigned long index = CalcIntHash(key, m->capacity);
     unsigned long start_index = index;
 
-    // Search until we hit an unoccupied slot
-    while (m->slots[index].occupied)
+    // Search until we hit an empty slot; deleted tombstones must keep probe chains intact.
+    while (1)
     {
-        // Straight primitive integer matching (Blazing fast!)
-        if (m->slots[index].key == key)
+        FlatMapIntEntry *slot = &m->slots[index];
+
+        if (slot->state == FLAT_MAP_SLOT_EMPTY)
         {
-            *out_value = m->slots[index].value;
+            return false;
+        }
+
+        if (slot->state == FLAT_MAP_SLOT_OCCUPIED && slot->key == key)
+        {
+            *out_value = slot->value;
             return true;
         }
 
@@ -112,13 +119,25 @@ bool FlatMapInt_DeactivateSlot(FlatMapInt *m, int key)
     unsigned long index = CalcIntHash(key, m->capacity);
     unsigned long start_index = index;
 
-    // Search until we hit an unoccupied slot
-    while (m->slots[index].occupied)
+    // Search until we hit an empty slot; deleted tombstones cannot terminate probe walks.
+    while (1)
     {
-        // Straight primitive integer matching (Blazing fast!)
-        if (m->slots[index].key == key)
+        FlatMapIntEntry *slot = &m->slots[index];
+
+        if (slot->state == FLAT_MAP_SLOT_EMPTY)
         {
-            m->slots[index].occupied = false; // Set the slot to unoccupied statem->slots[index].value;
+            return false;
+        }
+
+        if (slot->state == FLAT_MAP_SLOT_OCCUPIED && slot->key == key)
+        {
+            slot->state = FLAT_MAP_SLOT_DELETED;
+            slot->key = 0;
+            slot->value = 0;
+            if (m->count > 0)
+            {
+                m->count--;
+            }
             return true;
         }
 
@@ -150,28 +169,51 @@ bool FlatMapInt_InsertOrUpdate(FlatMapInt *m, int key, int value)
 
     unsigned long i = CalcIntHash(key, m->capacity);
     unsigned long start_index = i;
+    unsigned long first_deleted_index = (unsigned long)-1;
 
     // Linear Probing: Look for our key, or the next available empty slot
-    while (m->slots[i].occupied)
+    while (1)
     {
+        FlatMapIntEntry *slot = &m->slots[i];
+
         // UPDATE WORKFLOW
-        if (m->slots[i].key == key)
+        if (slot->state == FLAT_MAP_SLOT_OCCUPIED && slot->key == key)
         {
-            m->slots[i].value = value;
+            slot->value = value;
             return true;
         }
+
+        if (slot->state == FLAT_MAP_SLOT_DELETED && first_deleted_index == (unsigned long)-1)
+        {
+            first_deleted_index = i;
+        }
+
+        if (slot->state == FLAT_MAP_SLOT_EMPTY)
+        {
+            unsigned long target = (first_deleted_index != (unsigned long)-1) ? first_deleted_index : i;
+            m->slots[target].key = key;
+            m->slots[target].value = value;
+            m->slots[target].state = FLAT_MAP_SLOT_OCCUPIED;
+            m->count++;
+            return true;
+        }
+
         i = (i + 1) % m->capacity; // Collision happened, step forward 1 slot (wrap around at capacity)
 
         if (i == start_index)
+        {
+            // Table may be saturated with tombstones; recycle first tombstone if one was found.
+            if (first_deleted_index != (unsigned long)-1)
+            {
+                m->slots[first_deleted_index].key = key;
+                m->slots[first_deleted_index].value = value;
+                m->slots[first_deleted_index].state = FLAT_MAP_SLOT_OCCUPIED;
+                m->count++;
+                return true;
+            }
             return false; // Guard map full loop
+        }
     }
-
-    // INSERT WORKFLOW - EMPTY SLOT FOUND
-    m->slots[i].key = key;
-    m->slots[i].value = value;
-    m->slots[i].occupied = true;
-    m->count++;
-    return true;
 }
 
 static bool GrowFlatMapInt(FlatMapInt *m)
@@ -194,7 +236,7 @@ static bool GrowFlatMapInt(FlatMapInt *m)
         for (int i = 0; i < old_capacity; i++)
         {
             // Only migrate items that are actively holding data
-            if (m->slots[i].occupied)
+            if (m->slots[i].state == FLAT_MAP_SLOT_OCCUPIED)
             {
                 int current_key = m->slots[i].key;
                 int current_value = m->slots[i].value;
@@ -203,7 +245,7 @@ static bool GrowFlatMapInt(FlatMapInt *m)
                 unsigned long new_index = CalcIntHash(current_key, new_capacity);
 
                 // Probe forward if a collision happens in the expanded array space
-                while (new_slots[new_index].occupied)
+                while (new_slots[new_index].state == FLAT_MAP_SLOT_OCCUPIED)
                 {
                     new_index = (new_index + 1) % new_capacity;
                 }
@@ -211,7 +253,7 @@ static bool GrowFlatMapInt(FlatMapInt *m)
                 // Pack tightly into its new home
                 new_slots[new_index].key = current_key;
                 new_slots[new_index].value = current_value;
-                new_slots[new_index].occupied = true;
+                new_slots[new_index].state = FLAT_MAP_SLOT_OCCUPIED;
             }
         }
 
@@ -224,7 +266,7 @@ static bool GrowFlatMapInt(FlatMapInt *m)
     m->slots = new_slots;
     m->capacity = new_capacity;
 
-    // printf("Flat Map grew cleanly to capacity %d\n", m->capacity);
+    LOG_INFO("Flat Map grown to new capacity %d\n", new_capacity);
     return true;
 }
 
@@ -271,7 +313,7 @@ void ResetFlatMapInt(FlatMapInt *m)
         {
             slots[i].key = 0;
             slots[i].value = 0;
-            slots[i].occupied = false;
+            slots[i].state = FLAT_MAP_SLOT_EMPTY;
         }
 
         // size_t total_slots_bytes = m->capacity * sizeof(FlatMapIntEntry);

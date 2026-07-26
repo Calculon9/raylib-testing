@@ -48,11 +48,11 @@ void PhysicsUpdateJob(void *context, int start, int end)
     if (!context)
         return;
 
-    WorldState *world_context = (WorldState *)context;
-    GridSpace2d *space_entity = &world_context->world->grid_space;
+    World2d *world = (World2d *)context;
+    GridSpace2d *space_entity = &world->grid_space;
     Space2d *space = &space_entity->space;
-    LArray *objects = &world_context->world->objects;
-    FlatMapInt *entity_space_map = &world_context->world->entity_space_map;
+    LArray *objects = &world->objects;
+    FlatMapInt *entity_space_map = &world->entity_space_map;
     Newtonoid2d *newtonoids = (Newtonoid2d *)objects->items;
 
     for (int index = start; index < end && index < (int)objects->count; ++index)

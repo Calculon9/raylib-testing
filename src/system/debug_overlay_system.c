@@ -32,11 +32,11 @@ static Frame2d *GetDebugBasisTargetFrame(DebugBasisTargetId target_id)
     switch (target_id)
     {
     case DEBUG_BASIS_TARGET_LPANEL_VIEWPORT:
-        return &lpanel_viewport_frame;
+        return &lpanel_viewport.frame;
     case DEBUG_BASIS_TARGET_GAME_VIEWPORT:
-        return &game_viewport_frame;
+        return &game_viewport.frame;
     case DEBUG_BASIS_TARGET_RPANEL_VIEWPORT:
-        return &rpanel_viewport_frame;
+        return &rpanel_viewport.frame;
     case DEBUG_BASIS_TARGET_UNIVERSE_SPACE:
         return &G_Universe.camera.frame;
     case DEBUG_BASIS_TARGET_LPANEL_SPACE:
@@ -67,7 +67,7 @@ static void ApplyDebugBasisTarget(DebugBasisTargetId target_id, const Frame2d *f
         SetViewportSpaceBasis(VIEWPORT_SPACE_RPANEL, frame->basis.u, frame->basis.v);
         break;
     case DEBUG_BASIS_TARGET_UNIVERSE_SPACE:
-        UpdateCameraFull(&G_Universe.camera);
+        SetUniverseCameraBasis(frame->basis);
         break;
     case DEBUG_BASIS_TARGET_LPANEL_SPACE:
         SetLPanelSpaceBasis(frame->basis.u, frame->basis.v);
@@ -94,8 +94,7 @@ static void ResetDebugBasisTarget(DebugBasisTargetId target_id)
         ResetViewportSpaceBasis(VIEWPORT_SPACE_RPANEL);
         break;
     case DEBUG_BASIS_TARGET_UNIVERSE_SPACE:
-        G_Universe.camera.frame.basis = IDENTITY_BASIS_2D;
-        UpdateCameraFull(&G_Universe.camera);
+        SetUniverseCameraBasis(IDENTITY_BASIS_2D);
         break;
     case DEBUG_BASIS_TARGET_LPANEL_SPACE:
         ResetLPanelSpaceBasis();
@@ -237,7 +236,7 @@ static void DrawDebugDashboard(void)
     int row_y_right = panel_y + 18;
     int row_step = 24;
     ColourRgba title_color = (ColourRgba){255, 244, 200, 240};
-    ColourRgba body_color = (ColourRgba){232, 240, 250, 230};
+    ColourRgba body_color = (ColourRgba){232, 240, 250, 200};
     ColourRgba accent_color = (ColourRgba){170, 220, 255, 230};
 
     Frame2d *lpanel_viewport_frame = GetDebugBasisTargetFrame(DEBUG_BASIS_TARGET_LPANEL_VIEWPORT);
@@ -257,7 +256,7 @@ static void DrawDebugDashboard(void)
     Vector2d rpanel_space_basis_u = rpanel_space_frame ? rpanel_space_frame->basis.u : ZERO_VECTOR_2D;
     Vector2d rpanel_space_basis_v = rpanel_space_frame ? rpanel_space_frame->basis.v : ZERO_VECTOR_2D;
 
-    DrawRectangle(panel_x, panel_y, panel_w, panel_h, (Color){8, 12, 18, 232});
+    DrawRectangle(panel_x, panel_y, panel_w, panel_h, (Color){8, 12, 18, 90});
     DrawRectangleLines(panel_x, panel_y, panel_w, panel_h, (Color){210, 228, 245, 180});
 
     DrawDashboardLine("DEBUG DASHBOARD", col1_x, row_y_left, title_color);
@@ -337,30 +336,30 @@ static void DrawDebugDashboard(void)
         DrawDashboardLine("Universe diagnostics unavailable for current frame.", col1_x, row_y_left, body_color);
     }
 
-    DrawDashboardLine("Viewport", col2_x, row_y_right, accent_color);
+    DrawDashboardLine("Game Viewport", col2_x, row_y_right, accent_color);
     row_y_right += row_step;
 
-    snprintf(line, sizeof(line), "Game viewport local: (%.1f, %.1f) -> (%.1f, %.1f)",
-             game_viewport_local_origin.x, game_viewport_local_origin.y,
-             game_viewport_local_end.x, game_viewport_local_end.y);
+    snprintf(line, sizeof(line), "Global Viewport bounds: (%.1f, %.1f) -> (%.1f, %.1f)",
+             game_viewport.local_origin.x, game_viewport.local_origin.y,
+             game_viewport.local_end.x, game_viewport.local_end.y);
     DrawDashboardLine(line, col2_x, row_y_right, body_color);
     row_y_right += row_step;
-    snprintf(line, sizeof(line), "Game viewport px: (%.1f, %.1f) -> (%.1f, %.1f)",
-             game_viewport_pixel_origin.x, game_viewport_pixel_origin.y,
-             game_viewport_pixel_end.x, game_viewport_pixel_end.y);
+    snprintf(line, sizeof(line), "Pixel bounds: (%.1f, %.1f) -> (%.1f, %.1f)",
+             game_viewport.pixel_origin.x, game_viewport.pixel_origin.y,
+             game_viewport.pixel_end.x, game_viewport.pixel_end.y);
     DrawDashboardLine(line, col2_x, row_y_right, body_color);
     row_y_right += row_step;
-    snprintf(line, sizeof(line), "Viewport center local(%.2f, %.2f) pixel(%.1f, %.1f)",
+    snprintf(line, sizeof(line), "Region center local(%.2f, %.2f) pixel(%.1f, %.1f)",
              universe_debug_snapshot.viewport_local_center.x, universe_debug_snapshot.viewport_local_center.y,
              universe_debug_snapshot.viewport_pixel_center.x, universe_debug_snapshot.viewport_pixel_center.y);
     DrawDashboardLine(line, col2_x, row_y_right, body_color);
     row_y_right += row_step;
-    snprintf(line, sizeof(line), "Viewport px/unit U=%.2f V=%.2f", VectorMagnitude_2d(game_viewport_pixel_u), VectorMagnitude_2d(game_viewport_pixel_v));
+    snprintf(line, sizeof(line), "Px/unit U=%.2f V=%.2f", VectorMagnitude_2d(game_viewport.pixel_u), VectorMagnitude_2d(game_viewport.pixel_v));
     DrawDashboardLine(line, col2_x, row_y_right, body_color);
     row_y_right += row_step;
-    snprintf(line, sizeof(line), "Viewport size %.1f x %.1f", universe_debug_snapshot.viewport_width_px, universe_debug_snapshot.viewport_height_px);
-    DrawDashboardLine(line, col2_x, row_y_right, body_color);
-    row_y_right += row_step * 2;
+    //snprintf(line, sizeof(line), "Viewport size %.1f x %.1f", universe_debug_snapshot.viewport_width_px, universe_debug_snapshot.viewport_height_px);
+    //DrawDashboardLine(line, col2_x, row_y_right, body_color);
+    //row_y_right += row_step * 2;
 
     DrawDashboardLine("Basis", col2_x, row_y_right, accent_color);
     row_y_right += row_step;
@@ -428,11 +427,8 @@ int IsDebugOverlayEnabled(DebugOverlayId overlay_id)
     }
 }
 
-void UpdateDebugOverlayHotkeys(int screen_width,
-                               int screen_height,
-                               int screen_resolution_scalar,
-                               float *viewport_target_game_logical_height,
-                               int *viewport_ui_pixels_per_unit_override)
+void UpdateDebugOverlayHotkeys(int screen_width, int screen_height, int screen_resolution_scalar,
+                               float *viewport_target_game_logical_height, int *viewport_ui_pixels_per_unit_override)
 {
     bool viewport_scale_changed = false;
     bool ui_scale_changed = false;
@@ -638,8 +634,8 @@ void DrawUniverseDebugOverlays(Matrix3x3 root_world_to_pixel_mtx)
     int mouse_y = GetMouseY();
     Vector2d pixel = {(float)mouse_x, (float)mouse_y};
 
-    bool cursor_in_game_viewport = mouse_x >= game_viewport_pixel_origin.x && mouse_x <= game_viewport_pixel_end.x &&
-                                   mouse_y >= game_viewport_pixel_origin.y && mouse_y <= game_viewport_pixel_end.y;
+    bool cursor_in_game_viewport = mouse_x >= game_viewport.pixel_origin.x && mouse_x <= game_viewport.pixel_end.x &&
+                                   mouse_y >= game_viewport.pixel_origin.y && mouse_y <= game_viewport.pixel_end.y;
 
     Matrix3x3 pixel_to_world_mtx = MatrixInvert_3x3(root_world_to_pixel_mtx);
     Vector2d parent_local = TransformCoordinates(pixel_to_world_mtx, pixel);
@@ -658,12 +654,12 @@ void DrawUniverseDebugOverlays(Matrix3x3 root_world_to_pixel_mtx)
         World2d *world = &G_Universe.worlds[target_world_index];
         Vector2d world_resolution = {(float)world->grid_space.space.columns, (float)world->grid_space.space.rows};
 
-        Matrix3x3 universe_to_world_mtx = world->camera.tunnel.dest_to_source_mtx;
+        Matrix3x3 universe_to_world_mtx = world->tunnel.dest_to_source_mtx;
         has_child_local = true;
         child_local = TransformCoordinates(universe_to_world_mtx, parent_local);
 
-        child_origin_in_parent.x = world->grid_space.space.frame.origin_in_parent.x + (world_resolution.x * 0.5f);
-        child_origin_in_parent.y = world->grid_space.space.frame.origin_in_parent.y + (world_resolution.y * 0.5f);
+        child_origin_in_parent.x = world->grid_space.space.frame.origin_in_parent.x;// + (world_resolution.x * 0.5f);
+        child_origin_in_parent.y = world->grid_space.space.frame.origin_in_parent.y;// + (world_resolution.y * 0.5f);
 
         if (child_local.x >= 0.0f && child_local.y >= 0.0f &&
             child_local.x < world_resolution.x && child_local.y < world_resolution.y)
@@ -684,10 +680,10 @@ void DrawUniverseDebugOverlays(Matrix3x3 root_world_to_pixel_mtx)
     universe_debug_snapshot.child_local = child_local;
     universe_debug_snapshot.viewport_pixel_center = ResolveGameViewportPixelCenter();
     universe_debug_snapshot.viewport_local_center = ResolveGameViewportLocalCenter();
-    universe_debug_snapshot.viewport_ppu_u = VectorMagnitude_2d(game_viewport_pixel_u);
-    universe_debug_snapshot.viewport_ppu_v = VectorMagnitude_2d(game_viewport_pixel_v);
-    universe_debug_snapshot.viewport_width_px = game_viewport_pixel_end.x - game_viewport_pixel_origin.x;
-    universe_debug_snapshot.viewport_height_px = game_viewport_pixel_end.y - game_viewport_pixel_origin.y;
+    universe_debug_snapshot.viewport_ppu_u = VectorMagnitude_2d(game_viewport.pixel_u);
+    universe_debug_snapshot.viewport_ppu_v = VectorMagnitude_2d(game_viewport.pixel_v);
+    universe_debug_snapshot.viewport_width_px = game_viewport.pixel_end.x - game_viewport.pixel_origin.x;
+    universe_debug_snapshot.viewport_height_px = game_viewport.pixel_end.y - game_viewport.pixel_origin.y;
     universe_debug_snapshot.selected_index = selected_index;
     universe_debug_snapshot.hovered_world_index = hovered_world_index;
     universe_debug_snapshot.target_world_index = target_world_index;

@@ -1,7 +1,5 @@
 /**********************************************************************************************
  *
- *   raylib - Advance Game template
- *
  *   Universe System Functions Definitions (Init, Update, Draw)
  *
  **********************************************************************************************/
@@ -17,6 +15,8 @@
 #include "ui/text_region.h"
 #include "system/viewport_system.h"
 #include "system/debug_overlay_system.h"
+#include "system/drag_interaction.h"
+#include "math/affine_space_ops.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -30,11 +30,13 @@ static bool universe_grid_aabb_diagnostic_printed = false;
 ColourRgba camera_marker_colour = {255, 80, 80, 100};
 Frame2d universe_frame = {0};      // Universe-space frame used for camera construction
 FrameTunnel universe_tunnel = {0}; // Tunnel linking universe frame to viewport frame
+static CameraController cam_ctrl = {0};
 //----------------------------------------------------------------------------------
 // Module Functions Declaration (forward declarations)
 //----------------------------------------------------------------------------------
-void DrawUniverseCameraMarker(Matrix3x3 M_root_world_to_pixel);
-void DrawUniverseGrid(Matrix3x3 M_root_world_to_pixel);
+void DrawUniverseCameraMarker(Matrix3x3 M_cam_to_pixel);
+void DrawUniverseGrid(CameraViewBox cam_view, Matrix3x3 M_cam_to_pixel);
+static void ApplyWorldDragTransform(World2d *world, Vector2d new_universe_origin);
 
 static void DrawUniverseGridLine(Vector2d start, Vector2d end, Matrix3x3 M_root_world_to_pixel, ColourRgba colour)
 {
@@ -47,19 +49,15 @@ static void DrawUniverseGridLine(Vector2d start, Vector2d end, Matrix3x3 M_root_
 
 static void SyncWorldStateFromSelection(void)
 {
-    World2d *w = Universe_GetSelectedWorld(&G_Universe);
-    G_WorldState.world = w;
-    G_WorldState.entity_world_index_registry = w ? &w->entity_world_index_registry : NULL;
-    G_WorldState.collisions = w ? &w->collisions : NULL;
-    G_WorldState.selected_object = NULL;
-    G_WorldState.selected_cell = NULL;
-    G_WorldState.selected_cell_index = -1;
+    G_UIState.selected_object = NULL;
+    G_UIState.selected_cell = NULL;
+    G_UIState.selected_cell_index = -1;
 }
 
-static Matrix3x3 BuildRootWorldToPixelMatrix(void)
+static Matrix3x3 BuildCameraToScreenMatrix(void)
 {
     return MatrixMultiply_3x3_3x3(
-        game_viewport_tunnel.source_to_dest_mtx,    // Left side: Step 2 (Final transformation to screen)
+        game_viewport.tunnel.source_to_dest_mtx,    // Left side: Step 2 (Final transformation to screen)
         G_Universe.camera.tunnel.source_to_dest_mtx // Right side: Step 1 (Initial camera projection)
     );
 }
@@ -67,6 +65,36 @@ static Matrix3x3 BuildRootWorldToPixelMatrix(void)
 //----------------------------------------------------------------------------------
 // Universe System Functions Definition
 //----------------------------------------------------------------------------------
+void SyncUniverseCameraToViewport(void)
+{
+    Camera_SetDestinationFrame(&G_Universe.camera, &game_viewport.frame);
+    Camera_SetSourceFrame(&G_Universe.camera, &G_Universe.camera.frame);
+}
+
+bool SetUniverseCameraBasis(Basis2d basis)
+{
+    float u_mag = VectorMagnitude_2d(basis.u);
+    float v_mag = VectorMagnitude_2d(basis.v);
+    if (u_mag < 0.0001f || v_mag < 0.0001f)
+    {
+        return false;
+    }
+
+    // Camera matrices are rebuilt from zoom + rotation, so basis edits must
+    // update those canonical fields instead of only mutating frame.basis.
+    G_Universe.camera.rotation = VectorRadians_2d(basis.u);
+    G_Universe.camera.zoom = u_mag;
+
+    // Keep controller targets aligned so smoothing does not snap basis edits back.
+    if (cam_ctrl.camera == &G_Universe.camera)
+    {
+        cam_ctrl.target_zoom = G_Universe.camera.zoom;
+        cam_ctrl.target_source_focus_coords = G_Universe.camera.source_focus_coords;
+    }
+
+    UpdateCameraFull(&G_Universe.camera);
+    return true;
+}
 
 void InitUniverseSystem(void)
 {
@@ -93,39 +121,33 @@ void InitUniverseSystem(void)
     universe_frame = CreateFrame2d(IDENTITY_BASIS_2D, game_viewport_local_centre, universe_resolution);
 
     // Initialize the camera, pointing directly to its own frame member as the source space
-    G_Universe.camera = CreateCamera2d(&G_Universe.camera.frame, &game_viewport_frame);
+    Vector2d default_lens_size = {
+        game_viewport.frame.local_max.x - game_viewport.frame.local_min.x,
+        game_viewport.frame.local_max.y - game_viewport.frame.local_min.y};
+    G_Universe.camera = CreateCamera2d(&G_Universe.camera.frame, &game_viewport.frame);
 
-    // Define the camera's lens coordinate frame data safely
-    G_Universe.camera.frame = CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D, universe_resolution);
+    // Define the camera's lens coordinate frame data
+    G_Universe.camera.frame = CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D, default_lens_size);
 
     // Set safe baseline logic defaults
     G_Universe.camera.source_focus_coords = ZERO_VECTOR_2D;
-    G_Universe.camera.target_source_focus_coords = ZERO_VECTOR_2D;
     G_Universe.camera.rotation = 0.0f;
     G_Universe.camera.zoom = 1.0f;
-    G_Universe.camera.target_zoom = 1.0f;
 
     // Forces matrix update and recalculates alignment safely
     SyncUniverseCameraToViewport();
+    cam_ctrl = CreateCameraController(&G_Universe.camera);
 
     CreateNewWorld(false);
 }
 
-void SyncUniverseCameraToViewport(void)
-{
-    Camera_SetDestinationFrame(&G_Universe.camera, &game_viewport_frame);
-    // Double-check that the tunnel's source is explicitly bound to our internal frame
-    G_Universe.camera.tunnel.source_frame = &G_Universe.camera.frame;
-    UpdateCameraFull(&G_Universe.camera);
-}
-
 void UpdateUniverseSystem(int mouse_x, int mouse_y)
 {
-    Matrix3x3 M_root_world_to_pixel = BuildRootWorldToPixelMatrix();
-    bool cursor_in_game_viewport = mouse_x >= game_viewport_pixel_origin.x &&
-                                   mouse_x <= (game_viewport_pixel_origin.x + (game_viewport_pixel_u.x * game_viewport_resolution.x)) &&
-                                   mouse_y >= game_viewport_pixel_origin.y &&
-                                   mouse_y <= (game_viewport_pixel_origin.y + (game_viewport_pixel_v.y * game_viewport_resolution.y));
+    Matrix3x3 M_root_world_to_pixel = BuildCameraToScreenMatrix();
+    bool cursor_in_game_viewport = mouse_x >= game_viewport.pixel_origin.x &&
+                                   mouse_x <= (game_viewport.pixel_origin.x + (game_viewport.pixel_u.x * game_viewport.resolution.x)) &&
+                                   mouse_y >= game_viewport.pixel_origin.y &&
+                                   mouse_y <= (game_viewport.pixel_origin.y + (game_viewport.pixel_v.y * game_viewport.resolution.y));
 
     if (!universe_camera_diagnostic_printed)
     {
@@ -133,14 +155,10 @@ void UpdateUniverseSystem(int mouse_x, int mouse_y)
         Vector2d game_viewport_local_centre = ResolveGameViewportLocalCenter();
         Vector2d game_viewport_pixel_centre = TransformCoordinates(M_root_world_to_pixel, game_viewport_local_centre);
         LOG_INFO("[ROOT CAMERA DIAG] dest_origin=(%.2f, %.2f) src_focus=(%.2f, %.2f) viewport_px_center=(%.2f, %.2f) viewport_local_center=(%.2f, %.2f)\n",
-                 G_Universe.camera.tunnel.destination_frame->origin_in_parent.x,
-                 G_Universe.camera.tunnel.destination_frame->origin_in_parent.y,
-                 G_Universe.camera.source_focus_coords.x,
-                 G_Universe.camera.source_focus_coords.y,
-                 game_viewport_pixel_centre.x,
-                 game_viewport_pixel_centre.y,
-                 game_viewport_local_centre.x,
-                 game_viewport_local_centre.y);
+                 G_Universe.camera.tunnel.destination_frame->origin_in_parent.x, G_Universe.camera.tunnel.destination_frame->origin_in_parent.y,
+                 G_Universe.camera.source_focus_coords.x, G_Universe.camera.source_focus_coords.y,
+                 game_viewport_pixel_centre.x, game_viewport_pixel_centre.y,
+                 game_viewport_local_centre.x, game_viewport_local_centre.y);
         universe_camera_diagnostic_printed = true;
     }
 
@@ -149,91 +167,165 @@ void UpdateUniverseSystem(int mouse_x, int mouse_y)
 
 void UpdateUniverseInput(int mouse_x, int mouse_y, bool cursor_in_game_viewport)
 {
-    Matrix3x3 M_root_world_to_pixel = BuildRootWorldToPixelMatrix();
+    Matrix3x3 M_root_world_to_pixel = BuildCameraToScreenMatrix();
     Matrix3x3 M_pixel_to_world = MatrixInvert_3x3(M_root_world_to_pixel);
+    DragInteractionState *game_drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
+    Vector2d mouse_pixel_coords = {(float)mouse_x, (float)mouse_y};
 
-    // Universe camera controls: arrow keys for panning, Ctrl +/- for zooming
-    // Only pan/zoom when cursor is in the viewport region
     if (cursor_in_game_viewport)
     {
         float wheel_move = GetMouseWheelMove();
         Vector2d pan_delta = ZERO_VECTOR_2D;
-        if (IsKeyDown(KEY_UP))
-            pan_delta.y -= 0.5f;
-        if (IsKeyDown(KEY_DOWN))
-            pan_delta.y += 0.5f;
-        if (IsKeyDown(KEY_LEFT))
-            pan_delta.x -= 0.5f;
-        if (IsKeyDown(KEY_RIGHT))
-            pan_delta.x += 0.5f;
+        
+        // Define speed in units per second, scaled by delta time
+        float current_speed = cam_ctrl.base_pan_speed / cam_ctrl.target_zoom; 
 
+        if (IsKeyDown(KEY_UP))    pan_delta.y -= current_speed;
+        if (IsKeyDown(KEY_DOWN))  pan_delta.y += current_speed;
+        if (IsKeyDown(KEY_LEFT))  pan_delta.x -= current_speed;
+        if (IsKeyDown(KEY_RIGHT)) pan_delta.x += current_speed;
+
+        // Tell the controller to move the TARGET, not the actual camera
         if (pan_delta.x != 0.0f || pan_delta.y != 0.0f)
-            PanCamera(&G_Universe.camera, VectorScale_2d(pan_delta, -1.0f));
+        {
+            // Note: We use GetFrameTime() here so keyboard polling is smooth
+            Controller_Pan(&cam_ctrl, pan_delta, frame_counter.delta_time);
+        }
 
-        // Zoom with Ctrl +/-
-        // if (IsKeyDown(KEY_LEFT_CONTROL))
-        // {
-        //     if (IsKeyPressed(KEY_EQUAL))
-        //         ZoomCamera(&G_Universe.camera, 1.1f);
-        //     else if (IsKeyPressed(KEY_MINUS))
-        //         ZoomCamera(&G_Universe.camera, 1.0f / 1.1f);
-        // }
+        // Tell the controller to change the target zoom
         if (IsKeyDown(KEY_LEFT_CONTROL))
         {
-            if (wheel_move > 0.0f)
-                ZoomCamera(&G_Universe.camera, 1.1f);
-            else if (wheel_move < 0.0f)
-                ZoomCamera(&G_Universe.camera, 1.0f / 1.1f);
+            if (wheel_move > 0.0f)      cam_ctrl.target_zoom *= cam_ctrl.zoom_speed;
+            else if (wheel_move < 0.0f) cam_ctrl.target_zoom /= cam_ctrl.zoom_speed;
         }
 
         if (IsKeyDown(KEY_LEFT_SHIFT))
         {
             if (wheel_move > 0.0f)
-                RotateCamera(&G_Universe.camera, -0.05f); // Scaled down for smoothness + inverted
+                Controller_Rotate(&cam_ctrl, -0.05f); 
             else if (wheel_move < 0.0f)
-                RotateCamera(&G_Universe.camera, 0.05f);
-            // if (IsKeyPressed(KEY_EQUAL))
-            //     RotateCamera(&G_Universe.camera, 0.25);
-            // else if (IsKeyPressed(KEY_MINUS))
-            //     RotateCamera(&G_Universe.camera, -0.25);
+                Controller_Rotate(&cam_ctrl, 0.05f);
         }
     }
-    // Click to select/deselect worlds
-    if (IsMouseButtonPressed((int)MOUSE_BUTTON_LEFT) && cursor_in_game_viewport)
+
+    // Universe-level world dragging is only active when no world is selected.
+    if (G_Universe.selected_world_index < 0)
     {
-        Vector2d click_pixel_coords = {mouse_x, mouse_y};
-        Vector2d click_universe_coords = TransformCoordinates(M_pixel_to_world, click_pixel_coords);
+        if (cursor_in_game_viewport && IsMouseButtonDown((int)MOUSE_BUTTON_LEFT))
+        {
+            DragInteraction_UpdateButtonDown(game_drag_ctx, mouse_pixel_coords);
+
+            if (game_drag_ctx->pointer_state.left_button_hold_ticks == 1)
+            {
+                Vector2d click_universe_coords = TransformCoordinates(M_pixel_to_world, mouse_pixel_coords);
+                int world_index = Universe_FindWorldAt(&G_Universe, click_universe_coords);
+                if (world_index >= 0)
+                {
+                    World2d *world = &G_Universe.worlds[world_index];
+                    DragInteraction_BeginCapture(game_drag_ctx,
+                                                DRAG_TARGET_WORLD_CONTAINER,
+                                                world,
+                                                world->grid_space.space.frame.origin_in_parent);
+                }
+                else
+                {
+                    DragInteraction_ClearCapture(game_drag_ctx);
+                }
+            }
+
+            if (game_drag_ctx->has_capture && game_drag_ctx->target_kind == DRAG_TARGET_WORLD_CONTAINER &&
+                DragInteraction_IsDragActive(game_drag_ctx, 5.0f))
+            {
+                World2d *world = (World2d *)game_drag_ctx->target;
+                if (world)
+                {
+                    Vector2d initial_universe_coords = TransformCoordinates(M_pixel_to_world, game_drag_ctx->pointer_state.initial_pos);
+                    Vector2d current_universe_coords = TransformCoordinates(M_pixel_to_world, game_drag_ctx->pointer_state.current_pos);
+                    Vector2d drag_delta_universe = VectorSum_2d(current_universe_coords,
+                                                                (Vector2d){-initial_universe_coords.x, -initial_universe_coords.y});
+                    Vector2d new_universe_origin = VectorSum_2d(game_drag_ctx->target_anchor, drag_delta_universe);
+                    ApplyWorldDragTransform(world, new_universe_origin);
+                }
+            }
+        }
+        else if (game_drag_ctx->pointer_state.left_button_hold_ticks > 0)
+        {
+            bool was_click = DragInteraction_IsClick(game_drag_ctx, 20, 5.0f);
+            if (was_click && cursor_in_game_viewport)
+            {
+                Vector2d click_universe_coords = TransformCoordinates(M_pixel_to_world, mouse_pixel_coords);
+                bool world_hit = Universe_ResolveClick(&G_Universe, click_universe_coords, NULL);
+
+                if (!world_hit)
+                {
+                    G_Universe.selected_world_index = -1;
+                }
+
+                SyncWorldStateFromSelection();
+            }
+
+            DragInteraction_UpdateButtonUp(game_drag_ctx);
+        }
+    }
+    else if (IsMouseButtonPressed((int)MOUSE_BUTTON_LEFT) && cursor_in_game_viewport)
+    {
+        Vector2d click_universe_coords = TransformCoordinates(M_pixel_to_world, mouse_pixel_coords);
         bool world_hit = Universe_ResolveClick(&G_Universe, click_universe_coords, NULL);
 
-        // If no world was hit, deselect and reset camera offset so all worlds are visible
         if (!world_hit)
         {
             G_Universe.selected_world_index = -1;
-            // G_Universe.camera_offset = ZERO_VECTOR_2D;
         }
 
         SyncWorldStateFromSelection();
     }
 
-    UpdateCameraSmoothingTick(&G_Universe.camera);
+    Controller_Update(&cam_ctrl);
+}
+
+static void ApplyWorldDragTransform(World2d *world, Vector2d new_universe_origin)
+{
+    if (!world)
+    {
+        return;
+    }
+
+    // Ensure tunnel frame pointers always reference canonical persistent frames.
+    world->tunnel.source_frame = &world->grid_space.space.frame;
+    world->tunnel.destination_frame = &G_Universe.camera.frame;
+
+    world->grid_space.space.frame.origin_in_parent = new_universe_origin;
+    world->uni_coords_center = new_universe_origin;
+
+    // Keep tunnel transform in world-local <-> universe space.
+    world->tunnel.source_to_dest_mtx = MtxTransform_GetLocalToParent(*world->tunnel.source_frame);
+    world->tunnel.dest_to_source_mtx = MatrixInvert_3x3(world->tunnel.source_to_dest_mtx);
+
+    int world_index = (int)(world - G_Universe.worlds);
+    if (world_index >= 0 && world_index < G_Universe.world_count)
+    {
+        Matrix2x2 world_bounds = Frame_CalcAABB_InParent(&world->grid_space.space.frame);
+        Universe_SetWorldBounds(&G_Universe, world_index, world_bounds.col1, world_bounds.col2);
+    }
 }
 
 void DrawUniverse(void)
 {
-    Matrix3x3 M_root_world_to_pixel = BuildRootWorldToPixelMatrix();
+    Matrix3x3 M_cam_to_pixel = BuildCameraToScreenMatrix();
+    CameraViewBox cam_view = GetCameraView(&G_Universe.camera, game_viewport, M_cam_to_pixel);
     // Draw universe grid background
-    DrawUniverseGrid(M_root_world_to_pixel);
+    DrawUniverseGrid(cam_view, M_cam_to_pixel);
 
     Universe_Draw(&G_Universe);
-    DrawUniverseCameraMarker(M_root_world_to_pixel);
-    DrawUniverseDebugOverlays(M_root_world_to_pixel);
+    DrawUniverseCameraMarker(M_cam_to_pixel);
+    DrawUniverseDebugOverlays(M_cam_to_pixel);
 }
 
-void DrawUniverseCameraMarker(Matrix3x3 M_root_world_to_pixel)
+void DrawUniverseCameraMarker(Matrix3x3 M_cam_to_pixel)
 {
     // Draw marker in screen-space at the active game viewport center.
     Vector2d camera_world_pos = G_Universe.camera.source_focus_coords;
-    Vector2d pixel_origin = TransformCoordinates(M_root_world_to_pixel, camera_world_pos);
+    Vector2d pixel_origin = TransformCoordinates(M_cam_to_pixel, camera_world_pos);
     // Define the marker size in SCREEN PIXELS.
     // We adjust it by our camera zoom factor so it physically scales down/up with the world!
     float marker_pixel_size = 24.0f * (float)G_Universe.camera.zoom;
@@ -251,40 +343,34 @@ void DrawUniverseCameraMarker(Matrix3x3 M_root_world_to_pixel)
     DrawRectangleV(position, size, color);
 }
 
-void DrawUniverseGrid(Matrix3x3 M_root_world_to_pixel)
+void DrawUniverseGrid(CameraViewBox cam_view, Matrix3x3 M_cam_to_pixel)
 {
     Color grid_colour = {100, 100, 100, 100}; // Faint gray
     Color axis_x_colour = {230, 90, 90, 220};
     Color axis_y_colour = {90, 200, 255, 220};
     float grid_cell_size = universe_grid_cell_size;
 
-    // Invert cascade matrix to convert viewport pixel corners to local space
-    Matrix3x3 M_pixel_to_world = MatrixInvert_3x3(M_root_world_to_pixel);
-
-    Vector2d viewport_coords[] = {
-        TransformCoordinates(M_pixel_to_world, game_viewport_pixel_origin),
-        TransformCoordinates(M_pixel_to_world, (Vector2d){(float)game_viewport_pixel_end.x, game_viewport_pixel_origin.y}),
-        TransformCoordinates(M_pixel_to_world, (Vector2d){game_viewport_pixel_origin.x, (float)game_viewport_pixel_end.y}),
-        TransformCoordinates(M_pixel_to_world, game_viewport_pixel_end)};
-
-    // Calculate bounds from spatial matrices
-    Matrix2x2 game_aabb = CalcAABBCoords_Tight(viewport_coords, 4, ZERO_VECTOR_2D);
-
     float uni_half_w = G_Universe.resolution.x * 0.5f;
     float uni_half_h = G_Universe.resolution.y * 0.5f;
 
+    // Extract the min and max world coordinates of the camera view
+    float lens_min_x = cam_view.origin.x;
+    float lens_max_x = cam_view.origin.x + cam_view.dimensions.x;
+    float lens_min_y = cam_view.origin.y;
+    float lens_max_y = cam_view.origin.y + cam_view.dimensions.y;
+
     // Clamp boundary checks directly against global limits
-    float world_min_x = fmaxf(game_aabb.col1.x, -uni_half_w);
-    float world_max_x = fminf(game_aabb.col2.x, uni_half_w);
-    float world_min_y = fmaxf(game_aabb.col1.y, -uni_half_h);
-    float world_max_y = fminf(game_aabb.col2.y, uni_half_h);
+    float world_min_x = fmaxf(lens_min_x, -uni_half_w);
+    float world_max_x = fminf(lens_max_x, uni_half_w);
+    float world_min_y = fmaxf(lens_min_y, -uni_half_h);
+    float world_max_y = fminf(lens_max_y, uni_half_h);
 
     // Snap the loop limits to the grid lines baseline
     float start_x = floorf(world_min_x / grid_cell_size) * grid_cell_size;
     float start_y = floorf(world_min_y / grid_cell_size) * grid_cell_size;
 
     // =========================================================================
-    // FIX 1: Generate lines using actual visible AABB bounds (prevents popping)
+    // Generate lines using actual visible AABB bounds (prevents popping)
     // =========================================================================
 
     // Draw Vertical Lines
@@ -293,8 +379,8 @@ void DrawUniverseGrid(Matrix3x3 M_root_world_to_pixel)
         Vector2d line_start = {x, -uni_half_h};
         Vector2d line_end = {x, uni_half_h};
 
-        Vector2d p_start = TransformCoordinates(M_root_world_to_pixel, line_start);
-        Vector2d p_end = TransformCoordinates(M_root_world_to_pixel, line_end);
+        Vector2d p_start = TransformCoordinates(M_cam_to_pixel, line_start);
+        Vector2d p_end = TransformCoordinates(M_cam_to_pixel, line_end);
 
         DrawLineEx((Vector2){(float)p_start.x, (float)p_start.y}, (Vector2){(float)p_end.x, (float)p_end.y}, 1.0f, grid_colour);
     }
@@ -305,17 +391,17 @@ void DrawUniverseGrid(Matrix3x3 M_root_world_to_pixel)
         Vector2d line_start = {-uni_half_w, y};
         Vector2d line_end = {uni_half_w, y};
 
-        Vector2d p_start = TransformCoordinates(M_root_world_to_pixel, line_start);
-        Vector2d p_end = TransformCoordinates(M_root_world_to_pixel, line_end);
+        Vector2d p_start = TransformCoordinates(M_cam_to_pixel, line_start);
+        Vector2d p_end = TransformCoordinates(M_cam_to_pixel, line_end);
 
         DrawLineEx((Vector2){(float)p_start.x, (float)p_start.y}, (Vector2){(float)p_end.x, (float)p_end.y}, 1.0f, grid_colour);
     }
 
     // Draw Primary Target Origin Axes
-    Vector2d x_axis_start_px = TransformCoordinates(M_root_world_to_pixel, (Vector2d){world_min_x, 0.0f});
-    Vector2d x_axis_end_px = TransformCoordinates(M_root_world_to_pixel, (Vector2d){world_max_x, 0.0f});
-    Vector2d y_axis_start_px = TransformCoordinates(M_root_world_to_pixel, (Vector2d){0.0f, world_min_y});
-    Vector2d y_axis_end_px = TransformCoordinates(M_root_world_to_pixel, (Vector2d){0.0f, world_max_y});
+    Vector2d x_axis_start_px = TransformCoordinates(M_cam_to_pixel, (Vector2d){world_min_x, 0.0f});
+    Vector2d x_axis_end_px = TransformCoordinates(M_cam_to_pixel, (Vector2d){world_max_x, 0.0f});
+    Vector2d y_axis_start_px = TransformCoordinates(M_cam_to_pixel, (Vector2d){0.0f, world_min_y});
+    Vector2d y_axis_end_px = TransformCoordinates(M_cam_to_pixel, (Vector2d){0.0f, world_max_y});
 
     DrawLineEx((Vector2){(float)x_axis_start_px.x, (float)x_axis_start_px.y}, (Vector2){(float)x_axis_end_px.x, (float)x_axis_end_px.y}, 2.5f, axis_x_colour);
     DrawLineEx((Vector2){(float)y_axis_start_px.x, (float)y_axis_start_px.y}, (Vector2){(float)y_axis_end_px.x, (float)y_axis_end_px.y}, 2.5f, axis_y_colour);
@@ -325,8 +411,8 @@ void DrawUniverseGrid(Matrix3x3 M_root_world_to_pixel)
         return;
 
     // Check zoom level text density limits
-    Vector2d p00 = TransformCoordinates(M_root_world_to_pixel, (Vector2d){0.0f, 0.0f});
-    Vector2d p10 = TransformCoordinates(M_root_world_to_pixel, (Vector2d){grid_cell_size, 0.0f});
+    Vector2d p00 = TransformCoordinates(M_cam_to_pixel, (Vector2d){0.0f, 0.0f});
+    Vector2d p10 = TransformCoordinates(M_cam_to_pixel, (Vector2d){grid_cell_size, 0.0f});
     float cell_px_w = (float)VectorMagnitude_2d((Vector2d){p10.x - p00.x, p10.y - p00.y});
     if (cell_px_w < 40.0f)
         return;
@@ -338,26 +424,16 @@ void DrawUniverseGrid(Matrix3x3 M_root_world_to_pixel)
         for (float x = start_x; x < world_max_x; x += grid_cell_size)
         {
             Vector2d cell_origin = {x, y};
-            Vector2d cell_pixel = TransformCoordinates(M_root_world_to_pixel, cell_origin);
+            Vector2d cell_pixel = TransformCoordinates(M_cam_to_pixel, cell_origin);
 
-            // Screen boundary check
-            if (cell_pixel.x < game_viewport_pixel_origin.x - 100 || cell_pixel.x > game_viewport_pixel_end.x + 100 ||
-                cell_pixel.y < game_viewport_pixel_origin.y - 100 || cell_pixel.y > game_viewport_pixel_end.y + 100)
-            {
-                continue;
-            }
-
+            // Calculate grid indices
             int ix = (int)floorf((x + uni_half_w) / grid_cell_size);
             int iy = (int)floorf((y + uni_half_h) / grid_cell_size);
 
-            if (ix < 0)
-                ix = 0;
-            if (ix >= universe_grid_cells_x)
-                ix = universe_grid_cells_x - 1;
-            if (iy < 0)
-                iy = 0;
-            if (iy >= universe_grid_cells_y)
-                iy = universe_grid_cells_y - 1;
+            if (ix < 0) ix = 0;
+            if (ix >= universe_grid_cells_x) ix = universe_grid_cells_x - 1;
+            if (iy < 0) iy = 0;
+            if (iy >= universe_grid_cells_y) iy = universe_grid_cells_y - 1;
 
             int cell_index = (iy * universe_grid_cells_x) + ix;
 
@@ -371,7 +447,7 @@ int CreateNewWorld(bool auto_select)
 {
     // Vector2d game_viewport_local_center = ResolveGameViewportCenter();
     int index = Universe_CreateWorld(&G_Universe, WHITE_RGBA, LIGHTGRAY_RGBA, camera_marker_colour, G_Universe.next_spawn,
-                                     &G_WorldState, auto_select);
+                                     auto_select);
     if (index >= 0 && auto_select)
     {
         SyncWorldStateFromSelection();

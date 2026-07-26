@@ -29,14 +29,16 @@ static Basis2d ResolveFrameBasis_UserInput(Vector2d requested_u, Vector2d reques
         return result;
     }
 
-    result.u = VectorScale_2d(requested_u, 1.0f / u_mag);
-    result.v = VectorScale_2d(requested_v, 1.0f / v_mag);
+    // Preserve authored basis magnitudes so the basis editor affects scale as well as direction.
+    result.u = requested_u;
+    result.v = requested_v;
 
     float det = (result.u.x * result.v.y) - (result.u.y * result.v.x);
     if (fabsf(det) < eps)
     {
-        // If vectors are nearly collinear, rebuild v perpendicular to u.
-        result.v = (Vector2d){-result.u.y, result.u.x};
+        // If vectors are nearly collinear, rebuild v perpendicular to u while preserving v magnitude.
+        Vector2d u_unit = VectorScale_2d(result.u, 1.0f / u_mag);
+        result.v = (Vector2d){-u_unit.y * v_mag, u_unit.x * v_mag};
         det = (result.u.x * result.v.y) - (result.u.y * result.v.x);
     }
 
@@ -49,20 +51,7 @@ static Basis2d ResolveFrameBasis_UserInput(Vector2d requested_u, Vector2d reques
     return result;
 }
 
-static Camera2d BuildWorldToUniverseCamera(Frame2d *source_frame, Frame2d *destination_frame)
-{
-    Vector2d source_focus_coords = source_frame->origin_in_parent;
 
-    Camera2d camera = CreateCamera2d(source_frame, destination_frame);
-    camera.source_focus_coords = source_focus_coords;
-    camera.target_source_focus_coords = source_focus_coords;
-    camera.zoom = 1.0f;
-    camera.target_zoom = 1.0f;
-    camera.rotation = 0.0f;
-    UpdateCameraFull(&camera);
-
-    return camera;
-}
 
 // ---------------------------------------------------------------------------
 void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_world_resolution, float default_gravity)
@@ -91,7 +80,7 @@ void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_wor
 
 // ---------------------------------------------------------------------------
 int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_colour, ColourRgba camera_marker_colour, Vector2d world_center_in_universe,
-                         WorldState *world_state, bool auto_select)
+                         bool auto_select)
 {
     if (u->world_count >= UNIVERSE_MAX_WORLDS)
     {
@@ -99,15 +88,13 @@ int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_co
         return -1;
     }
 
-    Vector2d requested_res = (u->next_resolution.x > 0.0f && u->next_resolution.y > 0.0f)
-                                ? u->next_resolution
-                                : (Vector2d){16.0f, 9.0f}; // sensible fallback
+    Vector2d requested_res = (u->next_resolution.x > 0.0f && u->next_resolution.y > 0.0f) ? u->next_resolution : (Vector2d){16.0f, 9.0f}; // sensible fallback
 
     Basis2d world_basis = ResolveFrameBasis_UserInput(u->next_basis_u, u->next_basis_v);
     u->next_basis_u = world_basis.u;
     u->next_basis_v = world_basis.v;
 
-    GridSpace2d space_g = NewGridSpace2d(ZERO_VECTOR_2D, requested_res, world_basis, fill_colour, line_colour);
+    GridSpace2d space_g = NewGridSpace2d(world_center_in_universe, requested_res, world_basis, fill_colour, line_colour);
     space_g.object.id = 0;
     space_g.object.flags = FLAG_ATTR_RIGID | FLAG_STATUS_ALIVE;
     space_g.object.collision_mask = FLAG_TYPE_NEWTONOID | FLAG_TYPE_PROJECTILE | FLAG_TYPE_WALL;
@@ -115,22 +102,39 @@ int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_co
 
     int new_index = u->world_count;
     World2d *new_world = &u->worlds[new_index];
-    new_world->camera.tunnel.source_frame = &space_g.space.frame;
-    new_world->camera.tunnel.destination_frame = u->camera.tunnel.source_frame;
+    // Temporary source pointer before CreateWorld copies GridSpace2d into world-owned storage.
+    new_world->tunnel.source_frame = &space_g.space.frame;
+    new_world->tunnel.destination_frame = u->camera.tunnel.source_frame;
 
-    Camera2d world_camera = BuildWorldToUniverseCamera(new_world->camera.tunnel.source_frame, new_world->camera.tunnel.destination_frame);
+    CreateWorld(space_g, u->next_gravity, new_world);
 
-    CreateWorld(space_g, world_camera, u->next_gravity, new_world);
-    // Rebind camera tunnel frames to persistent world-owned storage (avoid stack pointer lifetime issues).
-    new_world->camera.tunnel.source_frame = &new_world->grid_space.space.frame;
-    new_world->camera.tunnel.destination_frame = u->camera.tunnel.source_frame;
-    UpdateCameraFull(&new_world->camera);
+    // Rebind tunnel frames to persistent storage owned by the world and universe camera.
+    new_world->tunnel.source_frame = &new_world->grid_space.space.frame;
+    new_world->tunnel.destination_frame = &u->camera.frame;
 
+    // Sync the world's frame origin to its anchored logical position in the universe
+    new_world->grid_space.space.frame.origin_in_parent = world_center_in_universe;
     new_world->uni_coords_center = world_center_in_universe;
+    
+    // Keep world tunnel in stable world-local <-> universe space (camera zoom must not affect it).
+    new_world->tunnel.source_to_dest_mtx = MtxTransform_GetLocalToParent(*new_world->tunnel.source_frame);
+    new_world->tunnel.dest_to_source_mtx = MatrixInvert_3x3(new_world->tunnel.source_to_dest_mtx);
 
-    // Place a camera-position marker at the world-space focus point.
+    Matrix2x2 world_bounds = Frame_CalcAABB_InParent(&new_world->grid_space.space.frame);
+    Universe_SetWorldBounds(u, new_index, world_bounds.col1, world_bounds.col2);
+
+    // Advance the default spawn so the next world is offset by default.
+    u->next_spawn = VectorSum_2d(u->next_spawn, u->spawn_step);
+
+    if (auto_select)
+    {
+        u->selected_world_index = new_index;
+    }
+
+    // Place marker in world-local space; world placement is applied by world transforms.
+    Vector2d marker_local_coords = {0.5f, 0.5f};
     Newtonoid2d marker = CreateNewtonoid2d_Symmetric(4, 0.45f, camera_marker_colour, 1.0f,
-                                                     new_world->camera.source_focus_coords,
+                                                     marker_local_coords,
                                                      ZERO_VECTOR_2D, ZERO_VECTOR_2D);
 
     marker.entity_layer = FLAG_TYPE_EFFECT;
@@ -142,50 +146,10 @@ int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_co
 
     u->world_count++;
 
-    Frame2d world_frame_in_universe = CreateFrame2d(world_basis, world_center_in_universe, requested_res);
-    Matrix2x2 world_bounds = Frame_CalcAABB_InParent(&world_frame_in_universe);
-    Vector2d world_bounds_min = world_bounds.col1;
-    Vector2d world_bounds_max = world_bounds.col2;
-    Universe_SetWorldBounds(u, new_index, world_bounds_min, world_bounds_max);
-
-    // Advance the default spawn so the next world is offset by default.
-    u->next_spawn = VectorSum_2d(u->next_spawn, u->spawn_step);
-
-    if (auto_select)
-    {
-        u->selected_world_index = new_index;
-    }
-
-    // Wire WorldState to the new world.
-    if (world_state)
-    {
-        world_state->world = new_world;
-        world_state->entity_world_index_registry = &new_world->entity_world_index_registry;
-        world_state->collisions = &new_world->collisions;
-        world_state->selected_object = NULL;
-        world_state->selected_cell = NULL;
-        world_state->selected_cell_index = -1;
-    }
-
     LOG_INFO("Universe_CreateWorld -> index=%d universe_pos=(%.1f,%.1f) res=(%.0fx%.0f)\n",
              new_index,
-             new_world->uni_coords_center.x, new_world->uni_coords_center.y,
+             new_world->grid_space.space.frame.origin_in_parent.x, new_world->grid_space.space.frame.origin_in_parent.y,
              requested_res.x, requested_res.y);
-
-    if (!world_camera_diagnostic_printed)
-    {
-        Vector2d mapped_world_center = TransformCoordinates(new_world->camera.tunnel.source_to_dest_mtx, new_world->camera.source_focus_coords);
-        LOG_INFO("[WORLD CAMERA DIAG] src_focus=(%.2f, %.2f) dest_origin=(%.2f, %.2f) mapped_center_in_parent=(%.2f, %.2f) universe_center=(%.2f, %.2f)\n",
-               new_world->camera.source_focus_coords.x,
-               new_world->camera.source_focus_coords.y,
-               new_world->camera.tunnel.source_frame->origin_in_parent.x,
-               new_world->camera.tunnel.source_frame->origin_in_parent.y,
-               mapped_world_center.x,
-               mapped_world_center.y,
-               world_center_in_universe.x,
-               world_center_in_universe.y);
-        world_camera_diagnostic_printed = true;
-    }
 
     return new_index;
 }
@@ -252,7 +216,7 @@ void Universe_Draw(Universe *u)
         // }
 
         // Universe view must be camera-stable: selection changes state, not rendering transform.
-        DrawWorldRegion(w, &w->camera, &u->camera);
+        DrawWorldRegion(w, &u->camera);
     }
 }
 
@@ -278,9 +242,9 @@ bool Universe_ResolveClick(Universe *u, Vector2d universe_click, Vector2d *local
         if (local_out)
         {
             World2d *w = &u->worlds[clicked_world];
-            //Frame2d universe_space = CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D, u->resolution);
-            //Frame2d world_space = w->grid_space.space.frame;
-            Matrix3x3 universe_to_world_mtx = w->camera.tunnel.dest_to_source_mtx; // Transform from universe space to world space
+            // Frame2d universe_space = CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D, u->resolution);
+            // Frame2d world_space = w->grid_space.space.frame;
+            Matrix3x3 universe_to_world_mtx = w->tunnel.dest_to_source_mtx; // Transform from universe space to world space
             *local_out = TransformCoordinates(universe_to_world_mtx, universe_click);
         }
         return true;

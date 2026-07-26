@@ -35,11 +35,9 @@ typedef struct Universe
     bool world_bounds_valid[UNIVERSE_MAX_WORLDS];
 
     // Universe-space camera (operates in world-local units)
+    CameraController camera_ctrl;
     Camera2d camera;
-    //Frame2d system;
-    //FrameTunnel tunnel; // Tunnel linking universe frame to viewport frame
     Vector2d resolution;    // Total universe dimensions in universe logical units
-    //Vector2d camera_offset; // Pan offset applied when a world is selected (not used when universe camera is active)
 
     // Creation parameters for the next world
     Vector2d next_spawn;    // World center in universe space; top-left is derived from this and world size
@@ -71,7 +69,6 @@ int Universe_CreateWorld(Universe *u,
                          ColourRgba line_colour,
                          ColourRgba camera_marker_colour,
                          Vector2d world_center_in_universe,
-                         WorldState *world_state,
                          bool auto_select);
 
 // Select a world by index.

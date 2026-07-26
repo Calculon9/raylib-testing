@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include "collections/dynamic_array.h"
 #include "memory/cmemory.h"
+#include "common/common.h"
 
 //----------------------------------------------------------------------------------
 // Global Variables Definition (local to this module)
@@ -179,6 +180,7 @@ bool GrowDynamicArray(DArray *a)
     a->front = 0;
     a->rear = a->count;
 
+    LOG_INFO("Dynamic Array grown to new capacity %d\n", new_capacity);
     return true;
 }
 

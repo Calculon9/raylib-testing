@@ -29,7 +29,7 @@ typedef struct {
 
 typedef struct {
     float fps;
-    float delta_time;
+    float delta_time; // Time elapsed since last frame in milliseconds
     double last_time;
     int frame_count_this_second;
     uint64_t total_frames;

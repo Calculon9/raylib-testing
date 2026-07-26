@@ -18,7 +18,7 @@
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
 //
-void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d viewport_camera, Matrix3x3 M_ui_to_pixel);
+void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel);
 void DrawTextArea(UIElement *e);
 
 void DrawElementBox(UIElement *e)
@@ -124,103 +124,66 @@ void DrawTextBoxText(UIElement *e)
 }
 
 // NEED TO CREATE BOX FOR ENTIRE SCREEN AND PASS THAT AS THE PARENT BOX FOR THE ROOT ELEMENT, SO THAT THE ROOT ELEMENT AND ALL OTHER ELEMENTS CAN CALCULATE THEIR POSITIONS AND DIMENSIONS BASED ON THAT, RATHER THAN HAVING THE ROOT ELEMENT CALCULATE ITS POSITION AND DIMENSIONS BASED ON A ZERO VECTOR, WHICH IS NOT FLEXIBLE IF WE WANT TO CHANGE THE PANEL OR ROOT ELEMENT PROPERTIES LATER
-void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d space_camera, Matrix3x3 M_ui_to_pixel)
+void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Matrix3x3 M_ui_to_pixel)
 {
     if (!root_element)
     {
         return;
     }
 
-    // Need to convert world coordinates --> viewport --> screen coordinates
-    // Space2d panel_space = root_element->data.root.space;
-    // Basis2d basis = space_camera.tunnel.source_frame->basis;
-    // //Vector2d origin = panel_space.frame.origin_in_parent;
-    // //Vector2d basis_scale = Camera_GetBasisScale(&space_camera); //THIS IS NOT CORRECT, ITS SKIPPING THE SPACE->VIEWPORT TRANSFORMATION. SHOULD BE 0.5*50. NOT (50/0.5). DONT EVEN USE BASIS SCALING. // Need to scale dimensions from world units to pixel units using the camera's basis transform
-
     Matrix2x2 basis_matrix = {
         {M_ui_to_pixel.col1.x, M_ui_to_pixel.col1.y},
         {M_ui_to_pixel.col2.x, M_ui_to_pixel.col2.y}};
-    Vector2d basis_tfrm = VectorSum_2d(basis_matrix.col1,basis_matrix.col2);
+    Vector2d basis_tfrm = VectorSum_2d(basis_matrix.col1, basis_matrix.col2);
 
     // Resolve rendered position and dimensions of panel element
     root_element->screen_box.coords = TransformCoordinates(M_ui_to_pixel, seed_box.coords);
     root_element->screen_box.dimensions = (Vector2d){seed_box.dimensions.x * basis_tfrm.x, seed_box.dimensions.y * basis_tfrm.y};
-    //Vector2d pixel_coords = MatrixMultiply_3x3_Vector2d(M_ui_to_pixel, box.coords);
-    //box.coords = (Vector2d){(int)pixel_coords.x, (int)pixel_coords.y};
-    //box.dimensions = (Vector2d){(int)box.dimensions.x * basis_tfrm.x, (int)box.dimensions.y * basis_tfrm.y};
-
-    // DistributeChildrenRecursiveResolved(root_element, box);
 
     // Draw background & border
     DrawElementBox(root_element);
-    // frame_counter.total_frames % 800 == 0 ? printf("DREW [%s] Pos: (%.1f, %.1f) | Size: (%.1f, %.1f)\n", GetElementTypeName(root_element->type), box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y) : (void)0;
 
     // Recursively draw children
     UIElement *child = root_element->first_child;
     while (child)
     {
-        DrawUIElement(child, root_element->screen_box, space_camera, M_ui_to_pixel);
+        DrawUIElement(child, root_element->screen_box, M_ui_to_pixel);
         child = child->next_sibling;
     }
 }
 
-void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d space_camera, Matrix3x3 M_ui_to_pixel)
+void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel)
 {
     if (!e || !e->is_enabled)
     {
         return;
     }
 
-    // The world position of the coordinate space object is the origin of the coordinate space, so (0,0).
-    // But to make it more flexible for different coordinate space origins, we will add the world position to the start and end points of the lines to get their actual coordinates in world space, and then convert those to screen coordinates using the basis transform matrix
-    // Need to convert world coordinates --> viewport --> screen coordinates
-    // Space2d panel_space = e->data.root.space;
-    // Basis2d basis = space_camera.tunnel.source_frame->basis;
-    // //Vector2d origin = panel_space.frame.origin_in_parent;
-
     Matrix2x2 basis_matrix = {
         {M_ui_to_pixel.col1.x, M_ui_to_pixel.col1.y},
         {M_ui_to_pixel.col2.x, M_ui_to_pixel.col2.y}};
-    Vector2d basis_tfrm = VectorSum_2d(basis_matrix.col1,basis_matrix.col2);
+    Vector2d basis_tfrm = VectorSum_2d(basis_matrix.col1, basis_matrix.col2);
 
-    // Resolve rendered position and dimensions of panel element
-    // UIBox box = ResolveElementBox(e, parent_box);
-    // Vector2d pixel_coords = MatrixMultiply_3x3_Vector2d(M_ui_to_pixel, box.coords);
-    // box.coords = (Vector2d){(int)pixel_coords.x, (int)pixel_coords.y};
-    // box.dimensions = (Vector2d){(int)box.dimensions.x * basis_tfrm.x, (int)box.dimensions.y * basis_tfrm.y};
-    // e->cached_box = box;
+    // Calculate local offset scaled to pixel space
+    Vector2d scaled_local_offset = {
+        e->local_box.coords.x * basis_tfrm.x,
+        e->local_box.coords.y * basis_tfrm.y};
 
+    // Add to parent's screen coordinates
     e->screen_box.coords = TransformCoordinates(M_ui_to_pixel, e->local_box.coords);
     e->screen_box.dimensions = (Vector2d){e->local_box.dimensions.x * basis_tfrm.x, e->local_box.dimensions.y * basis_tfrm.y};
 
-    if(IsTextbox(e))
+    if (IsBtn(e))
     {
-        //LOG_INFO("I'm a textbox, check my dimensions.");
+        // LOG_INFO("I'm a textbox, check my dimensions.");
     }
 
-    // DRAW IT ... IF it's within the ranged coordinates of its parent
-    Vector2d parent_verts_arr[4];
-    Vector2d verts_arr[4];
-    LArray parent_verts = {sizeof(Vector2d), parent_verts_arr, 4, 4, 0};
-    LArray verts = {sizeof(Vector2d), verts_arr, 4, 4, 0};
-    for (size_t i = 0; i < 4; i++)
-    {
-        parent_verts_arr[i] = (Vector2d){
-            parent_box.coords.x + (i == 1 || i == 2 ? parent_box.dimensions.x : 0),
-            parent_box.coords.y + (i >= 2 ? parent_box.dimensions.y : 0)};
-        verts_arr[i] = (Vector2d){
-            e->screen_box.coords.x + (i == 1 || i == 2 ? e->screen_box.dimensions.x : 0),
-            e->screen_box.coords.y + (i >= 2 ? e->screen_box.dimensions.y : 0)};
-    }
-
-    bool is_within_parent = ShapeFitsWithinShape(&verts, &parent_verts, ZERO_VECTOR_2D, ZERO_VECTOR_2D);
-
-    // Don't draw it or any of its children
-    if (!is_within_parent)
-    {
-        frame_counter.total_frames % 1800 == 0 ? printf("NOT DRAWING [%s] | NOT FULLY BOUNDED BY PARENT [%s]\n", GetElementTypeName(e->type), GetElementTypeName(e->parent->type)) : (void)0;
-        return;
-    }
+    // DRAW IT ... IF it's within or intersects with the ranged coordinates of its parent
+    // if (!UI_AABB_Intersects(e->screen_box, parent_box))
+    // {
+    //     frame_counter.total_frames == 0 ? LOG_WARN("NOT DRAWING [%s] | NOT FULLY BOUNDED BY PARENT [%s]\n", GetElementTypeName(e->type), GetElementTypeName(e->parent->type)) : (void)0;
+    //     return; // Completely out of bounds, safe to skip
+    // }
 
     // Draw background & border
     DrawElementBox(e);
@@ -228,19 +191,13 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Camera2d space_camera, Matrix
     {
         // Draw the Text
         DrawTextArea(e);
-        // DrawTextCustom(e->data.label.text.string, e->cached_box.coords, 2, FONT_DEFAULT, FONT_DEFAULT.colour);
-        //  DrawTextCustom(e->data.label.text.string, e->cached_box.coords, 2, FONT_DEFAULT, FONT_DEFAULT.colour);
-        //  DrawTextCustom(e->data.label.text.string, e->cached_box.coords, 2, e->data.label.font, e->data.label.font.colour);
-        //   DrawText(text_box->text, text_x, text_y, font_size, (Color){colour_border.r, colour_border.g, colour_border.b, colour_border.a});
     }
-
-    // frame_counter.total_frames % 1600 == 0 ? printf("DREW [%s] PIXEL(%.1f, %.1f) | SIZE(%.1f, %.1f)\n", GetElementTypeName(e->type), box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y) : (void)0;
 
     // Recursively draw children elements
     UIElement *child = e->first_child;
     while (child)
     {
-        DrawUIElement(child, e->screen_box, space_camera, M_ui_to_pixel);
+        DrawUIElement(child, e->screen_box, M_ui_to_pixel);
         child = child->next_sibling;
     }
 }

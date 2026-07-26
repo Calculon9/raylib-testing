@@ -38,18 +38,18 @@
 #include "camera/camera.h"
 #include "math/affine_space_ops.h"
 #include <math/helpers.h>
+#include "system/drag_interaction.h"
 // #include "screens.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
-WorldState G_WorldState = {0};
 // ----------WORLD SCREEN----------
 static int finishScreen = 0;
 bool world_grid_debug_labels_enabled = true;
 // Game-region placement in logical screen units.
-//Vector2d game_viewport_local_origin, game_viewport_local_end = {0};
-//Vector2d game_viewport_local_resolution = {0};
+// Vector2d game_viewport_local_origin, game_viewport_local_end = {0};
+// Vector2d game_viewport_local_resolution = {0};
 float gravity = 10;
 // Objects and properties
 int next_object_id = 1; // Global variable to keep track of the next available ID for NewtonObjects
@@ -58,6 +58,17 @@ static float polygonoid_radius_default = 1.0;
 static float polygonoid_mass_default = 1.0;
 static Vector2d polygonoid_velocity_default = {1.0, 1.0};
 static Vector2d polygonoid_acceleration_default = {0.0, 0.0f};
+
+typedef struct
+{
+    Newtonoid2d *entity;
+    Vector2d velocity;
+    Vector2d acceleration;
+    Vector2d momentum;
+    bool has_snapshot;
+} EntityDragMotionSnapshot;
+
+static EntityDragMotionSnapshot g_drag_motion_snapshot = {0};
 //----------------------------------------------------------------------------------
 // Gameplay Screen Functions Definition
 //----------------------------------------------------------------------------------
@@ -65,7 +76,46 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region);
 void CreateAddNewtonoid(int vertice_count, float radius, ShapeType shape_type,
                         float mass, ColourRgba colour, Vector2d coords_center,
                         Vector2d velocity, Vector2d acceleration);
-void TogglePause(WorldState *context);
+void TogglePause(World2d *world);
+static Newtonoid2d *ResolveClosestEntityAt(World2d *active_world, Vector2d click_local_coords,
+                                           Cell **out_cell, int *out_cell_index,
+                                           char *log, size_t log_size, int *log_offset);
+
+static void SnapshotDraggedEntityMotion(Newtonoid2d *entity)
+{
+    if (!entity)
+    {
+        g_drag_motion_snapshot.entity = NULL;
+        g_drag_motion_snapshot.has_snapshot = false;
+        return;
+    }
+
+    g_drag_motion_snapshot.entity = entity;
+    g_drag_motion_snapshot.velocity = entity->velocity;
+    g_drag_motion_snapshot.acceleration = entity->acceleration;
+    g_drag_motion_snapshot.momentum = entity->momentum;
+    g_drag_motion_snapshot.has_snapshot = true;
+}
+
+static void RestoreDraggedEntityMotion(Newtonoid2d *entity)
+{
+    if (!entity || !g_drag_motion_snapshot.has_snapshot)
+    {
+        return;
+    }
+
+    if (g_drag_motion_snapshot.entity != entity)
+    {
+        return;
+    }
+
+    entity->velocity = g_drag_motion_snapshot.velocity;
+    entity->acceleration = g_drag_motion_snapshot.acceleration;
+    entity->momentum = g_drag_motion_snapshot.momentum;
+
+    g_drag_motion_snapshot.entity = NULL;
+    g_drag_motion_snapshot.has_snapshot = false;
+}
 
 static void AppendLogLine(char *buffer, size_t buffer_size, int *offset,
                           const char *fmt, ...)
@@ -98,21 +148,21 @@ static Vector2d ResolvePixelToWorldFrame(const World2d *active_world, Vector2d p
         return ZERO_VECTOR_2D;
     }
     // Convert click pixel coordinates from pixel --> viewport --> universe --> world-local coordinates
-    //Frame2d input_frame = screen_frame;
-    //Frame2d parent_frame = *G_Universe.camera.tunnel.source_frame;// ? *G_Universe.camera.tunnel.source_frame : CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D, G_Universe.resolution);
-    //Frame2d child_frame = *active_world->camera.tunnel.source_frame;// ? *active_world->camera.tunnel.source_frame : active_world->grid_space.space.frame;
-    
-    Matrix3x3 game_viewport_inv_transform = game_viewport_tunnel.dest_to_source_mtx; //pixel to viewport
-    Matrix3x3 parent_inv_transform = G_Universe.camera.tunnel.dest_to_source_mtx; //viewport to universe
-    Matrix3x3 child_inv_transform = active_world->camera.tunnel.dest_to_source_mtx; //universe to world-local
-    
+    // Frame2d input_frame = screen_frame;
+    // Frame2d parent_frame = *G_Universe.camera.tunnel.source_frame;// ? *G_Universe.camera.tunnel.source_frame : CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D, G_Universe.resolution);
+    // Frame2d child_frame = *active_world->camera.tunnel.source_frame;// ? *active_world->camera.tunnel.source_frame : active_world->grid_space.space.frame;
+
+    Matrix3x3 game_viewport_inv_transform = game_viewport.tunnel.dest_to_source_mtx; // pixel to viewport
+    Matrix3x3 parent_inv_transform = G_Universe.camera.tunnel.dest_to_source_mtx;    // viewport to universe
+    Matrix3x3 child_inv_transform = active_world->tunnel.dest_to_source_mtx;         // universe to world-local
+
     // Frame2d parent_system = CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D, active_world->grid_space.space.frame.local_max);
     // Frame2d child_local_system = active_world->grid_space.space.frame;
     // Frame2d input_system = CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D, active_world->grid_space.space.frame.local_max);
     // Matrix3x3 input_to_child_local_mtx = CalcChainTransform_FromFrame(input_system, parent_system, child_local_system);
     Vector2d viewport_coords = TransformCoordinates(game_viewport_inv_transform, pixel_coords);
-    Vector2d parent_coords = TransformCoordinates(parent_inv_transform, parent_coords);
-    Vector2d child_coords = TransformCoordinates(child_inv_transform, viewport_coords);
+    Vector2d parent_coords = TransformCoordinates(parent_inv_transform, viewport_coords);
+    Vector2d child_coords = TransformCoordinates(child_inv_transform, parent_coords);
 
     return child_coords;
     LOG_INFO("ResolvePixelToWorldFrame: pixel_coords=(%.2f, %.2f) -> viewport_coords=(%.2f, %.2f) -> parent_coords=(%.2f, %.2f) -> child_coords=(%.2f, %.2f)\n",
@@ -120,7 +170,7 @@ static Vector2d ResolvePixelToWorldFrame(const World2d *active_world, Vector2d p
              viewport_coords.x, viewport_coords.y,
              parent_coords.x, parent_coords.y,
              child_coords.x, child_coords.y);
-    //return TransformCoordinates(input_to_child_local_mtx, click_parent_coords);
+    // return TransformCoordinates(input_to_child_local_mtx, click_parent_coords);
 }
 
 static bool TryGetClickedSpaceCell(Space2d *space, Vector2d click_local_coords,
@@ -148,7 +198,7 @@ static bool TryGetClickedSpaceCell(Space2d *space, Vector2d click_local_coords,
     return true;
 }
 
-static Newtonoid2d *FindClosestObjectInCell(const Cell *cell, Vector2d click_local_coords, Vector2d max_distance, char *log,
+static Newtonoid2d *FindClosestObjectInCell(World2d *world, const Cell *cell, Vector2d click_local_coords, Vector2d max_distance, char *log,
                                             size_t log_size, int *log_offset)
 {
     if (!cell)
@@ -173,7 +223,7 @@ static Newtonoid2d *FindClosestObjectInCell(const Cell *cell, Vector2d click_loc
             continue;
         }
 
-        Newtonoid2d *obj = GetEntityByID(&G_WorldState, cell_id);
+        Newtonoid2d *obj = GetEntityByID(world, cell_id);
         if (!obj)
         {
             continue;
@@ -207,46 +257,56 @@ static Newtonoid2d *FindClosestObjectInCell(const Cell *cell, Vector2d click_loc
     return closest;
 }
 
-static void HandleActiveWorldCameraHotkeys(Camera2d *camera, bool cursor_in_region)
+static Newtonoid2d *ResolveClosestEntityAt(World2d *active_world, Vector2d click_local_coords,
+                                           Cell **out_cell, int *out_cell_index,
+                                           char *log, size_t log_size, int *log_offset)
 {
-    if (!camera || !cursor_in_region)
+    if (!active_world)
     {
-        return;
+        return NULL;
     }
 
-    if (IsKeyDown(KEY_LEFT_CONTROL))
+    Cell *cell_ptr = NULL;
+    int cell_index = -1;
+    if (!TryGetClickedSpaceCell(&active_world->grid_space.space, click_local_coords, &cell_index, &cell_ptr))
     {
-        if (IsKeyPressed(KEY_EQUAL))
-        {
-            ZoomCamera(camera, 1.1f);
-        }
-        else if (IsKeyPressed(KEY_MINUS))
-        {
-            ZoomCamera(camera, 1.0f / 1.1f);
-        }
+        return NULL;
     }
 
-    if (IsKeyDown(KEY_LEFT_SHIFT))
+    if (out_cell)
     {
-        if (IsKeyPressed(KEY_EQUAL))
-        {
-            RotateCamera(camera, 0.1f);
-        }
-        else if (IsKeyPressed(KEY_MINUS))
-        {
-            RotateCamera(camera, -0.1f);
-        }
+        *out_cell = cell_ptr;
     }
+
+    if (out_cell_index)
+    {
+        *out_cell_index = cell_index;
+    }
+
+    Cell cell = *cell_ptr;
+    if (log && log_offset)
+    {
+        AppendLogLine(log, log_size, log_offset,
+                      "CELL %d(%.0f,%.0f) Occ:%d Val:%.1f --> ENTITIES ",
+                      cell_index, cell.local_origin.x, cell.local_origin.y,
+                      cell.occupancy, cell.value);
+    }
+
+    Vector2d max_click_distance = {(float)active_world->grid_space.space.columns,
+                                   (float)active_world->grid_space.space.rows};
+    return FindClosestObjectInCell(active_world, &cell, click_local_coords,
+                                   max_click_distance, log,
+                                   log_size, log_offset);
 }
 
 // FIRST: Initialisation of Gameplay Screen
 void InitWorldSystem(void)
 {
     // Init Global World State
-    G_WorldState.selected_object = NULL;
-    G_WorldState.selected_cell = NULL;
-    G_WorldState.selected_cell_index = -1;
-    G_WorldState.newtonoid_params = AllocateBytes(sizeof(Newtonoid2dParams));
+    G_UIState.selected_object = NULL;
+    G_UIState.selected_cell = NULL;
+    G_UIState.selected_cell_index = -1;
+    G_UIState.newtonoid_params = AllocateBytes(sizeof(Newtonoid2dParams));
     // Initialise command queue for UI->World commands
     extern void InitCommandQueue(void);
     InitCommandQueue();
@@ -258,19 +318,14 @@ void UpdateWorldSystem(int mouse_x, int mouse_y)
     // Process any pending UI->World commands
     ProcessCommandQueue();
 
-    bool cursor_in_game_viewport = mouse_x >= game_viewport_pixel_origin.x && mouse_x <= (game_viewport_pixel_origin.x + (game_viewport_pixel_u.x * game_viewport_resolution.x)) && mouse_y >= game_viewport_pixel_origin.y && mouse_y <= (game_viewport_pixel_origin.y + (game_viewport_pixel_v.y * game_viewport_resolution.y));
+    bool cursor_in_game_viewport = mouse_x >= game_viewport.pixel_origin.x && mouse_x <= (game_viewport.pixel_origin.x + (game_viewport.pixel_u.x * game_viewport.resolution.x)) && mouse_y >= game_viewport.pixel_origin.y && mouse_y <= (game_viewport.pixel_origin.y + (game_viewport.pixel_v.y * game_viewport.resolution.y));
     if (G_Universe.world_count == 0)
         return;
-    UpdateWorldRegion(mouse_x, mouse_y, cursor_in_game_viewport);
-}
-// Gameplay Screen Stage Update logic
-void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
-{
-    World2d *active_world = Universe_GetSelectedWorld(&G_Universe);
-    Camera2d *active_world_camera = active_world ? &active_world->camera : NULL;
 
+    World2d *active_world = Universe_GetSelectedWorld(&G_Universe);
     Vector2d click_pixel_coords = {mouse_x, mouse_y};
     Vector2d click_world_coords = ResolvePixelToWorldFrame(active_world, click_pixel_coords);
+    DragInteractionState *game_drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
 
     // DEFAULT TESTING SPAWN of polygonoids with random properties
     float radius = GetRandomFloat(0.1, polygonoid_radius_default * 0.8);
@@ -280,192 +335,206 @@ void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
     Vector2d acceleration = polygonoid_acceleration_default;
     ColourRgba colour = polygonoid_line_colour;
 
-    if (IsKeyPressed(KEY_SPACE))
+    if (active_world)
     {
-        TogglePause(&G_WorldState);
+        if (IsKeyPressed(KEY_SPACE))
+        {
+            TogglePause(active_world);
+        }
+
+        if (active_world->mode != PAUSED)
+        {
+            // PrintCurrentBytesAlloc();
+            UpdateWorld(active_world, frame_counter.delta_time);
+            // PrintCurrentBytesAlloc();
+        }
+        // DEBUGGING - 1 Frame setp-through
+        if (IsKeyPressed(KEY_LEFT_SHIFT) && active_world->mode == PAUSED)
+        {
+            // PrintCurrentBytesAlloc();
+            UpdateWorld(active_world, frame_counter.delta_time);
+            // PrintCurrentBytesAlloc();
+        }
+
+        if (IsKeyPressed(KEY_F7))
+        {
+            world_grid_debug_labels_enabled = !world_grid_debug_labels_enabled;
+            printf("[World] Grid debug labels: %s\n", world_grid_debug_labels_enabled ? "ON" : "OFF");
+        }
+
+        if (IsKeyPressed(KEY_ONE))
+        {
+            CreateAddNewtonoid(vertice_count, radius, SHAPE_MATH_POLY_HULL, mass, colour, click_world_coords, velocity, acceleration);
+            UpdateWorld(active_world, frame_counter.delta_time);
+        }
+
+        // DEBUGGING - Rapid firing of polygonoids
+        // keyDown = IsKeyDown(KEY_ONE);
+        // if (keyDown & frame_counter.total_frames % 3 == 0)
+        // {
+        //     radius = GetRandomFloat(0.1, polygonoid_radius_default * 0.25);
+        //     mass = radius * polygonoid_mass_default;
+        //     velocity = (Vector2d){GetRandomFloat(polygonoid_velocity_default.x * -8, polygonoid_velocity_default.x * 8), GetRandomFloat(polygonoid_velocity_default.y * 0, polygonoid_velocity_default.y * 16)};
+        //     Vector2d top_middle_world = (Vector2d){world.grid_space.object.boxed_dimensions.x * 0.5, 0.3};
+        //     // Vector2d top_middle_world_pixel = TransformCoordinates(camera_world.source_to_dest_mtx, top_middle_world);
+        //     CreateAddNewtonoid(vertice_count, radius, SHAPE_MATH_POLY_HULL, mass, colour, top_middle_world, velocity, acceleration);
+        //     UpdateWorld(&G_WorldState, frame_counter.delta_time);
+        // }
+
+        // // DEBUGGING - Collisions
+        // if (IsKeyPressed(KEY_THREE))
+        // {
+        //     radius = 1.5;
+        //     mass = radius * polygonoid_mass_default;
+        //     velocity = (Vector2d){-3, 3};
+        //     CreateAddNewtonoid(3, radius, SHAPE_MATH_EQUIDISTANT, mass, colour, click_world_coords, velocity, acceleration); // triangle
+        //     UpdateWorld(&G_WorldState, frame_counter.delta_time);
+        // }
+        // if (IsKeyPressed(KEY_FOUR))
+        // {
+        //     radius = 1.5;
+        //     mass = radius * polygonoid_mass_default;
+        //     velocity = (Vector2d){-3, 3};
+        //     CreateAddNewtonoid(4, radius, SHAPE_MATH_EQUIDISTANT, mass, colour, click_world_coords, velocity, acceleration); // rectangle
+        //     UpdateWorld(&G_WorldState, frame_counter.delta_time);
+        // }
+        // Handle UP click: check if clicking different world or spawning in current world
+        // if (IsKeyPressed(KEY_UP) && cursor_in_region)
+        // {
+        //     Vector2d click_pixel_coords = {mouse_x, mouse_y};
+        //     Vector2d click_universe_coords = TransformCoordinates(G_Universe.camera.dest_to_source_mtx, click_pixel_coords);
+
+        //     // Find which world (if any) was clicked
+        //     int clicked_world_idx = -1;
+        //     for (int i = 0; i < G_Universe.world_count; i++)
+        //     {
+        //         World2d *w = &G_Universe.worlds[i];
+        //         Vector2d res = w->grid_space.space.resolution_ixj;
+
+        //         // Un-map Universe Space to enter this specific World's Local Space.
+        //         // This single matrix multiplication handles the world's custom rotation, scaling, and position.
+        //         Vector2d local_coords = TransformCoordinates(w->camera.source_to_dest_mtx, click_universe_coords);
+
+        //         // Re-anchor from center pivot to Top-Left for the boundary verification.
+        //         // If w->world_to_uni_inverse treats the center of the world as (0,0):
+        //         float half_width = res.x * 0.5f;
+        //         float half_height = res.y * 0.5f;
+
+        //         Vector2d local_grid_pos = {
+        //             local_coords.x + half_width,
+        //             local_coords.y + half_height};
+
+        //         // Because the inverse matrix completely straightened out the rotation,
+        //         // we can now safely use a standard flat bounds check!
+        //         if (local_grid_pos.x >= 0.0f && local_grid_pos.y >= 0.0f &&
+        //             local_grid_pos.x < res.x && local_grid_pos.y < res.y)
+        //         {
+        //             clicked_world_idx = i;
+        //             break; // Found it!
+        //         }
+        //     }
+
+        //     if (clicked_world_idx >= 0)
+        //     {
+        //         // A world was clicked
+        //         if (clicked_world_idx == G_Universe.selected_world_index)
+        //         {
+        //             // Click was in the currently selected world; spawn object
+        //             CreateAddNewtonoid(vertice_count, radius, SHAPE_MATH_POLY_HULL, mass, colour, click_world_coords, velocity, acceleration);
+        //             finishScreen = 1;
+        //         }
+        //         else
+        //         {
+        //             // Different world was clicked; select it
+        //             Universe_SelectWorld(&G_Universe, clicked_world_idx, game_viewport_local_origin);
+        //         }
+        //     }
+        //     else
+        //     {
+        //         // No world was hit; deselect and reset camera offset so all worlds are visible
+        //         G_Universe.selected_world_index = -1;
+        //         //G_Universe.camera_offset = ZERO_VECTOR_2D;
+        //     }
+        // }
+
+        if (cursor_in_game_viewport && IsMouseButtonDown(MOUSE_BUTTON_LEFT))
+        {
+            DragInteraction_UpdateButtonDown(game_drag_ctx, click_pixel_coords);
+
+            if (game_drag_ctx->pointer_state.left_button_hold_ticks == 1)
+            {
+                char log[256] = "";
+                int offset = 0;
+                AppendLogLine(log, sizeof(log), &offset, "WORLD (%.1f,%.1f) --> ", game_viewport.local_origin.x, game_viewport.local_origin.y);
+
+                Cell *selected_cell = NULL;
+                int selected_cell_index = -1;
+                Newtonoid2d *p_closest = ResolveClosestEntityAt(active_world, click_world_coords, &selected_cell, &selected_cell_index,
+                                                                log, sizeof(log), &offset);
+
+                G_UIState.selected_cell = selected_cell;
+                G_UIState.selected_cell_index = selected_cell_index;
+
+                if (p_closest)
+                {
+                    G_UIState.selected_object = p_closest;
+                    SnapshotDraggedEntityMotion(p_closest);
+                    DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_ENTITY, p_closest, p_closest->coords_center);
+                    AppendLogLine(log, sizeof(log), &offset, "--> SELECTED ENTITY: ID:%d", p_closest->id);
+                }
+                else
+                {
+                    G_UIState.selected_object = NULL;
+                    g_drag_motion_snapshot.entity = NULL;
+                    g_drag_motion_snapshot.has_snapshot = false;
+                    DragInteraction_ClearCapture(game_drag_ctx);
+                    AppendLogLine(log, sizeof(log), &offset, " --> SELECTED ENTITY: NULL");
+                }
+
+                LOG_INFO("CLICKED (%d,%d) | %s\n", mouse_x, mouse_y, log);
+            }
+
+            if (game_drag_ctx->has_capture && game_drag_ctx->target_kind == DRAG_TARGET_WORLD_ENTITY &&
+                DragInteraction_IsDragActive(game_drag_ctx, 5.0f))
+            {
+                Newtonoid2d *dragged = (Newtonoid2d *)game_drag_ctx->target;
+                if (dragged)
+                {
+                    Vector2d initial_world_coords = ResolvePixelToWorldFrame(active_world, game_drag_ctx->pointer_state.initial_pos);
+                    Vector2d current_world_coords = ResolvePixelToWorldFrame(active_world, game_drag_ctx->pointer_state.current_pos);
+                    Vector2d drag_delta_world = VectorSum_2d(current_world_coords, (Vector2d){-initial_world_coords.x, -initial_world_coords.y});
+
+                    Vector2d new_center = VectorSum_2d(game_drag_ctx->target_anchor, drag_delta_world);
+                    float max_x = fmaxf(0.0f, (float)active_world->grid_space.space.columns - 0.001f);
+                    float max_y = fmaxf(0.0f, (float)active_world->grid_space.space.rows - 0.001f);
+                    new_center.x = fmaxf(0.0f, fminf(new_center.x, max_x));
+                    new_center.y = fmaxf(0.0f, fminf(new_center.y, max_y));
+
+                    dragged->coords_center = new_center;
+                    dragged->coords_origin = (Vector2d){
+                        new_center.x - (dragged->boxed_dimensions.x * 0.5f),
+                        new_center.y - (dragged->boxed_dimensions.y * 0.5f)};
+
+                    // Keep drag interaction deterministic while the cursor is controlling the entity.
+                    dragged->velocity = ZERO_VECTOR_2D;
+                    dragged->acceleration = ZERO_VECTOR_2D;
+                    dragged->momentum = ZERO_VECTOR_2D;
+                }
+            }
+        }
+        else if (game_drag_ctx->pointer_state.left_button_hold_ticks > 0)
+        {
+            if (game_drag_ctx->has_capture && game_drag_ctx->target_kind == DRAG_TARGET_WORLD_ENTITY)
+            {
+                RestoreDraggedEntityMotion((Newtonoid2d *)game_drag_ctx->target);
+            }
+            DragInteraction_UpdateButtonUp(game_drag_ctx);
+        }
     }
-
-    if (G_WorldState.mode != PAUSED)
-    {
-        // PrintCurrentBytesAlloc();
-        UpdateWorld(&G_WorldState, frame_counter.delta_time);
-        // PrintCurrentBytesAlloc();
-    }
-    // DEBUGGING - 1 Frame setp-through
-    if (IsKeyPressed(KEY_LEFT_SHIFT) && G_WorldState.mode == PAUSED)
-    {
-        // PrintCurrentBytesAlloc();
-        UpdateWorld(&G_WorldState, frame_counter.delta_time);
-        // PrintCurrentBytesAlloc();
-    }
-
-    if (IsKeyPressed(KEY_F7))
-    {
-        world_grid_debug_labels_enabled = !world_grid_debug_labels_enabled;
-        printf("[World] Grid debug labels: %s\n", world_grid_debug_labels_enabled ? "ON" : "OFF");
-    }
-
-    if (IsKeyPressed(KEY_ONE))
-    {
-        CreateAddNewtonoid(vertice_count, radius, SHAPE_MATH_POLY_HULL, mass, colour, click_world_coords, velocity, acceleration);
-        UpdateWorld(&G_WorldState, frame_counter.delta_time);
-    }
-
-    // DEBUGGING - Rapid firing of polygonoids
-    // keyDown = IsKeyDown(KEY_ONE);
-    // if (keyDown & frame_counter.total_frames % 3 == 0)
-    // {
-    //     radius = GetRandomFloat(0.1, polygonoid_radius_default * 0.25);
-    //     mass = radius * polygonoid_mass_default;
-    //     velocity = (Vector2d){GetRandomFloat(polygonoid_velocity_default.x * -8, polygonoid_velocity_default.x * 8), GetRandomFloat(polygonoid_velocity_default.y * 0, polygonoid_velocity_default.y * 16)};
-    //     Vector2d top_middle_world = (Vector2d){world.grid_space.object.boxed_dimensions.x * 0.5, 0.3};
-    //     // Vector2d top_middle_world_pixel = TransformCoordinates(camera_world.source_to_dest_mtx, top_middle_world);
-    //     CreateAddNewtonoid(vertice_count, radius, SHAPE_MATH_POLY_HULL, mass, colour, top_middle_world, velocity, acceleration);
-    //     UpdateWorld(&G_WorldState, frame_counter.delta_time);
-    // }
-
-    // // DEBUGGING - Collisions
-    // if (IsKeyPressed(KEY_THREE))
-    // {
-    //     radius = 1.5;
-    //     mass = radius * polygonoid_mass_default;
-    //     velocity = (Vector2d){-3, 3};
-    //     CreateAddNewtonoid(3, radius, SHAPE_MATH_EQUIDISTANT, mass, colour, click_world_coords, velocity, acceleration); // triangle
-    //     UpdateWorld(&G_WorldState, frame_counter.delta_time);
-    // }
-    // if (IsKeyPressed(KEY_FOUR))
-    // {
-    //     radius = 1.5;
-    //     mass = radius * polygonoid_mass_default;
-    //     velocity = (Vector2d){-3, 3};
-    //     CreateAddNewtonoid(4, radius, SHAPE_MATH_EQUIDISTANT, mass, colour, click_world_coords, velocity, acceleration); // rectangle
-    //     UpdateWorld(&G_WorldState, frame_counter.delta_time);
-    // }
-    // Handle UP click: check if clicking different world or spawning in current world
-    // if (IsKeyPressed(KEY_UP) && cursor_in_region)
-    // {
-    //     Vector2d click_pixel_coords = {mouse_x, mouse_y};
-    //     Vector2d click_universe_coords = TransformCoordinates(G_Universe.camera.dest_to_source_mtx, click_pixel_coords);
-
-    //     // Find which world (if any) was clicked
-    //     int clicked_world_idx = -1;
-    //     for (int i = 0; i < G_Universe.world_count; i++)
-    //     {
-    //         World2d *w = &G_Universe.worlds[i];
-    //         Vector2d res = w->grid_space.space.resolution_ixj;
-
-    //         // Un-map Universe Space to enter this specific World's Local Space.
-    //         // This single matrix multiplication handles the world's custom rotation, scaling, and position.
-    //         Vector2d local_coords = TransformCoordinates(w->camera.source_to_dest_mtx, click_universe_coords);
-
-    //         // Re-anchor from center pivot to Top-Left for the boundary verification.
-    //         // If w->world_to_uni_inverse treats the center of the world as (0,0):
-    //         float half_width = res.x * 0.5f;
-    //         float half_height = res.y * 0.5f;
-
-    //         Vector2d local_grid_pos = {
-    //             local_coords.x + half_width,
-    //             local_coords.y + half_height};
-
-    //         // Because the inverse matrix completely straightened out the rotation,
-    //         // we can now safely use a standard flat bounds check!
-    //         if (local_grid_pos.x >= 0.0f && local_grid_pos.y >= 0.0f &&
-    //             local_grid_pos.x < res.x && local_grid_pos.y < res.y)
-    //         {
-    //             clicked_world_idx = i;
-    //             break; // Found it!
-    //         }
-    //     }
-
-    //     if (clicked_world_idx >= 0)
-    //     {
-    //         // A world was clicked
-    //         if (clicked_world_idx == G_Universe.selected_world_index)
-    //         {
-    //             // Click was in the currently selected world; spawn object
-    //             CreateAddNewtonoid(vertice_count, radius, SHAPE_MATH_POLY_HULL, mass, colour, click_world_coords, velocity, acceleration);
-    //             finishScreen = 1;
-    //         }
-    //         else
-    //         {
-    //             // Different world was clicked; select it
-    //             Universe_SelectWorld(&G_Universe, clicked_world_idx, game_viewport_local_origin);
-    //         }
-    //     }
-    //     else
-    //     {
-    //         // No world was hit; deselect and reset camera offset so all worlds are visible
-    //         G_Universe.selected_world_index = -1;
-    //         //G_Universe.camera_offset = ZERO_VECTOR_2D;
-    //     }
-    // }
-
-    HandleActiveWorldCameraHotkeys(active_world_camera, cursor_in_region);
-
-    if (!IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-    {
-        return;
-    }
-    if (!cursor_in_region)
-    {
-        return;
-    }
-
-    // ----DEBUG
-    char log[256] = "";
-    int offset = 0;
-    AppendLogLine(log, sizeof(log), &offset, "WORLD (%.1f,%.1f) --> ", game_viewport_local_origin.x, game_viewport_local_origin.y);
-    // DEBUG--- //
-
-    // Check if a click is on an object and print some info about that object if so.
-    // The selected coord-space camera inverse maps viewport pixels into coord-space local coordinates.
-    if (!active_world_camera)
-    {
-        return;
-    }
-
-    Vector2d click_local_coords = click_world_coords;
-
-    int cell_index = 0;
-    Cell *p_cell = NULL;
-    if (!TryGetClickedSpaceCell(&active_world->grid_space.space, click_local_coords, &cell_index, &p_cell))
-    {
-        // Click is outside the structural world viewport boundaries! Avoid resolving cell.
-        return;
-    }
-
-    // Check if there are any objects in that cell and print info about those objects if so
-    Cell cell = *p_cell;
-    G_WorldState.selected_cell = p_cell;
-    G_WorldState.selected_cell_index = cell_index;
-
-    // ----DEBUG--- //
-    AppendLogLine(log, sizeof(log), &offset,
-                  "CELL %d(%.0f,%.0f) Occ:%d Val:%.1f --> ENTITIES ",
-                  cell_index, cell.local_origin.x, cell.local_origin.y,
-                  cell.occupancy, cell.value);
-
-    Vector2d max_click_distance = {(float)active_world->grid_space.space.columns,
-                                   (float)active_world->grid_space.space.rows};
-    Newtonoid2d *p_closest = FindClosestObjectInCell(&cell, click_local_coords,
-                                                     max_click_distance, log,
-                                                     sizeof(log), &offset);
-
-    if (p_closest)
-    {
-        G_WorldState.selected_object = p_closest;
-        // ----DEBUG---- //
-        AppendLogLine(log, sizeof(log), &offset, "--> SELECTED ENTITY: ID:%d", p_closest->id);
-    }
-    else
-    {
-        G_WorldState.selected_object = NULL;
-        // ----DEBUG---- //
-        AppendLogLine(log, sizeof(log), &offset, " --> SELECTED ENTITY: NULL");
-    }
-    // ----DEBUG---- //
-    LOG_INFO("CLICKED (%d,%d) | %s\n", mouse_x, mouse_y, log);
 }
+
+// Gameplay Screen Stage Update logic
+// void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
 
 void CreateAddNewtonoid(int vertice_count, float radius, ShapeType shape_type,
                         float mass, ColourRgba colour, Vector2d coords_center,
@@ -496,11 +565,11 @@ void CreateAddNewtonoid(int vertice_count, float radius, ShapeType shape_type,
         AddObjectToWorld(active_world, &new_newtonoid, active_world->grid_space.object.id);
 }
 
-void TogglePause(WorldState *context)
+void TogglePause(World2d *world)
 {
-    if (context->mode == RUNNING || context->mode == PAUSED)
+    if (world->mode == RUNNING || world->mode == PAUSED)
     {
-        context->mode = (context->mode == RUNNING) ? PAUSED : RUNNING;
+        world->mode = (world->mode == RUNNING) ? PAUSED : RUNNING;
     }
 }
 

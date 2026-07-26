@@ -6,7 +6,6 @@ WORLD MODULE
 #ifndef WORLD_H
 #define WORLD_H
 #include "common/common.h"
-#include "camera/camera.h"
 #include "physics/physics.h"
 #include "math/coordinate_space.h"
 #include "events/events.h"
@@ -45,7 +44,7 @@ typedef enum
 typedef struct World2d
 {
     GridSpace2d grid_space; // The coordinate space of the world, containing the basis vectors and line segments for drawing the world (if applicable)
-    Camera2d camera;
+    FrameTunnel tunnel; // Transform from world-local to universe coordinates
     LArray objects;
     LArray temp_objects;
     LArray collisions;
@@ -54,6 +53,7 @@ typedef struct World2d
     FlatMapInt entity_world_index_registry;
     LArray scheduled_world_cmds;
     float gravity;
+    WorldMode mode;
     int next_object_id; // Global variable to keep track of the next available ID for NewtonObjects
     Vector2d uni_coords_center; // Position of this world in the shared universe space (world-local units). Keeps local coords 0-based.
 } World2d;
@@ -117,7 +117,7 @@ extern World2d world_1;
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-void UpdateWorld(WorldState *context, float delta_time);
+void UpdateWorld(World2d *world, float delta_time);
 int AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id);
 // Vector2d GetCellIndicesFromCoordinates(Vector2d origin_coordinates, Vector2d input_coordinates, Basis2d basis);
 // Field UpdateFieldCellValues(Field field);

@@ -99,26 +99,50 @@ void ProcessCommandQueue(void)
         {
             // Resolve params to an entity and add to world
             Newtonoid2d *new_entity = ResolveEntityParamsToEntity(&c->params);
-            if (new_entity && G_WorldState.world)
+            World2d *world = Universe_GetSelectedWorld(&G_Universe);
+            if (new_entity)
             {
-                int entity_id = AddObjectToWorld(G_WorldState.world, new_entity, G_WorldState.world->grid_space.object.id);
-                if (entity_id >= 0)
+                bool added_to_world = false;
+
+                if (world)
                 {
-                    Newtonoid2d *spawned = GetEntityByID(&G_WorldState, entity_id);
-                    if (spawned)
-                        G_WorldState.selected_object = spawned;
-                    LOG_INFO("Processed CMD_CREATE_ENTITY -> spawned id=%d\n", entity_id);
+                    int entity_id = AddObjectToWorld(world, new_entity, world->grid_space.object.id);
+                    if (entity_id >= 0)
+                    {
+                        added_to_world = true;
+                        Newtonoid2d *spawned = GetEntityByID(world, entity_id);
+                        if (spawned)
+                        {
+                            G_UIState.selected_object = spawned;
+                        }
+                        LOG_INFO("Processed CMD_CREATE_ENTITY -> spawned id=%d\n", entity_id);
+                    }
                 }
+
+                // If spawn failed, the transient entity still owns its surface buffer.
+                if (!added_to_world)
+                {
+                    LArray *vectors = &new_entity->surface.surface_vectors;
+                    if (vectors->items && vectors->capacity > 0 && vectors->elem_bytes > 0)
+                    {
+                        size_t bytes = (size_t)vectors->capacity * vectors->elem_bytes;
+                        Deallocate(&vectors->items, bytes);
+                    }
+                }
+
+                // Always free the transient wrapper object allocated by CreateNewtonoid2d_Reference.
+                Deallocate((void **)&new_entity, sizeof(Newtonoid2d));
             }
         }
 
         if (c->type == CMD_DELETE_ENTITY)
         {
-            if (G_WorldState.selected_object)
+            if (G_UIState.selected_object)
             {
-                int entity_id = G_WorldState.selected_object->id;
-                DeregisterEntity(&G_WorldState, entity_id);
-                G_WorldState.selected_object = NULL;
+                World2d *world = Universe_GetSelectedWorld(&G_Universe);
+                int entity_id = G_UIState.selected_object->id;
+                DeregisterEntity(world, entity_id);
+                G_UIState.selected_object = NULL;
                 LOG_INFO("Processed CMD_DELETE_ENTITY -> deleted id=%d\n", entity_id);
             }
         }
@@ -152,11 +176,9 @@ void ProcessCommandQueue(void)
             }
         }
 
-        // Pop command
+        // Pop command (always advance exactly once per loop iteration)
         queue[q_head].type = CMD_NONE;
         q_head = (q_head + 1) % COMMAND_QUEUE_CAPACITY;
         q_count--;
     }
 }
-
-

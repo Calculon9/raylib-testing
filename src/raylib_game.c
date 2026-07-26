@@ -367,7 +367,6 @@ void InitGameplayScreen(void)
 void DrawGameplayScreen(void)
 {
     DrawUniverse();
-    DrawRPanel();
     DrawUI();
     DrawGlobalDebugOverlays();
 }
@@ -381,7 +380,6 @@ void UpdateGameplayScreen(void)
     int mouse_x = GetMouseX();
     int mouse_y = GetMouseY();
 
-    UpdateRPanel(mouse_x, mouse_y);
     UpdateUISystem(mouse_x, mouse_y);
     UpdateUniverseSystem(mouse_x, mouse_y);
     UpdateWorldSystem(mouse_x, mouse_y);

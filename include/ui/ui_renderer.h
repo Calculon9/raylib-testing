@@ -35,17 +35,6 @@ UI SYSTEM MODULE
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
-// Coordinate Space Properties
-extern Vector2d lpanel_u;// = {1, 0};
-extern Vector2d lpanel_v;// = {0, 1};
-extern Vector2d lpanel_resolution; //= {0};
-extern Vector2d lpanel_pixel_origin; //= {0};
-
-// Logical->pixel-space conversion properties
-extern Vector2d lpanel_pixel_u;// = {75, 0};
-extern Vector2d lpanel_pixel_v;// = {0, 75};
-extern Vector2d lpanel_origin, lpanel_end; //= {0}; // Dependent on the game world screen area
-extern Camera2d camera_lpanel;// = {0};
 
 
 //----------------------------------------------------------------------------------
@@ -57,7 +46,7 @@ extern Camera2d camera_lpanel;// = {0};
 //----------------------------------------------------------------------------------
 void DrawElementBox(UIElement *e);
 void DrawTextArea(UIElement *e);
-void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Camera2d viewport_camera, Matrix3x3 M_ui_to_pixel);
+void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Matrix3x3 M_ui_to_pixel);
 //void UpdateUISystem(int mouse_x, int mouse_y);
 
 #endif

@@ -10,7 +10,6 @@ RIGHT PANEL SYSTEM MODULE
 #include "ui/ui.h"
 
 extern UIElement *rpanel_root;
-extern Camera2d camera_rpanel;
 extern UIBox rpanel_seed_box;
 
 void InitRPanel(void);

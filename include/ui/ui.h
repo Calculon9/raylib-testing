@@ -197,11 +197,9 @@ UIElement *CreateUIElementInTree(UIElementType type, Size size, UIElement *paren
 UIElement *CreateBtnUIElementInTree(UIElementType type, Size size, UIElement *parent, Offset parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill);
 void GetUIElementVertices(UIElement *e, Vector2d out_vertices[4]);
 bool IsMouseOverElement(UIElement *el, Vector2d mouse_pos);
-// Vector2d ResolveElementPosition(UIElement *element, UIBox parent_box, Vector2d basis_scale);
-void DistributeChildren(UIElement *e);
-void DistributeChildrenRecursive(UIElement *e);
-void DistributeChildrenResolved(UIElement *e, UIBox resolved_box);
-void DistributeChildrenRecursiveResolved(UIElement *e, UIBox resolved_box);
+bool UI_AABB_Intersects(UIBox a, UIBox b) ;
+void UI_LayoutSubtree(UIElement *e, UIBox parent_box);
+void UI_DistributeChildren(UIElement *e);
 UIBox ResolveElementBox(UIElement *element, UIBox parent_box);
 const char *GetElementTypeName(UIElementType type);
 UIElement *GetLastChild(UIElement *e);

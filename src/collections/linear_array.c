@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include "collections/linear_array.h"
 #include "memory/cmemory.h"
+#include "common/common.h"
 
 //----------------------------------------------------------------------------------
 // Global Variables Definition (local to this module)
@@ -131,6 +132,7 @@ bool GrowLinearArray(LArray *a)
     a->capacity = new_capacity;
 
     return true;
+    LOG_INFO("Linear Array grown to new capacity %d\n", new_capacity);
 }
 
 void *LArray_Get(LArray *a, int index)

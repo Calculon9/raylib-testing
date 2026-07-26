@@ -15,30 +15,51 @@
 #include "ui/text_region.h"
 #include "ui/ui_renderer.h"
 
+// ============================================================================
+// Root & Seed Box
+// ============================================================================
 UIElement *rpanel_root = NULL;
-Camera2d camera_rpanel = {0};
 UIBox rpanel_seed_box = {0};
 
-static Space2d rpanel_space = {0};
-static int rpanel_resolution_x = 0;
-static int rpanel_resolution_y = 0;
-static float rpanel_grid_cell_size = 1.0f;
+// ============================================================================
+// Action Codes
+// ============================================================================
+static int btn_action_rpanel_enumerate = 0;
+static int btn_action_create_world = BUTTON_ACTION_CREATE_WORLD;
+static int btn_action_select_world_prev = BUTTON_ACTION_SELECT_WORLD_PREV;
+static int btn_action_select_world_next = BUTTON_ACTION_SELECT_WORLD_NEXT;
+
+// ============================================================================
+// View Storage
+// ============================================================================
 static View rpanel_state_view_storage = {0};
 static View rpanel_create_view_storage = {0};
+
+// ============================================================================
+// Coordinate Space & Rendering
+// ============================================================================
+static float rpanel_space_to_viewport_scale = 1.0f;
+static Space2d rpanel_space = {0};
+static bool rpanel_space_basis_override_enabled = false;
+static Vector2d rpanel_space_basis_override_u = {0};
+static Vector2d rpanel_space_basis_override_v = {0};
+
+// ============================================================================
+// Visual Style Properties
+// ============================================================================
+static Vector2d rpanel_default_padding = {0.1f, 0.1f};
+static Vector2d rpanel_tfield_padding = {0.03f, 0.03f};
+
+// ============================================================================
+// UI Element Pointers
+// ============================================================================
 static View *rpanel_state_view = NULL;
 static View *rpanel_create_view = NULL;
 static UIElement *rpanel_toggle_cont = NULL;
 static UIElement *rpanel_state_view_cont = NULL;
 static UIElement *rpanel_create_view_cont = NULL;
 static LArray rpanel_views = {0};
-static int btn_action_rpanel_enumerate = 0;
 
-static int btn_action_create_world = BUTTON_ACTION_CREATE_WORLD;
-static int btn_action_select_world_prev = BUTTON_ACTION_SELECT_WORLD_PREV;
-static int btn_action_select_world_next = BUTTON_ACTION_SELECT_WORLD_NEXT;
-
-static UIElement *rpanel_stats_fps_tbox = NULL;
-static UIElement *rpanel_stats_frame_tbox = NULL;
 static UIElement *rpanel_stats_entities_tbox = NULL;
 static UIElement *rpanel_world_index_tbox = NULL;
 static UIElement *rpanel_world_universe_pos_tbox = NULL;
@@ -55,28 +76,43 @@ static UIElement *rpanel_create_basis_v_tbox = NULL;
 static UIElement *rpanel_create_gravity_tbox = NULL;
 static UIElement *rpanel_create_auto_select_tbox = NULL;
 
-static Vector2d rpanel_default_padding = {0.1f, 0.1f};
-static Vector2d rpanel_tfield_padding = {0.03f, 0.03f};
-static Size rpanel_title_tfield_size = {{5.8f, 0.45f}, SIZE_FIXED};
-static Size rpanel_row_tfield_size = {{5.8f, 0.5f}, SIZE_FIXED};
-static Size rpanel_stat_row_tfield_size = {{5.8f, 0.55f}, SIZE_FIXED};
-static Size rpanel_button_size = {{5.8f, 0.45f}, SIZE_FIXED};
+// ============================================================================
+// Root Layout
+// ============================================================================
+static Size rpanel_toggle_cont_size = {{1.0f, 0.08f}, SIZE_PERCENT};
+static Offset rpanel_toggle_cont_offset = {ZERO_VECTOR_2D, OFFSET_FIXED};
+static Size rpanel_view_cont_size = {{1.0f, 0.92f}, SIZE_PERCENT};
+static Offset rpanel_state_view_cont_offset = {{0.0f, 0.08f}, OFFSET_PERCENT};
+static Offset rpanel_create_view_cont_offset = {{0.0f, 0.08f}, OFFSET_PERCENT};
+static Spacing rpanel_root_child_spacing = {{0.0f, 0.0f}, PERCENT, SPACING_NORMAL};
+
+// ============================================================================
+// State View Layout
+// ============================================================================
+static Offset rpanel_state_world_cont_offset = {ZERO_VECTOR_2D, OFFSET_FIXED};
+static Size rpanel_state_world_cont_size = {{1.0f, 0.5f}, SIZE_PERCENT};
+static Offset rpanel_state_stats_cont_offset = {ZERO_VECTOR_2D, OFFSET_FIXED};
+static Size rpanel_state_stats_cont_size = {{1.0f, 0.32f}, SIZE_PERCENT};
+static Size rpanel_state_world_btn_cont_size = {{1.0f, 0.08f}, SIZE_PERCENT};
 static Spacing rpanel_world_btn_child_spacing = {{0.0f, 0.03f}, NONE, SPACING_STACKED};
-static bool rpanel_space_basis_override_enabled = false;
-static Vector2d rpanel_space_basis_override_u = {0};
-static Vector2d rpanel_space_basis_override_v = {0};
 
-static void CreateRPanelSubmitButton(UIElement *parent, const char *label, int *action)
-{
-    CreatePanelButtonDefault(parent, UI_ELEMENT_BUTTON_SUBMIT, label, rpanel_button_size,
-                             (Vector2d){0.02f, 0.02f}, HandleBtnSubmitClick, action, NULL);
-}
+// ============================================================================
+// Create View Layout
+// ============================================================================
+static Offset rpanel_create_world_cont_offset = {{0.02f, 0.02f}, OFFSET_PERCENT};
+static Size rpanel_create_world_cont_size = {{1.0f, 0.6f}, SIZE_PERCENT};
 
-// Suspect I might be creating the wrong basis going from panel_viewport->screen. Might be too small?
-void InitRPanel(void)
+static void InitRPanelRoot(void);
+static void InitRPanelToggleButtons(void);
+static void InitRPanelStateView(void);
+static void InitRPanelCreateView(void);
+static void InitRPanelStateWorldContainer(void);
+static void InitRPanelStateStatsContainer(void);
+static void InitRPanelCreateWorldContainer(void);
+
+static void InitRPanelRoot(void)
 {
-    float rpanel_space_to_viewport_scale = 2.0f; // Scale factor to convert from panel space to viewport space
-    Vector2d rpanel_resolution = VectorScale_2d(rpanel_viewport_resolution, rpanel_space_to_viewport_scale);
+    Vector2d rpanel_resolution = VectorScale_2d(rpanel_viewport.resolution, rpanel_space_to_viewport_scale);
     Basis2d rpanel_viewport_basis = (Basis2d){(Vector2d){1.0f / rpanel_space_to_viewport_scale, 0.0f}, (Vector2d){0.0f, 1.0f / rpanel_space_to_viewport_scale}};
     if (rpanel_space_basis_override_enabled)
     {
@@ -84,21 +120,9 @@ void InitRPanel(void)
         rpanel_viewport_basis.v = rpanel_space_basis_override_v;
     }
 
-    // Establish universe_frame with centered spatial alignment
+    // Establish frame with centered spatial alignment
     // =========================================================================
-    rpanel_space = NewSpace2d(rpanel_viewport_local_origin, rpanel_resolution, rpanel_viewport_basis);
-
-    camera_rpanel = CreateCamera2d(&rpanel_space.frame, &rpanel_viewport_frame);
-
-    if (camera_rpanel.zoom <= 0.0f)
-    {
-        camera_rpanel = CreateCamera2d(&rpanel_space.frame, &rpanel_viewport_frame);
-    }
-    else
-    {
-        Camera_SetSourceFrame(&camera_rpanel, &rpanel_space.frame);
-        Camera_SetDestinationFrame(&camera_rpanel, &rpanel_viewport_frame);
-    }
+    rpanel_space = NewSpace2d(rpanel_viewport.local_origin, rpanel_resolution, rpanel_viewport_basis);
 
     rpanel_root = CreateUIElement(UI_ELEMENT_ROOT,
                                   (Size){{(float)rpanel_space.columns, (float)rpanel_space.rows}, SIZE_FILL},
@@ -106,78 +130,54 @@ void InitRPanel(void)
                                   rpanel_default_padding, COLOURLESS_RGBA, COLOUR_PANEL_DARK_1);
 
     rpanel_root->data.root.space = rpanel_space;
-    rpanel_root->child_spacing = (Spacing){{0.0f, 0.0f}, PERCENT, SPACING_NORMAL};
+    rpanel_root->child_spacing = rpanel_root_child_spacing;
 
-    rpanel_views = MakeLArray(2, sizeof(View *));
-    rpanel_state_view = &rpanel_state_view_storage;
-    rpanel_create_view = &rpanel_create_view_storage;
-    btn_action_rpanel_enumerate = 0;
-
-    // Check here for a wildly incorrect basis scale that would cause the panel to be drawn off-screen or at an unexpected size.
-    // Vector2d basis_scale = Camera_GetBasisScale(&camera_rpanel);
-    rpanel_seed_box.coords = ZERO_VECTOR_2D;// lpanel_viewport_local_origin;
-    // Its dimensions are the pure unscaled logical resolution units.
+    rpanel_seed_box.coords = ZERO_VECTOR_2D;
     rpanel_seed_box.dimensions = rpanel_resolution;
-    // Basis2d basis_a = camera_rpanel.tunnel.source_frame->basis;
-    // Basis2d basis_b = camera_rpanel.tunnel.destination_frame->basis;
-    // Matrix2x2 basis_matrix = MatrixMultiply_2x2_2x2((Matrix2x2){basis_a.u, basis_a.v}, (Matrix2x2){basis_b.u, basis_b.v});
-    // Vector2d basis_tfrm = VectorSum_2d(basis_matrix.col1, basis_matrix.col2);
-    // rpanel_seed_box.coords = (Vector2d){rpanel_pixel_origin.x, rpanel_pixel_origin.y};
-    // rpanel_seed_box.dimensions = (Vector2d){rpanel_viewport_resolution.x * basis_tfrm.x, rpanel_viewport_resolution.y * basis_tfrm.y};
+}
 
+static void InitRPanelToggleButtons(void)
+{
     rpanel_toggle_cont = CreatePanelContainer(
-        rpanel_root, (Size){{1.0f, 0.08f}, SIZE_PERCENT},
-        (Offset){ZERO_VECTOR_2D, OFFSET_FIXED}, ZERO_VECTOR_2D,
+        rpanel_root, rpanel_toggle_cont_size,
+        rpanel_toggle_cont_offset, ZERO_VECTOR_2D,
         COLOURLESS_RGBA, COLOURLESS_RGBA,
-        tcont_default_child_spacing, false, true);
+        btn_cont_default_child_spacing, false, true);
+
     CreatePanelButtonDefault(rpanel_toggle_cont, UI_ELEMENT_BUTTON_ENUMERATE,
-                             "STATE -- CREATE", rpanel_button_size,
-                             (Vector2d){0.02f, 0.02f}, HandleBtnEnumerateClick,
+                             "STATE -- CREATE", btn_default_size,
+                             btn_default_padding, HandleBtnEnumerateClick,
                              &btn_action_rpanel_enumerate, &rpanel_views);
+}
 
-    rpanel_state_view_cont = CreatePanelContainer(
-        rpanel_root, (Size){{1.0f, 0.92f}, SIZE_PERCENT},
-        (Offset){{0.0f, 0.08f}, OFFSET_PERCENT}, ZERO_VECTOR_2D,
-        COLOURLESS_RGBA, COLOURLESS_RGBA,
-        cont_default_child_spacing, false, true);
-
-    rpanel_create_view_cont = CreatePanelContainer(
-        rpanel_root, (Size){{1.0f, 0.92f}, SIZE_PERCENT},
-        (Offset){{0.0f, 0.08f}, OFFSET_PERCENT}, ZERO_VECTOR_2D,
-        COLOURLESS_RGBA, COLOURLESS_RGBA,
-        tcont_default_child_spacing, false, false);
-
-    rpanel_state_view->container = rpanel_state_view_cont;
-    rpanel_state_view->type = RPANEL_STATE_VIEW;
-    rpanel_create_view->container = rpanel_create_view_cont;
-    rpanel_create_view->type = RPANEL_WORLD_CREATE_VIEW;
-    LArray_Push(&rpanel_views, &rpanel_state_view);
-    LArray_Push(&rpanel_views, &rpanel_create_view);
-
+static void InitRPanelStateWorldContainer(void)
+{
     UIElement *world_cont = CreatePanelContainer(
-        rpanel_state_view_cont, (Size){{1.0f, 0.5f}, SIZE_PERCENT},
-        (Offset){ZERO_VECTOR_2D, OFFSET_FIXED}, tcont_default_padding,
+        rpanel_state_view_cont, rpanel_state_world_cont_size,
+        rpanel_state_world_cont_offset, tcont_default_padding,
         tcont_default_colour_border, tcont_default_colour_fill,
         tcont_default_child_spacing, true, true);
 
-    CreatePanelTitleLabelDefault(world_cont, "WORLD MANAGER", rpanel_title_tfield_size, rpanel_tfield_padding);
+    CreatePanelTitleLabelDefault(world_cont, "WORLD MANAGER", tfield_default_size, rpanel_tfield_padding);
 
     UIElement *world_btn_cont = CreatePanelContainer(
-        world_cont, (Size){{1.0f, 0.22f}, SIZE_PERCENT},
+        world_cont, rpanel_state_world_btn_cont_size,
         (Offset){ZERO_VECTOR_2D, OFFSET_FIXED}, ZERO_VECTOR_2D,
         COLOURLESS_RGBA, COLOURLESS_RGBA,
         rpanel_world_btn_child_spacing, false, true);
 
-    CreateRPanelSubmitButton(world_btn_cont, "SELECT PREV", &btn_action_select_world_prev);
-    CreateRPanelSubmitButton(world_btn_cont, "SELECT NEXT", &btn_action_select_world_next);
+    CreatePanelButtonDefault(world_btn_cont, UI_ELEMENT_BUTTON_SUBMIT, "SELECT PREV", btn_default_size,
+                             btn_default_padding, HandleBtnSubmitClick, &btn_action_select_world_prev, NULL);
+    CreatePanelButtonDefault(world_btn_cont, UI_ELEMENT_BUTTON_SUBMIT, "SELECT NEXT", btn_default_size,
+                             btn_default_padding, HandleBtnSubmitClick, &btn_action_select_world_next, NULL);
 
     const PanelFieldSpec world_fields[] = {
-        {"WORLD", UI_ELEMENT_TEXTBOX_O, rpanel_row_tfield_size, FLOAT, &rpanel_world_index_tbox, NULL},
-        {"UNIVERSE", UI_ELEMENT_TEXTBOX_O, rpanel_row_tfield_size, FLOAT, &rpanel_world_universe_pos_tbox, NULL},
-        {"GRAVITY", UI_ELEMENT_TEXTBOX_SAFE_IO, rpanel_row_tfield_size, FLOAT, &rpanel_world_gravity_edit_tbox, NULL},
-        {"RES", UI_ELEMENT_TEXTBOX_O, rpanel_row_tfield_size, FLOAT, &rpanel_world_resolution_tbox, NULL},
-        {"OBJECTS", UI_ELEMENT_TEXTBOX_O, rpanel_row_tfield_size, FLOAT, &rpanel_world_objects_tbox, NULL},
-        {"NEXT ID", UI_ELEMENT_TEXTBOX_O, rpanel_row_tfield_size, FLOAT, &rpanel_world_next_id_tbox, NULL},
+        {"WORLD", UI_ELEMENT_TEXTBOX_O, tfield_default_size, FLOAT, &rpanel_world_index_tbox, NULL},
+        {"UNIVERSE", UI_ELEMENT_TEXTBOX_O, tfield_default_size, FLOAT, &rpanel_world_universe_pos_tbox, NULL},
+        {"GRAVITY", UI_ELEMENT_TEXTBOX_SAFE_IO, tfield_default_size, FLOAT, &rpanel_world_gravity_edit_tbox, NULL},
+        {"RES", UI_ELEMENT_TEXTBOX_O, tfield_default_size, FLOAT, &rpanel_world_resolution_tbox, NULL},
+        {"OBJECTS", UI_ELEMENT_TEXTBOX_O, tfield_default_size, FLOAT, &rpanel_world_objects_tbox, NULL},
+        {"NEXT ID", UI_ELEMENT_TEXTBOX_O, tfield_default_size, FLOAT, &rpanel_world_next_id_tbox, NULL},
     };
     InitPanelFields(world_cont, world_fields,
                     sizeof(world_fields) / sizeof(world_fields[0]), rpanel_tfield_padding,
@@ -187,39 +187,59 @@ void InitRPanel(void)
     {
         rpanel_world_gravity_edit_tbox->data.textbox.data_type = FLOAT;
     }
+}
 
+static void InitRPanelStateStatsContainer(void)
+{
     UIElement *stats_cont = CreatePanelContainer(
-        rpanel_state_view_cont, (Size){{1.0f, 0.32f}, SIZE_PERCENT},
-        (Offset){ZERO_VECTOR_2D, OFFSET_FIXED}, tcont_default_padding,
+        rpanel_state_view_cont, rpanel_state_stats_cont_size,
+        rpanel_state_stats_cont_offset, tcont_default_padding,
         tcont_default_colour_border, tcont_default_colour_fill,
         tcont_default_child_spacing, true, true);
 
-    CreatePanelTitleLabelDefault(stats_cont, "UTILITY PANEL", rpanel_title_tfield_size, rpanel_tfield_padding);
+    CreatePanelTitleLabelDefault(stats_cont, "UTILITY PANEL", tfield_default_size, rpanel_tfield_padding);
     const PanelFieldSpec stat_fields[] = {
-        {"FPS", UI_ELEMENT_TEXTBOX_O, rpanel_stat_row_tfield_size, FLOAT, &rpanel_stats_fps_tbox, NULL},
-        {"FRAME (MS)", UI_ELEMENT_TEXTBOX_O, rpanel_stat_row_tfield_size, FLOAT, &rpanel_stats_frame_tbox, NULL},
-        {"ENTITIES", UI_ELEMENT_TEXTBOX_O, rpanel_stat_row_tfield_size, FLOAT, &rpanel_stats_entities_tbox, NULL},
+        {"ENTITIES", UI_ELEMENT_TEXTBOX_O, tfield_default_size, FLOAT, &rpanel_stats_entities_tbox, NULL},
     };
     InitPanelFields(stats_cont, stat_fields,
                     sizeof(stat_fields) / sizeof(stat_fields[0]), rpanel_tfield_padding,
                     WHITE_RGBA, COLOURLESS_RGBA);
+}
 
+static void InitRPanelStateView(void)
+{
+    rpanel_state_view_cont = CreatePanelContainer(
+        rpanel_root, rpanel_view_cont_size,
+        rpanel_state_view_cont_offset, ZERO_VECTOR_2D,
+        COLOURLESS_RGBA, COLOURLESS_RGBA,
+        cont_default_child_spacing, false, true);
+
+    rpanel_state_view->container = rpanel_state_view_cont;
+    rpanel_state_view->type = RPANEL_STATE_VIEW;
+    LArray_Push(&rpanel_views, &rpanel_state_view);
+
+    InitRPanelStateWorldContainer();
+    InitRPanelStateStatsContainer();
+}
+
+static void InitRPanelCreateWorldContainer(void)
+{
     UIElement *create_world_cont = CreatePanelContainer(
-        rpanel_create_view_cont, (Size){{0.96f, 0.78f}, SIZE_PERCENT},
-        (Offset){{0.02f, 0.02f}, OFFSET_PERCENT}, tcont_default_padding,
+        rpanel_create_view_cont, rpanel_create_world_cont_size,
+        rpanel_create_world_cont_offset, tcont_default_padding,
         tcont_default_colour_border, tcont_default_colour_fill,
         tcont_default_child_spacing, true, true);
 
-    CreatePanelTitleLabelDefault(create_world_cont, "WORLD CREATION", rpanel_title_tfield_size, rpanel_tfield_padding);
+    CreatePanelTitleLabelDefault(create_world_cont, "WORLD CREATION", tfield_default_size, rpanel_tfield_padding);
     const PanelFieldSpec create_fields[] = {
-        {"WORLDS", UI_ELEMENT_TEXTBOX_O, rpanel_row_tfield_size, FLOAT, &rpanel_create_world_count_tbox, NULL},
-        {"SELECTED", UI_ELEMENT_TEXTBOX_O, rpanel_row_tfield_size, FLOAT, &rpanel_create_selected_world_tbox, NULL},
-        {"SPAWN", UI_ELEMENT_TEXTBOX_SAFE_IO, rpanel_row_tfield_size, VECTOR2D, &rpanel_create_spawn_tbox, NULL},
-        {"RESOLUTION", UI_ELEMENT_TEXTBOX_SAFE_IO, rpanel_row_tfield_size, VECTOR2D, &rpanel_create_resolution_tbox, NULL},
-        {"BASIS U", UI_ELEMENT_TEXTBOX_SAFE_IO, rpanel_row_tfield_size, VECTOR2D, &rpanel_create_basis_u_tbox, NULL},
-        {"BASIS V", UI_ELEMENT_TEXTBOX_SAFE_IO, rpanel_row_tfield_size, VECTOR2D, &rpanel_create_basis_v_tbox, NULL},
-        {"GRAVITY", UI_ELEMENT_TEXTBOX_SAFE_IO, rpanel_row_tfield_size, FLOAT, &rpanel_create_gravity_tbox, NULL},
-        {"AUTO SELECT", UI_ELEMENT_TEXTBOX_SAFE_IO, rpanel_row_tfield_size, INT, &rpanel_create_auto_select_tbox, NULL},
+        {"WORLDS", UI_ELEMENT_TEXTBOX_O, tfield_default_size, FLOAT, &rpanel_create_world_count_tbox, NULL},
+        {"SELECTED", UI_ELEMENT_TEXTBOX_O, tfield_default_size, FLOAT, &rpanel_create_selected_world_tbox, NULL},
+        {"SPAWN", UI_ELEMENT_TEXTBOX_SAFE_IO, tfield_default_size, VECTOR2D, &rpanel_create_spawn_tbox, NULL},
+        {"RESOLUTION", UI_ELEMENT_TEXTBOX_SAFE_IO, tfield_default_size, VECTOR2D, &rpanel_create_resolution_tbox, NULL},
+        {"BASIS U", UI_ELEMENT_TEXTBOX_SAFE_IO, tfield_default_size, VECTOR2D, &rpanel_create_basis_u_tbox, NULL},
+        {"BASIS V", UI_ELEMENT_TEXTBOX_SAFE_IO, tfield_default_size, VECTOR2D, &rpanel_create_basis_v_tbox, NULL},
+        {"GRAVITY", UI_ELEMENT_TEXTBOX_SAFE_IO, tfield_default_size, FLOAT, &rpanel_create_gravity_tbox, NULL},
+        {"AUTO SELECT", UI_ELEMENT_TEXTBOX_SAFE_IO, tfield_default_size, INT, &rpanel_create_auto_select_tbox, NULL},
     };
     InitPanelFields(create_world_cont, create_fields,
                     sizeof(create_fields) / sizeof(create_fields[0]), rpanel_tfield_padding,
@@ -243,14 +263,39 @@ void InitRPanel(void)
     int *auto_select = GetCreateWorldAutoSelectPtr();
     BindTextboxData(rpanel_create_auto_select_tbox, INT, auto_select);
 
-    CreateRPanelSubmitButton(create_world_cont, "NEW WORLD", &btn_action_create_world);
+    CreatePanelButtonDefault(create_world_cont, UI_ELEMENT_BUTTON_SUBMIT, "NEW WORLD", btn_default_size,
+                             btn_default_padding, HandleBtnSubmitClick, &btn_action_create_world, NULL);
 }
 
-void UpdateRPanel(int mouse_x, int mouse_y)
+static void InitRPanelCreateView(void)
 {
-    (void)mouse_x;
-    (void)mouse_y;
+    rpanel_create_view_cont = CreatePanelContainer(
+        rpanel_root, rpanel_view_cont_size,
+        rpanel_create_view_cont_offset, ZERO_VECTOR_2D,
+        COLOURLESS_RGBA, COLOURLESS_RGBA,
+        tcont_default_child_spacing, false, false);
+
+    rpanel_create_view->container = rpanel_create_view_cont;
+    rpanel_create_view->type = RPANEL_WORLD_CREATE_VIEW;
+    LArray_Push(&rpanel_views, &rpanel_create_view);
+
+    InitRPanelCreateWorldContainer();
 }
+
+void InitRPanel(void)
+{
+    rpanel_views = MakeLArray(2, sizeof(View *));
+    rpanel_state_view = &rpanel_state_view_storage;
+    rpanel_create_view = &rpanel_create_view_storage;
+    btn_action_rpanel_enumerate = 0;
+
+    InitRPanelRoot();
+    InitRPanelToggleButtons();
+    InitRPanelStateView();
+    InitRPanelCreateView();
+    UpdateUISpace(rpanel_root, rpanel_seed_box);
+}
+
 
 void DrawRPanel(void)
 {
@@ -259,14 +304,9 @@ void DrawRPanel(void)
         return;
     }
 
-    if (rpanel_stats_fps_tbox)
-    {
-        WriteTextboxFloat(rpanel_stats_fps_tbox, frame_counter.fps, 1);
-    }
-    if (rpanel_stats_frame_tbox)
-    {
-        WriteTextboxFloat(rpanel_stats_frame_tbox, frame_counter.delta_time * 1000.0f, 2);
-    }
+    // Keep UI layout in sync with interactive/manual offset changes.
+    UpdateUISpace(rpanel_root, rpanel_seed_box);
+
     if (rpanel_stats_entities_tbox)
     {
         WriteTextboxInt(rpanel_stats_entities_tbox, GetNewtonoidCount());
@@ -390,11 +430,14 @@ void DrawRPanel(void)
         if (rpanel_world_next_id_tbox)
             WriteTextboxText(rpanel_world_next_id_tbox, "0");
     }
-    // ISSUE IS HERE. COL3 is like 60000!
-    Matrix3x3 M_ui_to_pixel = MatrixMultiply_3x3_3x3(
-        camera_rpanel.tunnel.source_to_dest_mtx,
-        rpanel_viewport_tunnel.source_to_dest_mtx);
-    DrawRootUIElement(rpanel_root, rpanel_seed_box, camera_lpanel, M_ui_to_pixel);
+    // Apply the panel-space basis before viewport->pixel mapping so RPANEL_SPACE edits are visible.
+    Frame2d panel_basis_frame = rpanel_space.frame;
+    panel_basis_frame.origin_in_parent = ZERO_VECTOR_2D;
+    Matrix3x3 panel_local_to_viewport = MtxTransform_GetLocalToParent(panel_basis_frame);
+    Matrix3x3 panel_local_to_pixel = MatrixMultiply_3x3_3x3(rpanel_viewport.tunnel.source_to_dest_mtx,
+                                                           panel_local_to_viewport);
+
+    DrawRootUIElement(rpanel_root, rpanel_seed_box, panel_local_to_pixel);
 }
 
 Frame2d *GetRPanelSpaceFrame(void)

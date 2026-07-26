@@ -138,20 +138,13 @@ typedef struct
     // VIEWS
     LArray *lpanel_views;
     ViewType active_panel_view;
-} UIState;
 
-typedef struct
-{
+    // SELECTION STATE (previously in WorldState)
     Newtonoid2d *selected_object;
     Newtonoid2dParams *newtonoid_params;
-    // GridSpace2d *world_coord_space;
     Cell *selected_cell;
     int selected_cell_index;
-    World2d *world;
-    FlatMapInt *entity_world_index_registry;
-    LArray *collisions;
-    WorldMode mode;
-} WorldState;
+} UIState;
 
 //typedef struct UIBox UIBox;
 //----------------------------------------------------------------------------------
@@ -165,7 +158,6 @@ extern size_t memory_allocated;
 extern const int screenWidth;  // = 1920;
 extern const int screenHeight; // = 1080;
 extern UIState G_UIState;
-extern WorldState G_WorldState;
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
@@ -177,16 +169,15 @@ FrameCounter InitFrameCounter();
 void UpdateUtilities();
 void UpdateFrameCounter(FrameCounter *fc);
 size_t GetCurrentMemoryAllocated();
-void *GetEntityByID(WorldState *context, int entity_id);
+void *GetEntityByID(World2d *world, int entity_id);
 //----------------------------------------------------------------------------------
 // UI Functions Declaration
 //----------------------------------------------------------------------------------
 void InitUI(void);
-void InitPanel(void);
 void InitLPanel(void);
 void InitRPanel(void);
-void UpdateLPanel(int mouse_x, int mouse_y);
 void DrawLPanel(void);
+void DrawRPanel(void);
 void UpdateUISystem(int mouse_x, int mouse_y);
 void DrawUI(void);
 void ProcessUIInput(int mouse_x, int mouse_y, bool cursor_in_region);
@@ -201,8 +192,7 @@ int GetNewtonoidCount(void);
 void InitWorldSystem(void);
 void InitUniverseSystem(void);
 void UpdateUniverseSystem(int mouse_x, int mouse_y);
-void DrawGameWorld(void);
-void DrawWorldRegion(World2d *world, Camera2d *world_camera, Camera2d *universe_camera);
+void DrawWorldRegion(World2d *world, Camera2d *universe_camera);
 Newtonoid2d *ResolveEntityParamsToEntity(Newtonoid2dParams *newtonoid_params);
 //----------------------------------------------------------------------------------
 // Integration Functions Declaration

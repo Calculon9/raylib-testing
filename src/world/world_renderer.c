@@ -48,11 +48,11 @@ static void DrawTransformedLineV(Vector2d start, Vector2d end, Matrix3x3 world_t
               ToRaylibColor(line_colour));
 }
 
-void DrawWorldRegion(World2d *world, Camera2d *world_camera, Camera2d *universe_camera)
+void DrawWorldRegion(World2d *world, Camera2d *universe_camera)
 {
     Matrix3x3 world_to_game_viewport_mtx = MatrixMultiply_3x3_3x3(universe_camera->tunnel.source_to_dest_mtx,
-                                                                  world_camera->tunnel.source_to_dest_mtx);
-    Matrix3x3 world_to_pixel_mtx = MatrixMultiply_3x3_3x3(game_viewport_tunnel.source_to_dest_mtx,
+                                                                  world->tunnel.source_to_dest_mtx);
+    Matrix3x3 world_to_pixel_mtx = MatrixMultiply_3x3_3x3(game_viewport.tunnel.source_to_dest_mtx,
                                                           world_to_game_viewport_mtx);
 
     DrawGridSpace(&world->grid_space, world_to_pixel_mtx);
@@ -70,20 +70,32 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
 
     Basis2d basis = grid_space->space.frame.basis;
 
-    Vector2d local_origin = grid_space->space.frame.origin_in_parent;
-    Vector2d origin = local_origin;
+    // Grid vertices are authored in world-local coordinates; world placement is
+    // already encoded in world_to_pixel_mtx via world->tunnel.source_to_dest_mtx.
+    Vector2d origin = ZERO_VECTOR_2D;
     Vector2d end = VectorSum_2d(origin, (Vector2d){(float)grid_space->space.columns, (float)grid_space->space.rows});
 
-    Vector2d world_pixel_origin = TransformCoordinates(world_to_pixel_mtx, origin);
-    Vector2d world_pixel_end = TransformCoordinates(world_to_pixel_mtx, end);
+    Vector2d corner_local_0 = origin;
+    Vector2d corner_local_1 = VectorSum_2d(origin, VectorScale_2d(basis.u, (float)grid_space->space.columns));
+    Vector2d corner_local_2 = VectorSum_2d(corner_local_1, VectorScale_2d(basis.v, (float)grid_space->space.rows));
+    Vector2d corner_local_3 = VectorSum_2d(origin, VectorScale_2d(basis.v, (float)grid_space->space.rows));
+
+    Vector2d corner_pixel_0 = TransformCoordinates(world_to_pixel_mtx, corner_local_0);
+    Vector2d corner_pixel_1 = TransformCoordinates(world_to_pixel_mtx, corner_local_1);
+    Vector2d corner_pixel_2 = TransformCoordinates(world_to_pixel_mtx, corner_local_2);
+    Vector2d corner_pixel_3 = TransformCoordinates(world_to_pixel_mtx, corner_local_3);
 
     ColourRgba colour_fill = grid_space->colour_fill;
     ColourRgba colour_line = grid_space->colour_line;
-    DrawRectangle((int)world_pixel_origin.x,
-                  (int)world_pixel_origin.y,
-                  (int)fabsf(world_pixel_end.x - world_pixel_origin.x),
-                  (int)fabsf(world_pixel_end.y - world_pixel_origin.y),
-                  (Color){colour_fill.r, colour_fill.g, colour_fill.b, colour_fill.a});
+    Color fill = (Color){colour_fill.r, colour_fill.g, colour_fill.b, colour_fill.a};
+    DrawTriangle((Vector2){corner_pixel_2.x, corner_pixel_2.y},
+                 (Vector2){corner_pixel_1.x, corner_pixel_1.y},
+                 (Vector2){corner_pixel_0.x, corner_pixel_0.y},
+                 fill);
+    DrawTriangle((Vector2){corner_pixel_3.x, corner_pixel_3.y},
+                 (Vector2){corner_pixel_2.x, corner_pixel_2.y},
+                 (Vector2){corner_pixel_0.x, corner_pixel_0.y},
+                 fill);
 
     int columns = grid_space->space.columns;
     int rows = grid_space->space.rows;

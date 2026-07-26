@@ -91,7 +91,9 @@ Look in:
 - Keep functions small
 - Prefer descriptive names
 - Avoid unnecessary allocations
-
+- Clean code
+- Clean architecture
+- Simplest solution
 ---
 
 ## Tool Usage

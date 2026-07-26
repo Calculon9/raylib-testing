@@ -25,6 +25,10 @@ void InitUniverseSystem(void);
 // Re-sync universe camera destination frame to current viewport geometry.
 void SyncUniverseCameraToViewport(void);
 
+// Apply a universe camera basis edit by updating the camera's canonical
+// zoom/rotation state (used by UpdateCameraFull).
+bool SetUniverseCameraBasis(Basis2d basis);
+
 // Configure total universe grid dimensions independent of panel or viewport layout.
 void SetUniverseGridCellCounts(int cells_x, int cells_y);
 

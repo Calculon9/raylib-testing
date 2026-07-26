@@ -14,19 +14,6 @@ LEFT PANEL SYSTEM MODULE
 extern UIBox seed_box;
 extern UIElement *lpanel_root;
 
-// Left-panel viewport state used by input and panel rendering.
-extern Vector2d lpanel_origin;
-extern Vector2d lpanel_end;
-extern Vector2d lpanel_resolution;
-extern Vector2d lpanel_pixel_origin;
-extern Vector2d lpanel_pixel_u;
-extern Vector2d lpanel_pixel_v;
-extern Vector2d lpanel_u;
-extern Vector2d lpanel_v;
-extern Vector2d local_to_lpanel_scale;
-extern Vector2d lpanel_to_local_scale;
-extern Camera2d camera_lpanel;
-
 void InitLPanel(void);
 void UpdateLPanel(int mouse_x, int mouse_y);
 void DrawLPanel(void);

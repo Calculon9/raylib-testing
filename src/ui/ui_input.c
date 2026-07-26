@@ -17,7 +17,9 @@
 #include "world/world.h"
 #include "system/str_helpers.h"
 #include "system/rpanel_system.h"
+#include "system/universe_system.h"
 #include "system/command_queue.h"
+#include "system/drag_interaction.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -54,6 +56,11 @@ void UpdateUIFocus(UIElement *element);
 void UpdateDragFocus(UIElement *element, Vector2d mouse_coords);
 void ClearUIFocus(void);
 void ResetDragState(void);
+
+static DragInteractionState *GetUIDragContext(void)
+{
+    return DragInteraction_GetContext(DRAG_CONTEXT_UI);
+}
 
 static void ResetTextBuffers(Text_64_IOState *tbox_buffers)
 {
@@ -123,6 +130,8 @@ Vector2d ResolvePixelToLocalDragScale(UIElement *element)
     {
         scale.y = local_size.y / pixel_size.y;
     }
+
+    frame_counter.total_frames % 1800 == 0 ? LOG_INFO("Drag scale for element [%s]: (%.2f, %.2f)", GetElementTypeName(element->type), scale.x, scale.y) : (void)0;
 
     return scale;
 }
@@ -214,6 +223,8 @@ void HandleMouseEvents(UIElement *target, Vector2d mouse_coords)
 // HANDLER - MOUSE DOWN
 void HandleLeftMouseDown(UIElement *target, Vector2d mouse_coords)
 {
+    DragInteractionState *drag_ctx = GetUIDragContext();
+
     if (target && !target->is_enabled)
     {
         target = NULL;
@@ -221,15 +232,24 @@ void HandleLeftMouseDown(UIElement *target, Vector2d mouse_coords)
 
     // -----UPDATE MOUSE DOWN STATE-----
     // 1. ALWAYS update the mouse state first so everything below has fresh data
-    UpdatePointerState(POINTER_BUTTON_LEFT, &mouse_down_state, mouse_coords);
+    DragInteraction_UpdateButtonDown(drag_ctx, mouse_coords);
+    mouse_down_state = drag_ctx->pointer_state;
 
     // 2. EVENT PHASE: Check if focus shifted (Only runs on the *initial* press frame)
     if (mouse_down_state.left_button_hold_ticks == 1)
     {
         if (target != G_UIState.focused_element)
         {
-            // Cleanup any state from previous focus
-            RevertTextChanges(G_UIState.focused_element, &tbox_io_buffers);
+            // Commit pending textbox edits when focus changes; if commit fails,
+            // HandleTextCommit reverts using the snapshot buffer.
+            if (G_UIState.focused_element && IsTextbox(G_UIState.focused_element) && HasPendingTextEdit(&tbox_io_buffers))
+            {
+                HandleTextCommit(G_UIState.focused_element, &tbox_io_buffers);
+            }
+            else
+            {
+                RevertTextChanges(G_UIState.focused_element, &tbox_io_buffers);
+            }
 
             // Initialise new focus and new state
             UpdateUIFocus(target);
@@ -248,7 +268,7 @@ void HandleLeftMouseDown(UIElement *target, Vector2d mouse_coords)
     if (G_DragState.target_element)
     {
         // Calculate fresh delta
-        G_DragState.drag_delta = VectorSum_2d(mouse_down_state.current_pos, (Vector2d){-mouse_down_state.initial_pos.x, -mouse_down_state.initial_pos.y});
+        G_DragState.drag_delta = DragInteraction_GetPointerDelta(drag_ctx);
 
         // Use threshold check to see if the user has dragged past the deadzone
         if (IsMouseDragged(mouse_down_state))
@@ -271,6 +291,8 @@ void HandleLeftMouseDown(UIElement *target, Vector2d mouse_coords)
 // HANDLER - MOUSE DOWN
 void HandleLeftMouseUp(UIElement *target, Vector2d mouse_coords)
 {
+    DragInteractionState *drag_ctx = GetUIDragContext();
+
     if (target && !target->is_enabled)
     {
         target = NULL;
@@ -304,7 +326,8 @@ void HandleLeftMouseUp(UIElement *target, Vector2d mouse_coords)
             }
         }
 
-        ResetPointerState(&mouse_down_state);
+        DragInteraction_UpdateButtonUp(drag_ctx);
+        mouse_down_state = drag_ctx->pointer_state;
         ResetDragState();
         printf("ENDED MOUSE DOWN [%s]\n", GetElementTypeName(target ? target->type : UI_ELEMENT_NONE), G_DragState.drag_delta.x, G_DragState.drag_delta.y);
     }
@@ -394,23 +417,23 @@ void HandleBtnSubmitClick(UIElement *btn)
 
     if (action == BUTTON_ACTION_CREATE_ENTITY)
     {
-        if (!G_WorldState.world)
+        if (!Universe_GetSelectedWorld(&G_Universe))
             return;
 
         // Enqueue a create-entity command instead of creating immediately
-        if (G_WorldState.newtonoid_params)
+        if (G_UIState.newtonoid_params)
         {
-            EnqueueCreateEntity(G_WorldState.newtonoid_params);
+            EnqueueCreateEntity(G_UIState.newtonoid_params);
         }
     } else if (action == BUTTON_ACTION_DELETE_ENTITY)
     {
-        if (!G_WorldState.world)
+        if (!Universe_GetSelectedWorld(&G_Universe))
             return;
 
         // Enqueue a delete-entity command instead of deleting immediately
-        if (G_WorldState.selected_object)
+        if (G_UIState.selected_object)
         {
-            EnqueueDeleteEntity(G_WorldState.selected_object);
+            EnqueueDeleteEntity(G_UIState.selected_object);
         }
     }
     else if (action == BUTTON_ACTION_CREATE_WORLD)
@@ -673,6 +696,8 @@ void UpdateUIFocus(UIElement *element)
 
 void UpdateDragFocus(UIElement *element, Vector2d mouse_coords)
 {
+    DragInteractionState *drag_ctx = GetUIDragContext();
+
     if (!element || !element->is_enabled)
     {
         return;
@@ -680,24 +705,35 @@ void UpdateDragFocus(UIElement *element, Vector2d mouse_coords)
 
     G_DragState.target_element = element;
 
-    // float parent_offset_x = 0.0f;
-    // float parent_offset_y = 0.0f;
+    // Drag math operates in fixed local units; convert authored percent offsets once.
+    // IMPORTANT: read manual_parent_offset (authored value), NOT parent_offset.offset,
+    // which already has the stacking cursor applied and would cause double-offset on next layout.
+    if (element->parent && element->parent_offset.offset_mode == OFFSET_PERCENT)
+    {
+        float content_area_w = fmaxf(0.0f, element->parent->local_box.dimensions.x - (element->parent->padding.x * 2.0f));
+        float content_area_h = fmaxf(0.0f, element->parent->local_box.dimensions.y - (element->parent->padding.y * 2.0f));
 
-    // if (element->parent)
-    // {
-    //     // Account for parent origin + its inner padding
-    //     parent_offset_x = element->parent_offset.offset.x; // + (e->parent->padding.x * basis_scale.x);
-    //     parent_offset_y = element->parent_offset.offset.y; // + (e->parent->padding.y * basis_scale.y);
-    // }
+        Vector2d fixed_offset = {
+            content_area_w * element->manual_parent_offset.x,
+            content_area_h * element->manual_parent_offset.y};
+
+        element->parent_offset.offset_mode = OFFSET_FIXED;
+        element->manual_parent_offset = fixed_offset;
+        element->has_manual_parent_offset = true;
+    }
 
     G_DragState.initial_element_offset = element->manual_parent_offset;
+    DragInteraction_BeginCapture(drag_ctx, DRAG_TARGET_UI_ELEMENT, element, G_DragState.initial_element_offset);
     printf("DRAG FOCUS CHANGE: [%s]\n", GetElementTypeName(element->type));
 }
 
 void ResetDragState()
 {
+    DragInteractionState *drag_ctx = GetUIDragContext();
+
     G_DragState.drag_delta = (Vector2d){0, 0};
     G_DragState.target_element = NULL;
+    DragInteraction_ClearCapture(drag_ctx);
     printf("DRAG FOCUS CLEARED\n");
 }
 

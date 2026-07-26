@@ -41,11 +41,11 @@ ColourRgba tcont_default_colour_border = {188, 108, 37, 255}; // {150, 115, 70, 
 ColourRgba tfield_default_colour_fill = {0, 0, 0, 0};
 Size tfield_default_size = {{6, 0.5}, SIZE_FIXED};
 // Give labels more room in inline text fields (label width = 1.0 - textbox width).
-Size tbox_default_size = {{0.45, 1}, SIZE_PERCENT};
+Size tbox_default_size = {{0.55, 1}, SIZE_PERCENT};
 Size btn_default_size = {{6, 0.5}, SIZE_FIXED}; // Assuming it's in a container
 // Size btn_default_size = {{1, 1}, SIZE_PERCENT};    // Assuming it's in a container
 Size tcont_default_size = {{1, 0.5}, SIZE_PERCENT};
-Spacing tcont_default_child_spacing = {{0, 0.015}, PERCENT, SPACING_STACKED};
+Spacing tcont_default_child_spacing = {{0, 0.012}, PERCENT, SPACING_STACKED};
 Spacing cont_default_child_spacing = {{0, 0.015}, PERCENT, SPACING_STACKED};
 Spacing btn_cont_default_child_spacing = {{0.0, 0.0}, PERCENT, SPACING_NONE};
 
@@ -72,16 +72,16 @@ void InitUI(void)
     // Init Global UI State
     G_UIState.focused_element = NULL;
     InitLPanel();
-    //InitRPanel();
-    // G_UIState.active_panel_view = LPANEL_STATE_VIEW;
+    InitRPanel();
+    G_UIState.active_panel_view = LPANEL_STATE_VIEW;
 }
 
 void UpdateUISystem(int mouse_x, int mouse_y)
 {
-    bool cursor_in_lpanel = mouse_x >= lpanel_pixel_origin.x && mouse_x <= (lpanel_pixel_origin.x + (lpanel_pixel_u.x * lpanel_viewport_resolution.x)) &&
-                            mouse_y >= lpanel_pixel_origin.y && mouse_y <= (lpanel_pixel_origin.y + (lpanel_pixel_v.y * lpanel_viewport_resolution.y));
-    bool cursor_in_rpanel = mouse_x >= rpanel_pixel_origin.x && mouse_x <= (rpanel_pixel_origin.x + (rpanel_pixel_u.x * rpanel_viewport_resolution.x)) &&
-                            mouse_y >= rpanel_pixel_origin.y && mouse_y <= (rpanel_pixel_origin.y + (rpanel_pixel_v.y * rpanel_viewport_resolution.y));
+    bool cursor_in_lpanel = mouse_x >= lpanel_viewport.pixel_origin.x && mouse_x <= (lpanel_viewport.pixel_origin.x + (lpanel_viewport.pixel_u.x * lpanel_viewport.resolution.x)) &&
+                            mouse_y >= lpanel_viewport.pixel_origin.y && mouse_y <= (lpanel_viewport.pixel_origin.y + (lpanel_viewport.pixel_v.y * lpanel_viewport.resolution.y));
+    bool cursor_in_rpanel = mouse_x >= rpanel_viewport.pixel_origin.x && mouse_x <= (rpanel_viewport.pixel_origin.x + (rpanel_viewport.pixel_u.x * rpanel_viewport.resolution.x)) &&
+                            mouse_y >= rpanel_viewport.pixel_origin.y && mouse_y <= (rpanel_viewport.pixel_origin.y + (rpanel_viewport.pixel_v.y * rpanel_viewport.resolution.y));
     bool cursor_in_ui = cursor_in_lpanel || cursor_in_rpanel;
 
     // Send useful data to the Dispatcher for it triage and process/update affected elements
@@ -92,6 +92,7 @@ void UpdateUISystem(int mouse_x, int mouse_y)
 void DrawUI()
 {
     DrawLPanel();
+    DrawRPanel();
 }
 
 void UpdateUILogicalSpace()
@@ -112,7 +113,7 @@ void UpdateUISpace(UIElement *root_element, UIBox seed_box)
     // UIBox box = ResolveElementBox(root_element, seed_box);
     // root_element->cached_box = box;
 
-    DistributeChildrenRecursiveResolved(root_element, seed_box);
+    UI_LayoutSubtree(root_element, seed_box);
 
     // frame_counter.total_frames % 800 == 0 ? printf("DREW [%s] Pos: (%.1f, %.1f) | Size: (%.1f, %.1f)\n", GetElementTypeName(root_element->type), box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y) : (void)0;
 
@@ -168,7 +169,7 @@ void UpdateGlobalUIState()
         snprintf(G_UIState.lpanel_stats_fps_str->string, sizeof(String64), "%.1f", fps);
         snprintf(G_UIState.lpanel_stats_mem_str->string, sizeof(String64), "%.1f", bytes);
         snprintf(G_UIState.lpanel_stats_polygs_str->string, sizeof(String64), "%d", polygs);
-        snprintf(G_UIState.lpanel_stats_ftime_str->string, sizeof(String64), "%.1f", ftime);
+        snprintf(G_UIState.lpanel_stats_ftime_str->string, sizeof(String64), "%.2f", ftime);
     }
 
     // DEBUG----
@@ -181,7 +182,7 @@ void UpdateGlobalUIState()
     // ----DEBUG //
 
     // COLLECT & UPDATE "SELECTED ENTITY" PROPERTIES
-    Newtonoid2d *obj = G_WorldState.selected_object;
+    Newtonoid2d *obj = G_UIState.selected_object;
     if (obj)
     {
         // Bind selected_object data to the Object Properties TextBoxes
@@ -230,10 +231,10 @@ void UpdateGlobalUIState()
     }
 
     // COLLECT & UPDATE SELECTED CELL PROPERTIES
-    Cell *cell = G_WorldState.selected_cell;
+    Cell *cell = G_UIState.selected_cell;
     if (cell)
     {
-        int index = G_WorldState.selected_cell_index;
+        int index = G_UIState.selected_cell_index;
         int occu = cell->occupancy;
         float val = cell->value;
         float fill = 0; // set to 0 for now
@@ -254,7 +255,7 @@ void UpdateGlobalUIState()
 
     // COLLECT & UPDATE EDITING ENTITY PROPERTIES
     // Determine if the Edit View is active.
-    Newtonoid2dParams *params = G_WorldState.newtonoid_params;
+    Newtonoid2dParams *params = G_UIState.newtonoid_params;
     if (G_UIState.active_panel_view == LPANEL_EDIT_ENTITY_VIEW && params)
     {
         // Bind selected_object data to the Object Properties TextBoxes

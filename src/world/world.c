@@ -20,11 +20,10 @@ static int initObjectCount = 4;
 // Functions Definition
 //----------------------------------------------------------------------------------
 
-void CreateWorld(GridSpace2d space_obj, Camera2d world_camera, float gravity, World2d *out_world)
+void CreateWorld(GridSpace2d space_obj, float gravity, World2d *out_world)
 {
    // World2d world = {0};
    out_world->grid_space = space_obj;
-   out_world->camera = world_camera;
    out_world->gravity = gravity;
    out_world->next_object_id = 1; // Initialize the next available ID for NewtonObjects
    out_world->objects = MakeLArray(initObjectCount, sizeof(Newtonoid2d));
@@ -36,9 +35,6 @@ void CreateWorld(GridSpace2d space_obj, Camera2d world_camera, float gravity, Wo
    out_world->resolved_collisions = MakeFlatMapInt(1 + (int)(out_world->entity_space_map.count / 2));
    out_world->entity_world_index_registry = MakeFlatMapInt(1 + (int)(out_world->entity_space_map.count / 2));
    out_world->scheduled_world_cmds = MakeLArray(initObjectCount, sizeof(WorldCommand));
-   G_WorldState.entity_world_index_registry = &out_world->entity_world_index_registry;
-   G_WorldState.collisions = &out_world->collisions;
-   G_WorldState.world = out_world;
    InitJobSystem(256);
    // return world;
 }
@@ -55,7 +51,7 @@ int AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id)
    }
 
    // Register the object first so the world/entity maps stay in sync with its center position.
-   int assigned_id = RegisterEntity(&G_WorldState, object);
+   int assigned_id = RegisterEntity(world, object);
 
    // Solid objects are collision-enabled, need to be tracked spacially
    int cell_index = -1;
@@ -83,23 +79,27 @@ int AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id)
    return assigned_id;
 }
 
-void UpdateWorld(WorldState *context, float delta_time)
+void UpdateWorld(World2d *world, float delta_time)
 {
    // PrintCurrentBytesAlloc();
-   LArray *objects = &context->world->objects;
-   int obj_count = objects->count;
-   if (obj_count < 1)
-      return;
-   GridSpace2d *space_entity = &context->world->grid_space;
+   LArray *objects = &world->objects;
+   GridSpace2d *space_entity = &world->grid_space;
    Space2d *space = &space_entity->space;
 
    // RESET TRACKING-STATE - Zero out
-   FlatMapInt *entity_space_map = &context->world->entity_space_map;
-   FlatMapInt *resolved_collisions = &context->world->resolved_collisions;
-   FlatMapInt *entity_world_index_registry = &context->world->entity_world_index_registry;
-   LArray *scheduled_world_cmds = &context->world->scheduled_world_cmds;
+   FlatMapInt *entity_space_map = &world->entity_space_map;
+   FlatMapInt *resolved_collisions = &world->resolved_collisions;
+   FlatMapInt *entity_world_index_registry = &world->entity_world_index_registry;
+   LArray *scheduled_world_cmds = &world->scheduled_world_cmds;
 
-   LArray_Reset(context->collisions);
+   // RUN SCHEDULED WORLD EVENTS first so delayed deletions continue even when no inhabitants remain.
+   RunScheduledWorldCmds(scheduled_world_cmds, world);
+
+   int obj_count = objects->count;
+   if (obj_count < 1)
+      return;
+
+   LArray_Reset(&world->collisions);
    ResetFlatMapInt(entity_space_map);
    ResetFlatMapInt(resolved_collisions);
 
@@ -113,15 +113,12 @@ void UpdateWorld(WorldState *context, float delta_time)
       MemorySet(&cells[i].object_ids, 0, sizeof(cells[i].object_ids));
    }
 
-   // RUN SCHEDULED WORLD EVENTS
-   RunScheduledWorldCmds(scheduled_world_cmds, context);
-
    if (!IsJobSystemInitialized())
    {
       InitJobSystem(256);
    }
    ClearJobs();
-   SubmitJob(PhysicsUpdateJob, context, obj_count, 8);
+   SubmitJob(PhysicsUpdateJob, world, obj_count, 8);
    ExecuteJobs();
    ClearJobs();
 
@@ -132,7 +129,7 @@ void UpdateWorld(WorldState *context, float delta_time)
 
    // NOTE: The loop body is executed via PhysicsUpdateJob. No inline loop here anymore.
 
-   LArray *temp_objects = &context->world->temp_objects;
+   LArray *temp_objects = &world->temp_objects;
    // PASS 2: Resolving Attachment Hierarchies
    for (size_t i = 0; i < temp_objects->count; i++)
    {
@@ -169,8 +166,6 @@ void UpdateWorld(WorldState *context, float delta_time)
       // PrintCurrentBytesAlloc();
       return;
    }
-
-   World2d *world = context->world;
 
    // RESOLVE ENTITY-ENTITY COLLISIONS
    for (size_t i = 0; i < entity_space_map->capacity; i++)
@@ -235,8 +230,8 @@ void UpdateWorld(WorldState *context, float delta_time)
                   Newtonoid2d collision_obj = CreateNewtonoid2d(0.00001f, collision_center, penetrating_entity->velocity, penetrating_entity->acceleration, collision_surface);
                   collision_obj.entity_layer = FLAG_TYPE_EFFECT;
                   collision_obj.flags |= FLAG_LIFETIME_CLOCKED;
-                  StickEntity(&G_WorldState, &collision_obj, penetrating_entity);                        // ISSUE IS HERE OR WHEN GETTING COLLISION BOX VERTICES ABOVE
-                  int id = AddObjectToWorld(G_WorldState.world, &collision_obj, penetrating_entity->id); // looks like a duplicate collision object is being created? continue this debug session and see what array it's in
+                  StickEntity(world, &collision_obj, penetrating_entity);
+                  int id = AddObjectToWorld(world, &collision_obj, penetrating_entity->id);
 
                   // Create a scheduled update to flag the collision object for removal
                   ScheduleEntityDeletion(scheduled_world_cmds, id, FLAG_STATUS_ALIVE, 120, 1, 1);

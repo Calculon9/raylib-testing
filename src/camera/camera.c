@@ -45,24 +45,21 @@ Camera2d CreateCamera2d(Frame2d *source_space_frame, Frame2d *destination_space_
     if (source_space_frame)
     {
         float source_scale = VectorMagnitude_2d(source_space_frame->basis.u);
-        
+
         // Match the direct proportional zoom scale setup used in UpdateCameraFull
         camera.zoom = source_scale > 0.0001f ? source_scale : 1.0f;
-        camera.target_zoom = camera.zoom;
-        
+
         camera.rotation = VectorRadians_2d(source_space_frame->basis.u);
         camera.source_focus_coords = source_space_frame->origin_in_parent;
-        camera.target_source_focus_coords = source_space_frame->origin_in_parent;
     }
     else
     {
         camera.zoom = 1.0f;
-        camera.target_zoom = 1.0f;
     }
 
     // Safely bake initial column-vector matrices using unified pipeline function
     UpdateCameraFull(&camera);
-    
+
     return camera;
 }
 
@@ -103,12 +100,10 @@ void Camera_SetSourceFrame(Camera2d *cam, Frame2d *source_space_frame)
     if (source_scale > 0.0001f)
     {
         cam->zoom = source_scale;
-        cam->target_zoom = cam->zoom;
     }
 
     cam->rotation = (float)VectorRadians_2d(source_space_frame->basis.u);
     cam->source_focus_coords = source_space_frame->origin_in_parent;
-    cam->target_source_focus_coords = source_space_frame->origin_in_parent;
 
     // Rebake the column-vector matrices
     UpdateCameraFull(cam);
@@ -149,80 +144,107 @@ Vector2d Camera_GetDestinationOriginInSource(const Camera2d *cam)
     return (Vector2d){cam->tunnel.dest_to_source_mtx.col3.x, cam->tunnel.dest_to_source_mtx.col3.y};
 }
 
-void PanCamera(Camera2d *cam, Vector2d delta)
+CameraController CreateCameraController(Camera2d *camera)
 {
-    if (!cam)
-        return;
-    cam->target_source_focus_coords = VectorSum_2d(cam->target_source_focus_coords, delta);
+    CameraController ctrl = {0};
+    ctrl.camera = camera;
+    if (camera)
+    {
+        ctrl.target_source_focus_coords = camera->source_focus_coords;
+        ctrl.target_zoom = camera->zoom;
+    }
+    else
+    {
+        ctrl.target_zoom = 1.0f;
+    }
+    // Set default tuning values for smooth camera control
+    ctrl.pan_smoothing = 0.15f;  // px/frame
+    ctrl.zoom_smoothing = 0.15f; // px/frame
+    ctrl.zoom_speed = 1.1f;
+    ctrl.base_pan_speed = 10.0f; // px/frame
+    return ctrl;
 }
 
-void FollowTarget(Camera2d *cam, Vector2d source_focus_coords)
+void Controller_Pan(CameraController *cam_ctrl, Vector2d delta, float frame_time)
 {
-    if (!cam)
+    if (!cam_ctrl)
         return;
-    cam->target_source_focus_coords = source_focus_coords;
+
+    // Rotate the screen-space pan_delta into world-space movement
+    float cos_c = cosf(cam_ctrl->camera->rotation);
+    float sin_c = sinf(cam_ctrl->camera->rotation);
+
+    float world_dx = delta.x * cos_c - delta.y * sin_c;
+    float world_dy = delta.x * sin_c + delta.y * cos_c;
+
+    // Apply the rotated delta
+    cam_ctrl->target_source_focus_coords.x += world_dx * frame_time;
+    cam_ctrl->target_source_focus_coords.y += world_dy * frame_time;
 }
 
-void ZoomCamera(Camera2d *cam, float zoom_factor)
+void Controller_FollowTarget(CameraController *ctrl, Vector2d target)
 {
-    if (!cam)
+    if (!ctrl)
         return;
-    cam->target_zoom *= zoom_factor;
-    UpdateCameraFull(cam);
+    ctrl->target_source_focus_coords = target;
 }
 
-void RotateCamera(Camera2d *cam, float rotation_angle)
+void Controller_Zoom(CameraController *ctrl, float zoom_factor)
 {
-    if (!cam)
+    if (!ctrl)
         return;
-    cam->rotation += rotation_angle;
-    UpdateCameraFull(cam);
+    ctrl->target_zoom *= zoom_factor;
 }
 
-void UpdateCameraSmoothingTick(Camera2d *cam)
+void Controller_Rotate(CameraController *ctrl, float rotation_angle)
 {
-    if (!cam || !cam->tunnel.source_frame || !cam->tunnel.destination_frame)
+    if (!ctrl || !ctrl->camera)
+        return;
+    ctrl->camera->rotation += rotation_angle;
+    UpdateCameraFull(ctrl->camera);
+}
+
+void Controller_Update(CameraController *ctrl)
+{
+    if (!ctrl || !ctrl->camera)
+        return;
+    Camera2d *cam = ctrl->camera;
+    if (!cam->tunnel.source_frame || !cam->tunnel.destination_frame)
         return;
 
     bool state_changed = false;
 
     // Smoothly interpolate zoom
-    float zoom_delta = cam->target_zoom - cam->zoom;
+    float zoom_delta = ctrl->target_zoom - cam->zoom;
     if (fabsf(zoom_delta) > 0.001f)
     {
-        cam->zoom += zoom_delta * 0.15f;
+        cam->zoom += zoom_delta * ctrl->zoom_smoothing;
         state_changed = true;
     }
-    else if (cam->zoom != cam->target_zoom)
+    else if (cam->zoom != ctrl->target_zoom)
     {
-        cam->zoom = cam->target_zoom;
+        cam->zoom = ctrl->target_zoom;
         state_changed = true;
     }
 
-    // Smoothly interpolate position tracking (using a safe floating-point delta check)
-    float dx = cam->target_source_focus_coords.x - cam->source_focus_coords.x;
-    float dy = cam->target_source_focus_coords.y - cam->source_focus_coords.y;
-    
-    // Check if we are outside a tiny error threshold (e.g., 0.01 units)
+    // Smoothly interpolate position
+    float dx = ctrl->target_source_focus_coords.x - cam->source_focus_coords.x;
+    float dy = ctrl->target_source_focus_coords.y - cam->source_focus_coords.y;
     if (fabsf(dx) > 0.01f || fabsf(dy) > 0.01f)
     {
-        cam->source_focus_coords.x += dx * 0.15f;
-        cam->source_focus_coords.y += dy * 0.15f;
+        cam->source_focus_coords.x += dx * ctrl->pan_smoothing;
+        cam->source_focus_coords.y += dy * ctrl->pan_smoothing;
         state_changed = true;
     }
-    else if (cam->source_focus_coords.x != cam->target_source_focus_coords.x || 
-             cam->source_focus_coords.y != cam->target_source_focus_coords.y)
+    else if (cam->source_focus_coords.x != ctrl->target_source_focus_coords.x ||
+             cam->source_focus_coords.y != ctrl->target_source_focus_coords.y)
     {
-        // Snap directly to target to stop calculations completely
-        cam->source_focus_coords = cam->target_source_focus_coords;
+        cam->source_focus_coords = ctrl->target_source_focus_coords;
         state_changed = true;
     }
 
-    // Delegate matrix baking to our fixed column-vector pipeline function
     if (state_changed)
-    {
         UpdateCameraFull(cam);
-    }
 }
 
 void UpdateCameraFull(Camera2d *cam)
@@ -255,28 +277,53 @@ void UpdateCameraFull(Camera2d *cam)
     M_cam_view.col2.z = 0.0f;
 
     // Translation Column (Inverse translation to focus point, scaled)
-    M_cam_view.col3.x = -(cam->source_focus_coords.x * cos_r + cam->source_focus_coords.y * sin_r) * scale;
-    M_cam_view.col3.y = -(cam->source_focus_coords.x * -sin_r + cam->source_focus_coords.y * cos_r) * scale;
+    M_cam_view.col3.x = (-cam->source_focus_coords.x * cos_r + cam->source_focus_coords.y * sin_r) * scale;
+    M_cam_view.col3.y = (-cam->source_focus_coords.x * sin_r - cam->source_focus_coords.y * cos_r) * scale;
     M_cam_view.col3.z = 1.0f;
 
-    // Build Viewport Center Matrix (Offsets origin to screen viewport center)
-    // Vector2d view_center = {//THIS SHOULD NOT BE USING DESTINATION FRAMES ORIGIN-IN-PARENT. IT SHOULD BE USING THE SOURCE FRAMES ORIGIN-IN-PARENT INSTEAD. THIS IS WHY EVERYTHING IS CENTERED ON THE SCREEN.
-    //     cam->tunnel.source_frame->origin_in_parent.x + (cam->tunnel.destination_frame->local_max.x - cam->tunnel.destination_frame->local_min.x) * 0.5f,
-    //     cam->tunnel.source_frame->origin_in_parent.y + (cam->tunnel.destination_frame->local_max.y - cam->tunnel.destination_frame->local_min.y) * 0.5f};
+    // Build Viewport Center Matrix
+    // Ensures (0,0) from the camera view lands dead-center in the destination
+    Vector2d view_center = {
+        (cam->tunnel.source_frame->local_max.x - cam->tunnel.source_frame->local_min.x) * 0.5f,
+        (cam->tunnel.source_frame->local_max.y - cam->tunnel.source_frame->local_min.y) * 0.5f};
 
-    // Matrix3x3 M_view_center;
-    // // Identity for basis columns
-    // M_view_center.col1 = (Vector3d){1.0f, 0.0f, 0.0f};
-    // M_view_center.col2 = (Vector3d){0.0f, 1.0f, 0.0f};
-    // // Translation to screen space center
-    // M_view_center.col3 = (Vector3d){view_center.x, view_center.y, 1.0f};
+    Matrix3x3 M_view_center;
+    M_view_center.col1 = (Vector3d){1.0f, 0.0f, 0.0f};
+    M_view_center.col2 = (Vector3d){0.0f, 1.0f, 0.0f};
+    M_view_center.col3 = (Vector3d){view_center.x, view_center.y, 1.0f};
+
+    // Combine and invert
+    cam->tunnel.source_to_dest_mtx = MatrixMultiply_3x3_3x3(M_view_center, M_cam_view);
+    cam->tunnel.dest_to_source_mtx = MatrixInvert_3x3(cam->tunnel.source_to_dest_mtx);
 
     // Combine: M_total = M_view_center * M_cam_view
     // Vectors are transformed right-to-left: v_pixel = M_view_center * (M_cam_view * v_world)
-    cam->tunnel.source_to_dest_mtx = M_cam_view;
-    //cam->tunnel.source_to_dest_mtx = MatrixMultiply_3x3_3x3(M_view_center, M_cam_view);
-    cam->tunnel.dest_to_source_mtx = MatrixInvert_3x3(cam->tunnel.source_to_dest_mtx);
-}//THIS IS CENTERING EVERYTHING ON THE SCREEN. WE NEED TO OFFSET IT BY THE VIEWPORT ORIGIN INSTEAD OF CENTERING IT. ITS ADDING TO THE TRANSLATION COLUMN OF THE MATRIX.
+    // cam->tunnel.source_to_dest_mtx = M_cam_view;
+    // cam->tunnel.source_to_dest_mtx = MatrixMultiply_3x3_3x3(M_view_center, M_cam_view);
+    // cam->tunnel.dest_to_source_mtx = MatrixInvert_3x3(cam->tunnel.source_to_dest_mtx);
+}
+
+// This function calculates the camera's view box in coordinates based on the provided transformation.
+// The viewport region constrains the area of interest, and the transformation matrix maps camera coordinates to pixel coordinates. The function returns a CameraViewBox struct containing the origin and dimensions of the camera's view in source space.
+CameraViewBox GetCameraView(Camera2d *cam, ViewportRegion viewport, Matrix3x3 M_cam_to_pixel)
+{
+    Matrix3x3 M_pixel_to_world = MatrixInvert_3x3(M_cam_to_pixel);
+
+    // Using your exact logic from the grid function:
+    Vector2d viewport_coords[] = {
+        TransformCoordinates(M_pixel_to_world, viewport.pixel_origin),
+        TransformCoordinates(M_pixel_to_world, (Vector2d){(float)viewport.pixel_end.x, viewport.pixel_origin.y}),
+        TransformCoordinates(M_pixel_to_world, (Vector2d){viewport.pixel_origin.x, (float)viewport.pixel_end.y}),
+        TransformCoordinates(M_pixel_to_world, viewport.pixel_end) // First corner calculation
+    };
+
+    Matrix2x2 aabb = CalcAABBCoords_Tight(viewport_coords, 4, ZERO_VECTOR_2D);
+
+    CameraViewBox bounds;
+    bounds.origin = (Vector2d){aabb.col1.x, aabb.col1.y};
+    bounds.dimensions = (Vector2d){aabb.col2.x - aabb.col1.x, aabb.col2.y - aabb.col1.y};
+    return bounds;
+}
 
 Vector2d TransformCoordinates(Matrix3x3 transformation_mtx, Vector2d coordinates_to_transform)
 {

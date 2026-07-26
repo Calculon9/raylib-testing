@@ -17,54 +17,31 @@ typedef enum ViewportSpaceId
 	VIEWPORT_SPACE_COUNT
 } ViewportSpaceId;
 
-// Viewport frames and tunnels for left panel, game region, and right panel.
-extern Frame2d viewport_frame;
-extern Frame2d screen_frame;
-extern FrameTunnel viewport_tunnel;
-extern Frame2d lpanel_viewport_frame;
-extern Frame2d rpanel_viewport_frame;
-extern Frame2d game_viewport_frame;
-extern FrameTunnel lpanel_viewport_tunnel;
-extern FrameTunnel rpanel_viewport_tunnel;
-extern FrameTunnel game_viewport_tunnel;
+typedef struct ViewportRegion
+{
+	// Logical/local space (game units)
+	Vector2d local_origin;
+	Vector2d local_end;
+	Vector2d local_resolution;
+	
+	// Physical/pixel space
+	Vector2d origin;
+	Vector2d end;
+	Vector2d resolution;
+	Vector2d pixel_origin;
+	Vector2d pixel_end;
+	Vector2d pixel_u;
+	Vector2d pixel_v;
+	
+	// Frame and tunnel for rendering
+	Frame2d frame;
+	FrameTunnel tunnel;
+} ViewportRegion;
 
-// Game viewport region resolved during viewport layout.
-extern Vector2d game_viewport_local_origin;
-extern Vector2d game_viewport_local_end;
-extern Vector2d game_viewport_local_resolution;
-extern Vector2d game_viewport_resolution;
-extern Vector2d game_viewport_pixel_origin;
-extern Vector2d game_viewport_pixel_end;
-extern Vector2d game_viewport_pixel_u;
-extern Vector2d game_viewport_pixel_v;
-
-// Left panel region resolved during viewport layout.
-extern Vector2d lpanel_u;
-extern Vector2d lpanel_v;
-extern Vector2d lpanel_viewport_local_origin;
-extern Vector2d lpanel_viewport_local_end;
-extern Vector2d lpanel_viewport_resolution;
-extern Vector2d lpanel_origin;
-extern Vector2d lpanel_end;
-extern Vector2d lpanel_resolution;
-extern Vector2d lpanel_pixel_origin;
-extern Vector2d lpanel_pixel_u;
-extern Vector2d lpanel_pixel_v;
-extern Vector2d local_to_lpanel_scale;
-extern Vector2d lpanel_to_local_scale;
-
-// Right panel region resolved during viewport layout.
-extern Vector2d rpanel_viewport_local_origin;
-extern Vector2d rpanel_viewport_local_end;
-extern Vector2d rpanel_viewport_resolution;
-extern Vector2d rpanel_origin;
-extern Vector2d rpanel_end;
-extern Vector2d rpanel_resolution;
-extern Vector2d rpanel_u;
-extern Vector2d rpanel_v;
-extern Vector2d rpanel_pixel_origin;
-extern Vector2d rpanel_pixel_u;
-extern Vector2d rpanel_pixel_v;
+// Viewport regions for left panel, game region, and right panel.
+extern ViewportRegion game_viewport;
+extern ViewportRegion lpanel_viewport;
+extern ViewportRegion rpanel_viewport;
 
 // Resolve logical and pixel-space regions for left panel, game region, and right panel.
 // game_pixels_per_unit_override <= 0 uses dynamic scaling from target game logical height.

@@ -9,22 +9,22 @@
 #include "world/world.h"
 
 // World lifecycle internals
-void CreateWorld(GridSpace2d space_obj, Camera2d world_camera, float gravity, World2d *out_world);
+void CreateWorld(GridSpace2d space_obj, float gravity, World2d *out_world);
 
 // Entity registry / lookup helpers
 void UpdateEntityWorldRegistry(FlatMapInt *entity_world_index_registry, int entity_id, int type_flag, int entity_arr_index);
-int RegisterEntity(WorldState *context, Newtonoid2d *entity);
-void DeregisterEntity(WorldState *context, int object_id);
-void StickEntity(WorldState *context, Newtonoid2d *child, Newtonoid2d *parent);
-void SetObjectFlag(WorldState *context, int object_id, int flag_to_update);
-void ClearObjectFlag(WorldState *context, int object_id, int flag_to_update);
-void *GetEntityByID(WorldState *context, int entity_id);
+int RegisterEntity(World2d *world, Newtonoid2d *entity);
+void DeregisterEntity(World2d *world, int object_id);
+void StickEntity(World2d *world, Newtonoid2d *child, Newtonoid2d *parent);
+void SetObjectFlag(World2d *world, int object_id, int flag_to_update);
+void ClearObjectFlag(World2d *world, int object_id, int flag_to_update);
+void *GetEntityByID(World2d *world, int entity_id);
 
 // Scheduled world command helpers
 void ScheduleEntityFlagSet(LArray *scheduled_events, int object_id, int flag_to_set, int initial_frame_delay, int interval_frames, int run_limit);
 void ScheduleEntityFlagClear(LArray *scheduled_events, int object_id, int flag_to_set, int initial_frame_delay, int interval_frames, int run_limit);
 void ScheduleEntityDeletion(LArray *scheduled_events, int object_id, int flag_to_set, int initial_frame_delay, int interval_frames, int run_limit);
-void RunScheduledWorldCmds(LArray *scheduled_cmds, WorldState *context);
+void RunScheduledWorldCmds(LArray *scheduled_cmds, World2d *world);
 
 // Physics / collision helpers
 void PhysicsUpdateJob(void *context, int start, int end);
