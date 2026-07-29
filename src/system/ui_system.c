@@ -166,10 +166,10 @@ void UpdateGlobalUIState()
     // Only update every 20 frames, unnecessary to do every frame
     if (frame_counter.total_frames % 20 == 0)
     {
-        snprintf(G_UIState.lpanel_stats_fps_str->string, sizeof(String64), "%.1f", fps);
-        snprintf(G_UIState.lpanel_stats_mem_str->string, sizeof(String64), "%.1f", bytes);
-        snprintf(G_UIState.lpanel_stats_polygs_str->string, sizeof(String64), "%d", polygs);
-        snprintf(G_UIState.lpanel_stats_ftime_str->string, sizeof(String64), "%.2f", ftime);
+        UpdateString64(G_UIState.lpanel_stats_fps_str->string, "%.1f", fps);
+        UpdateString64(G_UIState.lpanel_stats_mem_str->string, "%.1f", bytes);
+        UpdateString64(G_UIState.lpanel_stats_polygs_str->string, "%d", polygs);
+        UpdateString64(G_UIState.lpanel_stats_ftime_str->string, "%.2f", ftime);
     }
 
     // DEBUG----
@@ -240,10 +240,10 @@ void UpdateGlobalUIState()
         float fill = 0; // set to 0 for now
 
         // Write to selected_cell data to the Cell State TextBoxes via Global State
-        snprintf(G_UIState.lpanel_cell_state_id_str->string, sizeof(String64), "%d", index);
-        snprintf(G_UIState.lpanel_cell_state_occu_str->string, sizeof(String64), "%d", occu);
-        snprintf(G_UIState.lpanel_cell_state_value_str->string, sizeof(String64), "%0.1f", val);
-        snprintf(G_UIState.lpanel_cell_state_fill_str->string, sizeof(String64), "%0.1f", fill);
+        UpdateString64(G_UIState.lpanel_cell_state_id_str->string, "%d", index);
+        UpdateString64(G_UIState.lpanel_cell_state_occu_str->string, "%d", occu);
+        UpdateString64(G_UIState.lpanel_cell_state_value_str->string, "%0.1f", val);
+        UpdateString64(G_UIState.lpanel_cell_state_fill_str->string, "%0.1f", fill);
     }
     else
     {

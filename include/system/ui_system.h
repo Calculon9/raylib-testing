@@ -6,7 +6,6 @@ UI SYSTEM MODULE
 #ifndef UI_SYSTEM_H
 #define UI_SYSTEM_H
 #include "common/common.h"
-#include "colour/colour.h"
 #include "math/cvectors.h"
 #include "ui/ui.h"
 #include "camera/camera.h"

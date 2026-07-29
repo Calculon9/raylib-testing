@@ -28,13 +28,24 @@ MEMORY MANAGEMENT MODULE
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 
+// OWNERSHIP: Caller owns returned pointer, must call Deallocate()
 void *AllocateArray(size_t element_count, size_t element_bytes);
+
 //void DeallocateArrayShallow(void **array, size_t element_count, size_t element_bytes);
 void ValidateAllocation(void *pMemory, size_t bytes);
+
+// OWNERSHIP: Transfers ownership to allocator, NULLs the pointer
 size_t Deallocate(void **ptr, size_t bytes);
+
+// OWNERSHIP: Caller owns returned pointer, must call Deallocate()
 void *AllocateCollection(size_t element_count, size_t element_bytes);
+
+// OWNERSHIP: Caller owns returned pointer, must call Deallocate()
 void *AllocateBytes(size_t bytes);
+
+// OWNERSHIP: Caller owns returned pointer, must call Deallocate()
 void *ReallocateBytes(void *ptr, size_t old_bytes, size_t new_bytes);
+
 void *MemoryCopy(void *dest, const void *src, size_t bytes);
 void *MemoryMove(void *dest, const void *src, size_t bytes);
 void *MemorySet(void *dest, int value, size_t bytes);

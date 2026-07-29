@@ -11,9 +11,15 @@
 #include "ui/ui_renderer.h"
 #include "system/ui_system.h"
 #include "system/panel_ui_helpers.h"
-#include "system/str_helpers.h"
+#include "system/panel_system.h"
+#include "system/utility_system.h"
 #include "world/world.h"
 #include "system/systems.h"
+
+// ============================================================================
+// Panel System
+// ============================================================================
+static PanelSystem *lpanel = NULL;
 
 // ============================================================================
 // Action Codes
@@ -29,19 +35,9 @@ static View lpanel_state_view_storage = {0};
 static View lpanel_edit_entity_view_storage = {0};
 
 // ============================================================================
-// Coordinate Space & Rendering
-// ============================================================================
-static float lpanel_space_to_viewport_scale = 1.0f;
-static Space2d lpanel_space = {0};
-static bool lpanel_space_basis_override_enabled = false;
-static Vector2d lpanel_space_basis_override_u = {0};
-static Vector2d lpanel_space_basis_override_v = {0};
-
-// ============================================================================
 // Visual Style Properties
 // ============================================================================
 static ColourRgba lpanel_fill_colour = {40, 54, 24, 255};
-static Vector2d lpanel_default_padding = {0.1, 0.1};
 static Vector2d lpanel_tfield_padding = {0.03f, 0.03f};
 static Size lpanel_title_tfield_size = {{6.0f, 0.5f}, SIZE_FIXED};
 static Size lpanel_row_tfield_size = {{6.0f, 0.5f}, SIZE_FIXED};
@@ -49,8 +45,6 @@ static Size lpanel_row_tfield_size = {{6.0f, 0.5f}, SIZE_FIXED};
 // ============================================================================
 // UI Element Pointers
 // ============================================================================
-UIBox seed_box = {0};
-UIElement *lpanel_root = {0};
 View *lpanel_state_view = {0};
 View *lpanel_edit_entity_view = {0};
 UIElement *lpanel_state_view_cont = {0};
@@ -62,15 +56,10 @@ UIElement *lpanel_btn_toggle_view_cont = {0};
 UIElement *lpanel_btn_create_entity_cont = {0};
 UIElement *lpanel_btn_delete_entity_cont = {0};
 UIElement *lpanel_edit_entity_tcont = {0};
-LArray lpanel_views = {0};
 
 // ============================================================================
 // Root Layout
 // ============================================================================
-Size lpanel_root_size = {{1, 1}, SIZE_PERCENT};
-Offset lpanel_btn_toggle_view_cont_offset = {{0.0, 0.0}, OFFSET_PERCENT};
-Offset lpanel_state_view_cont_offset = {{0, 0.08}, OFFSET_PERCENT};
-Offset lpanel_edit_view_cont_offset = {{0, 0.08}, OFFSET_PERCENT};
 Spacing lpanel_root_child_spacing = {{0, 0.0}, PERCENT, SPACING_NORMAL};
 
 // ============================================================================
@@ -82,6 +71,7 @@ Spacing lpanel_btn_child_spacing = {{0.0f, 0.03f}, NONE, SPACING_STACKED};
 // ============================================================================
 // State View Layout
 // ============================================================================
+Offset lpanel_state_view_cont_offset = {{0, 0.08}, OFFSET_PERCENT};
 Size lpanel_state_view_cont_size = {{1.0f, 0.92f}, SIZE_PERCENT};
 Offset lpanel_state_stats_tcont_offset = {{0.0, 0.0}, OFFSET_PERCENT};
 Size lpanel_state_stats_tcont_size = {{1.0f, 0.24f}, SIZE_PERCENT};
@@ -93,13 +83,13 @@ Size lpanel_state_cell_tcont_size = {{1.0f, 0.24f}, SIZE_PERCENT};
 // ============================================================================
 // Edit View Layout
 // ============================================================================
+Offset lpanel_edit_view_cont_offset = {{0, 0.08}, OFFSET_PERCENT};
 Size lpanel_edit_view_cont_size = {{1.0f, 0.92f}, SIZE_PERCENT};
 Offset lpanel_edit_entity_tcont_offset = {{0, 0.0}, OFFSET_PERCENT};
 Size lpanel_edit_entity_tcont_size = {{1.0f, 1.0f}, SIZE_PERCENT};
 Offset lpanel_btn_create_entity_cont_offset = {{0.0, 0.0}, OFFSET_PERCENT};
 Offset lpanel_btn_delete_entity_cont_offset = {{0.0, 0.0}, OFFSET_PERCENT};
 
-void InitPanelRoot(void);
 void InitPanelStateView(void);
 void InitPanelEditView(void);
 void InitPanelToggleButtons(void);
@@ -110,19 +100,36 @@ void InitEntityEditorContainer(void);
 
 void InitLPanel()
 {
-    lpanel_views = MakeLArray(3, sizeof(UIElement *));
+    // Create panel system
+    lpanel = PanelSystem_Create(&lpanel_viewport, 1.0f, (Vector2d){0.1f, 0.1f},
+                                lpanel_fill_colour, lpanel_root_child_spacing);
+    if (!lpanel)
+    {
+        return;
+    }
+    
+    // Initialize views array
+    PanelSystem_InitViews(lpanel, 3);
+    
+    // Initialize root UI structure
+    PanelSystem_InitRoot(lpanel);
+    
+    // Setup view storage
     lpanel_state_view = &lpanel_state_view_storage;
     lpanel_edit_entity_view = &lpanel_edit_entity_view_storage;
-    InitPanelRoot();
+    
+    // Build panel-specific UI
     InitPanelToggleButtons();
     InitPanelStateView();
     InitPanelEditView();
-    UpdateUISpace(lpanel_root, seed_box); // Update the UI space after initializing the panel views and containers
+    
+    // Initial layout update
+    UpdateUISpace(lpanel->root, lpanel->seed_box);
 }
 
 void InitPanelStateView(void)
 {
-    lpanel_state_view_cont = CreatePanelContainer(lpanel_root, lpanel_state_view_cont_size,
+    lpanel_state_view_cont = CreatePanelContainer(lpanel->root, lpanel_state_view_cont_size,
                                                   lpanel_state_view_cont_offset, ZERO_VECTOR_2D,
                                                   COLOURLESS_RGBA, COLOURLESS_RGBA,
                                                   cont_default_child_spacing, false, true);
@@ -132,12 +139,12 @@ void InitPanelStateView(void)
     InitEntityStateContainer();
     InitCellStateContainer();
 
-    LArray_Push(&lpanel_views, &lpanel_state_view);
+    LArray_Push(&lpanel->views, &lpanel_state_view);
 }
 
 void InitPanelEditView(void)
 {
-    lpanel_edit_view_cont = CreatePanelContainer(lpanel_root, lpanel_edit_view_cont_size,
+    lpanel_edit_view_cont = CreatePanelContainer(lpanel->root, lpanel_edit_view_cont_size,
                                                  lpanel_edit_view_cont_offset, ZERO_VECTOR_2D,
                                                  COLOURLESS_RGBA, COLOURLESS_RGBA,
                                                  cont_default_child_spacing, false, false);
@@ -145,53 +152,20 @@ void InitPanelEditView(void)
     lpanel_edit_entity_view->type = LPANEL_EDIT_ENTITY_VIEW;
     InitEntityEditorContainer();
 
-    LArray_Push(&lpanel_views, &lpanel_edit_entity_view);
-}
-
-void InitPanelRoot(void)
-{
-    Vector2d lpanel_resolution = VectorScale_2d(lpanel_viewport.resolution, lpanel_space_to_viewport_scale);
-    Basis2d lpanel_viewport_basis = (Basis2d){(Vector2d){1.0f / lpanel_space_to_viewport_scale, 0.0f}, (Vector2d){0.0f, 1.0f / lpanel_space_to_viewport_scale}};
-    if (lpanel_space_basis_override_enabled)
-    {
-        lpanel_viewport_basis.u = lpanel_space_basis_override_u;
-        lpanel_viewport_basis.v = lpanel_space_basis_override_v;
-    }
-
-    // Establish universe_frame with centered spatial alignment
-    // =========================================================================
-    // Initialize the logical UI layout space
-    lpanel_space = NewSpace2d(lpanel_viewport.local_origin, lpanel_resolution, lpanel_viewport_basis);
-
-    // Setup the UI Tree Root Element
-    lpanel_root = CreateUIElement(UI_ELEMENT_ROOT, lpanel_root_size, (Offset){ZERO_VECTOR_2D, OFFSET_FIXED}, lpanel_default_padding, COLOURLESS_RGBA, lpanel_fill_colour);
-    lpanel_root->data.root.space = lpanel_space;
-    lpanel_root->child_spacing = lpanel_root_child_spacing;
-
-    // Configure the Panel Camera Lens
-    // Source: The local math coordinate system owned by the UI space
-    // Destination: The persistent layout viewport frame initialized in your viewport setup
-
-    // Calculate bounding box parameters using clean matrix metrics
-    //Vector2d basis_scale = Camera_GetBasisScale(&viewport_camera_lpanel);
-
-    // Its origin is the unscaled logical layout position, NOT the pixel offset.
-    seed_box.coords = ZERO_VECTOR_2D;// lpanel_viewport_local_origin;
-    // Its dimensions are the pure unscaled logical resolution units.
-    seed_box.dimensions = lpanel_resolution;
+    LArray_Push(&lpanel->views, &lpanel_edit_entity_view);
 }
 
 void InitPanelToggleButtons(void)
 {
-    lpanel_btn_toggle_view_cont = CreatePanelContainer(lpanel_root, lpanel_btn_cont_size,
-                                                       lpanel_btn_toggle_view_cont_offset,
+    lpanel_btn_toggle_view_cont = CreatePanelContainer(lpanel->root, lpanel_btn_cont_size,
+                                                       (Offset){{0.0, 0.0}, OFFSET_PERCENT},
                                                        ZERO_VECTOR_2D, COLOURLESS_RGBA,
                                                        COLOURLESS_RGBA, lpanel_btn_child_spacing,
                                                        false, true);
     btn_action_enumerate = 0;
     CreatePanelButtonDefault(lpanel_btn_toggle_view_cont, UI_ELEMENT_BUTTON_ENUMERATE,
                              "STATE -- UTIL", btn_default_size, btn_default_padding,
-                             HandleBtnEnumerateClick, &btn_action_enumerate, &lpanel_views);
+                             HandleBtnEnumerateClick, &btn_action_enumerate, &lpanel->views);
 }
 
 void InitEntityStateContainer(void)
@@ -305,43 +279,32 @@ void InitEntityEditorContainer(void)
                              HandleBtnSubmitClick, &btn_action_create_entity, NULL);
 }
 
-
 void DrawLPanel(void)
 {
-    // Re-layout each frame so interactive offset changes (e.g. dragging) are visible.
-    UpdateUISpace(lpanel_root, seed_box);
+    if (!lpanel)
+    {
+        return;
+    }
 
-    // Apply the panel-space basis before viewport->pixel mapping so LPANEL_SPACE edits are visible.
-    Frame2d panel_basis_frame = lpanel_space.frame;
-    panel_basis_frame.origin_in_parent = ZERO_VECTOR_2D;
-    Matrix3x3 panel_local_to_viewport = MtxTransform_GetLocalToParent(panel_basis_frame);
-    Matrix3x3 panel_local_to_pixel = MatrixMultiply_3x3_3x3(lpanel_viewport.tunnel.source_to_dest_mtx,
-                                                           panel_local_to_viewport);
-
-    DrawRootUIElement(lpanel_root, seed_box, panel_local_to_pixel);
+    PanelSystem_Draw(lpanel);
 }
 
 Frame2d *GetLPanelSpaceFrame(void)
 {
-    return &lpanel_space.frame;
+    return PanelSystem_GetSpaceFrame(lpanel);
 }
 
 bool SetLPanelSpaceBasis(Vector2d basis_u, Vector2d basis_v)
 {
-    if (VectorMagnitude_2d(basis_u) < 0.0001f || VectorMagnitude_2d(basis_v) < 0.0001f)
-    {
-        return false;
-    }
-
-    lpanel_space_basis_override_enabled = true;
-    lpanel_space_basis_override_u = basis_u;
-    lpanel_space_basis_override_v = basis_v;
-    return true;
+    return PanelSystem_SetSpaceBasis(lpanel, basis_u, basis_v);
 }
 
 void ResetLPanelSpaceBasis(void)
 {
-    lpanel_space_basis_override_enabled = false;
-    lpanel_space_basis_override_u = ZERO_VECTOR_2D;
-    lpanel_space_basis_override_v = ZERO_VECTOR_2D;
+    PanelSystem_ResetSpaceBasis(lpanel);
+}
+
+UIElement* GetLPanelRoot(void)
+{
+    return lpanel ? lpanel->root : NULL;
 }

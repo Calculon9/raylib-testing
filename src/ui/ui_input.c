@@ -15,7 +15,7 @@
 #include "system/utility_system.h"
 #include <stdlib.h>
 #include "world/world.h"
-#include "system/str_helpers.h"
+#include "system/utility_system.h"
 #include "system/rpanel_system.h"
 #include "world/universe.h"
 #include "system/command_queue.h"
@@ -751,11 +751,13 @@ UIElement *ResolveUIRootTarget(Vector2d mouse_coords)
 {
     UIElement *target = NULL;
 
+    UIElement *rpanel_root = GetRPanelRoot();
     if (rpanel_root)
     {
         target = GetElementAt(rpanel_root, mouse_coords);
     }
 
+    UIElement *lpanel_root = GetLPanelRoot();
     if (!target && lpanel_root)
     {
         target = GetElementAt(lpanel_root, mouse_coords);

@@ -8,7 +8,6 @@ CIRCLOID MODULE
 #include "common/common.h"
 #include "math/cvectors.h"
 #include "math/affine_space_ops.h"
-#include "colour/colour.h"
 #include "physics/newtonoid.h"
 
 //----------------------------------------------------------------------------------

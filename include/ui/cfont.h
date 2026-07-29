@@ -6,7 +6,6 @@ FONT MODULE
 #ifndef CFONT_H
 #define CFONT_H
 #include "common/common.h"
-#include "colour/colour.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines

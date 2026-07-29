@@ -79,6 +79,77 @@ int AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id)
    return assigned_id;
 }
 
+// Process a single collision pair and handle collision response
+// Returns true if collision was processed, false if skipped
+bool ProcessCollisionPair(World2d *world, int obj_id_a, int obj_id_b, int cell_i,
+                          Newtonoid2d *newtonoids, FlatMapInt *resolved_collisions,
+                          LArray *scheduled_world_cmds)
+{
+   // Validate entity IDs
+   if (obj_id_a >= world->next_object_id || obj_id_b >= world->next_object_id || obj_id_a < 1 || obj_id_b < 1)
+   {
+      LOG_ERROR("Could not find objects with IDs %d and %d in Cell (index = %d).\n", obj_id_a, obj_id_b, cell_i);
+      return false;
+   }
+
+   // Check if this collision pair was already resolved
+   unsigned long obj_pair_hash_key = CalcHashFromInts(obj_id_a, obj_id_b);
+   short is_resolved = 0;
+   if (FlatMapInt_GetValue(resolved_collisions, obj_pair_hash_key, (int *)&is_resolved))
+      return false;
+
+   // Early safety rejection
+   if (obj_id_a < 1 || obj_id_b < 1)
+      return false;
+
+   Newtonoid2d *a = &newtonoids[obj_id_a - 1];
+   Newtonoid2d *b = &newtonoids[obj_id_b - 1];
+
+   // Check collision masks for compatibility
+   if (!(a->collision_mask & b->entity_layer) || !(b->collision_mask & a->entity_layer))
+      return false;
+
+   // Run SAT collision detection
+   CollisionResult_SAT collision_result = CheckForCollision_SAT(a, b);
+   if (!collision_result.is_colliding)
+      return false;
+
+   // Record collision
+   LArray_Push(&world->collisions, &collision_result.collision_box);
+   LOG_INFO("COLLISION detected between Object ID %d and Object ID %d Coord Box Range: [%0.2f,%0.2f] [%0.2f,%0.2f] \n", 
+            obj_id_a, obj_id_b, collision_result.collision_box.col1.x, collision_result.collision_box.col1.y, 
+            collision_result.collision_box.col2.x, collision_result.collision_box.col2.y);
+
+   // Resolve collision
+   ResolveCollision(a, b);
+
+   // Mark as resolved
+   FlatMapInt_InsertOrUpdate(resolved_collisions, obj_pair_hash_key, 1);
+
+   // Create debug visualization object
+   Newtonoid2d *penetrating_entity = collision_result.penetrating_entity;
+   Matrix2x2 collision_box = collision_result.collision_box;
+   Vector2d collision_center = CalcGeometricCentre_FromBox(collision_box);
+   Vector2d dimensions = {collision_box.col2.x - collision_box.col1.x, collision_box.col2.y - collision_box.col1.y};
+   Vector2d collision_vertices_arr[4];
+   CalcBoxVertices(dimensions, ZERO_VECTOR_2D, collision_vertices_arr);
+   Surface2d collision_surface = {0};
+   collision_surface.surface_vectors = MakeLArray(4, sizeof(Vector2d));
+   MemoryCopy(collision_surface.surface_vectors.items, collision_vertices_arr, sizeof(collision_vertices_arr));
+   collision_surface.surface_vectors.count = 4;
+   Newtonoid2d collision_obj = CreateNewtonoid2d(0.00001f, collision_center, penetrating_entity->velocity, 
+                                                  penetrating_entity->acceleration, collision_surface);
+   collision_obj.entity_layer = FLAG_TYPE_EFFECT;
+   collision_obj.flags |= FLAG_LIFETIME_CLOCKED;
+   StickEntity(world, &collision_obj, penetrating_entity);
+   int id = AddObjectToWorld(world, &collision_obj, penetrating_entity->id);
+
+   // Schedule deletion of debug object
+   ScheduleEntityDeletion(scheduled_world_cmds, id, FLAG_STATUS_ALIVE, 120, 1, 1);
+
+   return true;
+}
+
 void UpdateWorld(World2d *world, float delta_time)
 {
    // PrintCurrentBytesAlloc();
@@ -103,14 +174,22 @@ void UpdateWorld(World2d *world, float delta_time)
    ResetFlatMapInt(entity_space_map);
    ResetFlatMapInt(resolved_collisions);
 
-   // Zero out the occupancy and object_ids of all cells in the grid before we update them based on the new positions of the objects
+   // Optimized: Only reset cells in active world region instead of entire universe grid
+   // This reduces O(universe_cells) to O(world_cells), typically 3600 -> 12 iterations
    Cell *cells = space_entity->space.cells.items;
-   int cell_count = space->cells.count;
-   for (size_t i = 0; i < cell_count; i++)
+   int grid_width = space->columns;
+   int grid_height = space->rows;
+   
+   // Reset only cells within the world's active region (bounds are in world-local coordinates)
+   for (int row = 0; row < grid_height; row++)
    {
-      Cell *target_cell = &cells[i];
-      target_cell->occupancy = 0;
-      MemorySet(&cells[i].object_ids, 0, sizeof(cells[i].object_ids));
+      for (int col = 0; col < grid_width; col++)
+      {
+         int cell_index = row * space->columns + col;
+         Cell *target_cell = &cells[cell_index];
+         target_cell->occupancy = 0;
+         MemorySet(&cells[cell_index].object_ids, 0, sizeof(cells[cell_index].object_ids));
+      }
    }
 
    if (!IsJobSystemInitialized())
@@ -131,11 +210,9 @@ void UpdateWorld(World2d *world, float delta_time)
 
    LArray *temp_objects = &world->temp_objects;
    // PASS 2: Resolving Attachment Hierarchies
-   for (size_t i = 0; i < temp_objects->count; i++)
+   Newtonoid2d *child;
+   LArray_ForEach(temp_objects, Newtonoid2d*, child)
    {
-      // Newtonoid2d *child = &newtonoids[i];
-      Newtonoid2d *child = (Newtonoid2d *)LArray_Get(temp_objects, i);
-
       if (!(child->flags & FLAG_STATUS_ALIVE) || child->parent_id == space_entity->object.id)
          continue;
 
@@ -187,55 +264,7 @@ void UpdateWorld(World2d *world, float delta_time)
             {
                int obj_id_a = cell->object_ids[m];
                int obj_id_b = cell->object_ids[n];
-
-               if (obj_id_a >= world->next_object_id || obj_id_b >= world->next_object_id || obj_id_a < 1 || obj_id_b < 1)
-               {
-                  LOG_ERROR("Could not find objects with IDs %d and %d in Cell (index = %d).\n", obj_id_a, obj_id_b, cell_i);
-                  continue;
-               }
-               // Check whether this object-pair has been resolved already
-               unsigned long obj_pair_hash_key = CalcHashFromInts(obj_id_a, obj_id_b);
-               short is_resolved = 0;
-               if (FlatMapInt_GetValue(resolved_collisions, obj_pair_hash_key, (int *)&is_resolved))
-                  continue;
-               if (obj_id_a < 1 || obj_id_b < 1)
-                  continue; // Early safety rejection
-               Newtonoid2d *a = &newtonoids[obj_id_a - 1];
-               Newtonoid2d *b = &newtonoids[obj_id_b - 1];
-
-               // Check collision flags for collision compatiibility
-               if (!(a->collision_mask & b->entity_layer) || !(b->collision_mask & a->entity_layer))
-                  continue;
-
-               CollisionResult_SAT collision_result = CheckForCollision_SAT(a, b);
-               if (collision_result.is_colliding == true)
-               {
-                  LArray_Push(&world->collisions, &collision_result.collision_box);
-                  LOG_INFO("COLLISION detected between Object ID %d and Object ID %d Coord Box Range: [%0.2f,%0.2f] [%0.2f,%0.2f] \n", obj_id_a, obj_id_b, collision_result.collision_box.col1.x, collision_result.collision_box.col1.y, collision_result.collision_box.col2.x, collision_result.collision_box.col2.y);
-                  ResolveCollision(a, b);
-                  // Add object pair's key to hash map of resolved collisions
-                  FlatMapInt_InsertOrUpdate(resolved_collisions, obj_pair_hash_key, 1); // a value of 1 means resolved
-
-                  // For debugging, create a temporary object at the collision center with the dimensions of the collision box to visualize the collision area and the entity that is penetrating the other
-                  Newtonoid2d *penetrating_entity = collision_result.penetrating_entity;
-                  Matrix2x2 collision_box = collision_result.collision_box;
-                  Vector2d collision_center = CalcGeometricCentre_FromBox(collision_box);
-                  Vector2d dimensions = {collision_box.col2.x - collision_box.col1.x, collision_box.col2.y - collision_box.col1.y};
-                  Vector2d collision_vertices_arr[4];
-                  CalcBoxVertices(dimensions, ZERO_VECTOR_2D, collision_vertices_arr);
-                  Surface2d collision_surface = {0};
-                  collision_surface.surface_vectors = MakeLArray(4, sizeof(Vector2d));
-                  MemoryCopy(collision_surface.surface_vectors.items, collision_vertices_arr, sizeof(collision_vertices_arr));
-                  collision_surface.surface_vectors.count = 4;
-                  Newtonoid2d collision_obj = CreateNewtonoid2d(0.00001f, collision_center, penetrating_entity->velocity, penetrating_entity->acceleration, collision_surface);
-                  collision_obj.entity_layer = FLAG_TYPE_EFFECT;
-                  collision_obj.flags |= FLAG_LIFETIME_CLOCKED;
-                  StickEntity(world, &collision_obj, penetrating_entity);
-                  int id = AddObjectToWorld(world, &collision_obj, penetrating_entity->id);
-
-                  // Create a scheduled update to flag the collision object for removal
-                  ScheduleEntityDeletion(scheduled_world_cmds, id, FLAG_STATUS_ALIVE, 120, 1, 1);
-               }
+               ProcessCollisionPair(world, obj_id_a, obj_id_b, cell_i, newtonoids, resolved_collisions, scheduled_world_cmds);
             }
          }
       }
@@ -274,7 +303,7 @@ void UpdateWorld(World2d *world, float delta_time)
 //    return VectorSum_2d(parent_world_coords, a->coords_center);
 // }
 
-// void AddScheduledWorldUpdate(int event_data, Action update_action_to_run)
+/**********************************************************************************************
 // {
 //    ScheduledAction action = CreateScheduledAction(update_action_to_run, 1);
 

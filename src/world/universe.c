@@ -37,7 +37,7 @@ static Basis2d ResolveFrameBasis_UserInput(Vector2d requested_u, Vector2d reques
     if (fabsf(det) < eps)
     {
         // If vectors are nearly collinear, rebuild v perpendicular to u while preserving v magnitude.
-        Vector2d u_unit = VectorScale_2d(result.u, 1.0f / u_mag);
+        Vector2d u_unit = VectorNormalize_2d(result.u);
         result.v = (Vector2d){-u_unit.y * v_mag, u_unit.x * v_mag};
         det = (result.u.x * result.v.y) - (result.u.y * result.v.x);
     }

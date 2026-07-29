@@ -12,7 +12,6 @@ LEFT PANEL SYSTEM MODULE
 
 // Left-panel UI tree state.
 extern UIBox seed_box;
-extern UIElement *lpanel_root;
 
 void InitLPanel(void);
 void UpdateLPanel(int mouse_x, int mouse_y);
@@ -20,5 +19,8 @@ void DrawLPanel(void);
 Frame2d *GetLPanelSpaceFrame(void);
 bool SetLPanelSpaceBasis(Vector2d basis_u, Vector2d basis_v);
 void ResetLPanelSpaceBasis(void);
+
+// Get the root UI element (for external systems like input handling)
+UIElement* GetLPanelRoot(void);
 
 #endif

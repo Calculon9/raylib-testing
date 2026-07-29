@@ -6,7 +6,6 @@ NEWTONOID MODULE
 #ifndef NEWTONOID_H
 #define NEWTONOID_H
 #include "common/common.h"
-#include "colour/colour.h"
 #include "math/cvectors.h"
 #include "math/geometry.h"
 #include "memory/cmemory.h"
@@ -65,39 +64,47 @@ typedef struct Box2d
 } Box2d;
 
 // 2D Object with Newtonian properties; mass, position, velocity, acceleration, momentum
+// CACHE-OPTIMIZED LAYOUT: Hot fields (physics update) grouped at start for L1 cache efficiency
 typedef struct Newtonoid2d
 {
-    Vector2d coords_center; // Authoritative position used by physics, collision, and rendering
-    Vector2d coords_origin; // Derived top-left/AABB origin for box, grid, and hit-test helpers
-    Vector2d local_offset;  // relative to parent
-    Vector2d boxed_dimensions;
-    Vector2d velocity;
-    Vector2d acceleration;
-    Vector2d momentum;
-    Surface2d surface;
-    ShapeType shape_type;
-    int edge_count;
-    Vector2d local_axis_x;  // object's Forward/Right arrow is pointing     // Pre-computed (cos(rotation), sin(rotation))
-    Vector2d local_axis_y;  // object's Up arrow is pointing
-    float rotation;         // The raw angle in radians
-    float angular_velocity; // Spin speed (radians per second)
-    float torque;           // Angular force accumulator
-    float inertia;          // Resistance to rotational acceleration (like mass)
-    float inverse_inertia;  // 1.0f / inertia (0.0f if rotationally static)
-    float radius;           // Bounding circle radius
-    ColourRgba line_colour;
-    ColourRgba fill_colour;
+    // ============================================================================
+    // HOT FIELDS - Physics Update (accessed every frame, ~72 bytes, fits 2 cache lines)
+    // ============================================================================
+    Vector2d coords_center;    // Authoritative position used by physics, collision, and rendering
+    Vector2d velocity;         // Linear velocity (units/sec)
+    Vector2d acceleration;     // Linear acceleration (units/sec²)
+    Vector2d momentum;         // Linear momentum (mass × velocity)
+    float mass;                // Object mass (kg)
+    float inverse_mass;        // 1.0f / mass (0.0f if static)
 
-    // Surface2d footprint;
-    float mass;
-    float inverse_mass;
+    // ============================================================================
+    // WARM FIELDS - Bounds, Rotation, Collision (~96 bytes)
+    // ============================================================================
+    Vector2d coords_origin;    // Derived top-left/AABB origin for box, grid, and hit-test helpers
+    Vector2d boxed_dimensions; // AABB width/height
+    Vector2d local_axis_x;     // Object's Forward/Right axis (cos(rotation), sin(rotation))
+    Vector2d local_axis_y;     // Object's Up axis
+    float rotation;            // Rotation angle in radians
+    float angular_velocity;    // Rotational velocity (radians/sec)
+    float torque;              // Angular force accumulator
+    float inertia;             // Resistance to rotational acceleration
+    float inverse_inertia;     // 1.0f / inertia (0.0f if rotationally static)
+    float radius;              // Bounding circle radius
 
-    // --- BITWISE DATA ---
-    uint32_t entity_layer;   // 1. What AM I? (e.g., LAYER_PROJECTILE)
-    uint32_t collision_mask; // 2. What can I HIT? (e.g., LAYER_ENEMY | LAYER_WALL)
-    uint32_t flags;          // 3. What is happening to me RIGHT NOW? (e.g., FLAG_POISONED | FLAG_GROUNDED)
-    int id;
-    int parent_id;
+    // ============================================================================
+    // COLD FIELDS - Metadata, Rendering, Hierarchy (~variable size)
+    // ============================================================================
+    Surface2d surface;         // Vertex data (heap-allocated LArray inside)
+    Vector2d local_offset;     // Relative to parent (only used for child entities)
+    ColourRgba line_colour;    // Outline color
+    ColourRgba fill_colour;    // Fill color
+    ShapeType shape_type;      // Shape classification for collision algorithms
+    int edge_count;            // Cached edge count
+    uint32_t entity_layer;     // What AM I? (e.g., LAYER_PROJECTILE)
+    uint32_t collision_mask;   // What can I HIT? (e.g., LAYER_ENEMY | LAYER_WALL)
+    uint32_t flags;            // Runtime status flags (e.g., FLAG_POISONED)
+    int id;                    // Unique entity ID
+    int parent_id;             // Parent entity ID (-1 if root)
 } Newtonoid2d;
 
 typedef struct Newtonoid2dParams

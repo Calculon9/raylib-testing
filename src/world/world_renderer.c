@@ -156,34 +156,33 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
 
 void DrawNewtonoids(LArray *newtonoids, Matrix3x3 space_to_pixel_mtx)
 {
-    if (newtonoids == NULL)
+    if (!LArray_IsValid(newtonoids))
     {
         return;
     }
 
-    for (int i = 0; i < newtonoids->count; i++)
+    Newtonoid2d *newtonoid;
+    LArray_ForEach(newtonoids, Newtonoid2d*, newtonoid)
     {
-        Newtonoid2d newtonoid = *((Newtonoid2d *)((char *)newtonoids->items + (i * newtonoids->elem_bytes)));
-        Vector2d obj_center_coords = newtonoid.coords_center;
-
-        LArray surf_vectors = newtonoid.surface.surface_vectors;
-        DrawObjectVertices(surf_vectors.items, surf_vectors.count, obj_center_coords, space_to_pixel_mtx, newtonoid.line_colour);
+        Vector2d obj_center_coords = newtonoid->coords_center;
+        LArray surf_vectors = newtonoid->surface.surface_vectors;
+        DrawObjectVertices(surf_vectors.items, surf_vectors.count, obj_center_coords, space_to_pixel_mtx, newtonoid->line_colour);
     }
 }
 
 void DrawCollisions(LArray *collisions, Matrix3x3 space_to_pixel_mtx)
 {
-    if (collisions == NULL)
+    if (!LArray_IsValid(collisions))
     {
         return;
     }
 
-    for (int i = 0; i < collisions->count; i++)
+    Matrix2x2 *collision_box;
+    LArray_ForEach(collisions, Matrix2x2*, collision_box)
     {
-        Matrix2x2 collision_box = *((Matrix2x2 *)((char *)collisions->items + (i * collisions->elem_bytes)));
         Vector2d collision_vertices[4] = {0};
-        Vector2d dimensions = {collision_box.col2.x - collision_box.col1.x, collision_box.col2.y - collision_box.col1.y};
-        Vector2d coords_center = CalcGeometricCentre_FromBox(collision_box);
+        Vector2d dimensions = {collision_box->col2.x - collision_box->col1.x, collision_box->col2.y - collision_box->col1.y};
+        Vector2d coords_center = CalcGeometricCentre_FromBox(*collision_box);
         CalcBoxVertices(dimensions, coords_center, collision_vertices);
         DrawObjectVertices(collision_vertices, 4, ZERO_VECTOR_2D, space_to_pixel_mtx, OLIVE_GARDEN_GREEN_D);
     }

@@ -175,8 +175,9 @@ static Pool *ui_element_pool = NULL;
 UIElement *CreateUIElement(UIElementType type, Size size, Offset parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill)
 {
     // Fast-path: allocate from a simple static pool to reduce heap churn for UI elements
+    // Increased from 512 to 2048 for Phase 2 optimization (reduced heap allocation overhead)
     if (!ui_element_pool)
-        ui_element_pool = PoolCreate(sizeof(UIElement), 512);
+        ui_element_pool = PoolCreate(sizeof(UIElement), 2048);
 
     UIElement *e = NULL;
     if (ui_element_pool)

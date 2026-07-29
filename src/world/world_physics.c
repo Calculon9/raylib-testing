@@ -6,6 +6,47 @@
 
 #include "world/world_internal.h"
 
+// Helper: Find min and max projection of vertices onto an axis
+static void FindMinMaxProjection(Vector2d *vertices, size_t count, Vector2d axis, float *out_min, float *out_max)
+{
+    *out_min = INFINITY;
+    *out_max = -INFINITY;
+    
+    for (size_t i = 0; i < count; i++)
+    {
+        float proj = VectorDot_2d(vertices[i], axis);
+        if (proj < *out_min)
+            *out_min = proj;
+        if (proj > *out_max)
+            *out_max = proj;
+    }
+}
+
+// Helper: Calculate overlap between two projection ranges
+static float CalculateOverlap(float a_min, float a_max, float b_min, float b_max)
+{
+    return (a_max < b_max ? a_max : b_max) - (a_min > b_min ? a_min : b_min);
+}
+
+// Helper: Find deepest penetrating vertex along an axis
+static Vector2d FindDeepestVertex(Vector2d *vertices, size_t count, Vector2d axis, bool find_minimum)
+{
+    Vector2d deepest = vertices[0];
+    float extreme_proj = VectorDot_2d(vertices[0], axis);
+    
+    for (size_t i = 1; i < count; i++)
+    {
+        float proj = VectorDot_2d(vertices[i], axis);
+        if ((find_minimum && proj < extreme_proj) || (!find_minimum && proj > extreme_proj))
+        {
+            extreme_proj = proj;
+            deepest = vertices[i];
+        }
+    }
+    
+    return deepest;
+}
+
 static bool AABBOverlaps(Vector2d a_origin, Vector2d a_dimensions, Vector2d b_origin, Vector2d b_dimensions)
 {
     float a_max_x = a_origin.x + a_dimensions.x;
@@ -78,6 +119,7 @@ CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b)
     CollisionResult_SAT result = {0};
     result.is_colliding = false;
 
+    // AABB broad-phase early exit (prevents unnecessary SAT computation)
     if (!AABBOverlaps(a->coords_origin, a->boxed_dimensions, b->coords_origin, b->boxed_dimensions))
         return result;
 
@@ -94,6 +136,11 @@ CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b)
     Vector2d *a_local = a->surface.surface_vectors.items;
     Vector2d *b_local = b->surface.surface_vectors.items;
 
+    // Early exit for degenerate shapes
+    if (a_count < 3 || b_count < 3)
+        return result;
+
+    // Transform vertices to world space once (cache for multiple axis tests)
     for (size_t i = 0; i < a_count; i++)
     {
         a_world[i].x = (a_local[i].x * a->local_axis_x.x) + (a_local[i].y * a->local_axis_y.x) + a->coords_center.x;
@@ -109,36 +156,20 @@ CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b)
     Vector2d final_u_axis = {0};
     int normal_owner = 0;
 
+    // Test axes from shape A
     for (size_t i = 0; i < a_count; i++)
     {
         Vector2d p1_world = a_vertices[i];
         Vector2d p2_world = a_vertices[(i + 1) % a_vertices_arr.count];
         Vector2d u_axis_edge = (Vector2d){p2_world.x - p1_world.x, p2_world.y - p1_world.y};
-        float u_len = VectorMagnitude_2d(u_axis_edge);
-        Vector2d u_axis_unit = (u_len > 0.0f) ? VectorScale_2d(u_axis_edge, 1.0f / u_len) : (Vector2d){1.0f, 0.0f};
+        Vector2d u_axis_unit = VectorNormalize_2d(u_axis_edge);
         Vector2d v_axis_unit = (Vector2d){-u_axis_unit.y, u_axis_unit.x};
 
-        float a_min_v = INFINITY, a_max_v = -INFINITY;
-        for (size_t v = 0; v < a_count; v++)
-        {
-            float proj_v = VectorDot_2d(a_world[v], v_axis_unit);
-            if (proj_v < a_min_v)
-                a_min_v = proj_v;
-            if (proj_v > a_max_v)
-                a_max_v = proj_v;
-        }
+        float a_min_v, a_max_v, b_min_v, b_max_v;
+        FindMinMaxProjection(a_world, a_count, v_axis_unit, &a_min_v, &a_max_v);
+        FindMinMaxProjection(b_world, b_count, v_axis_unit, &b_min_v, &b_max_v);
 
-        float b_min_v = INFINITY, b_max_v = -INFINITY;
-        for (size_t v = 0; v < b_count; v++)
-        {
-            float proj_v = VectorDot_2d(b_world[v], v_axis_unit);
-            if (proj_v < b_min_v)
-                b_min_v = proj_v;
-            if (proj_v > b_max_v)
-                b_max_v = proj_v;
-        }
-
-        float dynamic_overlap = (a_max_v < b_max_v ? a_max_v : b_max_v) - (a_min_v > b_min_v ? a_min_v : b_min_v);
+        float dynamic_overlap = CalculateOverlap(a_min_v, a_max_v, b_min_v, b_max_v);
         if (dynamic_overlap <= 0.0f)
             return result;
 
@@ -150,36 +181,20 @@ CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b)
         }
     }
 
+    // Test axes from shape B
     for (size_t i = 0; i < b_vertices_arr.count; i++)
     {
         Vector2d p1_world = b_world[i];
         Vector2d p2_world = b_world[(i + 1) % b_count];
         Vector2d edge = (Vector2d){p2_world.x - p1_world.x, p2_world.y - p1_world.y};
-        float len = VectorMagnitude_2d(edge);
-        Vector2d u_axis_unit = (len > 0.0f) ? VectorScale_2d(edge, 1.0f / len) : (Vector2d){1.0f, 0.0f};
+        Vector2d u_axis_unit = VectorNormalize_2d(edge);
         Vector2d v_axis_unit = (Vector2d){-u_axis_unit.y, u_axis_unit.x};
 
-        float a_min_v = INFINITY, a_max_v = -INFINITY;
-        for (size_t v = 0; v < a_count; v++)
-        {
-            float proj_v = VectorDot_2d(a_world[v], v_axis_unit);
-            if (proj_v < a_min_v)
-                a_min_v = proj_v;
-            if (proj_v > a_max_v)
-                a_max_v = proj_v;
-        }
+        float a_min_v, a_max_v, b_min_v, b_max_v;
+        FindMinMaxProjection(a_world, a_count, v_axis_unit, &a_min_v, &a_max_v);
+        FindMinMaxProjection(b_world, b_count, v_axis_unit, &b_min_v, &b_max_v);
 
-        float b_min_v = INFINITY, b_max_v = -INFINITY;
-        for (size_t v = 0; v < b_count; v++)
-        {
-            float proj_v = VectorDot_2d(b_world[v], v_axis_unit);
-            if (proj_v < b_min_v)
-                b_min_v = proj_v;
-            if (proj_v > b_max_v)
-                b_max_v = proj_v;
-        }
-
-        float dynamic_overlap = (a_max_v < b_max_v ? a_max_v : b_max_v) - (a_min_v > b_min_v ? a_min_v : b_min_v);
+        float dynamic_overlap = CalculateOverlap(a_min_v, a_max_v, b_min_v, b_max_v);
         if (dynamic_overlap <= 0.0f)
             return result;
 
@@ -203,34 +218,16 @@ CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b)
         separation_vector = (Vector2d){-separation_vector.x, -separation_vector.y};
     }
 
-    Vector2d deepest_vertex = {0};
+    Vector2d deepest_vertex;
     if (normal_owner == 1)
     {
         result.penetrating_entity = b;
-        float min_proj = INFINITY;
-        for (size_t v = 0; v < b_count; v++)
-        {
-            float proj_v = VectorDot_2d(b_world[v], final_u_axis);
-            if (proj_v < min_proj)
-            {
-                min_proj = proj_v;
-                deepest_vertex = b_world[v];
-            }
-        }
+        deepest_vertex = FindDeepestVertex(b_world, b_count, final_u_axis, true);
     }
     else
     {
         result.penetrating_entity = a;
-        float max_proj = -INFINITY;
-        for (size_t v = 0; v < a_count; v++)
-        {
-            float proj_v = VectorDot_2d(a_world[v], final_u_axis);
-            if (proj_v > max_proj)
-            {
-                max_proj = proj_v;
-                deepest_vertex = a_world[v];
-            }
-        }
+        deepest_vertex = FindDeepestVertex(a_world, a_count, final_u_axis, false);
     }
 
     result.collision_box.col1 = (Vector2d){deepest_vertex.x - 0.03f, deepest_vertex.y - 0.03f};

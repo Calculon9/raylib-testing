@@ -128,7 +128,7 @@ void DeregisterEntity(World2d *world, int entity_id)
     int deleted_idx = UNPACK_INT_LOW(packed_value);
     LArray *world_objects = GetWorldObjectArrayForArchetype(world, (ArchetypeID)type);
 
-    if (!world_objects || world_objects->count <= 0)
+    if (!LArray_IsValid(world_objects))
     {
         LOG_WARN("DeregisterEntity: world array empty for entity %d (type=%d). Clearing stale registry entry.\n", entity_id, type);
         FlatMapInt_DeactivateSlot(&world->entity_world_index_registry, entity_id);

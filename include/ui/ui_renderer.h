@@ -6,7 +6,6 @@ UI SYSTEM MODULE
 #ifndef UI_RENDERER_H
 #define UI_RENDERER_H
 #include "common/common.h"
-#include "colour/colour.h"
 #include "math/cvectors.h"
 #include "ui/cfont.h"
 #include "camera/camera.h"

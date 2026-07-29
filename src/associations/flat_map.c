@@ -158,8 +158,9 @@ bool FlatMapInt_InsertOrUpdate(FlatMapInt *m, int key, int value)
     if (m == NULL || m->capacity == 0)
         return false;
 
-    // Automated Growth Trigger: Keep load factor under 75%
-    if ((float)m->count / (float)m->capacity >= 0.75f)
+    // Automated Growth Trigger: Keep load factor under 70% (reduced from 75% for Phase 3 optimization)
+    // Lower threshold reduces collision chain length and rehash frequency with 2.0x growth
+    if ((float)m->count / (float)m->capacity >= 0.70f)
     {
         if (!GrowFlatMapInt(m))
         {
@@ -219,8 +220,9 @@ bool FlatMapInt_InsertOrUpdate(FlatMapInt *m, int key, int value)
 static bool GrowFlatMapInt(FlatMapInt *m)
 {
     int old_capacity = m->capacity;
-    // Cast explicitly back to integer to keep compiler calculations happy
-    int new_capacity = (int)(old_capacity * 1.6f) + 1;
+    // Increased growth factor from 1.6 to 2.0 for fewer rehashes (Phase 3 optimization)
+    int new_capacity = old_capacity * 2;
+    if (new_capacity < 8) new_capacity = 8;
 
     // Allocate the fresh expanded buffer block
     FlatMapIntEntry *new_slots = AllocateBytes(new_capacity * sizeof(FlatMapIntEntry));
@@ -230,12 +232,13 @@ static bool GrowFlatMapInt(FlatMapInt *m)
         return false;
     }
 
-    // FIX: REHASH EXISTING KEYS. Do not use memcpy!
+    // REHASH: Migrate only occupied slots (skip tombstones for cleanup)
+    int migrated_count = 0;
     if (m->slots != NULL)
     {
         for (int i = 0; i < old_capacity; i++)
         {
-            // Only migrate items that are actively holding data
+            // Only migrate items that are actively holding data (tombstone cleanup optimization)
             if (m->slots[i].state == FLAT_MAP_SLOT_OCCUPIED)
             {
                 int current_key = m->slots[i].key;
@@ -254,6 +257,7 @@ static bool GrowFlatMapInt(FlatMapInt *m)
                 new_slots[new_index].key = current_key;
                 new_slots[new_index].value = current_value;
                 new_slots[new_index].state = FLAT_MAP_SLOT_OCCUPIED;
+                migrated_count++;
             }
         }
 
@@ -265,8 +269,9 @@ static bool GrowFlatMapInt(FlatMapInt *m)
     // Remap structural configs
     m->slots = new_slots;
     m->capacity = new_capacity;
+    m->count = migrated_count; // Update count to exclude tombstones
 
-    LOG_INFO("Flat Map grown to new capacity %d\n", new_capacity);
+    LOG_INFO("Flat Map grown to new capacity %d (migrated %d entries, cleaned tombstones)\n", new_capacity, migrated_count);
     return true;
 }
 

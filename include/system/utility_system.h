@@ -9,6 +9,8 @@ UTILITY MODULE
 #include <stdint.h>
 #include <stdbool.h>
 #include <time.h>
+#include <stdarg.h>
+#include <stdio.h>
 
 #include "math/cvectors.h"
 
@@ -58,6 +60,36 @@ typedef struct
 
 
 //extern FrameCounter frame_counter;
+//----------------------------------------------------------------------------------
+// String Helper Functions
+//----------------------------------------------------------------------------------
+// Copy up to dst_size-1 bytes and always NUL-terminate dst (if dst_size>0)
+static inline void safe_strncpy(char *dst, const char *src, size_t dst_size)
+{
+    if (!dst || !src || dst_size == 0)
+        return;
+    // Use snprintf behaviour to guarantee termination
+    size_t i = 0;
+    for (; i + 1 < dst_size && src[i] != '\0'; ++i)
+        dst[i] = src[i];
+    dst[i] = '\0';
+}
+
+// Format and write to a String64 buffer with automatic null termination
+// Returns number of characters written (excluding null terminator), or negative on error
+static inline int UpdateString64(char *dest, const char *fmt, ...)
+{
+    if (!dest || !fmt)
+        return -1;
+    
+    va_list args;
+    va_start(args, fmt);
+    int result = vsnprintf(dest, sizeof(String64), fmt, args);
+    va_end(args);
+    
+    return result;
+}
+
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------

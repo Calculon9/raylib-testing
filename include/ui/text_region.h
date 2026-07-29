@@ -8,7 +8,6 @@ TEXT REGION MODULE
 #include "common/common.h"
 #include "math/cvectors.h"
 #include "math/geometry.h"
-#include "colour/colour.h"
 #include "ui/cfont.h"
 #include "ui/ui.h"
 

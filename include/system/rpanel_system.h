@@ -9,7 +9,6 @@ RIGHT PANEL SYSTEM MODULE
 #include "camera/camera.h"
 #include "ui/ui.h"
 
-extern UIElement *rpanel_root;
 extern UIBox rpanel_seed_box;
 
 void InitRPanel(void);
@@ -18,5 +17,8 @@ void DrawRPanel(void);
 Frame2d *GetRPanelSpaceFrame(void);
 bool SetRPanelSpaceBasis(Vector2d basis_u, Vector2d basis_v);
 void ResetRPanelSpaceBasis(void);
+
+// Get the root UI element (for external systems like input handling)
+UIElement* GetRPanelRoot(void);
 
 #endif

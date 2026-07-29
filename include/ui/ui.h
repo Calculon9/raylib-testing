@@ -8,7 +8,6 @@ WORLD MODULE
 #include "common/common.h"
 #include "math/coordinate_space.h"
 #include "math/geometry.h"
-#include "colour/colour.h"
 #include "ui/cfont.h"
 #include "system/systems.h"
 #include "ui/binding.h"

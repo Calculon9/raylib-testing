@@ -7,11 +7,11 @@ SYSTEMS MODULE
 #define SYSTEMS_H
 #include "common/common.h"
 #include "math/coordinate_space.h"
-#include "colour/colour.h"
 #include "camera/camera.h"
 #include "raylib.h"
 #include "system/utility_system.h"
 #include "system/viewport_system.h"
+#include "system/ui_state.h"
 // #include "system/ui_system.h"
 // #include "ui/ui.h"
 
@@ -22,25 +22,6 @@ SYSTEMS MODULE
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
-// typedef struct String32
-// {
-//     char string[32];
-// } String32;
-
-// typedef struct String64
-// {
-//     char string[64];
-// } String64;
-
-// typedef struct String128
-// {
-//     char string[128];
-// } String128;
-
-// typedef struct String256
-// {
-//     char string[256];
-// } String256;
 
 typedef enum
 {
@@ -59,94 +40,8 @@ typedef enum
     RUNNING,
 } WorldMode;
 
-typedef enum
-{
-    LPANEL_STATE_VIEW,
-    LPANEL_EDIT_ENTITY_VIEW,
-    RPANEL_STATE_VIEW,
-    RPANEL_WORLD_CREATE_VIEW,
-} ViewType;
-
-typedef struct UIElement UIElement;
 typedef struct World2d World2d;
 
-typedef struct
-{
-    UIElement *focused_element;
-    // OBJECT PROPERTIES UI
-    UIElement *lpanel_entity_state_id_tbox;
-    String64 *lpanel_entity_state_id_str;
-    UIElement *lpanel_entity_state_mass_tbox;
-    String64 *lpanel_entity_state_mass_str;
-    UIElement *lpanel_entity_state_pos_tl_tbox;
-    String64 *lpanel_entity_state_pos_tl_str;
-    UIElement *lpanel_entity_state_pos_c_tbox;
-    String64 *lpanel_entity_state_pos_c_str;
-    UIElement *lpanel_entity_state_vel_tbox;
-    String64 *lpanel_entity_state_vel_str;
-    UIElement *lpanel_entity_state_accel_tbox;
-    String64 *lpanel_entity_state_accel_str;
-    UIElement *lpanel_entity_state_moment_tbox;
-    String64 *lpanel_entity_state_moment_str;
-
-    // STATS UI
-    String64 *lpanel_stats_polygs_str;
-    String64 *lpanel_stats_fps_str;
-    String64 *lpanel_stats_ftime_str;
-    String64 *lpanel_stats_mem_str;
-
-    // CELL STATE UI
-    String64 *lpanel_cell_state_id_str;
-    String64 *lpanel_cell_state_occu_str;
-    String64 *lpanel_cell_state_value_str;
-    String64 *lpanel_cell_state_fill_str;
-
-    // ENTIY EDITOR UI
-    // UIElement *lpanel_entity_edit_id_tbox;
-    // String64 *lpanel_entity_edit_id_str;
-    UIElement *lpanel_entity_edit_edge_count_tbox;
-    String64 *lpanel_entity_edit_edge_count_str;
-    UIElement *lpanel_entity_edit_vertice_count_tbox;
-    String64 *lpanel_entity_edit_vertice_count_str;
-    UIElement *lpanel_entity_edit_width_tbox;
-    String64 *lpanel_entity_edit_width_str;
-    UIElement *lpanel_entity_edit_height_tbox;
-    String64 *lpanel_entity_edit_height_str;
-    UIElement *lpanel_entity_edit_mass_tbox;
-    String64 *lpanel_entity_edit_mass_str;
-    // UIElement *lpanel_entity_edit_pos_tl_tbox;
-    // String64 *lpanel_entity_edit_pos_tl_str;
-    UIElement *lpanel_entity_edit_pos_c_tbox;
-    String64 *lpanel_entity_edit_pos_c_str;
-    UIElement *lpanel_entity_edit_vel_tbox;
-    String64 *lpanel_entity_edit_vel_str;
-    UIElement *lpanel_entity_edit_accel_tbox;
-    String64 *lpanel_entity_edit_accel_str;
-    UIElement *lpanel_entity_edit_moment_tbox;
-    String64 *lpanel_entity_edit_moment_str;
-
-    // ENTITY CREATION UI
-    String64 *lpanel_edit_entity_id_str;
-    String64 *lpanel_edit_entity_edges_str;
-    String64 *lpanel_edit_entity_mass_str;
-    // String64 *lpanel_edit_entity_pos_tl_str;
-    String64 *lpanel_edit_entity_pos_c_str;
-    String64 *lpanel_edit_entity_vel_str;
-    String64 *lpanel_edit_entity_accel_str;
-    String64 *lpanel_edit_entity_moment_str;
-
-    // VIEWS
-    LArray *lpanel_views;
-    ViewType active_panel_view;
-
-    // SELECTION STATE (previously in WorldState)
-    Newtonoid2d *selected_object;
-    Newtonoid2dParams *newtonoid_params;
-    Cell *selected_cell;
-    int selected_cell_index;
-} UIState;
-
-//typedef struct UIBox UIBox;
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
 //----------------------------------------------------------------------------------
@@ -157,7 +52,6 @@ extern int screen_resolution_scalar;
 extern size_t memory_allocated;
 extern const int screenWidth;  // = 1920;
 extern const int screenHeight; // = 1080;
-extern UIState G_UIState;
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------

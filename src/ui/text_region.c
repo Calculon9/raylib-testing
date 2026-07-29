@@ -6,7 +6,6 @@
 #include "common/common.h"
 #include "ui/text_region.h"
 #include "system/ui_system.h"
-#include "colour/colour.h"
 #include "raylib.h"
 
 //----------------------------------------------------------------------------------

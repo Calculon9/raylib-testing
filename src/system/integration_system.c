@@ -5,7 +5,7 @@
  **********************************************************************************************/
 #include "raylib.h"
 #include "system/systems.h"
-#include "system/str_helpers.h"
+#include "system/utility_system.h"
 #include "ui/ui.h"
 #include "ui/text_region.h"
 #include "physics/newtonoid.h"
@@ -91,7 +91,7 @@ void WriteTextboxInt(UIElement *textbox, int value)
         return;
     }
 
-    snprintf(textbox->data.textbox.text.string, sizeof(String64), "%d", value);
+    UpdateString64(textbox->data.textbox.text.string, "%d", value);
 }
 
 void WriteTextboxFloat(UIElement *textbox, float value, int precision)
@@ -121,7 +121,7 @@ void WriteTextboxVectorPair(UIElement *textbox, Vector2d value)
         return;
     }
 
-    snprintf(textbox->data.textbox.text.string, sizeof(String64), "(%.1f,%.1f)", value.x, value.y);
+    UpdateString64(textbox->data.textbox.text.string, "(%.1f,%.1f)", value.x, value.y);
 }
 
 void WriteTextboxNumberIfUnfocused(UIElement *textbox, float value, int precision)

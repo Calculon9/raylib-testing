@@ -19,6 +19,14 @@ float CalculateInertia_Polygon(float mass, LArray *surface_vectors);
 
 Newtonoid2d CreateNewtonoid2d(float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration, Surface2d surface)
 {
+   // Validate vertex count to prevent SAT performance degradation
+   if (surface.surface_vectors.count > MAX_SHAPE_VERTICES)
+   {
+      LOG_ERROR("Entity creation failed: vertex count %d exceeds MAX_SHAPE_VERTICES (%d)\n", 
+                surface.surface_vectors.count, MAX_SHAPE_VERTICES);
+      return (Newtonoid2d){0};
+   }
+
    Newtonoid2d newtOb = {0};
    newtOb.coords_center = coords_center;
    newtOb.mass = mass;
@@ -58,6 +66,14 @@ Newtonoid2d CreateNewtonoid2d(float mass, Vector2d coords_center, Vector2d veloc
 
 Newtonoid2d *CreateNewtonoid2d_Reference(float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration, Surface2d surface)
 {
+   // Validate vertex count to prevent SAT performance degradation
+   if (surface.surface_vectors.count > MAX_SHAPE_VERTICES)
+   {
+      LOG_ERROR("Entity creation failed: vertex count %d exceeds MAX_SHAPE_VERTICES (%d)\n", 
+                surface.surface_vectors.count, MAX_SHAPE_VERTICES);
+      return NULL;
+   }
+
    Newtonoid2d *newtOb = AllocateBytes(sizeof(Newtonoid2d));
    if (!newtOb)
    {
@@ -99,6 +115,14 @@ void CreateNewtonoid2d_Out(float mass, Vector2d coords_center, Vector2d velocity
 {
    if (!out_newtonoid)
       return;
+
+   // Validate vertex count to prevent SAT performance degradation
+   if (surface.surface_vectors.count > MAX_SHAPE_VERTICES)
+   {
+      LOG_ERROR("Entity creation failed: vertex count %d exceeds MAX_SHAPE_VERTICES (%d)\n", 
+                surface.surface_vectors.count, MAX_SHAPE_VERTICES);
+      return;
+   }
 
    out_newtonoid->coords_center = coords_center;
    out_newtonoid->mass = mass;

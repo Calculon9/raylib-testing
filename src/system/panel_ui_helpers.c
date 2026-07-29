@@ -1,6 +1,6 @@
 #include "system/panel_ui_helpers.h"
 
-#include "system/str_helpers.h"
+#include "system/utility_system.h"
 #include "system/ui_system.h"
 
 UIElement *CreatePanelTitleLabel(UIElement *parent, const char *text, Size size,
