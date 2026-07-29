@@ -1,7 +1,7 @@
 #include "system/command_queue.h"
 #include <string.h>
 #include "system/systems.h"
-#include "system/universe_system.h"
+#include "world/universe.h"
 #include "world/world.h"
 #include "world/world_internal.h"
 #include "common/common.h"

@@ -3,8 +3,8 @@
 #include "raylib.h"
 #include "camera/camera.h"
 #include "common/common.h"
-#include "system/world_system.h"
-#include "system/universe_system.h"
+#include "world/world.h"
+#include "world/universe.h"
 
 // ============================================================================
 // Configuration & Constants

@@ -17,7 +17,7 @@
 #include "world/world.h"
 #include "system/str_helpers.h"
 #include "system/rpanel_system.h"
-#include "system/universe_system.h"
+#include "world/universe.h"
 #include "system/command_queue.h"
 #include "system/drag_interaction.h"
 

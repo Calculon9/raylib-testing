@@ -17,8 +17,8 @@
 #include "system/screen.h" // NOTE: Declares global (extern) variables and screens functions
 #include "system/systems.h"
 #include "system/ui_system.h"
-#include "system/world_system.h"
-#include "system/universe_system.h"
+#include "world/world.h"
+#include "world/universe.h"
 #include "system/viewport_system.h"
 #include "system/rpanel_system.h"
 #include "system/debug_overlay_system.h"

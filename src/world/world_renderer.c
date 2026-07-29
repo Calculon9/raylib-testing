@@ -8,7 +8,7 @@
 #include "common/common.h"
 #include "camera/camera.h"
 #include "system/systems.h"
-#include "system/world_system.h"
+#include "world/world.h"
 #include "world/world.h"
 
 //----------------------------------------------------------------------------------
