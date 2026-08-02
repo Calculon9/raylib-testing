@@ -128,6 +128,18 @@ void InitUnitCells(Space2d *space)
    LOG_INFO("Initialised %d cells\n", count);
 }
 
+void RebuildSpaceCells(Space2d *space)
+{
+   if (!space)
+   {
+      return;
+   }
+
+   space->unitArea = fabsf((space->frame.basis.u.x * space->frame.basis.v.y) -
+                           (space->frame.basis.u.y * space->frame.basis.v.x));
+   InitUnitCells(space);
+}
+
 int GetIndexFromCoords(Space2d *space, Vector2d local_coords)
 {
    int i = (int)floorf(local_coords.y);

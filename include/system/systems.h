@@ -11,7 +11,7 @@ SYSTEMS MODULE
 #include "raylib.h"
 #include "system/utility_system.h"
 #include "system/viewport_system.h"
-#include "system/ui_state.h"
+#include "system/ui/ui_state.h"
 // #include "system/ui_system.h"
 // #include "ui/ui.h"
 
@@ -69,9 +69,12 @@ void *GetEntityByID(World2d *world, int entity_id);
 //----------------------------------------------------------------------------------
 void InitUI(void);
 void InitLPanel(void);
+void InitUtilityPanel(void);
 void InitRPanel(void);
 void DrawLPanel(void);
 void DrawRPanel(void);
+void DrawUtilityPanel(void);
+UIElement *GetUtilityPanelRoot(void);
 void UpdateUISystem(int mouse_x, int mouse_y);
 void DrawUI(void);
 void ProcessUIInput(int mouse_x, int mouse_y, bool cursor_in_region);

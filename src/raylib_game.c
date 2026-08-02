@@ -20,7 +20,7 @@
 #include "world/world.h"
 #include "world/universe.h"
 #include "system/viewport_system.h"
-#include "system/rpanel_system.h"
+#include "system/ui/rpanel_system.h"
 #include "system/debug_overlay_system.h"
 #if defined(PLATFORM_WEB)
 #include <emscripten/emscripten.h>
@@ -63,6 +63,30 @@ static void TransitionToScreen(int screen); // Request transition to next screen
 static void UpdateTransition(void);         // Update transition effect
 static void DrawTransition(void);           // Draw transition effect (full-screen rectangle)
 static void UpdateDrawFrame(void);          // Update and draw one frame
+
+static void UnloadScreenData(GameScreen screen)
+{
+    switch (screen)
+    {
+    case LOGO:
+        UnloadLogoScreen();
+        break;
+    case TITLE:
+        UnloadTitleScreen();
+        break;
+    case OPTIONS:
+        UnloadOptionsScreen();
+        break;
+    case GAMEPLAY:
+        UnloadGameplayScreen();
+        break;
+    case ENDING:
+        UnloadEndingScreen();
+        break;
+    default:
+        break;
+    }
+}
 
 //----------------------------------------------------------------------------------
 // Program main entry point
@@ -109,26 +133,7 @@ int main(void)
     // De-Initialization
     //--------------------------------------------------------------------------------------
     // Unload current screen data before closing
-    switch (currentScreen)
-    {
-    case LOGO:
-        UnloadLogoScreen();
-        break;
-    case TITLE:
-        UnloadTitleScreen();
-        break;
-    case OPTIONS:
-        UnloadOptionsScreen();
-        break;
-    case GAMEPLAY:
-        UnloadGameplayScreen();
-        break;
-    case ENDING:
-        UnloadEndingScreen();
-        break;
-    default:
-        break;
-    }
+    UnloadScreenData(currentScreen);
 
     // Unload global data loaded
     UnloadFont(font);
@@ -150,22 +155,7 @@ int main(void)
 static void ChangeToScreen(int screen)
 {
     // Unload current screen
-    switch (currentScreen)
-    {
-    case LOGO:
-        UnloadLogoScreen();
-        break;
-    case TITLE:
-        UnloadTitleScreen();
-        break;
-    // case OPTIONS: UnloadOptionsScreen(); break;
-    case GAMEPLAY:
-        UnloadGameplayScreen();
-        break;
-    // case ENDING: UnloadEndingScreen(); break;
-    default:
-        break;
-    }
+    UnloadScreenData(currentScreen);
 
     // Init next screen
     switch (screen)
@@ -213,22 +203,7 @@ static void UpdateTransition(void)
             transAlpha = 1.0f;
 
             // Unload current screen
-            switch (transFromScreen)
-            {
-            case LOGO:
-                UnloadLogoScreen();
-                break;
-            case TITLE:
-                UnloadTitleScreen();
-                break;
-            // case OPTIONS: UnloadOptionsScreen(); break;
-            case GAMEPLAY:
-                UnloadGameplayScreen();
-                break;
-            // case ENDING: UnloadEndingScreen(); break;
-            default:
-                break;
-            }
+            UnloadScreenData((GameScreen)transFromScreen);
 
             // Load next screen
             switch (transToScreen)
@@ -355,7 +330,6 @@ static void UpdateDrawFrame(void)
 
 void InitGameplayScreen(void)
 {
-    SetViewportPanelRatios(0.20f, 0.20f);
     SetViewportTargetLogicalHeight(viewport_target_game_logical_height);
     SetViewportUIScaleScalar(viewport_ui_pixels_per_unit_override);
     InitViewportLayout(screenWidth, screenHeight, screen_resolution_scalar);

@@ -68,6 +68,7 @@ typedef struct GridSpace2d {
 //----------------------------------------------------------------------------------
 GridSpace2d NewGridSpace2d(Vector2d origin_in_parent, Vector2d local_resolution, Basis2d basis, ColourRgba colour_fill, ColourRgba colour_line);
 Space2d NewSpace2d(Vector2d origin_in_parent, Vector2d local_resolution, Basis2d basis);
+void RebuildSpaceCells(Space2d *space);
 Cell *GetCellFromCoords(Space2d *space, Vector2d local_coords);
 int GetIndexFromCoords(Space2d *space, Vector2d local_coords);
 void CalcSnappedAABB_Vertices(Vector2d *object_surface_vertices, int object_surface_vertices_count, Vector2d object_offset, Basis2d space_basis, Vector2d out_vertices[4]); // Returns the 4 vertices of the AABB of the object in world coordinates

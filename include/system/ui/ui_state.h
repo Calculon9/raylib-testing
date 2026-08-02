@@ -22,6 +22,9 @@ typedef enum
     LPANEL_EDIT_ENTITY_VIEW,
     RPANEL_STATE_VIEW,
     RPANEL_WORLD_CREATE_VIEW,
+    STATE_MANAGER_PHYSICS_VIEW,
+    STATE_MANAGER_ATTRIBUTES_VIEW,
+    STATE_MANAGER_CELL_STATE_VIEW,
 } ViewType;
 
 //----------------------------------------------------------------------------------

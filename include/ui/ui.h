@@ -53,6 +53,9 @@ typedef enum
 {
     SPACING_NONE,
     SPACING_STACKED, // Stack elements vertically in sibling order, using child height plus spacing.y. spacing.x is ignored.
+    SPACING_STACKED_WRAP, // Arrange elements vertically and wrap to the next column when content height is exceeded.
+    SPACING_INLINE, // Arrange elements horizontally in sibling order, using child width plus spacing.x.
+    SPACING_INLINE_WRAP, // Arrange elements horizontally and wrap to the next row when content width is exceeded.
     SPACING_NORMAL, // Add a per-index spacing offset on top of each child's authored/manual parent offset.
     SPACING_OVERLAYED
 } SpacingType;
@@ -77,6 +80,20 @@ typedef enum
     RIGHT,
     MIDDLE
 } MouseBtn;
+
+typedef enum
+{
+    UI_TEXT_ALIGN_LEFT,
+    UI_TEXT_ALIGN_CENTRE,
+    UI_TEXT_ALIGN_RIGHT
+} UITextHorizontalAlignment;
+
+typedef enum
+{
+    UI_TEXT_VERTICAL_ALIGN_TOP,
+    UI_TEXT_VERTICAL_ALIGN_CENTRE,
+    UI_TEXT_VERTICAL_ALIGN_BOTTOM
+} UITextVerticalAlignment;
 
 typedef struct
 {
@@ -163,6 +180,8 @@ typedef struct UIElement
     ColourRgba colour_border;
     ColourRgba colour_fill;
     Size size;
+    UITextHorizontalAlignment text_horizontal_alignment;
+    UITextVerticalAlignment text_vertical_alignment;
     UIElementType type;
     UIElementData data;
     UIBox local_box;
@@ -209,6 +228,8 @@ bool ElementHasSibling(UIElement *e);
 UIElement *GetElementAt(UIElement *e, Vector2d pixel_coords);
 void EnableElement(UIElement *element);
 void DisableElement(UIElement *element);
+void SetUIElementTextHorizontalAlignment(UIElement *element, UITextHorizontalAlignment alignment);
+void SetUIElementTextVerticalAlignment(UIElement *element, UITextVerticalAlignment alignment);
 bool IsTextbox(UIElement *e);
 bool IsBtn(UIElement *e);
 void ToggleElementEnabled(UIElement *element);

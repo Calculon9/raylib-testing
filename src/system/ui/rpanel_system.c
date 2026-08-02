@@ -1,0 +1,459 @@
+#include "system/ui/rpanel_system.h"
+
+#include "system/systems.h"
+#include "system/ui_system.h"
+#include "world/world.h"
+#include "world/universe.h"
+#include "system/viewport_system.h"
+#include "ui/ui_constructors.h"
+#include "system/panel_system.h"
+#include "system/utility_system.h"
+
+// ============================================================================
+// Panel System
+// ============================================================================
+static PanelSystem *rpanel = NULL;
+
+// ============================================================================
+// Action Codes
+// ============================================================================
+static int btn_action_create_world = BUTTON_ACTION_CREATE_WORLD;
+static int btn_action_select_world_prev = BUTTON_ACTION_SELECT_WORLD_PREV;
+static int btn_action_select_world_next = BUTTON_ACTION_SELECT_WORLD_NEXT;
+
+// ============================================================================
+// View Storage
+// ============================================================================
+static View rpanel_state_view_storage = {0};
+static View rpanel_create_view_storage = {0};
+
+// ============================================================================
+// Visual Style Properties
+// ============================================================================
+static Vector2d rpanel_tfield_padding = {0.03f, 0.03f};
+
+// ============================================================================
+// UI Element Pointers
+// ============================================================================
+static View *rpanel_state_view = NULL;
+static View *rpanel_create_view = NULL;
+static UIElement *rpanel_toggle_cont = NULL;
+static UIElement *rpanel_state_view_cont = NULL;
+static UIElement *rpanel_create_view_cont = NULL;
+static ViewSelector *rpanel_view_selector = NULL;
+static int rpanel_basis_world_index = -1;
+static Basis2d rpanel_last_world_basis = IDENTITY_BASIS_2D;
+
+static UIElement *rpanel_stats_entities_tbox = NULL;
+static UIElement *rpanel_world_index_tbox = NULL;
+static UIElement *rpanel_world_universe_pos_tbox = NULL;
+static UIElement *rpanel_world_gravity_edit_tbox = NULL;
+static UIElement *rpanel_world_resolution_tbox = NULL;
+static UIElement *rpanel_world_basis_u_tbox = NULL;
+static UIElement *rpanel_world_basis_v_tbox = NULL;
+static UIElement *rpanel_world_objects_tbox = NULL;
+static UIElement *rpanel_world_next_id_tbox = NULL;
+static UIElement *rpanel_create_spawn_tbox = NULL;
+static UIElement *rpanel_create_resolution_tbox = NULL;
+static UIElement *rpanel_create_basis_u_tbox = NULL;
+static UIElement *rpanel_create_basis_v_tbox = NULL;
+static UIElement *rpanel_create_gravity_tbox = NULL;
+static UIElement *rpanel_create_objects_tbox = NULL;
+
+// ============================================================================
+// Root Layout
+// ============================================================================
+static Spacing rpanel_root_child_spacing = {{0.0f, 0.01f}, PERCENT, SPACING_STACKED};
+static Size rpanel_toggle_cont_size = {{1.0f, 0.03f}, SIZE_PERCENT};
+static Size rpanel_toggle_button_size = {{0.5f, 1.0f}, SIZE_PERCENT};
+static Spacing rpanel_toggle_child_spacing = {{0.0f, 0.0f}, NONE, SPACING_INLINE};
+static Size rpanel_view_cont_size = {{1.0f, 1.0f}, SIZE_FILL};
+static Offset rpanel_state_view_cont_offset = {{0.0f, 0.0f}, OFFSET_PERCENT};
+static Offset rpanel_create_view_cont_offset = {{0.0f, 0.0f}, OFFSET_PERCENT};
+
+// ============================================================================
+// State View Layout
+// ============================================================================
+static Offset rpanel_state_world_cont_offset = {{0.0f, 0.0f}, OFFSET_FIXED};
+static Size rpanel_state_world_cont_size = {{1.0f, 0.36f}, SIZE_PERCENT};
+
+// ============================================================================
+// Create View Layout
+// ============================================================================
+static Offset rpanel_create_world_cont_offset = {{0.0f, 0.0f}, OFFSET_PERCENT};
+static Size rpanel_create_world_cont_size = {{1.0f, 0.32f}, SIZE_PERCENT};
+
+typedef struct
+{
+    UIElement *textbox;
+    void *value;
+    DataType type;
+} RPanelRefreshField;
+
+static void RefreshRPanelField(const RPanelRefreshField *field)
+{
+    if (!field || !field->textbox || !field->value || field->textbox->is_focused)
+    {
+        return;
+    }
+
+    if (field->type == VECTOR2D)
+    {
+        WriteTextboxVectorIfUnfocused(field->textbox, *(Vector2d *)field->value);
+    }
+    else if (field->type == FLOAT)
+    {
+        WriteTextboxNumberIfUnfocused(field->textbox, *(float *)field->value, 2);
+    }
+    else if (field->type == INT)
+    {
+        WriteTextboxInt(field->textbox, *(int *)field->value);
+    }
+}
+
+static void ResetWorldBoundField(UIElement *textbox)
+{
+    if (!textbox)
+    {
+        return;
+    }
+
+    WriteTextboxText(textbox, "N/A");
+    textbox->data.textbox.data_bind = NULL;
+}
+
+static void InitRPanelToggleButtons(void);
+static void InitRPanelStateView(void);
+static void InitRPanelCreateView(void);
+static void InitRPanelStateWorldContainer(void);
+//static void InitRPanelStateStatsContainer(void);
+static void InitRPanelCreateWorldContainer(void);
+
+static void HandleRPanelViewSelected(View *view)
+{
+    if (view)
+    {
+        G_UIState.active_panel_view = view->type;
+    }
+}
+
+static void InitRPanelToggleButtons(void)
+{
+    rpanel_toggle_cont = CreateUIContainer(
+        rpanel->root, rpanel_toggle_cont_size,
+        (Offset){{0.0f, 0.0f}, OFFSET_FIXED}, ZERO_VECTOR_2D,
+        rpanel->palette, UI_PALETTE_SURFACE_TRANSPARENT,
+        rpanel_toggle_child_spacing, false, true);
+    rpanel_toggle_cont->colour_border = rpanel->palette->container_border;
+
+    const char *labels[] = {"STATE", "CREATE"};
+    rpanel_view_selector = PanelSystem_CreateViewSelector(
+        rpanel, rpanel_toggle_cont, rpanel_toggle_button_size,
+        labels, sizeof(labels) / sizeof(labels[0]), HandleRPanelViewSelected);
+}
+
+static void InitRPanelStateWorldContainer(void)
+{
+    UIElement *world_cont = CreateUIContainer(
+        rpanel_state_view_cont, rpanel_state_world_cont_size,
+        rpanel_state_world_cont_offset, tcont_default_padding,
+        rpanel->palette, UI_PALETTE_SURFACE_CONTAINER,
+        tcont_default_child_spacing, true, true);
+
+    CreateUILabelTitleDefault(world_cont, "World Manager", ui_default_control_size,
+                              rpanel_tfield_padding, rpanel->palette);
+
+    const UIFieldSpec world_fields[] = {
+        {"World", UI_ELEMENT_TEXTBOX_O, ui_default_control_size, FLOAT, &rpanel_world_index_tbox, NULL},
+        {"Pos.tl", UI_ELEMENT_TEXTBOX_O, ui_default_control_size, FLOAT, &rpanel_world_universe_pos_tbox, NULL},
+        {"Res", UI_ELEMENT_TEXTBOX_O, ui_default_control_size, FLOAT, &rpanel_world_resolution_tbox, NULL},
+        {"Objects", UI_ELEMENT_TEXTBOX_O, ui_default_control_size, FLOAT, &rpanel_world_objects_tbox, NULL},
+        {"Next id", UI_ELEMENT_TEXTBOX_O, ui_default_control_size, FLOAT, &rpanel_world_next_id_tbox, NULL},
+        {"Gravity", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, FLOAT, &rpanel_world_gravity_edit_tbox, NULL},
+        {"Basis u", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, VECTOR2D, &rpanel_world_basis_u_tbox, NULL},
+        {"Basis v", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, VECTOR2D, &rpanel_world_basis_v_tbox, NULL},
+    };
+    InitUIFields(world_cont, world_fields,sizeof(world_fields) / sizeof(world_fields[0]), rpanel_tfield_padding,
+                 rpanel->palette);
+
+    if (rpanel_world_gravity_edit_tbox)
+    {
+        rpanel_world_gravity_edit_tbox->data.textbox.data_type = FLOAT;
+    }
+
+    UIElement *select_prev_cont = CreateUIContainer(
+        world_cont, ui_default_control_size,
+        (Offset){ZERO_VECTOR_2D, OFFSET_FIXED}, ZERO_VECTOR_2D,
+        rpanel->palette, UI_PALETTE_SURFACE_TRANSPARENT,
+        btn_cont_default_child_spacing, false, true);
+    CreateUIButtonDefault(select_prev_cont, UI_ELEMENT_BUTTON_SUBMIT, "PREV",
+                          btn_default_size, btn_default_padding, rpanel->palette,
+                          HandleBtnSubmitClick, &btn_action_select_world_prev, NULL);
+
+    UIElement *select_next_cont = CreateUIContainer(
+        world_cont, ui_default_control_size,
+        (Offset){ZERO_VECTOR_2D, OFFSET_FIXED}, ZERO_VECTOR_2D,
+        rpanel->palette, UI_PALETTE_SURFACE_TRANSPARENT,
+        btn_cont_default_child_spacing, false, true);
+    CreateUIButtonDefault(select_next_cont, UI_ELEMENT_BUTTON_SUBMIT, "NEXT",
+                          btn_default_size, btn_default_padding, rpanel->palette,
+                          HandleBtnSubmitClick, &btn_action_select_world_next, NULL);
+}
+
+static void InitRPanelStateView(void)
+{
+    rpanel_state_view_cont = CreateUIContainer(
+        rpanel->root, rpanel_view_cont_size,
+        rpanel_state_view_cont_offset, ZERO_VECTOR_2D,
+        rpanel->palette, UI_PALETTE_SURFACE_TRANSPARENT,
+        cont_default_child_spacing, false, true);
+
+    PanelSystem_AddView(rpanel, rpanel_state_view, rpanel_state_view_cont, RPANEL_STATE_VIEW);
+
+    InitRPanelStateWorldContainer();
+    //InitRPanelStateStatsContainer();
+}
+
+static void InitRPanelCreateWorldContainer(void)
+{
+    UIElement *create_world_cont = CreateUIContainer(
+        rpanel_create_view_cont, rpanel_create_world_cont_size,
+        rpanel_create_world_cont_offset, tcont_default_padding,
+        rpanel->palette, UI_PALETTE_SURFACE_CONTAINER,
+        tcont_default_child_spacing, true, true);
+
+    CreateUILabelTitleDefault(create_world_cont, "World Create", ui_default_control_size,
+                              rpanel_tfield_padding, rpanel->palette);
+    const UIFieldSpec create_fields[] = {
+        {"Spawn", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, VECTOR2D, &rpanel_create_spawn_tbox, NULL},
+        {"Resolution", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, VECTOR2D, &rpanel_create_resolution_tbox, NULL},
+        {"Objects", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, INT, &rpanel_create_objects_tbox, NULL},
+        {"Gravity", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, FLOAT, &rpanel_create_gravity_tbox, NULL},
+        {"Basis u", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, VECTOR2D, &rpanel_create_basis_u_tbox, NULL},
+        {"Basis v", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, VECTOR2D, &rpanel_create_basis_v_tbox, NULL},
+    };
+    InitUIFields(create_world_cont, create_fields,
+                 sizeof(create_fields) / sizeof(create_fields[0]), rpanel_tfield_padding,
+                 rpanel->palette);
+
+    Vector2d *spawn_origin = GetNextWorldSpawnOriginPtr();
+    BindTextboxData(rpanel_create_spawn_tbox, VECTOR2D, spawn_origin);
+
+    Vector2d *next_res = GetNextWorldResolutionPtr();
+    BindTextboxData(rpanel_create_resolution_tbox, VECTOR2D, next_res);
+
+    Vector2d *basis_u = GetNextWorldBasisUPtr();
+    BindTextboxData(rpanel_create_basis_u_tbox, VECTOR2D, basis_u);
+
+    Vector2d *basis_v = GetNextWorldBasisVPtr();
+    BindTextboxData(rpanel_create_basis_v_tbox, VECTOR2D, basis_v);
+
+    float *next_grav = GetNextWorldGravityPtr();
+    BindTextboxData(rpanel_create_gravity_tbox, FLOAT, next_grav);
+
+    int *next_objects = GetNextWorldObjectCountPtr();
+    BindTextboxData(rpanel_create_objects_tbox, INT, next_objects);
+
+    UIElement *create_world_button_cont = CreateUIContainer(
+        create_world_cont, ui_default_control_size,
+        (Offset){ZERO_VECTOR_2D, OFFSET_FIXED}, ZERO_VECTOR_2D,
+        rpanel->palette, UI_PALETTE_SURFACE_TRANSPARENT,
+        btn_cont_default_child_spacing, false, true);
+
+    CreateUIButtonDefault(create_world_button_cont, UI_ELEMENT_BUTTON_SUBMIT,
+                          "NEW WORLD", btn_default_size, btn_default_padding,
+                          rpanel->palette, HandleBtnSubmitClick,
+                          &btn_action_create_world, NULL);
+}
+
+static void InitRPanelCreateView(void)
+{
+    rpanel_create_view_cont = CreateUIContainer(
+        rpanel->root, rpanel_view_cont_size,
+        rpanel_create_view_cont_offset, ZERO_VECTOR_2D,
+        rpanel->palette, UI_PALETTE_SURFACE_TRANSPARENT,
+        tcont_default_child_spacing, false, false);
+
+    PanelSystem_AddView(rpanel, rpanel_create_view, rpanel_create_view_cont, RPANEL_WORLD_CREATE_VIEW);
+
+    InitRPanelCreateWorldContainer();
+}
+
+void InitRPanel(void)
+{
+    // Create panel system
+    rpanel = PanelSystem_Create(&rpanel_viewport, 1.0f, (Vector2d){0.1f, 0.1f},
+                                &ui_default_palette, rpanel_root_child_spacing);
+    if (!rpanel)
+    {
+        return;
+    }
+
+    // Initialize views array
+    PanelSystem_InitViews(rpanel, 2);
+
+    // Initialize root UI structure
+    PanelSystem_InitRoot(rpanel);
+
+    // Setup view storage
+    rpanel_state_view = &rpanel_state_view_storage;
+    rpanel_create_view = &rpanel_create_view_storage;
+
+    // Build panel-specific UI
+    InitRPanelToggleButtons();
+    InitRPanelStateView();
+    InitRPanelCreateView();
+    PanelSystem_SelectView(rpanel_view_selector, 0);
+
+    // Initial layout update
+    UpdateUISpace(rpanel->root, rpanel->seed_box);
+}
+
+void DrawRPanel(void)
+{
+    if (!rpanel || !rpanel->root)
+    {
+        return;
+    }
+
+    // Keep UI layout in sync with interactive/manual offset changes.
+    UpdateUISpace(rpanel->root, rpanel->seed_box);
+
+    if (rpanel_stats_entities_tbox)
+    {
+        WriteTextboxInt(rpanel_stats_entities_tbox, GetNewtonoidCount());
+    }
+
+    World2d *selected_world = GetSelectedWorld();
+    int selected_world_idx = GetSelectedWorldIndex();
+    int world_count = GetWorldCount();
+    bool has_selected_world = selected_world && world_count > 0;
+
+    if (rpanel_world_index_tbox)
+    {
+        if (has_selected_world)
+        {
+            UpdateString64(rpanel_world_index_tbox->data.textbox.text.string, "%d/%d", selected_world_idx + 1, world_count);
+        }
+        else
+        {
+            WriteTextboxText(rpanel_world_index_tbox, "0/0");
+        }
+    }
+
+    if (rpanel_world_universe_pos_tbox)
+    {
+        if (selected_world)
+        {
+            WriteTextboxVectorPair(rpanel_world_universe_pos_tbox, selected_world->uni_coords_center);
+        }
+        else
+        {
+            WriteTextboxText(rpanel_world_universe_pos_tbox, "N/A");
+        }
+    }
+
+    RPanelRefreshField create_fields[] = {
+        {rpanel_create_spawn_tbox, GetNextWorldSpawnOriginPtr(), VECTOR2D},
+        {rpanel_create_resolution_tbox, GetNextWorldResolutionPtr(), VECTOR2D},
+        {rpanel_create_basis_u_tbox, GetNextWorldBasisUPtr(), VECTOR2D},
+        {rpanel_create_basis_v_tbox, GetNextWorldBasisVPtr(), VECTOR2D},
+        {rpanel_create_gravity_tbox, GetNextWorldGravityPtr(), FLOAT},
+        {rpanel_create_objects_tbox, GetNextWorldObjectCountPtr(), INT},
+    };
+    for (size_t i = 0; i < sizeof(create_fields) / sizeof(create_fields[0]); i++)
+    {
+        RefreshRPanelField(&create_fields[i]);
+    }
+
+    if (selected_world)
+    {
+        if (rpanel_basis_world_index != selected_world_idx)
+        {
+            rpanel_basis_world_index = selected_world_idx;
+            rpanel_last_world_basis = selected_world->grid_space.space.frame.basis;
+        }
+
+        BindTextboxData(rpanel_world_basis_u_tbox, VECTOR2D,
+                        &selected_world->grid_space.space.frame.basis.u);
+        BindTextboxData(rpanel_world_basis_v_tbox, VECTOR2D,
+                        &selected_world->grid_space.space.frame.basis.v);
+
+        Basis2d edited_basis = selected_world->grid_space.space.frame.basis;
+        if (edited_basis.u.x != rpanel_last_world_basis.u.x ||
+            edited_basis.u.y != rpanel_last_world_basis.u.y ||
+            edited_basis.v.x != rpanel_last_world_basis.v.x ||
+            edited_basis.v.y != rpanel_last_world_basis.v.y)
+        {
+            if (Universe_SetWorldBasis(&G_Universe, selected_world_idx,
+                                       edited_basis.u, edited_basis.v))
+            {
+                rpanel_last_world_basis = edited_basis;
+            }
+            else
+            {
+                selected_world->grid_space.space.frame.basis = rpanel_last_world_basis;
+            }
+        }
+
+        WriteTextboxVectorIfUnfocused(rpanel_world_basis_u_tbox,
+                                      selected_world->grid_space.space.frame.basis.u);
+        WriteTextboxVectorIfUnfocused(rpanel_world_basis_v_tbox,
+                                      selected_world->grid_space.space.frame.basis.v);
+
+        if (rpanel_world_gravity_edit_tbox)
+        {
+            rpanel_world_gravity_edit_tbox->data.textbox.data_bind = &selected_world->gravity;
+            WriteTextboxNumberIfUnfocused(rpanel_world_gravity_edit_tbox, selected_world->gravity, 2);
+        }
+        if (rpanel_world_resolution_tbox)
+        {
+            Vector2d world_size = {(float)selected_world->grid_space.space.columns,
+                                   (float)selected_world->grid_space.space.rows};
+            UpdateString64(rpanel_world_resolution_tbox->data.textbox.text.string, "%.0fx%.0f", world_size.x, world_size.y);
+        }
+        if (rpanel_world_objects_tbox)
+        {
+            WriteTextboxInt(rpanel_world_objects_tbox, selected_world->objects.count);
+        }
+        if (rpanel_world_next_id_tbox)
+        {
+            WriteTextboxInt(rpanel_world_next_id_tbox, selected_world->next_object_id);
+        }
+    }
+    else
+    {
+        ResetWorldBoundField(rpanel_world_gravity_edit_tbox);
+        ResetWorldBoundField(rpanel_world_basis_u_tbox);
+        ResetWorldBoundField(rpanel_world_basis_v_tbox);
+        rpanel_basis_world_index = -1;
+        if (rpanel_world_resolution_tbox)
+            WriteTextboxText(rpanel_world_resolution_tbox, "N/A");
+        if (rpanel_world_objects_tbox)
+            WriteTextboxText(rpanel_world_objects_tbox, "0");
+        if (rpanel_world_next_id_tbox)
+            WriteTextboxText(rpanel_world_next_id_tbox, "0");
+    }
+
+    PanelSystem_Draw(rpanel);
+}
+
+Frame2d *GetRPanelSpaceFrame(void)
+{
+    return PanelSystem_GetSpaceFrame(rpanel);
+}
+
+bool SetRPanelSpaceBasis(Vector2d basis_u, Vector2d basis_v)
+{
+    return PanelSystem_SetSpaceBasis(rpanel, basis_u, basis_v);
+}
+
+void ResetRPanelSpaceBasis(void)
+{
+    PanelSystem_ResetSpaceBasis(rpanel);
+}
+
+UIElement *GetRPanelRoot(void)
+{
+    return rpanel ? rpanel->root : NULL;
+}

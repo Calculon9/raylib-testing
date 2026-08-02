@@ -21,14 +21,47 @@
 void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel);
 void DrawTextArea(UIElement *e);
 
+static int CountTextRows(const char *text, float available_width, int glyph_advance, int glyph_cell_width, int max_rows)
+{
+    int char_ptr = 0;
+    int row_count = 0;
+
+    while (text && text[char_ptr] != '\0' && row_count < max_rows)
+    {
+        float row_width = 0.0f;
+        int row_char_count = 0;
+
+        while (text[char_ptr] != '\0' && row_char_count < 255)
+        {
+            int char_width = row_char_count == 0 ? glyph_cell_width : glyph_advance;
+            if (row_width + char_width > available_width)
+            {
+                break;
+            }
+
+            row_width += char_width;
+            char_ptr++;
+            row_char_count++;
+        }
+
+        if (row_char_count == 0)
+        {
+            break;
+        }
+
+        row_count++;
+    }
+
+    return row_count;
+}
+
 void DrawElementBox(UIElement *e)
 {
     UIBox box = e->screen_box;
     ColourRgba colour_fill = e->colour_fill;
     ColourRgba colour_border = e->colour_border;
-    ColourRgba colour_border1 = RED_RGBA;
     DrawRectangle((int)box.coords.x, (int)box.coords.y, (int)box.dimensions.x, (int)box.dimensions.y, (Color){colour_fill.r, colour_fill.g, colour_fill.b, colour_fill.a});
-    DrawRectangleLines((int)box.coords.x, (int)box.coords.y, (int)(box.dimensions.x), (int)(box.dimensions.y), (Color){colour_border1.r, colour_border1.g, colour_border1.b, colour_border1.a});
+    DrawRectangleLines((int)box.coords.x, (int)box.coords.y, (int)(box.dimensions.x), (int)(box.dimensions.y), (Color){colour_border.r, colour_border.g, colour_border.b, colour_border.a});
 }
 
 void DrawTextArea(UIElement *e)
@@ -56,14 +89,26 @@ void DrawTextArea(UIElement *e)
     }
     Vector2d available_space = e->screen_box.dimensions;
 
-    // 2. Metrics calculation
+    // Metrics calculation
     int glyph_advance = (8 * font.scale) + (font.scale * (int)font.spacing);
-    int row_height = (8 * font.scale) + (font.scale * (int)fabs(font.spacing));
+    int glyph_cell_width = 8 * font.scale;
+    int row_height = 8 * font.scale;
     if (glyph_advance <= 0 || row_height <= 0)
     {
         return;
     }
     int rows_that_fit = (int)(available_space.y / row_height);
+    int text_row_count = CountTextRows(text_ptr, available_space.x, glyph_advance, glyph_cell_width, rows_that_fit);
+    float vertical_offset = 0.0f;
+    float text_height = text_row_count * row_height;
+    if (e->text_vertical_alignment == UI_TEXT_VERTICAL_ALIGN_CENTRE)
+    {
+        vertical_offset = fmaxf(0.0f, (available_space.y - text_height) / 2.0f);
+    }
+    else if (e->text_vertical_alignment == UI_TEXT_VERTICAL_ALIGN_BOTTOM)
+    {
+        vertical_offset = fmaxf(0.0f, available_space.y - text_height);
+    }
     int char_ptr = 0;
     int current_row = 0;
     float last_row_x_end = e->screen_box.coords.x;
@@ -82,7 +127,7 @@ void DrawTextArea(UIElement *e)
         while (text_ptr[char_ptr] != '\0' && row_char_count < 255)
         {
             char c = text_ptr[char_ptr];
-            int char_width = glyph_advance;
+            int char_width = row_char_count == 0 ? glyph_cell_width : glyph_advance;
 
             if (current_row_width + char_width > available_space.x)
                 break;
@@ -96,7 +141,16 @@ void DrawTextArea(UIElement *e)
         // Draw the row
         Vector2d draw_pos = {
             e->screen_box.coords.x,
-            e->screen_box.coords.y + (current_row * row_height)};
+            e->screen_box.coords.y + vertical_offset + (current_row * row_height)};
+
+        if (e->text_horizontal_alignment == UI_TEXT_ALIGN_CENTRE)
+        {
+            draw_pos.x += fmaxf(0.0f, (available_space.x - current_row_width) / 2.0f);
+        }
+        else if (e->text_horizontal_alignment == UI_TEXT_ALIGN_RIGHT)
+        {
+            draw_pos.x += fmaxf(0.0f, available_space.x - current_row_width);
+        }
 
         // Draw and capture the end X position for the cursor
         last_row_x_end = DrawTextCustom(row_buffer, draw_pos, font.scale, font, font.colour);
@@ -108,9 +162,8 @@ void DrawTextArea(UIElement *e)
     {
         // Place cursor at the end of the last drawn character
         // Note: Subtract 1 from current_row because it was incremented after the last draw
-        // Adjust x_coord because the '|' is drawn in the middle of the 8x8 bitmap, and we need the cursor to be closer to the prev char
-        float adjusted_x = last_row_x_end - (font.scale * fabs(font.spacing));
-        float adjusted_y = char_ptr > 0 ? e->screen_box.coords.y + ((current_row - 1) * row_height) : e->screen_box.coords.y;
+        float adjusted_x = last_row_x_end;
+        float adjusted_y = char_ptr > 0 ? e->screen_box.coords.y + vertical_offset + ((current_row - 1) * row_height) : e->screen_box.coords.y + vertical_offset;
         Vector2d cursor_pos = {adjusted_x, adjusted_y};
         DrawTextCustom("|", cursor_pos, font.scale, font, font.colour);
     }

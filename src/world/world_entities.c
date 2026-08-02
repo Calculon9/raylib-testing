@@ -59,7 +59,7 @@ void SetObjectFlag(World2d *world, int object_id, int flag_to_update)
     if (!object)
         return;
 
-    object->flags = (object->flags | flag_to_update);
+    object->status_flags = (object->status_flags | flag_to_update);
 }
 
 void ClearObjectFlag(World2d *world, int object_id, int flag_to_update)
@@ -69,7 +69,7 @@ void ClearObjectFlag(World2d *world, int object_id, int flag_to_update)
         return;
 
     int inverse_flag = ~flag_to_update;
-    object->flags = object->flags & inverse_flag;
+    object->status_flags = object->status_flags & inverse_flag;
 }
 
 void UpdateEntityWorldRegistry(FlatMapInt *entity_world_index_registry, int entity_id, int type_flag, int entity_arr_index)
@@ -88,7 +88,7 @@ int RegisterEntity(World2d *world, Newtonoid2d *entity)
 {
     ArchetypeID array_type;
 
-    if (!(entity->flags & FLAG_LIFETIME_CLOCKED))
+    if (!(entity->status_flags & FLAG_LIFETIME_CLOCKED))
     {
         array_type = ARCHETYPE_INHABITANT;
     }

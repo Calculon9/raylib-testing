@@ -12,7 +12,9 @@
 #include "ui/text_region.h"
 #include "ui/ui_renderer.h"
 #include "system/ui_system.h"
-#include "system/lpanel_system.h"
+#include "system/ui/lpanel_system.h"
+#include "system/ui/state_manager_system.h"
+#include "system/ui/utility_panel_system.h"
 #include "world/world.h"
 #include "system/systems.h"
 #include "system/utility_system.h"
@@ -32,22 +34,122 @@ Vector2d tlabel_default_padding = {0.00, 0.00};
 Vector2d tfield_default_padding = {0.01, 0.01};
 Vector2d tcont_default_padding = {0.06, 0.06};
 Vector2d btn_default_padding = {0.025, 0.025};
-ColourRgba btn_default_colour_border = {188, 108, 37, 255};
-ColourRgba btn_default_colour_fill = {96, 108, 56, 255};
-ColourRgba tbox_default_colour_border = {40, 54, 24, 255}; // {150, 115, 70, 255};//MAROON_RGBA; //{128, 99, 42, 100};
-ColourRgba tbox_default_colour_fill = {254, 250, 224, 255};  // COLOUR_PANEL_DARK_1;
-ColourRgba tcont_default_colour_fill = {96, 108, 56, 255};
-ColourRgba tcont_default_colour_border = {188, 108, 37, 255}; // {150, 115, 70, 255};//MAROON_RGBA; //{128, 99, 42, 100};
-ColourRgba tfield_default_colour_fill = {0, 0, 0, 0};
-Size tfield_default_size = {{6, 0.5}, SIZE_FIXED};
+Size ui_default_control_size = {{4, 0.45}, SIZE_FIXED};
 // Give labels more room in inline text fields (label width = 1.0 - textbox width).
 Size tbox_default_size = {{0.55, 1}, SIZE_PERCENT};
-Size btn_default_size = {{6, 0.5}, SIZE_FIXED}; // Assuming it's in a container
-// Size btn_default_size = {{1, 1}, SIZE_PERCENT};    // Assuming it's in a container
+Size btn_default_size = {{1, 1}, SIZE_FILL};
 Size tcont_default_size = {{1, 0.5}, SIZE_PERCENT};
 Spacing tcont_default_child_spacing = {{0, 0.012}, PERCENT, SPACING_STACKED};
 Spacing cont_default_child_spacing = {{0, 0.015}, PERCENT, SPACING_STACKED};
 Spacing btn_cont_default_child_spacing = {{0.0, 0.0}, PERCENT, SPACING_NONE};
+
+const UIPalette ui_classic_palette = {
+    .panel_background = COLOUR_UI_INK_RGBA,
+    .container_border = COLOUR_UI_TERRACOTTA_RGBA,
+    .container_fill = COLOUR_UI_SAGE_RGBA,
+    .field_row_border = WHITE_RGBA,
+    .field_row_fill = COLOURLESS_RGBA,
+    .input_border = COLOUR_UI_INK_RGBA,
+    .input_fill = COLOUR_UI_PAPER_RGBA,
+    .button_border = COLOUR_UI_INK_RGBA,
+    .button_fill = COLOUR_UI_GOLD_RGBA,
+    .text = COLOUR_UI_INK_RGBA,
+    .text_on_dark = COLOUR_UI_PAPER_RGBA,
+    .error = RED_RGBA,
+    .warning = YELLOW_WARNING_RGBA
+};
+
+const UIPalette ui_earth_palette = {
+    .panel_background = COLOUR_UI_EARTH_TEAL_RGBA,
+    .container_border = COLOUR_UI_EARTH_RUST_RGBA,
+    .container_fill = COLOUR_UI_EARTH_OLIVE_RGBA,
+    .field_row_border = COLOUR_UI_EARTH_BROWN_RGBA,
+    .field_row_fill = COLOURLESS_RGBA,
+    .input_border = COLOUR_UI_EARTH_TEAL_RGBA,
+    .input_fill = COLOUR_UI_EARTH_CREAM_RGBA,
+    .button_border = COLOUR_UI_EARTH_TEAL_RGBA,
+    .button_fill = COLOUR_UI_EARTH_BROWN_RGBA,
+    .text = COLOUR_UI_EARTH_TEAL_RGBA,
+    .text_on_dark = COLOUR_UI_EARTH_CREAM_RGBA,
+    .error = RED_RGBA,
+    .warning = YELLOW_WARNING_RGBA
+};
+
+const UIPalette ui_harbor_palette = {
+    .panel_background = COLOUR_UI_HARBOR_NAVY_RGBA,
+    .container_border = COLOUR_UI_HARBOR_CORAL_RGBA,
+    .container_fill = COLOUR_UI_HARBOR_SEAFOAM_RGBA,
+    .field_row_border = COLOUR_UI_HARBOR_AMBER_RGBA,
+    .field_row_fill = COLOURLESS_RGBA,
+    .input_border = COLOUR_UI_HARBOR_NAVY_RGBA,
+    .input_fill = COLOUR_UI_HARBOR_SAND_RGBA,
+    .button_border = COLOUR_UI_HARBOR_NAVY_RGBA,
+    .button_fill = COLOUR_UI_HARBOR_AMBER_RGBA,
+    .text = COLOUR_UI_HARBOR_NAVY_RGBA,
+    .text_on_dark = COLOUR_UI_HARBOR_SAND_RGBA,
+    .error = RED_RGBA,
+    .warning = YELLOW_WARNING_RGBA
+};
+
+const UIPalette ui_default_palette = {
+    .panel_background = COLOUR_UI_HARBOR_NAVY_RGBA,
+    .container_border = COLOUR_UI_HARBOR_CORAL_RGBA,
+    .container_fill = COLOUR_UI_HARBOR_SEAFOAM_RGBA,
+    .field_row_border = COLOUR_UI_HARBOR_AMBER_RGBA,
+    .field_row_fill = COLOURLESS_RGBA,
+    .input_border = COLOUR_UI_HARBOR_NAVY_RGBA,
+    .input_fill = COLOUR_UI_HARBOR_SAND_RGBA,
+    .button_border = COLOUR_UI_HARBOR_NAVY_RGBA,
+    .button_fill = COLOUR_UI_HARBOR_AMBER_RGBA,
+    .text = COLOUR_UI_HARBOR_NAVY_RGBA,
+    .text_on_dark = COLOUR_UI_HARBOR_SAND_RGBA,
+    .error = RED_RGBA,
+    .warning = YELLOW_WARNING_RGBA
+};
+
+void UIPalette_GetSurfaceColours(const UIPalette *palette, UIPaletteSurface surface,
+                                 ColourRgba *out_border, ColourRgba *out_fill)
+{
+    ColourRgba border = COLOURLESS_RGBA;
+    ColourRgba fill = COLOURLESS_RGBA;
+
+    if (!palette)
+    {
+        palette = &ui_default_palette;
+    }
+
+    switch (surface)
+    {
+        case UI_PALETTE_SURFACE_CONTAINER:
+            border = palette->container_border;
+            fill = palette->container_fill;
+            break;
+        case UI_PALETTE_SURFACE_FIELD_ROW:
+            border = palette->field_row_border;
+            fill = palette->field_row_fill;
+            break;
+        case UI_PALETTE_SURFACE_INPUT:
+            border = palette->input_border;
+            fill = palette->input_fill;
+            break;
+        case UI_PALETTE_SURFACE_BUTTON:
+            border = palette->button_border;
+            fill = palette->button_fill;
+            break;
+        case UI_PALETTE_SURFACE_TRANSPARENT:
+        default:
+            break;
+    }
+
+    if (out_border)
+    {
+        *out_border = border;
+    }
+    if (out_fill)
+    {
+        *out_fill = fill;
+    }
+}
 
 // UI Elements
 
@@ -56,6 +158,19 @@ Spacing btn_cont_default_child_spacing = {{0.0, 0.0}, PERCENT, SPACING_NONE};
 //----------------------------------------------------------------------------------
 
 void UpdateGlobalUIState();
+
+static bool IsPointInViewportRegion(const ViewportRegion *region, int mouse_x, int mouse_y)
+{
+    if (!region)
+    {
+        return false;
+    }
+
+    return mouse_x >= region->pixel_origin.x &&
+           mouse_x <= (region->pixel_origin.x + (region->pixel_u.x * region->resolution.x)) &&
+           mouse_y >= region->pixel_origin.y &&
+           mouse_y <= (region->pixel_origin.y + (region->pixel_v.y * region->resolution.y));
+}
 
 static void ClearString64(String64 *value)
 {
@@ -72,17 +187,18 @@ void InitUI(void)
     // Init Global UI State
     G_UIState.focused_element = NULL;
     InitLPanel();
+    InitUtilityPanel();
     InitRPanel();
+    InitStateManagerSystem();
     G_UIState.active_panel_view = LPANEL_STATE_VIEW;
 }
 
 void UpdateUISystem(int mouse_x, int mouse_y)
 {
-    bool cursor_in_lpanel = mouse_x >= lpanel_viewport.pixel_origin.x && mouse_x <= (lpanel_viewport.pixel_origin.x + (lpanel_viewport.pixel_u.x * lpanel_viewport.resolution.x)) &&
-                            mouse_y >= lpanel_viewport.pixel_origin.y && mouse_y <= (lpanel_viewport.pixel_origin.y + (lpanel_viewport.pixel_v.y * lpanel_viewport.resolution.y));
-    bool cursor_in_rpanel = mouse_x >= rpanel_viewport.pixel_origin.x && mouse_x <= (rpanel_viewport.pixel_origin.x + (rpanel_viewport.pixel_u.x * rpanel_viewport.resolution.x)) &&
-                            mouse_y >= rpanel_viewport.pixel_origin.y && mouse_y <= (rpanel_viewport.pixel_origin.y + (rpanel_viewport.pixel_v.y * rpanel_viewport.resolution.y));
-    bool cursor_in_ui = cursor_in_lpanel || cursor_in_rpanel;
+    bool cursor_in_ui = IsPointInViewportRegion(&lpanel_viewport, mouse_x, mouse_y) ||
+                        IsPointInViewportRegion(&rpanel_viewport, mouse_x, mouse_y) ||
+                        IsPointInViewportRegion(&entity_panel_viewport, mouse_x, mouse_y) ||
+                        IsPointInViewportRegion(&utility_panel_viewport, mouse_x, mouse_y);
 
     // Send useful data to the Dispatcher for it triage and process/update affected elements
     ProcessUIInput(mouse_x, mouse_y, cursor_in_ui);
@@ -93,70 +209,49 @@ void DrawUI()
 {
     DrawLPanel();
     DrawRPanel();
+    DrawStateManagerSystem();
+    DrawUtilityPanel();
 }
 
 void UpdateUILogicalSpace()
 {
-    // Update Left Panel space
-    
 }
 
 void UpdateUISpace(UIElement *root_element, UIBox seed_box)
 {
-    // Resolve logical units
     if (!root_element)
     {
         return;
     }
 
-    // Resolve space position and dimensions of panel element
-    // UIBox box = ResolveElementBox(root_element, seed_box);
-    // root_element->cached_box = box;
-
     UI_LayoutSubtree(root_element, seed_box);
-
-    // frame_counter.total_frames % 800 == 0 ? printf("DREW [%s] Pos: (%.1f, %.1f) | Size: (%.1f, %.1f)\n", GetElementTypeName(root_element->type), box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y) : (void)0;
-
-    // Recursively draw children
-    // UIElement *child = root_element->first_child;
-    // while (child)
-    // {
-    //     UpdateUISpaceElement(child, seed_box);
-    //     child = child->next_sibling;
-    // }
 }
-
-// static void UpdateUISpaceElement(UIElement *e, UIBox parent_box)
-// {
-//     // Resolve logical units
-//     if (!e)
-//     {
-//         return;
-//     }
-
-//     // Need to convert world coordinates --> viewport --> screen coordinates
-//     Space2d panel_space = e->data.root.space;
-//     //Vector2d origin = panel_space.frame.origin_in_parent;    
-
-//     // Resolve rendered position and dimensions of panel element
-//     UIBox box = ResolveElementBox(e, seed_box);
-//     e->cached_box = box;
-
-//     DistributeChildrenRecursiveResolved(e, box);
-
-//     // frame_counter.total_frames % 800 == 0 ? printf("DREW [%s] Pos: (%.1f, %.1f) | Size: (%.1f, %.1f)\n", GetElementTypeName(root_element->type), box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y) : (void)0;
-
-//     // Recursively draw children
-//     UIElement *child = e->first_child;
-//     while (child)
-//     {
-//         UpdateLPanelSpace(child, box);
-//         child = child->next_sibling;
-//     }
-// }
 
 void UpdateGlobalUIState()
 {
+    UIElement *state_boxes[] = {
+        G_UIState.lpanel_entity_state_id_tbox,
+        G_UIState.lpanel_entity_state_mass_tbox,
+        G_UIState.lpanel_entity_state_pos_tl_tbox,
+        G_UIState.lpanel_entity_state_pos_c_tbox,
+        G_UIState.lpanel_entity_state_vel_tbox,
+        G_UIState.lpanel_entity_state_accel_tbox,
+        G_UIState.lpanel_entity_state_moment_tbox,
+    };
+
+    UIElement *edit_boxes[] = {
+        G_UIState.lpanel_entity_edit_vertice_count_tbox,
+        G_UIState.lpanel_entity_edit_width_tbox,
+        G_UIState.lpanel_entity_edit_height_tbox,
+        G_UIState.lpanel_entity_edit_mass_tbox,
+        G_UIState.lpanel_entity_edit_pos_c_tbox,
+        G_UIState.lpanel_entity_edit_vel_tbox,
+        G_UIState.lpanel_entity_edit_accel_tbox,
+        G_UIState.lpanel_entity_edit_moment_tbox,
+    };
+    size_t state_box_count = sizeof(state_boxes) / sizeof(state_boxes[0]);
+    size_t edit_box_count = sizeof(edit_boxes) / sizeof(edit_boxes[0]);
+
     // UPDATE STATISTICS
     float fps = frame_counter.fps;
     float ftime = frame_counter.delta_time * 1000;
@@ -186,15 +281,6 @@ void UpdateGlobalUIState()
     if (obj)
     {
         // Bind selected_object data to the Object Properties TextBoxes
-        UIElement *state_boxes[] = {
-            G_UIState.lpanel_entity_state_id_tbox,
-            G_UIState.lpanel_entity_state_mass_tbox,
-            G_UIState.lpanel_entity_state_pos_tl_tbox,
-            G_UIState.lpanel_entity_state_pos_c_tbox,
-            G_UIState.lpanel_entity_state_vel_tbox,
-            G_UIState.lpanel_entity_state_accel_tbox,
-            G_UIState.lpanel_entity_state_moment_tbox,
-        };
         void *state_bindings[] = {
             &obj->id,
             &obj->mass,
@@ -204,7 +290,7 @@ void UpdateGlobalUIState()
             &obj->acceleration,
             &obj->momentum,
         };
-        BindTextboxGroup(state_boxes, state_bindings, sizeof(state_boxes) / sizeof(state_boxes[0]));
+        BindTextboxGroup(state_boxes, state_bindings, state_box_count);
 
         // PIPELINE data to text only when the element is NOT focused
         // so that editing of the text by the user doesn't keep getting overwritten with the value stored in the object
@@ -218,17 +304,9 @@ void UpdateGlobalUIState()
     }
     else // Reset the bounded textbox output buffers AND unbind
     {
-        UIElement *state_boxes[] = {
-            G_UIState.lpanel_entity_state_id_tbox,
-            G_UIState.lpanel_entity_state_mass_tbox,
-            G_UIState.lpanel_entity_state_pos_tl_tbox,
-            G_UIState.lpanel_entity_state_pos_c_tbox,
-            G_UIState.lpanel_entity_state_vel_tbox,
-            G_UIState.lpanel_entity_state_accel_tbox,
-            G_UIState.lpanel_entity_state_moment_tbox,
-        };
-        ClearAndUnbindTextboxGroup(state_boxes, sizeof(state_boxes) / sizeof(state_boxes[0]));
+        ClearAndUnbindTextboxGroup(state_boxes, state_box_count);
     }
+    UpdateStateManagerSelectedObject();
 
     // COLLECT & UPDATE SELECTED CELL PROPERTIES
     Cell *cell = G_UIState.selected_cell;
@@ -239,7 +317,6 @@ void UpdateGlobalUIState()
         float val = cell->value;
         float fill = 0; // set to 0 for now
 
-        // Write to selected_cell data to the Cell State TextBoxes via Global State
         UpdateString64(G_UIState.lpanel_cell_state_id_str->string, "%d", index);
         UpdateString64(G_UIState.lpanel_cell_state_occu_str->string, "%d", occu);
         UpdateString64(G_UIState.lpanel_cell_state_value_str->string, "%0.1f", val);
@@ -259,17 +336,6 @@ void UpdateGlobalUIState()
     if (G_UIState.active_panel_view == LPANEL_EDIT_ENTITY_VIEW && params)
     {
         // Bind selected_object data to the Object Properties TextBoxes
-        // G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.data_bind = &params->edge_count;
-        UIElement *edit_boxes[] = {
-            G_UIState.lpanel_entity_edit_vertice_count_tbox,
-            G_UIState.lpanel_entity_edit_width_tbox,
-            G_UIState.lpanel_entity_edit_height_tbox,
-            G_UIState.lpanel_entity_edit_mass_tbox,
-            G_UIState.lpanel_entity_edit_pos_c_tbox,
-            G_UIState.lpanel_entity_edit_vel_tbox,
-            G_UIState.lpanel_entity_edit_accel_tbox,
-            G_UIState.lpanel_entity_edit_moment_tbox,
-        };
         void *edit_bindings[] = {
             &params->vertice_count,
             &params->width,
@@ -280,12 +346,10 @@ void UpdateGlobalUIState()
             &params->acceleration,
             &params->momentum,
         };
-        BindTextboxGroup(edit_boxes, edit_bindings, sizeof(edit_boxes) / sizeof(edit_boxes[0]));
+        BindTextboxGroup(edit_boxes, edit_bindings, edit_box_count);
 
         // PIPELINE data to text only when the element is NOT focused
         // so that editing of the text by the user doesn't keep getting overwritten with the value stored in the object
-        // if (!G_UIState.lpanel_entity_edit_edge_count_tbox->is_focused)
-        //     PipelineNumberToText(params->edge_count, 0, G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.text.string, str_64);
         WriteTextboxNumberIfUnfocused(G_UIState.lpanel_entity_edit_vertice_count_tbox, params->vertice_count, 0);
         WriteTextboxNumberIfUnfocused(G_UIState.lpanel_entity_edit_width_tbox, params->width, 2);
         WriteTextboxNumberIfUnfocused(G_UIState.lpanel_entity_edit_height_tbox, params->height, 2);
@@ -297,23 +361,7 @@ void UpdateGlobalUIState()
     }
     else
     {
-        // Reset the bounded textbox output buffers
-        // G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.text.string[0] = '\0';
-        UIElement *edit_boxes[] = {
-            G_UIState.lpanel_entity_edit_vertice_count_tbox,
-            G_UIState.lpanel_entity_edit_width_tbox,
-            G_UIState.lpanel_entity_edit_height_tbox,
-            G_UIState.lpanel_entity_edit_mass_tbox,
-            G_UIState.lpanel_entity_edit_pos_c_tbox,
-            G_UIState.lpanel_entity_edit_vel_tbox,
-            G_UIState.lpanel_entity_edit_accel_tbox,
-            G_UIState.lpanel_entity_edit_moment_tbox,
-        };
-        ClearAndUnbindTextboxGroup(edit_boxes, sizeof(edit_boxes) / sizeof(edit_boxes[0]));
-
-        // Unbind data
-        // G_UIState.lpanel_entity_edit_edge_count_tbox->data.textbox.data_bind = NULL;
-        // Unbind handled by ClearAndUnbindTextbox calls above.
+        ClearAndUnbindTextboxGroup(edit_boxes, edit_box_count);
     }
 }
 

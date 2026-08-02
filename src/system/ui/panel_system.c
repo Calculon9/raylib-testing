@@ -1,14 +1,15 @@
 #include "system/panel_system.h"
-
+#include "system/ui_system.h"
 #include <stdlib.h>
 #include "math/affine_space_ops.h"
 #include "ui/ui_renderer.h"
+#include "ui/ui_constructors.h"
 #include "system/viewport_system.h"
 
 PanelSystem* PanelSystem_Create(ViewportRegion *viewport, float scale, Vector2d padding,
-                                ColourRgba fill_colour, Spacing root_child_spacing)
+                                const UIPalette *palette, Spacing root_child_spacing)
 {
-    PanelSystem *panel = (PanelSystem*)malloc(sizeof(PanelSystem));
+    PanelSystem *panel = (PanelSystem*)AllocateBytes(sizeof(PanelSystem));
     if (!panel)
     {
         return NULL;
@@ -20,7 +21,7 @@ PanelSystem* PanelSystem_Create(ViewportRegion *viewport, float scale, Vector2d 
     panel->viewport = viewport;
     panel->space_to_viewport_scale = scale;
     panel->default_padding = padding;
-    panel->fill_colour = fill_colour;
+    panel->palette = palette ? palette : &ui_default_palette;
     panel->root_child_spacing = root_child_spacing;
     panel->basis_override_enabled = false;
     panel->basis_override_u = ZERO_VECTOR_2D;
@@ -59,7 +60,8 @@ void PanelSystem_InitRoot(PanelSystem *panel)
     Size root_size = {{(float)panel->space.columns, (float)panel->space.rows}, SIZE_FILL};
     panel->root = CreateUIElement(UI_ELEMENT_ROOT, root_size,
                                   (Offset){ZERO_VECTOR_2D, OFFSET_FIXED},
-                                  panel->default_padding, COLOURLESS_RGBA, panel->fill_colour);
+                                  panel->default_padding, COLOURLESS_RGBA,
+                                  panel->palette->panel_background);
     
     if (panel->root)
     {
@@ -80,6 +82,109 @@ void PanelSystem_InitViews(PanelSystem *panel, size_t view_count)
     }
 
     panel->views = MakeLArray(view_count, sizeof(View*));
+}
+
+bool PanelSystem_AddView(PanelSystem *panel, View *view, UIElement *container, ViewType type)
+{
+    if (!panel || !view || !container)
+    {
+        return false;
+    }
+
+    view->container = container;
+    view->type = type;
+    return LArray_Push(&panel->views, &view);
+}
+
+static void UpdatePanelViewSelectorButtons(ViewSelector *selector)
+{
+    for (size_t i = 0; i < selector->count; i++)
+    {
+        bool is_active = i == selector->active_index;
+        selector->buttons[i]->colour_fill = is_active
+                                                 ? selector->panel->palette->button_fill
+                                                 : selector->panel->palette->panel_background;
+        selector->buttons[i]->data.button.font.colour = is_active
+                                                            ? selector->panel->palette->text_on_dark
+                                                            : selector->panel->palette->button_fill;
+    }
+}
+
+static void HandlePanelViewSelectorClick(UIElement *button)
+{
+    ViewSelector *selector = (ViewSelector *)button->data.button.data_bind;
+    if (!selector || !button->data.button.user_data)
+    {
+        return;
+    }
+
+    PanelSystem_SelectView(selector, (size_t)*((int *)button->data.button.user_data));
+}
+
+ViewSelector *PanelSystem_CreateViewSelector(PanelSystem *panel, UIElement *parent,
+                                                  Size button_size, const char *labels[],
+                                                  size_t count,
+                                                  ViewSelectionCallback on_view_selected)
+{
+    if (!panel || !parent || !labels || count == 0)
+    {
+        return NULL;
+    }
+
+    ViewSelector *selector = AllocateBytes(sizeof(ViewSelector));
+    selector->panel = panel;
+    selector->buttons = AllocateBytes(sizeof(UIElement *) * count);
+    selector->view_indices = AllocateBytes(sizeof(int) * count);
+    selector->count = count;
+    selector->active_index = count;
+    selector->on_view_selected = on_view_selected;
+
+    for (size_t i = 0; i < count; i++)
+    {
+        selector->view_indices[i] = (int)i;
+        selector->buttons[i] = CreateUIButtonDefault(
+            parent, UI_ELEMENT_BUTTON_ENUMERATE, labels[i], button_size,
+            btn_default_padding, panel->palette, HandlePanelViewSelectorClick,
+            &selector->view_indices[i], selector);
+    }
+
+    UpdatePanelViewSelectorButtons(selector);
+    return selector;
+}
+
+bool PanelSystem_SelectView(ViewSelector *selector, size_t view_index)
+{
+    if (!selector || view_index >= selector->count || view_index >= selector->panel->views.count)
+    {
+        return false;
+    }
+
+    for (size_t i = 0; i < selector->panel->views.count; i++)
+    {
+        View *view = *((View **)LArray_Get(&selector->panel->views, i));
+        if (view && view->container)
+        {
+            if (i == view_index)
+            {
+                EnableElement(view->container);
+            }
+            else
+            {
+                DisableElement(view->container);
+            }
+        }
+    }
+
+    selector->active_index = view_index;
+    UpdatePanelViewSelectorButtons(selector);
+
+    View *selected_view = *((View **)LArray_Get(&selector->panel->views, view_index));
+    if (selector->on_view_selected)
+    {
+        selector->on_view_selected(selected_view);
+    }
+
+    return true;
 }
 
 void PanelSystem_Draw(PanelSystem *panel)

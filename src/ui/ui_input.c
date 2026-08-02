@@ -10,13 +10,14 @@
 #include "ui/ui_input.h"
 #include "ui/text_region.h"
 #include "system/ui_system.h"
-#include "system/lpanel_system.h"
+#include "system/ui/lpanel_system.h"
+#include "system/ui/utility_panel_system.h"
+#include "system/ui/state_manager_system.h"
 #include "system/viewport_system.h"
 #include "system/utility_system.h"
 #include <stdlib.h>
 #include "world/world.h"
-#include "system/utility_system.h"
-#include "system/rpanel_system.h"
+#include "system/ui/rpanel_system.h"
 #include "world/universe.h"
 #include "system/command_queue.h"
 #include "system/drag_interaction.h"
@@ -87,6 +88,13 @@ static void SnapshotTextBuffers(Text_64_IOState *tbox_buffers, const char *text)
 static bool HasPendingTextEdit(const Text_64_IOState *tbox_buffers)
 {
     return tbox_buffers && tbox_buffers->input_buffer.string[0] != '\0';
+}
+
+static bool IsInteractiveTextbox(const UIElement *element)
+{
+    return element &&
+           (element->type == UI_ELEMENT_TEXTBOX_IO ||
+            element->type == UI_ELEMENT_TEXTBOX_SAFE_IO);
 }
 
 static void ClearTextFocus(Text_64_IOState *tbox_buffers)
@@ -181,26 +189,6 @@ void ProcessUIInput(int mouse_x, int mouse_y, bool cursor_in_region)
     }
 
     HandleMouseEvents(target, mouse_coords);
-    // -----HANDLE LEFT MOUSE-----
-    // Phase A: Handle the Start/New Events
-    // Update mouse_down_state
-    // if (IsMouseButtonDown(MOUSE_BUTTON_LEFT))
-    // {
-    //     // Handle it
-    //     HandleLeftMouseDown(target, mouse_coords);
-    // }
-    // else // It must be UP
-    // {
-    //     HandleLeftMouseUp(target, mouse_coords);
-    // }
-
-    // Phase B: Handle the "Ongoing" (State)
-    // if (G_DraggedElement)
-    // {
-    //     HandleUIDragging(target, mouse_coords);
-    // }
-
-    // Phase D: Typing
     UpdateTextIO();
 }
 
@@ -478,6 +466,11 @@ void HandleUIDragging(UIElement *e, Vector2d mouse_coords)
     Vector2d diff_pixel = (Vector2d){diff_local.x / pixels_to_ui_local_scale.x, diff_local.y / pixels_to_ui_local_scale.y};
 
     // Finalize properties assignment
+    if (e->parent && e->parent_offset.offset_mode == OFFSET_PERCENT)
+    {
+        e->parent_offset.offset_mode = OFFSET_FIXED;
+    }
+
     e->parent_offset.offset = new_local_offset;
     e->manual_parent_offset = new_local_offset;
     e->has_manual_parent_offset = true;
@@ -497,10 +490,7 @@ void RevertTextChanges(UIElement *e, Text_64_IOState *tbox_buffers)
     {
         return;
     }
-    char *output_buf = NULL;
-
-    output_buf = e->data.textbox.text.string;
-    safe_strncpy(output_buf, tbox_buffers->temp_buffer.string, MAX_TEXTBOX_CHARS);
+    safe_strncpy(e->data.textbox.text.string, tbox_buffers->temp_buffer.string, MAX_TEXTBOX_CHARS);
 
     // Reset tracking buffers
     ResetTextBuffers(tbox_buffers);
@@ -522,7 +512,7 @@ void HandleTextCommit(UIElement *element, Text_64_IOState *tbox_buffers)
     }
 
     // These TextBoxes (IO) are interactive so check it's an IO type before doing anything
-    if (element->type == UI_ELEMENT_TEXTBOX_IO || element->type == UI_ELEMENT_TEXTBOX_SAFE_IO)
+    if (IsInteractiveTextbox(element))
     {
         // If a Binder is attached, use it (allows validation + conversion)
         if (element->data.textbox.binder)
@@ -583,7 +573,7 @@ void HandleTextBoxClick(UIElement *clicked)
 
     // Move the cursor to the end of the text string
     // This allows the user to start typing immediately after what's already there
-    if (clicked->type == UI_ELEMENT_TEXTBOX_IO || clicked->type == UI_ELEMENT_TEXTBOX_SAFE_IO)
+    if (IsInteractiveTextbox(clicked))
     {
         int length = strlen(clicked->data.textbox.text.string);
         clicked->data.textbox.cursor_position = length;
@@ -599,7 +589,7 @@ void UpdateTextIO()
         return;
     }
 
-    if (!G_UIState.focused_element || (G_UIState.focused_element->type != UI_ELEMENT_TEXTBOX_IO && G_UIState.focused_element->type != UI_ELEMENT_TEXTBOX_SAFE_IO))
+    if (!IsInteractiveTextbox(G_UIState.focused_element))
         return;
 
     char *output_buf = G_UIState.focused_element->data.textbox.text.string;
@@ -705,24 +695,21 @@ void UpdateDragFocus(UIElement *element, Vector2d mouse_coords)
 
     G_DragState.target_element = element;
 
-    // Drag math operates in fixed local units; convert authored percent offsets once.
-    // IMPORTANT: read manual_parent_offset (authored value), NOT parent_offset.offset,
-    // which already has the stacking cursor applied and would cause double-offset on next layout.
+    // Drag math operates in fixed local units without changing layout until a drag starts.
     if (element->parent && element->parent_offset.offset_mode == OFFSET_PERCENT)
     {
         float content_area_w = fmaxf(0.0f, element->parent->local_box.dimensions.x - (element->parent->padding.x * 2.0f));
         float content_area_h = fmaxf(0.0f, element->parent->local_box.dimensions.y - (element->parent->padding.y * 2.0f));
 
-        Vector2d fixed_offset = {
+        G_DragState.initial_element_offset = (Vector2d){
             content_area_w * element->manual_parent_offset.x,
             content_area_h * element->manual_parent_offset.y};
-
-        element->parent_offset.offset_mode = OFFSET_FIXED;
-        element->manual_parent_offset = fixed_offset;
-        element->has_manual_parent_offset = true;
+    }
+    else
+    {
+        G_DragState.initial_element_offset = element->manual_parent_offset;
     }
 
-    G_DragState.initial_element_offset = element->manual_parent_offset;
     DragInteraction_BeginCapture(drag_ctx, DRAG_TARGET_UI_ELEMENT, element, G_DragState.initial_element_offset);
     printf("DRAG FOCUS CHANGE: [%s]\n", GetElementTypeName(element->type));
 }
@@ -749,20 +736,26 @@ void InitTextBuffers(UIElement *e, Text_64_IOState *t_bufs)
 
 UIElement *ResolveUIRootTarget(Vector2d mouse_coords)
 {
-    UIElement *target = NULL;
+    UIElement *roots[] = {
+        GetUtilityPanelRoot(),
+        GetStateManagerRoot(),
+        GetRPanelRoot(),
+        GetLPanelRoot()};
 
-    UIElement *rpanel_root = GetRPanelRoot();
-    if (rpanel_root)
+    for (int i = 0; i < (int)(sizeof(roots) / sizeof(roots[0])); i++)
     {
-        target = GetElementAt(rpanel_root, mouse_coords);
+        if (!roots[i])
+        {
+            continue;
+        }
+
+        UIElement *target = GetElementAt(roots[i], mouse_coords);
+        if (target)
+        {
+            return target;
+        }
     }
 
-    UIElement *lpanel_root = GetLPanelRoot();
-    if (!target && lpanel_root)
-    {
-        target = GetElementAt(lpanel_root, mouse_coords);
-    }
-
-    return target;
+    return NULL;
 }
 

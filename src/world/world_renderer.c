@@ -68,17 +68,14 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
         return;
     }
 
-    Basis2d basis = grid_space->space.frame.basis;
-
-    // Grid vertices are authored in world-local coordinates; world placement is
-    // already encoded in world_to_pixel_mtx via world->tunnel.source_to_dest_mtx.
+    // Grid geometry is authored in world-local coordinates; the world basis and
+    // placement are applied once by world_to_pixel_mtx.
     Vector2d origin = ZERO_VECTOR_2D;
-    Vector2d end = VectorSum_2d(origin, (Vector2d){(float)grid_space->space.columns, (float)grid_space->space.rows});
 
     Vector2d corner_local_0 = origin;
-    Vector2d corner_local_1 = VectorSum_2d(origin, VectorScale_2d(basis.u, (float)grid_space->space.columns));
-    Vector2d corner_local_2 = VectorSum_2d(corner_local_1, VectorScale_2d(basis.v, (float)grid_space->space.rows));
-    Vector2d corner_local_3 = VectorSum_2d(origin, VectorScale_2d(basis.v, (float)grid_space->space.rows));
+    Vector2d corner_local_1 = (Vector2d){(float)grid_space->space.columns, 0.0f};
+    Vector2d corner_local_2 = (Vector2d){(float)grid_space->space.columns, (float)grid_space->space.rows};
+    Vector2d corner_local_3 = (Vector2d){0.0f, (float)grid_space->space.rows};
 
     Vector2d corner_pixel_0 = TransformCoordinates(world_to_pixel_mtx, corner_local_0);
     Vector2d corner_pixel_1 = TransformCoordinates(world_to_pixel_mtx, corner_local_1);
@@ -103,8 +100,8 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
     ColourRgba colour = grid_space->colour_line;
     for (int j = 0; j <= rows; j++)
     {
-        Vector2d row_offset = VectorScale_2d(basis.v, (float)j);
-        Vector2d width_extent = VectorScale_2d(basis.u, (float)columns);
+        Vector2d row_offset = (Vector2d){0.0f, (float)j};
+        Vector2d width_extent = (Vector2d){(float)columns, 0.0f};
 
         Vector2d line_origin = VectorSum_2d(origin, row_offset);
         Vector2d line_end = VectorSum_2d(line_origin, width_extent);
@@ -113,8 +110,8 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
 
     for (int i = 0; i <= columns; i++)
     {
-        Vector2d column_offset = VectorScale_2d(basis.u, (float)i);
-        Vector2d height_extent = VectorScale_2d(basis.v, (float)rows);
+        Vector2d column_offset = (Vector2d){(float)i, 0.0f};
+        Vector2d height_extent = (Vector2d){0.0f, (float)rows};
 
         Vector2d line_origin = VectorSum_2d(origin, column_offset);
         Vector2d line_end = VectorSum_2d(line_origin, height_extent);
@@ -131,8 +128,8 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
     }
 
     Vector2d p00 = TransformCoordinates(world_to_pixel_mtx, origin);
-    Vector2d p10 = TransformCoordinates(world_to_pixel_mtx, VectorSum_2d(origin, basis.u));
-    Vector2d p01 = TransformCoordinates(world_to_pixel_mtx, VectorSum_2d(origin, basis.v));
+    Vector2d p10 = TransformCoordinates(world_to_pixel_mtx, (Vector2d){1.0f, 0.0f});
+    Vector2d p01 = TransformCoordinates(world_to_pixel_mtx, (Vector2d){0.0f, 1.0f});
     float cell_px_w = VectorMagnitude_2d(VectorSum_2d(p10, VectorScale_2d(p00, -1.0f)));
     float cell_px_h = VectorMagnitude_2d(VectorSum_2d(p01, VectorScale_2d(p00, -1.0f)));
 

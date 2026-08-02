@@ -17,60 +17,66 @@
 //----------------------------------------------------------------------------------
 float CalculateInertia_Polygon(float mass, LArray *surface_vectors);
 
-Newtonoid2d CreateNewtonoid2d(float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration, Surface2d surface)
+static bool InitializeNewtonoid2d(Newtonoid2d *newtonoid, float mass,
+                                  Vector2d coords_center, Vector2d velocity,
+                                  Vector2d acceleration, Surface2d surface)
 {
-   // Validate vertex count to prevent SAT performance degradation
-   if (surface.surface_vectors.count > MAX_SHAPE_VERTICES)
+   if (!newtonoid || surface.surface_vectors.count > MAX_SHAPE_VERTICES)
    {
-      LOG_ERROR("Entity creation failed: vertex count %d exceeds MAX_SHAPE_VERTICES (%d)\n", 
-                surface.surface_vectors.count, MAX_SHAPE_VERTICES);
-      return (Newtonoid2d){0};
+      return false;
    }
 
-   Newtonoid2d newtOb = {0};
-   newtOb.coords_center = coords_center;
-   newtOb.mass = mass;
-   newtOb.inverse_mass = 1.0f / mass;
-   newtOb.velocity = velocity;
-   newtOb.acceleration = acceleration;
-   newtOb.surface = surface;
-   newtOb.boxed_dimensions = CalcAABBDimensions(surface.surface_vectors.items, surface.surface_vectors.count);
-   newtOb.coords_origin = (Vector2d){newtOb.coords_center.x - (newtOb.boxed_dimensions.x / 2.0), newtOb.coords_center.y - (newtOb.boxed_dimensions.y / 2.0)};
-   newtOb.radius = (newtOb.boxed_dimensions.x > newtOb.boxed_dimensions.y) ? newtOb.boxed_dimensions.x : newtOb.boxed_dimensions.y;
-   newtOb.line_colour = COLOUR_LINE_DEFAULT;
-   newtOb.fill_colour = COLOUR_FILL_DEFAULT;
-   newtOb.inertia = CalculateInertia_Polygon(mass, &surface.surface_vectors);
-   newtOb.inverse_inertia = (newtOb.inertia != 0.0f) ? (1.0f / newtOb.inertia) : 0.0f;
+   newtonoid->coords_center = coords_center;
+   newtonoid->mass = mass;
+   newtonoid->inverse_mass = 1.0f / mass;
+   newtonoid->velocity = velocity;
+   newtonoid->acceleration = acceleration;
+   newtonoid->surface = surface;
+   newtonoid->boxed_dimensions = CalcAABBDimensions(surface.surface_vectors.items, surface.surface_vectors.count);
+   newtonoid->coords_origin = (Vector2d){newtonoid->coords_center.x - (newtonoid->boxed_dimensions.x / 2.0), newtonoid->coords_center.y - (newtonoid->boxed_dimensions.y / 2.0)};
+   newtonoid->radius = (newtonoid->boxed_dimensions.x > newtonoid->boxed_dimensions.y) ? newtonoid->boxed_dimensions.x : newtonoid->boxed_dimensions.y;
+   newtonoid->line_colour = COLOUR_LINE_DEFAULT;
+   newtonoid->fill_colour = COLOUR_FILL_DEFAULT;
+   newtonoid->inertia = CalculateInertia_Polygon(mass, &surface.surface_vectors);
+   newtonoid->inverse_inertia = (newtonoid->inertia != 0.0f) ? (1.0f / newtonoid->inertia) : 0.0f;
+   newtonoid->momentum.x = newtonoid->mass * newtonoid->velocity.x;
+   newtonoid->momentum.y = newtonoid->mass * newtonoid->velocity.y;
+   newtonoid->local_axis_x = (Vector2d){1.0f, 0.0f};
+   newtonoid->local_axis_y = (Vector2d){0.0f, 0.0f};
+   newtonoid->entity_flags = FLAG_TYPE_NEWTONOID;
+   newtonoid->collision_mask = FLAG_TYPE_WALL | FLAG_TYPE_NEWTONOID;
+   newtonoid->status_flags = FLAG_ATTR_RIGID | FLAG_STATUS_ALIVE;
+   return true;
+}
 
-   // Initialize momentum based on mass and velocity
-   newtOb.momentum.x = newtOb.mass * newtOb.velocity.x;
-   newtOb.momentum.y = newtOb.mass * newtOb.velocity.y;
+static bool ValidateNewtonoidSurface(Surface2d surface)
+{
+   if (surface.surface_vectors.count <= MAX_SHAPE_VERTICES)
+   {
+      return true;
+   }
 
-   newtOb.torque = 0.0f;                         // Initialize torque accumulator to zero
-   newtOb.rotation = 0.0f;                       // Initial rotation angle in radians
-   newtOb.angular_velocity = 0.0f;               // Initial angular velocity
-   newtOb.local_axis_x = (Vector2d){1.0f, 0.0f}; // Initial local x axis pointing "forward" along the x-axis
-   newtOb.local_axis_y = (Vector2d){0.0f, 0.0f}; // Initial local y axis, n pointing "forward" along the y-axis
+   LOG_ERROR("Entity creation failed: vertex count %d exceeds MAX_SHAPE_VERTICES (%d)\n",
+             surface.surface_vectors.count, MAX_SHAPE_VERTICES);
+   return false;
+}
 
-   // Set default flags
-   newtOb.entity_layer = FLAG_TYPE_NEWTONOID;
-   newtOb.collision_mask = FLAG_TYPE_WALL | FLAG_TYPE_NEWTONOID;
-   newtOb.flags = FLAG_ATTR_RIGID | FLAG_STATUS_ALIVE;
-   // printf("CREATED OBJECT BOX: Top-Left (%.2f, %.2f) Bottom-Right (%.2f, %.2f)\n",
-   //        newtOb.coords_origin.x,
-   //        newtOb.coords_origin.y,
-   //        newtOb.coords_origin.x + newtOb.boxed_dimensions.x,
-   //        newtOb.coords_origin.y + newtOb.boxed_dimensions.y);
-   return newtOb;
+Newtonoid2d CreateNewtonoid2d(float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration, Surface2d surface)
+{
+   Newtonoid2d newtonoid = {0};
+   if (!ValidateNewtonoidSurface(surface) ||
+       !InitializeNewtonoid2d(&newtonoid, mass, coords_center, velocity, acceleration, surface))
+   {
+      return newtonoid;
+   }
+
+   return newtonoid;
 }
 
 Newtonoid2d *CreateNewtonoid2d_Reference(float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration, Surface2d surface)
 {
-   // Validate vertex count to prevent SAT performance degradation
-   if (surface.surface_vectors.count > MAX_SHAPE_VERTICES)
+   if (!ValidateNewtonoidSurface(surface))
    {
-      LOG_ERROR("Entity creation failed: vertex count %d exceeds MAX_SHAPE_VERTICES (%d)\n", 
-                surface.surface_vectors.count, MAX_SHAPE_VERTICES);
       return NULL;
    }
 
@@ -81,33 +87,7 @@ Newtonoid2d *CreateNewtonoid2d_Reference(float mass, Vector2d coords_center, Vec
       return NULL;
    }
 
-   newtOb->coords_center = coords_center;
-   newtOb->mass = mass;
-   newtOb->inverse_mass = 1.0f / mass;
-   newtOb->velocity = velocity;
-   newtOb->acceleration = acceleration;
-   newtOb->surface = surface;
-   newtOb->boxed_dimensions = CalcAABBDimensions(surface.surface_vectors.items, surface.surface_vectors.count);
-   newtOb->coords_origin = (Vector2d){newtOb->coords_center.x - (newtOb->boxed_dimensions.x / 2.0), newtOb->coords_center.y - (newtOb->boxed_dimensions.y / 2.0)};
-   newtOb->radius = (newtOb->boxed_dimensions.x > newtOb->boxed_dimensions.y) ? newtOb->boxed_dimensions.x : newtOb->boxed_dimensions.y;
-   newtOb->line_colour = COLOUR_LINE_DEFAULT;
-   newtOb->fill_colour = COLOUR_FILL_DEFAULT;
-   newtOb->inertia = CalculateInertia_Polygon(mass, &surface.surface_vectors);
-   newtOb->inverse_inertia = (newtOb->inertia != 0.0f) ? (1.0f / newtOb->inertia) : 0.0f;
-
-   // Initialize momentum based on mass and velocity
-   newtOb->momentum.x = newtOb->mass * newtOb->velocity.x;
-   newtOb->momentum.y = newtOb->mass * newtOb->velocity.y;
-
-   newtOb->torque = 0.0f;                         // Initialize torque accumulator to zero
-   newtOb->rotation = 0.0f;                       // Initial rotation angle in radians
-   newtOb->angular_velocity = 0.0f;               // Initial angular velocity
-   newtOb->local_axis_x = (Vector2d){1.0f, 0.0f}; // Initial local x axis pointing "forward" along the x-axis
-   newtOb->local_axis_y = (Vector2d){0.0f, 0.0f}; // Initial local y axis, n pointing "forward" along the y-axis
-   // Set default flags
-   newtOb->entity_layer = FLAG_TYPE_NEWTONOID;                    // Set the entity layer to FLAG_TYPE_NEWTONOID
-   newtOb->collision_mask = FLAG_TYPE_WALL | FLAG_TYPE_NEWTONOID; // Set the collision mask to FLAG_TYPE_WALL | FLAG_TYPE_NEWTONOID
-   newtOb->flags = FLAG_ATTR_RIGID | FLAG_STATUS_ALIVE;           // Set the flags to FLAG_ATTR_RIGID | FLAG_STATUS_ALIVE
+   InitializeNewtonoid2d(newtOb, mass, coords_center, velocity, acceleration, surface);
    return newtOb;
 }
 
@@ -116,41 +96,12 @@ void CreateNewtonoid2d_Out(float mass, Vector2d coords_center, Vector2d velocity
    if (!out_newtonoid)
       return;
 
-   // Validate vertex count to prevent SAT performance degradation
-   if (surface.surface_vectors.count > MAX_SHAPE_VERTICES)
+   if (!ValidateNewtonoidSurface(surface))
    {
-      LOG_ERROR("Entity creation failed: vertex count %d exceeds MAX_SHAPE_VERTICES (%d)\n", 
-                surface.surface_vectors.count, MAX_SHAPE_VERTICES);
       return;
    }
 
-   out_newtonoid->coords_center = coords_center;
-   out_newtonoid->mass = mass;
-   out_newtonoid->inverse_mass = 1.0f / mass;
-   out_newtonoid->velocity = velocity;
-   out_newtonoid->acceleration = acceleration;
-   out_newtonoid->surface = surface;
-   out_newtonoid->boxed_dimensions = CalcAABBDimensions(surface.surface_vectors.items, surface.surface_vectors.count);
-   out_newtonoid->coords_origin = (Vector2d){out_newtonoid->coords_center.x - (out_newtonoid->boxed_dimensions.x / 2.0), out_newtonoid->coords_center.y - (out_newtonoid->boxed_dimensions.y / 2.0)};
-   out_newtonoid->radius = (out_newtonoid->boxed_dimensions.x > out_newtonoid->boxed_dimensions.y) ? out_newtonoid->boxed_dimensions.x : out_newtonoid->boxed_dimensions.y;
-   out_newtonoid->line_colour = COLOUR_LINE_DEFAULT;
-   out_newtonoid->fill_colour = COLOUR_FILL_DEFAULT;
-   out_newtonoid->inertia = CalculateInertia_Polygon(mass, &surface.surface_vectors);
-   out_newtonoid->inverse_inertia = (out_newtonoid->inertia != 0.0f) ? (1.0f / out_newtonoid->inertia) : 0.0f;
-
-   // Initialize momentum based on mass and velocity
-   out_newtonoid->momentum.x = out_newtonoid->mass * out_newtonoid->velocity.x;
-   out_newtonoid->momentum.y = out_newtonoid->mass * out_newtonoid->velocity.y;
-
-   out_newtonoid->torque = 0.0f;                         // Initialize torque accumulator to zero
-   out_newtonoid->rotation = 0.0f;                       // Initial rotation angle in radians
-   out_newtonoid->angular_velocity = 0.0f;               // Initial angular velocity
-   out_newtonoid->local_axis_x = (Vector2d){1.0f, 0.0f}; // Initial local x axis pointing "forward" along the x-axis
-   out_newtonoid->local_axis_y = (Vector2d){0.0f, 0.0f}; // Initial local y axis, n pointing "forward" along the y-axis
-   // Set default flags
-   out_newtonoid->entity_layer = FLAG_TYPE_NEWTONOID;
-   out_newtonoid->collision_mask = FLAG_TYPE_WALL | FLAG_TYPE_NEWTONOID;
-   out_newtonoid->flags = FLAG_ATTR_RIGID | FLAG_STATUS_ALIVE;
+   InitializeNewtonoid2d(out_newtonoid, mass, coords_center, velocity, acceleration, surface);
 }
 
 // Creates an immobile, massless NewtonObject at the assigned world_position
@@ -175,9 +126,9 @@ Newtonoid2d CreateNewtonoid2d_Static(Vector2d coords_center, Surface2d surface)
    newtOb.angular_velocity = 0.0f; // Initial angular velocity
 
    // Set default flags
-   newtOb.entity_layer = FLAG_TYPE_NEWTONOID;
+   newtOb.entity_flags = FLAG_TYPE_NEWTONOID;
    newtOb.collision_mask = FLAG_TYPE_WALL | FLAG_TYPE_NEWTONOID;
-   newtOb.flags = FLAG_ATTR_RIGID | FLAG_STATUS_ALIVE;
+   newtOb.status_flags = FLAG_ATTR_RIGID | FLAG_STATUS_ALIVE;
    return newtOb;
 }
 

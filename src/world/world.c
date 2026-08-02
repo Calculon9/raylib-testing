@@ -25,10 +25,15 @@ void CreateWorld(GridSpace2d space_obj, float gravity, World2d *out_world)
    // World2d world = {0};
    out_world->grid_space = space_obj;
    out_world->gravity = gravity;
-   out_world->next_object_id = 1; // Initialize the next available ID for NewtonObjects
-   out_world->objects = MakeLArray(initObjectCount, sizeof(Newtonoid2d));
-   out_world->collisions = MakeLArray(initObjectCount, sizeof(Matrix2x2));
-   out_world->temp_objects = MakeLArray(initObjectCount, sizeof(Newtonoid2d));
+    out_world->next_object_id = 1;
+    int object_count = *GetNextWorldObjectCountPtr();
+    if (object_count < 0)
+    {
+        object_count = 0;
+    }
+   out_world->objects = MakeLArray(object_count, sizeof(Newtonoid2d));
+   out_world->collisions = MakeLArray(object_count, sizeof(Matrix2x2));
+   out_world->temp_objects = MakeLArray(object_count, sizeof(Newtonoid2d));
 
    // INIT WORLD INTERNAL STATE (PER-WORLD)
    out_world->entity_space_map = MakeFlatMapInt(1 + (int)(space_obj.space.cells.count / 5));
@@ -55,7 +60,7 @@ int AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id)
 
    // Solid objects are collision-enabled, need to be tracked spacially
    int cell_index = -1;
-   if (!(object->entity_layer & FLAG_TYPE_EFFECT))
+    if (!(object->entity_flags & FLAG_TYPE_EFFECT))
    {
       cell_index = ((int)local_coords.y * world->grid_space.space.columns) + (int)local_coords.x;
       // Add the object's ID to the cell's object_ids array if there is space, and update the object's footprint based on its surface and the coordinate space's basis vectors.
@@ -81,12 +86,10 @@ int AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id)
 
 // Process a single collision pair and handle collision response
 // Returns true if collision was processed, false if skipped
-bool ProcessCollisionPair(World2d *world, int obj_id_a, int obj_id_b, int cell_i,
-                          Newtonoid2d *newtonoids, FlatMapInt *resolved_collisions,
-                          LArray *scheduled_world_cmds)
+bool ProcessCollisionPair(World2d *world, int obj_id_a, int obj_id_b, int cell_i, FlatMapInt *resolved_collisions, LArray *scheduled_world_cmds)
 {
    // Validate entity IDs
-   if (obj_id_a >= world->next_object_id || obj_id_b >= world->next_object_id || obj_id_a < 1 || obj_id_b < 1)
+    if (obj_id_a < 1 || obj_id_b < 1)
    {
       LOG_ERROR("Could not find objects with IDs %d and %d in Cell (index = %d).\n", obj_id_a, obj_id_b, cell_i);
       return false;
@@ -98,15 +101,17 @@ bool ProcessCollisionPair(World2d *world, int obj_id_a, int obj_id_b, int cell_i
    if (FlatMapInt_GetValue(resolved_collisions, obj_pair_hash_key, (int *)&is_resolved))
       return false;
 
-   // Early safety rejection
-   if (obj_id_a < 1 || obj_id_b < 1)
+    Newtonoid2d *a = GetEntityByID(world, obj_id_a);
+    Newtonoid2d *b = GetEntityByID(world, obj_id_b);
+    if (!a || !b)
+    {
+        LOG_WARN("Collision pair references missing entities %d and %d in Cell (index = %d).\n",
+                    obj_id_a, obj_id_b, cell_i);
       return false;
-
-   Newtonoid2d *a = &newtonoids[obj_id_a - 1];
-   Newtonoid2d *b = &newtonoids[obj_id_b - 1];
+    }
 
    // Check collision masks for compatibility
-   if (!(a->collision_mask & b->entity_layer) || !(b->collision_mask & a->entity_layer))
+    if (!(a->collision_mask & b->entity_flags) || !(b->collision_mask & a->entity_flags))
       return false;
 
    // Run SAT collision detection
@@ -139,8 +144,8 @@ bool ProcessCollisionPair(World2d *world, int obj_id_a, int obj_id_b, int cell_i
    collision_surface.surface_vectors.count = 4;
    Newtonoid2d collision_obj = CreateNewtonoid2d(0.00001f, collision_center, penetrating_entity->velocity, 
                                                   penetrating_entity->acceleration, collision_surface);
-   collision_obj.entity_layer = FLAG_TYPE_EFFECT;
-   collision_obj.flags |= FLAG_LIFETIME_CLOCKED;
+    collision_obj.entity_flags = FLAG_TYPE_EFFECT;
+    collision_obj.status_flags |= FLAG_LIFETIME_CLOCKED;
    StickEntity(world, &collision_obj, penetrating_entity);
    int id = AddObjectToWorld(world, &collision_obj, penetrating_entity->id);
 
@@ -201,7 +206,6 @@ void UpdateWorld(World2d *world, float delta_time)
    ExecuteJobs();
    ClearJobs();
 
-   Newtonoid2d *newtonoids = (Newtonoid2d *)objects->items;
    // PASS 1: Simulating Independent Physics
    // Update object positions based on their velocity and acceleration, then update the cells they occupy in the coordinate space grid as well as the entity_space_map which tracks how many objects occupy each cell (for collision checking later)
    // The physics work is now split into jobs for better task separation and future parallelism.
@@ -213,7 +217,7 @@ void UpdateWorld(World2d *world, float delta_time)
    Newtonoid2d *child;
    LArray_ForEach(temp_objects, Newtonoid2d*, child)
    {
-      if (!(child->flags & FLAG_STATUS_ALIVE) || child->parent_id == space_entity->object.id)
+    if (!(child->status_flags & FLAG_STATUS_ALIVE) || child->parent_id == space_entity->object.id)
          continue;
 
       // Look up where the parent currently lives in memory using the registry
@@ -264,7 +268,7 @@ void UpdateWorld(World2d *world, float delta_time)
             {
                int obj_id_a = cell->object_ids[m];
                int obj_id_b = cell->object_ids[n];
-               ProcessCollisionPair(world, obj_id_a, obj_id_b, cell_i, newtonoids, resolved_collisions, scheduled_world_cmds);
+               ProcessCollisionPair(world, obj_id_a, obj_id_b, cell_i, resolved_collisions, scheduled_world_cmds);
             }
          }
       }
@@ -719,6 +723,7 @@ void UpdateWorld(World2d *world, float delta_time)
 #include "math/affine_space_ops.h"
 #include <math/helpers.h>
 #include "system/drag_interaction.h"
+#include "system/debug_overlay_system.h"
 // #include "screens.h"
 
 //----------------------------------------------------------------------------------
@@ -726,7 +731,7 @@ void UpdateWorld(World2d *world, float delta_time)
 //----------------------------------------------------------------------------------
 // ----------WORLD SCREEN----------
 static int finishScreen = 0;
-bool world_grid_debug_labels_enabled = true;
+bool world_grid_debug_labels_enabled = false;
 // Game-region placement in logical screen units.
 // Vector2d game_viewport_local_origin, game_viewport_local_end = {0};
 // Vector2d game_viewport_local_resolution = {0};
@@ -1002,10 +1007,30 @@ void UpdateWorldSystem(int mouse_x, int mouse_y)
     if (G_Universe.world_count == 0)
         return;
 
+    for (int world_index = 0; world_index < G_Universe.world_count; world_index++)
+    {
+        World2d *world = &G_Universe.worlds[world_index];
+        if (world->mode != PAUSED)
+        {
+            UpdateWorld(world, frame_counter.delta_time);
+        }
+    }
+
     World2d *active_world = Universe_GetSelectedWorld(&G_Universe);
     Vector2d click_pixel_coords = {mouse_x, mouse_y};
     Vector2d click_world_coords = ResolvePixelToWorldFrame(active_world, click_pixel_coords);
     DragInteractionState *game_drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
+
+    if (active_world && ConsumeUniverseWorldClick())
+    {
+        Cell *selected_cell = NULL;
+        int selected_cell_index = -1;
+        G_UIState.selected_object = ResolveClosestEntityAt(active_world, click_world_coords,
+                                                            &selected_cell, &selected_cell_index,
+                                                            NULL, 0, NULL);
+        G_UIState.selected_cell = selected_cell;
+        G_UIState.selected_cell_index = selected_cell_index;
+    }
 
     // DEFAULT TESTING SPAWN of polygonoids with random properties
     float radius = GetRandomFloat(0.1, polygonoid_radius_default * 0.8);
@@ -1022,12 +1047,6 @@ void UpdateWorldSystem(int mouse_x, int mouse_y)
             TogglePause(active_world);
         }
 
-        if (active_world->mode != PAUSED)
-        {
-            // PrintCurrentBytesAlloc();
-            UpdateWorld(active_world, frame_counter.delta_time);
-            // PrintCurrentBytesAlloc();
-        }
         // DEBUGGING - 1 Frame setp-through
         if (IsKeyPressed(KEY_LEFT_SHIFT) && active_world->mode == PAUSED)
         {
@@ -1038,8 +1057,9 @@ void UpdateWorldSystem(int mouse_x, int mouse_y)
 
         if (IsKeyPressed(KEY_F7))
         {
-            world_grid_debug_labels_enabled = !world_grid_debug_labels_enabled;
-            printf("[World] Grid debug labels: %s\n", world_grid_debug_labels_enabled ? "ON" : "OFF");
+            ToggleDebug(DEBUG_WORLD_GRID_LABELS);
+            printf("[World] Grid debug labels: %s\n",
+                   IsDebugEnabled(DEBUG_WORLD_GRID_LABELS) ? "ON" : "OFF");
         }
 
         if (IsKeyPressed(KEY_ONE))
@@ -1180,6 +1200,14 @@ void UpdateWorldSystem(int mouse_x, int mouse_y)
                 Newtonoid2d *dragged = (Newtonoid2d *)game_drag_ctx->target;
                 if (dragged)
                 {
+                    Vector2d previous_snapped_aabb_verts[4] = {0};
+                    CalcSnappedAABB_Vertices(dragged->surface.surface_vectors.items,
+                                             dragged->surface.surface_vectors.count,
+                                             dragged->coords_center,
+                                             active_world->grid_space.space.frame.basis,
+                                             previous_snapped_aabb_verts);
+                    Matrix2x2 previous_snapped_aabb_box = CalcAABBCoords_Tight(previous_snapped_aabb_verts, 4, ZERO_VECTOR_2D);
+
                     Vector2d initial_world_coords = ResolvePixelToWorldFrame(active_world, game_drag_ctx->pointer_state.initial_pos);
                     Vector2d current_world_coords = ResolvePixelToWorldFrame(active_world, game_drag_ctx->pointer_state.current_pos);
                     Vector2d drag_delta_world = VectorSum_2d(current_world_coords, (Vector2d){-initial_world_coords.x, -initial_world_coords.y});
@@ -1199,6 +1227,8 @@ void UpdateWorldSystem(int mouse_x, int mouse_y)
                     dragged->velocity = ZERO_VECTOR_2D;
                     dragged->acceleration = ZERO_VECTOR_2D;
                     dragged->momentum = ZERO_VECTOR_2D;
+                    RemapEntityInASpace(&active_world->grid_space.space, dragged, previous_snapped_aabb_box,
+                                       &active_world->entity_space_map);
                 }
             }
         }

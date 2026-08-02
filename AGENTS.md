@@ -16,6 +16,8 @@ Your job is to complete the requested task autonomously while preserving existin
 - Make reasonable assumptions based on the repository.
 - Do not repeatedly search the same files.
 - Do not repeat failed actions.
+- Do not run build/compile/link checks/validation for basic code changes.
+- Only run build/compile/link checks/validation unless specifically troubleshooting build/compile/link issues.
 
 Only ask the user if:
 - information is genuinely unavailable from the repository, or

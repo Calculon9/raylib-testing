@@ -37,15 +37,16 @@ typedef struct Universe
     // Universe-space camera (operates in world-local units)
     CameraController camera_ctrl;
     Camera2d camera;
-    Vector2d resolution;    // Total universe dimensions in universe logical units
+    Vector2d resolution; // Total universe dimensions in universe logical units
 
     // Creation parameters for the next world
-    Vector2d next_spawn;    // World center in universe space; top-left is derived from this and world size
+    Vector2d next_spawn; // World center in universe space; top-left is derived from this and world size
     Vector2d spawn_step;
     Vector2d next_resolution;
     Vector2d next_basis_u;
     Vector2d next_basis_v;
     float next_gravity;
+    int next_object_count;
 } Universe;
 
 //----------------------------------------------------------------------------------
@@ -58,30 +59,27 @@ extern Universe G_Universe;
 //----------------------------------------------------------------------------------
 
 // Initialise the universe container with default values derived from the viewport.
-void Universe_Init(Universe *u,
-                   Vector2d default_spawn,
-                   Vector2d default_new_world_resolution,
+void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_world_resolution,
                    float default_gravity);
 
 // Create a new world using the universe creation params; returns its index or -1 on failure.
-int Universe_CreateWorld(Universe *u,
-                         ColourRgba fill_colour,
-                         ColourRgba line_colour,
-                         ColourRgba camera_marker_colour,
-                         Vector2d world_center_in_universe,
+int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_colour,
+                         ColourRgba camera_marker_colour, Vector2d world_center_in_universe,
                          bool auto_select);
 
 // Select a world by index.
 bool Universe_SelectWorld(Universe *u, int index);
+
+// Update a world's basis and dependent transforms; returns false for invalid bases.
+bool Universe_SetWorldBasis(Universe *u, int index, Vector2d basis_u, Vector2d basis_v);
 
 // Draw all worlds at their universe positions.
 void Universe_Draw(Universe *u);
 
 // Check whether a universe-space click lands in a world and auto-select it when needed.
 // Returns true when any world was hit. local_out receives local coords in that world.
-bool Universe_ResolveClick(Universe *u,
-                           Vector2d universe_click,
-                           Vector2d *local_out);
+bool Universe_ResolveClick(Universe *u,Vector2d universe_click, Vector2d *local_out);
+bool ConsumeUniverseWorldClick(void);
 
 // Register or update the universe-space bounds for a world.
 void Universe_SetWorldBounds(Universe *u, int index, Vector2d min_bound, Vector2d max_bound);
@@ -176,6 +174,6 @@ Vector2d *GetNextWorldResolutionPtr(void);
 Vector2d *GetNextWorldBasisUPtr(void);
 Vector2d *GetNextWorldBasisVPtr(void);
 float *GetNextWorldGravityPtr(void);
+int *GetNextWorldObjectCountPtr(void);
 
 #endif
-

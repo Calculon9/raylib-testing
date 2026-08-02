@@ -99,7 +99,21 @@ typedef union
 } ColourRgba;
 
 // Some Basic Colors
-#define COLOURLESS_RGBA (ColourRgba){ 0, 0, 0, 0 }  
+#define COLOUR_UI_INK_RGBA (ColourRgba){ 32, 42, 37, 255 }
+#define COLOUR_UI_SAGE_RGBA (ColourRgba){ 111, 137, 119, 255 }
+#define COLOUR_UI_PAPER_RGBA (ColourRgba){ 245, 241, 230, 255 }
+#define COLOUR_UI_GOLD_RGBA (ColourRgba){ 230, 194, 119, 255 }
+#define COLOUR_UI_TERRACOTTA_RGBA (ColourRgba){ 194, 105, 83, 255 }
+#define COLOUR_UI_EARTH_TEAL_RGBA (ColourRgba){ 38, 101, 115, 255 }
+#define COLOUR_UI_EARTH_OLIVE_RGBA (ColourRgba){ 121, 120, 49, 255 }
+#define COLOUR_UI_EARTH_CREAM_RGBA (ColourRgba){ 242, 211, 172, 255 }
+#define COLOUR_UI_EARTH_BROWN_RGBA (ColourRgba){ 166, 109, 60, 255 }
+#define COLOUR_UI_EARTH_RUST_RGBA (ColourRgba){ 191, 78, 36, 255 }
+#define COLOUR_UI_HARBOR_NAVY_RGBA (ColourRgba){ 28, 58, 67, 255 }
+#define COLOUR_UI_HARBOR_SEAFOAM_RGBA (ColourRgba){ 86, 139, 127, 255 }
+#define COLOUR_UI_HARBOR_SAND_RGBA (ColourRgba){ 239, 221, 184, 255 }
+#define COLOUR_UI_HARBOR_AMBER_RGBA (ColourRgba){ 220, 158, 70, 255 }
+#define COLOUR_UI_HARBOR_CORAL_RGBA (ColourRgba){ 218, 117, 96, 255 }
 #define LIGHTGRAY_RGBA  (ColourRgba){ 200, 200, 200, 255 }   // Light Gray
 #define GRAY_RGBA       (ColourRgba){ 130, 130, 130, 255 }   // Gray
 #define DARKGRAY_RGBA   (ColourRgba){ 80, 80, 80, 255 }      // Dark Gray
@@ -140,7 +154,20 @@ typedef union
 #define OLIVE_GARDEN_TAN_L (ColourRgba){ 254, 250, 224, 255 }
 #define OLIVE_GARDEN_TAN_D (ColourRgba){ 188, 108, 37, 255 }
 
+// UI Teracotta
+#define COLOURLESS_RGBA (ColourRgba){ 0, 0, 0, 0 }  
+#define COLOUR_UI_INK_RGBA (ColourRgba){ 32, 42, 37, 255 }
+#define COLOUR_UI_SAGE_RGBA (ColourRgba){ 111, 137, 119, 255 }
+#define COLOUR_UI_PAPER_RGBA (ColourRgba){ 245, 241, 230, 255 }
+#define COLOUR_UI_GOLD_RGBA (ColourRgba){ 230, 194, 119, 255 }
+#define COLOUR_UI_TERRACOTTA_RGBA (ColourRgba){ 194, 105, 83, 255 }
 
+// UI Earth
+#define COLOUR_UI_EARTH_TEAL_RGBA (ColourRgba){ 38, 101, 115, 255 }
+#define COLOUR_UI_EARTH_OLIVE_RGBA (ColourRgba){ 121, 120, 49, 255 }
+#define COLOUR_UI_EARTH_CREAM_RGBA (ColourRgba){ 242, 211, 172, 255 }
+#define COLOUR_UI_EARTH_BROWN_RGBA (ColourRgba){ 166, 109, 60, 255 }
+#define COLOUR_UI_EARTH_RUST_RGBA (ColourRgba){ 191, 78, 36, 255 }
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
 //----------------------------------------------------------------------------------

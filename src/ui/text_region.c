@@ -25,7 +25,7 @@ bool IsFocused(Vector2d pixel_coords, Vector2d *vertices, int vertex_count)
 }
 
 // Ensure the dimensions and label_tbox_offset values are the same SIZE_MODE (e.g., fixed, percentage)
-UIElement *CreateTextFieldInTree(Size size, UIElement *parent, Offset parent_offset, Size tbox_size, Vector2d padding, Vector2d label_tbox_offset, ColourRgba colour_border, ColourRgba colour_fill)
+UIElement *CreateTextFieldInTree(Size size, UIElement *parent, Offset parent_offset, Size tbox_size, Vector2d padding, Vector2d label_tbox_offset, ColourRgba colour_border, ColourRgba colour_fill, Bitmap_Font font)
 {
     UIElement *tf = CreateUIElementInTree(UI_ELEMENT_TEXTFIELD, size, parent, parent_offset, padding, colour_border, colour_fill);
     tf->type = UI_ELEMENT_TEXTFIELD;
@@ -34,6 +34,10 @@ UIElement *CreateTextFieldInTree(Size size, UIElement *parent, Offset parent_off
     UIElement *tb = CreateUIElement(UI_ELEMENT_TEXTBOX_SAFE_IO, (Size){ZERO_VECTOR_2D, SIZE_PERCENT}, (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ZERO_VECTOR_2D, colour_border, colour_fill);
     tl->type = UI_ELEMENT_LABEL;
     tb->type = UI_ELEMENT_TEXTBOX_SAFE_IO;
+    SetUIElementTextVerticalAlignment(tl, UI_TEXT_VERTICAL_ALIGN_CENTRE);
+    SetUIElementTextVerticalAlignment(tb, UI_TEXT_VERTICAL_ALIGN_CENTRE);
+    tl->data.label.font = font;
+    tb->data.textbox.font = font;
 
     // Determine layout style
     bool label_is_inline = (label_tbox_offset.y < size.dimensions.y / 4);
@@ -64,6 +68,9 @@ UIElement *CreateTextFieldInTree(Size size, UIElement *parent, Offset parent_off
             tb->size.dimensions.y = tbox_size.dimensions.y;
             tb->parent_offset.offset = (Vector2d){0, 1.0 - tbox_size.dimensions.y};
         }
+
+        tb->manual_parent_offset = tb->parent_offset.offset;
+        tb->has_manual_parent_offset = true;
     }
 
     AddElementToTree(tl, tf);
@@ -151,26 +158,27 @@ float DrawTextCustom(const char *text, Vector2d origin_coords, int scale, Bitmap
         char_coords.x += (8 * scale) + (scale * font.spacing); // - (scale * scale) + 1; // Subtracting "scale" removes embedded white-space in each character
         text++;
     }
-    return char_coords.x;
+    return char_coords.x - (scale * font.spacing);
 }
 
 void DrawChar(char c, Vector2d origin_coords, int scale, Bitmap_Font font, ColourRgba colour)
 {
     // Cast to unsigned to handle extended ASCII safely
     unsigned char u_c = (unsigned char)c;
+    int bitmap_width = font.bitmap_width > 0 && font.bitmap_width <= 8 ? font.bitmap_width : 8;
+    int bitmap_offset = (8 - bitmap_width) / 2;
 
     for (int row = 0; row < 8; row++)
     {
-        unsigned char row_data = font.bitmap[u_c][row];
+        unsigned char row_data = (unsigned char)(font.bitmap[u_c][row] << font.bitmap_shift);
 
-        for (int col = 0; col < 8; col++)
+        for (int col = 0; col < bitmap_width; col++)
         {
-            // We use a bitmask (0x80 is 10000000) and shift it right to check each bit in the byte.
-            // The >> is the Bitwise Right Shift. It literally pushes the bits to the right by the number of places specified by col.
-            if (row_data & (0x80 >> col))
+            int cell_col = bitmap_offset + col;
+            if (row_data & (0x80 >> cell_col))
             {
                 // If the bit is 1, draw a "pixel" scaled up
-                DrawRectangle(origin_coords.x + (col * scale), origin_coords.y + (row * scale), scale, scale, (Color){colour.r, colour.g, colour.b, colour.a});
+                DrawRectangle(origin_coords.x + (cell_col * scale), origin_coords.y + (row * scale), scale, scale, (Color){colour.r, colour.g, colour.b, colour.a});
             }
         }
     }

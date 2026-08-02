@@ -20,6 +20,7 @@ NEWTONOID MODULE
 #define FLAG_TYPE_NEWTONOID (1 << 2)  // 00000100 (4)
 #define FLAG_TYPE_PROJECTILE (1 << 3) // 00001000 (8)
 #define FLAG_TYPE_EFFECT (1 << 4)     // 00010000 (16)
+#define FLAG_TYPE_CAMERA (1 << 5)     // 00100000 (32)
 // Attribute Flags
 #define FLAG_ATTR_RIGID (1 << 5) // 00100000 (32)
 // Lifetime type
@@ -70,12 +71,12 @@ typedef struct Newtonoid2d
     // ============================================================================
     // HOT FIELDS - Physics Update (accessed every frame, ~72 bytes, fits 2 cache lines)
     // ============================================================================
-    Vector2d coords_center;    // Authoritative position used by physics, collision, and rendering
-    Vector2d velocity;         // Linear velocity (units/sec)
-    Vector2d acceleration;     // Linear acceleration (units/sec²)
-    Vector2d momentum;         // Linear momentum (mass × velocity)
-    float mass;                // Object mass (kg)
-    float inverse_mass;        // 1.0f / mass (0.0f if static)
+    Vector2d coords_center; // Authoritative position used by physics, collision, and rendering
+    Vector2d velocity;      // Linear velocity (units/sec)
+    Vector2d acceleration;  // Linear acceleration (units/sec²)
+    Vector2d momentum;      // Linear momentum (mass × velocity)
+    float mass;             // Object mass (kg)
+    float inverse_mass;     // 1.0f / mass (0.0f if static)
 
     // ============================================================================
     // WARM FIELDS - Bounds, Rotation, Collision (~96 bytes)
@@ -94,17 +95,17 @@ typedef struct Newtonoid2d
     // ============================================================================
     // COLD FIELDS - Metadata, Rendering, Hierarchy (~variable size)
     // ============================================================================
-    Surface2d surface;         // Vertex data (heap-allocated LArray inside)
-    Vector2d local_offset;     // Relative to parent (only used for child entities)
-    ColourRgba line_colour;    // Outline color
-    ColourRgba fill_colour;    // Fill color
-    ShapeType shape_type;      // Shape classification for collision algorithms
-    int edge_count;            // Cached edge count
-    uint32_t entity_layer;     // What AM I? (e.g., LAYER_PROJECTILE)
-    uint32_t collision_mask;   // What can I HIT? (e.g., LAYER_ENEMY | LAYER_WALL)
-    uint32_t flags;            // Runtime status flags (e.g., FLAG_POISONED)
-    int id;                    // Unique entity ID
-    int parent_id;             // Parent entity ID (-1 if root)
+    Surface2d surface;       // Vertex data (heap-allocated LArray inside)
+    Vector2d local_offset;   // Relative to parent (only used for child entities)
+    ColourRgba line_colour;  // Outline color
+    ColourRgba fill_colour;  // Fill color
+    ShapeType shape_type;    // Shape classification for collision algorithms
+    int edge_count;          // Cached edge count
+    uint32_t entity_flags;   // What AM I? (e.g., LAYER_PROJECTILE)
+    uint32_t collision_mask; // What can I HIT? (e.g., LAYER_ENEMY | LAYER_WALL)
+    uint32_t status_flags;   // Runtime status flags (e.g., FLAG_POISONED)
+    int id;                  // Unique entity ID
+    int parent_id;           // Parent entity ID (-1 if root)
 } Newtonoid2d;
 
 typedef struct Newtonoid2dParams
@@ -117,7 +118,7 @@ typedef struct Newtonoid2dParams
     float radius;
     float width;
     float height;
-    //int edge_count;
+    // int edge_count;
     int vertice_count;
     ColourRgba line_colour;
     ColourRgba fill_colour;

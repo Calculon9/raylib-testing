@@ -10,8 +10,8 @@
 #include "world/world.h"
 #include "world/universe.h"
 #include "system/viewport_system.h"
-#include "system/lpanel_system.h"
-#include "system/rpanel_system.h"
+#include "system/ui/lpanel_system.h"
+#include "system/ui/rpanel_system.h"
 #include "ui/cfont.h"
 #include "ui/text_region.h"
 #include "world/universe.h"
@@ -132,7 +132,7 @@ typedef struct UniverseDebugSnapshot
 } UniverseDebugSnapshot;
 
 static bool dashboard_overlay_enabled = false;
-static bool universe_grid_labels_overlay_enabled = true;
+static bool universe_grid_labels_overlay_enabled = false;
 static int basis_editor_enabled = 0;
 static int basis_editor_editing_u = 1;
 static DebugBasisTargetId basis_editor_target = DEBUG_BASIS_TARGET_LPANEL_VIEWPORT;
@@ -164,10 +164,8 @@ static void RefreshViewportForBasisEdit(int screen_width, int screen_height, int
 }
 
 static void RefreshViewportAndDependentSystems(int screen_width, int screen_height, int screen_resolution_scalar,
-                                               float viewport_target_game_logical_height,
-                                               int viewport_ui_pixels_per_unit_override,
-                                               bool viewport_scale_changed,
-                                               bool ui_scale_changed)
+                                               float viewport_target_game_logical_height, int viewport_ui_pixels_per_unit_override,
+                                               bool viewport_scale_changed,  bool ui_scale_changed)
 {
     SetViewportTargetLogicalHeight(viewport_target_game_logical_height);
     SetViewportUIScaleScalar(viewport_ui_pixels_per_unit_override);
@@ -273,10 +271,10 @@ static void DrawDebugDashboard(void)
     snprintf(line, sizeof(line), "F5 Basis editor: %s", GetOnOffLabel(basis_editor_enabled));
     DrawDashboardLine(line, col1_x, row_y_left, body_color);
     row_y_left += row_step;
-    snprintf(line, sizeof(line), "F6 Viewport grid: %s", GetOnOffLabel(IsDebugOverlayEnabled(DEBUG_OVERLAY_VIEWPORT_GRID)));
+    snprintf(line, sizeof(line), "F6 Viewport grid: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_VIEWPORT_GRID)));
     DrawDashboardLine(line, col1_x, row_y_left, body_color);
     row_y_left += row_step;
-    snprintf(line, sizeof(line), "F12 Universe grid labels: %s", GetOnOffLabel(IsDebugOverlayEnabled(DEBUG_OVERLAY_UNIVERSE_GRID_LABELS)));
+    snprintf(line, sizeof(line), "F4 Universe grid labels: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_UNIVERSE_GRID_LABELS)));
     DrawDashboardLine(line, col1_x, row_y_left, body_color);
     row_y_left += row_step;
     DrawDashboardLine("F7/F8 Logical height   F9/F10 UI scale", col1_x, row_y_left, body_color);
@@ -394,17 +392,20 @@ static void DrawDebugDashboard(void)
     DrawDashboardLine(line, col2_x, row_y_right, body_color);
 }
 
-void ToggleDebugOverlay(DebugOverlayId overlay_id)
+void ToggleDebug(DebugOverlayId overlay_id)
 {
     switch (overlay_id)
     {
-    case DEBUG_OVERLAY_DASHBOARD:
+    case DEBUG_DASHBOARD:
         dashboard_overlay_enabled = !dashboard_overlay_enabled;
         break;
-    case DEBUG_OVERLAY_VIEWPORT_GRID:
+    case DEBUG_VIEWPORT_GRID:
         ToggleViewportDebugGrid();
         break;
-    case DEBUG_OVERLAY_UNIVERSE_GRID_LABELS:
+    case DEBUG_WORLD_GRID_LABELS:
+        world_grid_debug_labels_enabled = !world_grid_debug_labels_enabled;
+        break;
+    case DEBUG_UNIVERSE_GRID_LABELS:
         universe_grid_labels_overlay_enabled = !universe_grid_labels_overlay_enabled;
         break;
     default:
@@ -412,15 +413,17 @@ void ToggleDebugOverlay(DebugOverlayId overlay_id)
     }
 }
 
-int IsDebugOverlayEnabled(DebugOverlayId overlay_id)
+int IsDebugEnabled(DebugOverlayId overlay_id)
 {
     switch (overlay_id)
     {
-    case DEBUG_OVERLAY_DASHBOARD:
+    case DEBUG_DASHBOARD:
         return dashboard_overlay_enabled;
-    case DEBUG_OVERLAY_VIEWPORT_GRID:
+    case DEBUG_VIEWPORT_GRID:
         return IsViewportDebugGridEnabled();
-    case DEBUG_OVERLAY_UNIVERSE_GRID_LABELS:
+    case DEBUG_WORLD_GRID_LABELS:
+        return world_grid_debug_labels_enabled;
+    case DEBUG_UNIVERSE_GRID_LABELS:
         return universe_grid_labels_overlay_enabled;
     default:
         return 0;
@@ -448,20 +451,20 @@ void UpdateDebugOverlayHotkeys(int screen_width, int screen_height, int screen_r
 
     if (IsKeyPressed(KEY_F6))
     {
-        ToggleDebugOverlay(DEBUG_OVERLAY_VIEWPORT_GRID);
-        printf("[Viewport] Debug region grid: %s\n", IsDebugOverlayEnabled(DEBUG_OVERLAY_VIEWPORT_GRID) ? "ON" : "OFF");
+        ToggleDebug(DEBUG_VIEWPORT_GRID);
+        printf("[Viewport] Debug region grid: %s\n", IsDebugEnabled(DEBUG_VIEWPORT_GRID) ? "ON" : "OFF");
     }
 
     if (IsKeyPressed(KEY_F11))
     {
-        ToggleDebugOverlay(DEBUG_OVERLAY_DASHBOARD);
-        printf("[Debug] Dashboard: %s\n", IsDebugOverlayEnabled(DEBUG_OVERLAY_DASHBOARD) ? "ON" : "OFF");
+        ToggleDebug(DEBUG_DASHBOARD);
+        printf("[Debug] Dashboard: %s\n", IsDebugEnabled(DEBUG_DASHBOARD) ? "ON" : "OFF");
     }
 
-    if (IsKeyPressed(KEY_F12))
+    if (IsKeyPressed(KEY_F4))
     {
-        ToggleDebugOverlay(DEBUG_OVERLAY_UNIVERSE_GRID_LABELS);
-        printf("[Universe] Grid debug labels: %s\n", IsDebugOverlayEnabled(DEBUG_OVERLAY_UNIVERSE_GRID_LABELS) ? "ON" : "OFF");
+        ToggleDebug(DEBUG_UNIVERSE_GRID_LABELS);
+        printf("[Universe] Grid debug labels: %s\n", IsDebugEnabled(DEBUG_UNIVERSE_GRID_LABELS) ? "ON" : "OFF");
     }
 
     if (basis_editor_enabled)
@@ -604,10 +607,8 @@ void UpdateDebugOverlayHotkeys(int screen_width, int screen_height, int screen_r
     if (viewport_scale_changed || ui_scale_changed)
     {
         RefreshViewportAndDependentSystems(screen_width, screen_height, screen_resolution_scalar,
-                                           *viewport_target_game_logical_height,
-                                           *viewport_ui_pixels_per_unit_override,
-                                           viewport_scale_changed,
-                                           ui_scale_changed);
+                                           *viewport_target_game_logical_height,*viewport_ui_pixels_per_unit_override,
+                                           viewport_scale_changed, ui_scale_changed);
     }
 }
 
