@@ -74,6 +74,29 @@ void InitPanelEditView(void);
 void InitPanelToggleButtons(void);
 void InitEntityEditorContainer(void);
 
+static void InitEntityCreateDefaults(void)
+{
+    if (!G_UIState.newtonoid_params)
+    {
+        return;
+    }
+
+    Newtonoid2dParams *params = G_UIState.newtonoid_params;
+    params->vertice_count = 4;
+    params->width = 1.0f;
+    params->height = 1.0f;
+    params->mass = 1.0f;
+    params->coords_center = ZERO_VECTOR_2D;
+    params->velocity = ZERO_VECTOR_2D;
+
+    WriteTextboxInt(G_UIState.lpanel_entity_edit_vertice_count_tbox, params->vertice_count);
+    WriteTextboxFloat(G_UIState.lpanel_entity_edit_width_tbox, params->width, 2);
+    WriteTextboxFloat(G_UIState.lpanel_entity_edit_height_tbox, params->height, 2);
+    WriteTextboxFloat(G_UIState.lpanel_entity_edit_mass_tbox, params->mass, 2);
+    WriteTextboxVectorPair(G_UIState.lpanel_entity_edit_pos_c_tbox, params->coords_center);
+    WriteTextboxVectorPair(G_UIState.lpanel_entity_edit_vel_tbox, params->velocity);
+}
+
 static void HandleLPanelViewSelected(View *view)
 {
     if (view)
@@ -160,7 +183,7 @@ void InitEntityEditorContainer(void)
 
     const UIFieldSpec edit_specs[] = {
         {"Vertices", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, INT, &G_UIState.lpanel_entity_edit_vertice_count_tbox, NULL},
-        {"Width", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, INT, &G_UIState.lpanel_entity_edit_width_tbox, NULL},
+        {"Width", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, FLOAT, &G_UIState.lpanel_entity_edit_width_tbox, NULL},
         {"Height", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, FLOAT, &G_UIState.lpanel_entity_edit_height_tbox, NULL},
         {"Mass", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, FLOAT, &G_UIState.lpanel_entity_edit_mass_tbox, NULL},
         {"Pos.c", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, FLOAT, &G_UIState.lpanel_entity_edit_pos_c_tbox, NULL},
@@ -171,6 +194,14 @@ void InitEntityEditorContainer(void)
     InitUIFields(lpanel_edit_entity_tcont, edit_specs,
                     sizeof(edit_specs) / sizeof(edit_specs[0]), lpanel_tfield_padding,
                     lpanel->palette);
+
+    BindTextboxData(G_UIState.lpanel_entity_edit_vertice_count_tbox, INT, &G_UIState.newtonoid_params->vertice_count);
+    BindTextboxData(G_UIState.lpanel_entity_edit_width_tbox, FLOAT, &G_UIState.newtonoid_params->width);
+    BindTextboxData(G_UIState.lpanel_entity_edit_height_tbox, FLOAT, &G_UIState.newtonoid_params->height);
+    BindTextboxData(G_UIState.lpanel_entity_edit_mass_tbox, FLOAT, &G_UIState.newtonoid_params->mass);
+    BindTextboxData(G_UIState.lpanel_entity_edit_pos_c_tbox, VECTOR2D, &G_UIState.newtonoid_params->coords_center);
+    BindTextboxData(G_UIState.lpanel_entity_edit_vel_tbox, VECTOR2D, &G_UIState.newtonoid_params->velocity);
+    InitEntityCreateDefaults();
 
     lpanel_btn_create_entity_cont = CreateUIContainer(
         lpanel_edit_entity_tcont, ui_default_control_size,
