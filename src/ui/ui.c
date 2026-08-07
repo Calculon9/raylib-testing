@@ -128,11 +128,11 @@ static void DistributeChildrenNormal(UIElement *parent, Vector2d spacing_step_fi
     int child_count = 0;
     for (UIElement *child = parent->first_child; child; child = child->next_sibling)
     {
-        Vector2d step = child->parent_offset.offset_mode == OFFSET_PERCENT ? spacing_step_percent : spacing_step_fixed;
+        Vector2d step = child->resolved_offset.offset_mode == OFFSET_PERCENT ? spacing_step_percent : spacing_step_fixed;
         Vector2d distributed = (Vector2d){step.x * child_count, step.y * child_count};
 
-        child->parent_offset.offset.x = child->manual_parent_offset.x + distributed.x;
-        child->parent_offset.offset.y = child->manual_parent_offset.y + distributed.y;
+        child->resolved_offset.offset.x = child->authored_offset.offset.x + distributed.x;
+        child->resolved_offset.offset.y = child->authored_offset.offset.y + distributed.y;
         child_count++;
     }
 }
@@ -156,18 +156,18 @@ static void DistributeChildrenStacked(UIElement *parent, Vector2d content_area_l
         }
 
         // Preserve authored offset units per child when applying stacked cursor placement.
-        if (child->parent_offset.offset_mode == OFFSET_PERCENT)
+        if (child->resolved_offset.offset_mode == OFFSET_PERCENT)
         {
             float cursor_y_percent = ResolveOffsetToPercent(cursor_y, content_area_local.y);
-            child->parent_offset.offset = (Vector2d){
-                child->manual_parent_offset.x,
-                child->manual_parent_offset.y + cursor_y_percent};
+            child->resolved_offset.offset = (Vector2d){
+                child->authored_offset.offset.x,
+                child->authored_offset.offset.y + cursor_y_percent};
         }
         else
         {
-            child->parent_offset.offset = (Vector2d){
-                child->manual_parent_offset.x,
-                child->manual_parent_offset.y + cursor_y};
+            child->resolved_offset.offset = (Vector2d){
+                child->authored_offset.offset.x,
+                child->authored_offset.offset.y + cursor_y};
         }
 
         // Determine height consumed by this child
@@ -190,18 +190,18 @@ static void DistributeChildrenInline(UIElement *parent, Vector2d content_area_lo
 
     for (UIElement *child = parent->first_child; child; child = child->next_sibling)
     {
-        if (child->parent_offset.offset_mode == OFFSET_PERCENT)
+        if (child->resolved_offset.offset_mode == OFFSET_PERCENT)
         {
             float cursor_x_percent = ResolveOffsetToPercent(cursor_x, content_area_local.x);
-            child->parent_offset.offset = (Vector2d){
-                child->manual_parent_offset.x + cursor_x_percent,
-                child->manual_parent_offset.y};
+            child->resolved_offset.offset = (Vector2d){
+                child->authored_offset.offset.x + cursor_x_percent,
+                child->authored_offset.offset.y};
         }
         else
         {
-            child->parent_offset.offset = (Vector2d){
-                child->manual_parent_offset.x + cursor_x,
-                child->manual_parent_offset.y};
+            child->resolved_offset.offset = (Vector2d){
+                child->authored_offset.offset.x + cursor_x,
+                child->authored_offset.offset.y};
         }
 
         float child_width = child->size.size_mode == SIZE_PERCENT
@@ -231,17 +231,17 @@ static void DistributeChildrenInlineWrap(UIElement *parent, Vector2d content_are
         }
 
         float child_x = cursor_x > 0.0f ? cursor_x + spacing_step_fixed.x : cursor_x;
-        if (child->parent_offset.offset_mode == OFFSET_PERCENT)
+        if (child->resolved_offset.offset_mode == OFFSET_PERCENT)
         {
-            child->parent_offset.offset = (Vector2d){
-                child->manual_parent_offset.x + ResolveOffsetToPercent(child_x, content_area_local.x),
-                child->manual_parent_offset.y + ResolveOffsetToPercent(cursor_y, content_area_local.y)};
+            child->resolved_offset.offset = (Vector2d){
+                child->authored_offset.offset.x + ResolveOffsetToPercent(child_x, content_area_local.x),
+                child->authored_offset.offset.y + ResolveOffsetToPercent(cursor_y, content_area_local.y)};
         }
         else
         {
-            child->parent_offset.offset = (Vector2d){
-                child->manual_parent_offset.x + child_x,
-                child->manual_parent_offset.y + cursor_y};
+            child->resolved_offset.offset = (Vector2d){
+                child->authored_offset.offset.x + child_x,
+                child->authored_offset.offset.y + cursor_y};
         }
 
         cursor_x = child_x + child_size.x;
@@ -275,19 +275,19 @@ static void DistributeChildrenStackedWrap(UIElement *parent, Vector2d content_ar
         }
 
         float child_y = cursor_y > 0.0f ? cursor_y + spacing_step_fixed.y : cursor_y;
-        if (child->parent_offset.offset_mode == OFFSET_PERCENT)
+        if (child->resolved_offset.offset_mode == OFFSET_PERCENT)
         {
-            child->parent_offset.offset = (Vector2d){
-                child->manual_parent_offset.x +
+            child->resolved_offset.offset = (Vector2d){
+                child->authored_offset.offset.x +
                     ResolveOffsetToPercent(cursor_x, content_area_local.x),
-                child->manual_parent_offset.y +
+                child->authored_offset.offset.y +
                     ResolveOffsetToPercent(child_y, content_area_local.y)};
         }
         else
         {
-            child->parent_offset.offset = (Vector2d){
-                child->manual_parent_offset.x + cursor_x,
-                child->manual_parent_offset.y + child_y};
+            child->resolved_offset.offset = (Vector2d){
+                child->authored_offset.offset.x + cursor_x,
+                child->authored_offset.offset.y + child_y};
         }
 
         cursor_y = child_y + child_size.y;
@@ -365,9 +365,8 @@ UIElement *CreateUIElement(UIElementType type, Size size, Offset parent_offset, 
     e->text_horizontal_alignment = UI_TEXT_ALIGN_LEFT;
     e->text_vertical_alignment = UI_TEXT_VERTICAL_ALIGN_CENTRE;
     e->padding = padding;
-    e->parent_offset = parent_offset;
-    e->manual_parent_offset = parent_offset.offset;
-    e->has_manual_parent_offset = true;
+    e->resolved_offset = parent_offset;
+    e->authored_offset = parent_offset;
     e->type = type;
     e->is_enabled = true;
     // MUST explicitly set these to NULL
@@ -742,8 +741,8 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box)
     }
 
     // Resolve the local Offset (Relative to the content area)
-    float adj_offset_x = ResolveOffsetToFixed(element->parent_offset.offset.x, content_area_w, element->parent_offset.offset_mode);
-    float adj_offset_y = ResolveOffsetToFixed(element->parent_offset.offset.y, content_area_h, element->parent_offset.offset_mode);
+    float adj_offset_x = ResolveOffsetToFixed(element->resolved_offset.offset.x, content_area_w, element->resolved_offset.offset_mode);
+    float adj_offset_y = ResolveOffsetToFixed(element->resolved_offset.offset.y, content_area_h, element->resolved_offset.offset_mode);
 
     // Apply the offset to the final coordinates
     box.coords.x += adj_offset_x;

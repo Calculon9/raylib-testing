@@ -49,28 +49,28 @@ UIElement *CreateTextFieldInTree(Size size, UIElement *parent, Offset parent_off
             // 1. Percentage-based Inline Layout (e.g., 40% Label, 60% TextBox)
             tl->size.dimensions.x = 1.0 - tbox_size.dimensions.x; // 40% of parent width
             tl->size.dimensions.y = 1.0f;                       // 100% of parent height
-            tl->parent_offset.offset = (Vector2d){0, 0};
+            tl->resolved_offset.offset = (Vector2d){0, 0};
 
             tb->size.dimensions.x = tbox_size.dimensions.x; // 60% of parent width
             tb->size.dimensions.y = 1.0f;
             // Offset starts where the label ends (40% mark)
             // Note: Using percentage for offset requires Resolve function to handle it!
-            tb->parent_offset.offset = (Vector2d){1.0 - tbox_size.dimensions.x, 0};
+            tb->resolved_offset.offset = (Vector2d){1.0 - tbox_size.dimensions.x, 0};
         }
         else // Stacked Layout: Label top (e.g. 30%), TextBox bottom (70%)
         {
 
             tl->size.dimensions.x = 1.0f;
             tl->size.dimensions.y = 1.0 - tbox_size.dimensions.y;
-            tl->parent_offset.offset = (Vector2d){0, 0};
+            tl->resolved_offset.offset = (Vector2d){0, 0};
 
             tb->size.dimensions.x = 1.0f;
             tb->size.dimensions.y = tbox_size.dimensions.y;
-            tb->parent_offset.offset = (Vector2d){0, 1.0 - tbox_size.dimensions.y};
+            tb->resolved_offset.offset = (Vector2d){0, 1.0 - tbox_size.dimensions.y};
         }
 
-        tb->manual_parent_offset = tb->parent_offset.offset;
-        tb->has_manual_parent_offset = true;
+        tl->authored_offset = tl->resolved_offset;
+        tb->authored_offset = tb->resolved_offset;
     }
 
     AddElementToTree(tl, tf);

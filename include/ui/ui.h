@@ -172,9 +172,8 @@ typedef struct UIElement UIElement;
 typedef struct UIElement
 {
     // LArray children;
-    Offset parent_offset;
-    Vector2d manual_parent_offset;
-    bool has_manual_parent_offset;
+    Offset resolved_offset;
+    Offset authored_offset;
     Spacing child_spacing;
     Vector2d padding;
     ColourRgba colour_border;

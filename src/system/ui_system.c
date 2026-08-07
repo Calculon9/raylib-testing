@@ -15,6 +15,7 @@
 #include "system/ui/lpanel_system.h"
 #include "system/ui/state_manager_system.h"
 #include "system/ui/utility_panel_system.h"
+#include "system/ui/popup_menu.h"
 #include "world/world.h"
 #include "system/systems.h"
 #include "system/utility_system.h"
@@ -190,6 +191,7 @@ void InitUI(void)
     InitUtilityPanel();
     InitRPanel();
     InitStateManagerSystem();
+    InitPopupMenu();
     G_UIState.active_panel_view = LPANEL_STATE_VIEW;
 }
 
@@ -211,6 +213,7 @@ void DrawUI()
     DrawRPanel();
     DrawStateManagerSystem();
     DrawUtilityPanel();
+    DrawPopupMenu();
 }
 
 void UpdateUILogicalSpace()

@@ -738,7 +738,7 @@ bool world_grid_debug_labels_enabled = false;
 float gravity = 10;
 // Objects and properties
 int next_object_id = 1; // Global variable to keep track of the next available ID for NewtonObjects
-static ColourRgba polygonoid_line_colour = {155, 0, 0, 255};
+static ColourRgba polygonoid_line_colour = COLOUR_GAME_TERRACOTTA_RGBA;
 static float polygonoid_radius_default = 1.0;
 static float polygonoid_mass_default = 1.0;
 static Vector2d polygonoid_velocity_default = {1.0, 1.0};
@@ -1272,7 +1272,11 @@ void CreateAddNewtonoid(int vertice_count, float radius, ShapeType shape_type,
     }
 
     if (new_newtonoid.radius > 0.0)
+    {
+        new_newtonoid.line_colour = COLOUR_GAME_INK_RGBA;
+        new_newtonoid.fill_colour = colour;
         AddObjectToWorld(active_world, &new_newtonoid, active_world->grid_space.object.id);
+    }
 }
 
 void TogglePause(World2d *world)

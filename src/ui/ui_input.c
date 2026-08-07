@@ -42,7 +42,7 @@ void HandleLeftMouseUp(UIElement *target, Vector2d mouse_coords);
 void HandleTextBoxClick(UIElement *clicked);
 void HandleBtnClick(UIElement *target);
 void HandleUIDragging(UIElement *e, Vector2d mouse_coords);
-void HandleFocusSwitch(UIElement *curr_focus, UIElement *prev_focus);
+//void HandleFocusSwitch(UIElement *curr_focus, UIElement *prev_focus);
 void HandleTextCommit(UIElement *element, Text_64_IOState *tbox_buffers);
 // Vector2d CalculateDragOffset(UIElement *target, Vector2d mouse_coords);
 void UpdateTextIO(void);
@@ -219,11 +219,11 @@ void HandleLeftMouseDown(UIElement *target, Vector2d mouse_coords)
     }
 
     // -----UPDATE MOUSE DOWN STATE-----
-    // 1. ALWAYS update the mouse state first so everything below has fresh data
+    // ALWAYS update the mouse state first so everything below has fresh data
     DragInteraction_UpdateButtonDown(drag_ctx, mouse_coords);
     mouse_down_state = drag_ctx->pointer_state;
 
-    // 2. EVENT PHASE: Check if focus shifted (Only runs on the *initial* press frame)
+    // EVENT PHASE: Check if focus shifted (Only runs on the *initial* press frame)
     if (mouse_down_state.left_button_hold_ticks == 1)
     {
         if (target != G_UIState.focused_element)
@@ -245,14 +245,14 @@ void HandleLeftMouseDown(UIElement *target, Vector2d mouse_coords)
             // Do NOT return here anymore; let the code cascade into starting the drag!
         }
 
-        // 3. EVENT PHASE: Initialize Dragging if applicable
+        // EVENT PHASE: Initialize Dragging if applicable
         if (target && !G_DragState.target_element) // && target->is_draggable ) //Assume everything is draggable for now
         {
             UpdateDragFocus(target, mouse_coords);
         }
     }
 
-    // 4. STATE PHASE: Process Ongoing Drag (Runs every frame the mouse is held down, including frame 1)
+    // STATE PHASE: Process Ongoing Drag (Runs every frame the mouse is held down, including frame 1)
     if (G_DragState.target_element)
     {
         // Calculate fresh delta
@@ -462,18 +462,18 @@ void HandleUIDragging(UIElement *e, Vector2d mouse_coords)
 
     // Compute real pixel offsets for accurate telemetry tracking
     Vector2d new_pixel_offset = (Vector2d){new_local_offset.x / pixels_to_ui_local_scale.x, new_local_offset.y / pixels_to_ui_local_scale.y};
-    Vector2d diff_local = VectorSum_2d(new_local_offset, (Vector2d){-e->manual_parent_offset.x, -e->manual_parent_offset.y});
+    Vector2d diff_local = VectorSum_2d(new_local_offset, (Vector2d){-e->authored_offset.offset.x, -e->authored_offset.offset.y});
     Vector2d diff_pixel = (Vector2d){diff_local.x / pixels_to_ui_local_scale.x, diff_local.y / pixels_to_ui_local_scale.y};
 
     // Finalize properties assignment
-    if (e->parent && e->parent_offset.offset_mode == OFFSET_PERCENT)
+    if (e->parent && e->resolved_offset.offset_mode == OFFSET_PERCENT)
     {
-        e->parent_offset.offset_mode = OFFSET_FIXED;
+        e->resolved_offset.offset_mode = OFFSET_FIXED;
+        e->authored_offset.offset_mode = OFFSET_FIXED;
     }
 
-    e->parent_offset.offset = new_local_offset;
-    e->manual_parent_offset = new_local_offset;
-    e->has_manual_parent_offset = true;
+    e->resolved_offset.offset = new_local_offset;
+    e->authored_offset.offset = new_local_offset;
     e->is_dirty = true;
 
     // Clean debug logging throttling
@@ -696,18 +696,18 @@ void UpdateDragFocus(UIElement *element, Vector2d mouse_coords)
     G_DragState.target_element = element;
 
     // Drag math operates in fixed local units without changing layout until a drag starts.
-    if (element->parent && element->parent_offset.offset_mode == OFFSET_PERCENT)
+    if (element->parent && element->resolved_offset.offset_mode == OFFSET_PERCENT)
     {
         float content_area_w = fmaxf(0.0f, element->parent->local_box.dimensions.x - (element->parent->padding.x * 2.0f));
         float content_area_h = fmaxf(0.0f, element->parent->local_box.dimensions.y - (element->parent->padding.y * 2.0f));
 
         G_DragState.initial_element_offset = (Vector2d){
-            content_area_w * element->manual_parent_offset.x,
-            content_area_h * element->manual_parent_offset.y};
+            content_area_w * element->authored_offset.offset.x,
+            content_area_h * element->authored_offset.offset.y};
     }
     else
     {
-        G_DragState.initial_element_offset = element->manual_parent_offset;
+        G_DragState.initial_element_offset = element->authored_offset.offset;
     }
 
     DragInteraction_BeginCapture(drag_ctx, DRAG_TARGET_UI_ELEMENT, element, G_DragState.initial_element_offset);

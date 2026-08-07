@@ -16,7 +16,9 @@
 //----------------------------------------------------------------------------------
 void DrawNewtonoids(LArray *newtonoids, Matrix3x3 space_to_pixel_mtx);
 void DrawCollisions(LArray *collisions, Matrix3x3 space_to_pixel_mtx);
-void DrawObjectVertices(Vector2d *local_vertices, int vertices_count, Vector2d offset, Matrix3x3 space_to_pixel_mtx, ColourRgba line_colour);
+void DrawObjectVertices(Vector2d *local_vertices, int vertices_count, Vector2d offset,
+                        Matrix3x3 space_to_pixel_mtx, ColourRgba line_colour,
+                        ColourRgba fill_colour);
 void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 space_to_pixel_mtx);
 
 static Color ToRaylibColor(ColourRgba colour)
@@ -120,7 +122,7 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
 
     int totalUnits = columns * rows;
     DArray cells = grid_space->space.cells;
-    Color text_colour = (Color){COLOUR_WORLD__XIGHT_1.r, COLOUR_WORLD__XIGHT_1.g, COLOUR_WORLD__XIGHT_1.b, COLOUR_WORLD__XIGHT_1.a};
+    Color text_colour = ToRaylibColor(COLOUR_GAME_PARCHMENT_RGBA);
 
     if (!world_grid_debug_labels_enabled)
     {
@@ -163,7 +165,9 @@ void DrawNewtonoids(LArray *newtonoids, Matrix3x3 space_to_pixel_mtx)
     {
         Vector2d obj_center_coords = newtonoid->coords_center;
         LArray surf_vectors = newtonoid->surface.surface_vectors;
-        DrawObjectVertices(surf_vectors.items, surf_vectors.count, obj_center_coords, space_to_pixel_mtx, newtonoid->line_colour);
+        DrawObjectVertices(surf_vectors.items, surf_vectors.count, obj_center_coords,
+                   space_to_pixel_mtx, newtonoid->line_colour,
+                   newtonoid->fill_colour);
     }
 }
 
@@ -181,10 +185,13 @@ void DrawCollisions(LArray *collisions, Matrix3x3 space_to_pixel_mtx)
         Vector2d dimensions = {collision_box->col2.x - collision_box->col1.x, collision_box->col2.y - collision_box->col1.y};
         Vector2d coords_center = CalcGeometricCentre_FromBox(*collision_box);
         CalcBoxVertices(dimensions, coords_center, collision_vertices);
-        DrawObjectVertices(collision_vertices, 4, ZERO_VECTOR_2D, space_to_pixel_mtx, OLIVE_GARDEN_GREEN_D);
+        DrawObjectVertices(collision_vertices, 4, ZERO_VECTOR_2D, space_to_pixel_mtx,
+                           COLOUR_GAME_INK_RGBA, COLOUR_GAME_OLIVE_RGBA);
     }
 }
-void DrawObjectVertices(Vector2d *local_vertices, int vertices_count, Vector2d offset, Matrix3x3 space_to_pixel_mtx, ColourRgba line_colour)
+void DrawObjectVertices(Vector2d *local_vertices, int vertices_count, Vector2d offset,
+                        Matrix3x3 space_to_pixel_mtx, ColourRgba line_colour,
+                        ColourRgba fill_colour)
 {
     if (local_vertices == NULL || vertices_count < 2)
     {
@@ -194,6 +201,20 @@ void DrawObjectVertices(Vector2d *local_vertices, int vertices_count, Vector2d o
     Vector2d vertice_start = VectorSum_2d(local_vertices[0], offset);
     Vector2d vertice_start_cache = vertice_start;
     Color colour = ToRaylibColor(line_colour);
+    Color fill = ToRaylibColor(fill_colour);
+
+    Vector2 fill_origin = {
+        TransformCoordinates(space_to_pixel_mtx, vertice_start).x,
+        TransformCoordinates(space_to_pixel_mtx, vertice_start).y};
+    for (int i = 1; i < vertices_count - 1; i++)
+    {
+        Vector2d vertex_a = VectorSum_2d(local_vertices[i], offset);
+        Vector2d vertex_b = VectorSum_2d(local_vertices[i + 1], offset);
+        Vector2d pixel_a = TransformCoordinates(space_to_pixel_mtx, vertex_a);
+        Vector2d pixel_b = TransformCoordinates(space_to_pixel_mtx, vertex_b);
+        DrawTriangle(fill_origin, (Vector2){pixel_b.x, pixel_b.y},
+                     (Vector2){pixel_a.x, pixel_a.y}, fill);
+    }
 
     for (int i = 1; i < vertices_count; i++)
     {

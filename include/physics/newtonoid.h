@@ -27,8 +27,8 @@ NEWTONOID MODULE
 #define FLAG_LIFETIME_CLOCKED (1 << 6) // 01000000 (64)
 
 // DEFAULT COLOURS
-#define COLOUR_LINE_DEFAULT BLACK_RGBA
-#define COLOUR_FILL_DEFAULT OLIVE_GARDEN_TAN_L
+#define COLOUR_LINE_DEFAULT COLOUR_GAME_INK_RGBA
+#define COLOUR_FILL_DEFAULT COLOUR_GAME_TERRACOTTA_RGBA
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition

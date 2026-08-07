@@ -25,6 +25,7 @@ typedef enum
     STATE_MANAGER_PHYSICS_VIEW,
     STATE_MANAGER_ATTRIBUTES_VIEW,
     STATE_MANAGER_CELL_STATE_VIEW,
+    POPUP_MENU_CREATE_VIEW
 } ViewType;
 
 //----------------------------------------------------------------------------------

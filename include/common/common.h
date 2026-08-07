@@ -114,6 +114,13 @@ typedef union
 #define COLOUR_UI_HARBOR_SAND_RGBA (ColourRgba){ 239, 221, 184, 255 }
 #define COLOUR_UI_HARBOR_AMBER_RGBA (ColourRgba){ 220, 158, 70, 255 }
 #define COLOUR_UI_HARBOR_CORAL_RGBA (ColourRgba){ 218, 117, 96, 255 }
+#define COLOUR_GAME_INK_RGBA        (ColourRgba){ 24, 30, 35, 255 }
+#define COLOUR_GAME_PARCHMENT_RGBA  (ColourRgba){ 232, 224, 198, 255 }
+#define COLOUR_GAME_OLIVE_RGBA      (ColourRgba){ 96, 108, 56, 150 }
+#define COLOUR_GAME_TERRACOTTA_RGBA (ColourRgba){ 194, 105, 83, 255 }
+#define COLOUR_GAME_TEAL_RGBA       (ColourRgba){ 86, 139, 127, 230 }
+#define COLOUR_GAME_AXIS_X_RGBA     (ColourRgba){ 218, 117, 96, 220 }
+#define COLOUR_GAME_AXIS_Y_RGBA     (ColourRgba){ 86, 139, 127, 220 }
 #define LIGHTGRAY_RGBA  (ColourRgba){ 200, 200, 200, 255 }   // Light Gray
 #define GRAY_RGBA       (ColourRgba){ 130, 130, 130, 255 }   // Gray
 #define DARKGRAY_RGBA   (ColourRgba){ 80, 80, 80, 255 }      // Dark Gray
