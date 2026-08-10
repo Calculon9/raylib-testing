@@ -36,6 +36,7 @@ typedef enum
     UI_ELEMENT_BUTTON_SWITCH,
     UI_ELEMENT_BUTTON_ENUMERATE,
     UI_ELEMENT_BUTTON_SUBMIT,
+    UI_ELEMENT_HOVER_ITEM,
     UI_ELEMENT_IMAGE
 } UIElementType;
 
@@ -65,6 +66,7 @@ typedef enum
     SIZE_FIXED,   // Use the literal pixel width
     SIZE_PERCENT, // Use a percentage of the parent's content area (0.0 to 1.0)
     SIZE_FILL,    // Take up all remaining space
+    SIZE_CONTENT  // Size to fit enabled children and padding
 } SizeMode;
 
 typedef enum
@@ -151,6 +153,17 @@ typedef struct
     void *user_data; // 8-byte magic pointer for ANY custom state
 } ButtonData;
 
+typedef struct
+{
+    String64 label;
+    Bitmap_Font font;
+    UIEventHandler on_hover;
+    void *data_bind;
+    void *user_data;
+    ColourRgba normal_fill;
+    ColourRgba hover_fill;
+} HoverItemData;
+
 typedef union
 {
     RootData root;
@@ -158,6 +171,7 @@ typedef union
     LabelData label;
     TextFieldlData textfield;
     ButtonData button;
+    HoverItemData hover_item;
     // UIImageData image;
 } UIElementData;
 
@@ -185,6 +199,7 @@ typedef struct UIElement
     UIElementData data;
     UIBox local_box;
     UIBox screen_box;
+    Vector2d measured_content_size;
     bool is_focused, is_dirty, is_draggable, is_enabled; // For interactive elements like TextBoxes and Buttons
 
     UIElement *parent;

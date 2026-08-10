@@ -6,9 +6,10 @@
 #include "raylib.h"
 #include <stdint.h>
 #include "common/common.h"
+#include "editor/geometry_editor.h"
 #include "camera/camera.h"
+#include "system/debug_overlay_system.h"
 #include "system/systems.h"
-#include "world/world.h"
 #include "world/world.h"
 
 //----------------------------------------------------------------------------------
@@ -60,6 +61,7 @@ void DrawWorldRegion(World2d *world, Camera2d *universe_camera)
     DrawGridSpace(&world->grid_space, world_to_pixel_mtx);
     DrawNewtonoids(&world->objects, world_to_pixel_mtx);
     DrawNewtonoids(&world->temp_objects, world_to_pixel_mtx);
+    GeometryEditor_DrawHandles(world, universe_camera);
     // DrawCollisions(&world->collisions, world_to_pixel_mtx);
 }
 
@@ -95,6 +97,11 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
                  (Vector2){corner_pixel_2.x, corner_pixel_2.y},
                  (Vector2){corner_pixel_0.x, corner_pixel_0.y},
                  fill);
+
+    if (!IsDebugEnabled(DEBUG_WORLD_GRID))
+    {
+        return;
+    }
 
     int columns = grid_space->space.columns;
     int rows = grid_space->space.rows;

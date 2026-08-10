@@ -32,7 +32,7 @@ UIElement *CreateUILabelDefault(UIElement *parent, const char *text, Size size,
     }
 
     return CreateUILabel(parent, text, size, padding,
-                         FONT_SMALL_WITH_COLOUR(palette->text),
+                         FONT_MEDIUM_WITH_COLOUR(palette->text),
                          COLOURLESS_RGBA, COLOURLESS_RGBA);
 }
 
@@ -46,18 +46,18 @@ UIElement *CreateUILabelTitleDefault(UIElement *parent, const char *text,
     }
 
     return CreateUILabel(parent, text, size, padding,
-                         FONT_MEDIUM_WITH_COLOUR(palette->text),
+                         FONT_LARGE_WITH_COLOUR(palette->text),
                          COLOURLESS_RGBA, COLOURLESS_RGBA);
 }
 
 UIElement *CreateUILabeledField(UIElement *parent, const char *label_text, UIElementType input_type,
                                 Size row_size, Size textbox_size, Vector2d row_padding,
-                                Vector2d label_offset, ColourRgba row_border, ColourRgba row_fill,
-                                Vector2d cell_padding, ColourRgba cell_border, ColourRgba cell_fill,
-                                Bitmap_Font font)
+                                ColourRgba row_border, ColourRgba row_fill, Vector2d cell_padding, 
+                                ColourRgba cell_border, ColourRgba cell_fill,
+                                Bitmap_Font label_font, Bitmap_Font font)
 {
     UIElement *tfield = CreateTextFieldInTree(row_size, parent, (Offset){ZERO_VECTOR_2D, OFFSET_FIXED},
-                                              textbox_size, row_padding, label_offset, row_border, row_fill, font);
+                                              textbox_size, row_padding, true, row_border, row_fill, font);
     if (!tfield)
     {
         return NULL;
@@ -73,9 +73,9 @@ UIElement *CreateUILabeledField(UIElement *parent, const char *label_text, UIEle
     }
 
     label_child->padding = cell_padding;
-    label_child->colour_border = cell_border;
-    label_child->colour_fill = cell_fill;
-    label_child->data.label.font = font;
+    label_child->colour_border = row_border;
+    label_child->colour_fill = row_fill;
+    label_child->data.label.font = label_font;
     safe_strncpy(label_child->data.label.text.string, label_text, MAX_LABEL_CHARS);
 
     input_child->padding = cell_padding;
@@ -107,10 +107,10 @@ UIElement *CreateUILabeledFieldDefault(UIElement *parent, const char *label_text
                                 &input_border, &input_fill);
 
     return CreateUILabeledField(parent, label_text, input_type, row_size,
-                                tbox_default_size, row_padding, tbox_tlabel_default_offset.offset,
-                                row_border, row_fill, tbox_default_padding,
-                                input_border, input_fill,
-                                FONT_SMALL_WITH_COLOUR(palette->text));
+                                ui_standard_textfield_input_size, row_padding, row_border, row_fill,
+                                ZERO_VECTOR_2D, input_border, input_fill,
+                                FONT_MEDIUM_WITH_COLOUR(palette->label_text),
+                                FONT_MEDIUM_WITH_COLOUR(palette->text));
 }
 
 UIElement *CreateUIButton(UIElement *parent, UIElementType type, const char *text,
@@ -138,9 +138,8 @@ UIElement *CreateUIButton(UIElement *parent, UIElementType type, const char *tex
     return btn;
 }
 
-UIElement *CreateUIButtonDefault(UIElement *parent, UIElementType type,
-                                 const char *text, Size size, Vector2d padding,
-                                 const UIPalette *palette, UIEventHandler on_click,
+UIElement *CreateUIButtonDefault(UIElement *parent, UIElementType type, const char *text,
+                                 Size size, Vector2d padding, const UIPalette *palette, UIEventHandler on_click,
                                  void *user_data, void *data_bind)
 {
     if (!palette)
@@ -154,8 +153,41 @@ UIElement *CreateUIButtonDefault(UIElement *parent, UIElementType type,
                                 &border, &fill);
 
     return CreateUIButton(parent, type, text, size, padding,
-                          border, fill, FONT_SMALL_WITH_COLOUR(palette->text),
+                          border, fill, FONT_MEDIUM_WITH_COLOUR(palette->text),
                           on_click, user_data, data_bind);
+}
+
+UIElement *CreateUIHoverItemDefault(UIElement *parent, const char *text, Size size, Vector2d padding,
+                                    const UIPalette *palette, UIEventHandler on_hover, void *user_data)
+{
+    if (!palette)
+    {
+        palette = &ui_default_palette;
+    }
+
+    ColourRgba border;
+    ColourRgba fill;
+    UIPalette_GetSurfaceColours(palette, UI_PALETTE_SURFACE_BUTTON, &border, &fill);
+
+    UIElement *item = CreateUIElementInTree(
+        UI_ELEMENT_HOVER_ITEM, size, parent,
+        (Offset){ZERO_VECTOR_2D, OFFSET_FIXED}, padding, border, fill);
+    if (!item)
+    {
+        return NULL;
+    }
+
+    safe_strncpy(item->data.hover_item.label.string, text, MAX_LABEL_CHARS);
+    item->data.hover_item.font = FONT_MEDIUM_WITH_COLOUR(palette->text);
+    item->data.hover_item.on_hover = on_hover;
+    item->data.hover_item.data_bind = NULL;
+    item->data.hover_item.user_data = user_data;
+    item->data.hover_item.normal_fill = fill;
+    item->data.hover_item.hover_fill = palette->button_fill;
+    item->is_draggable = false;
+    SetUIElementTextHorizontalAlignment(item, UI_TEXT_ALIGN_LEFT);
+    SetUIElementTextVerticalAlignment(item, UI_TEXT_ALIGN_CENTRE);
+    return item;
 }
 
 UIElement *CreateUIContainer(UIElement *parent, Size size, Offset offset,

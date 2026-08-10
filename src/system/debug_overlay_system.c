@@ -132,11 +132,12 @@ typedef struct UniverseDebugSnapshot
 } UniverseDebugSnapshot;
 
 static bool dashboard_overlay_enabled = false;
-static bool universe_grid_labels_overlay_enabled = false;
+static bool grid_labels_overlay_enabled = false;
+static bool world_grid_overlay_enabled = true;
 static int basis_editor_enabled = 0;
 static int basis_editor_editing_u = 1;
 static DebugBasisTargetId basis_editor_target = DEBUG_BASIS_TARGET_LPANEL_VIEWPORT;
-static UniverseDebugSnapshot universe_debug_snapshot = {0};
+static UniverseDebugSnapshot debug_snapshot = {0};
 
 static float ClampViewportLogicalHeight(float height)
 {
@@ -274,6 +275,9 @@ static void DrawDebugDashboard(void)
     snprintf(line, sizeof(line), "F6 Viewport grid: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_VIEWPORT_GRID)));
     DrawDashboardLine(line, col1_x, row_y_left, body_color);
     row_y_left += row_step;
+    snprintf(line, sizeof(line), "F3 UI borders: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_UI_BORDERS)));
+    DrawDashboardLine(line, col1_x, row_y_left, body_color);
+    row_y_left += row_step;
     snprintf(line, sizeof(line), "F4 Universe grid labels: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_UNIVERSE_GRID_LABELS)));
     DrawDashboardLine(line, col1_x, row_y_left, body_color);
     row_y_left += row_step;
@@ -287,34 +291,34 @@ static void DrawDebugDashboard(void)
     DrawDashboardLine("Universe", col1_x, row_y_left, accent_color);
     row_y_left += row_step;
 
-    if (universe_debug_snapshot.valid)
+    if (debug_snapshot.valid)
     {
-        snprintf(line, sizeof(line), "Cursor px: (%.1f, %.1f) [%s]", universe_debug_snapshot.pixel.x, universe_debug_snapshot.pixel.y,
-                 universe_debug_snapshot.cursor_in_game_viewport ? "in viewport" : "outside viewport");
+        snprintf(line, sizeof(line), "Cursor px: (%.1f, %.1f) [%s]", debug_snapshot.pixel.x, debug_snapshot.pixel.y,
+             debug_snapshot.cursor_in_game_viewport ? "in viewport" : "outside viewport");
         DrawDashboardLine(line, col1_x, row_y_left, body_color);
         row_y_left += row_step;
 
-        snprintf(line, sizeof(line), "Universe coords: (%.3f, %.3f)", universe_debug_snapshot.parent_local.x, universe_debug_snapshot.parent_local.y);
+        snprintf(line, sizeof(line), "Universe coords: (%.3f, %.3f)", debug_snapshot.parent_local.x, debug_snapshot.parent_local.y);
         DrawDashboardLine(line, col1_x, row_y_left, body_color);
         row_y_left += row_step;
 
-        snprintf(line, sizeof(line), "Selected world: %d   Hovered world: %d", universe_debug_snapshot.selected_index, universe_debug_snapshot.hovered_world_index);
+        snprintf(line, sizeof(line), "Selected world: %d   Hovered world: %d", debug_snapshot.selected_index, debug_snapshot.hovered_world_index);
         DrawDashboardLine(line, col1_x, row_y_left, body_color);
         row_y_left += row_step;
 
-        if (universe_debug_snapshot.has_child_local)
+        if (debug_snapshot.has_child_local)
         {
-            snprintf(line, sizeof(line), "Child local[%d]: (%.3f, %.3f)", universe_debug_snapshot.target_world_index,
-                     universe_debug_snapshot.child_local.x, universe_debug_snapshot.child_local.y);
+            snprintf(line, sizeof(line), "Child local[%d]: (%.3f, %.3f)", debug_snapshot.target_world_index,
+                     debug_snapshot.child_local.x, debug_snapshot.child_local.y);
             DrawDashboardLine(line, col1_x, row_y_left, body_color);
             row_y_left += row_step;
 
-            snprintf(line, sizeof(line), "Child origin: (%.3f, %.3f)", universe_debug_snapshot.child_origin_in_parent.x,
-                     universe_debug_snapshot.child_origin_in_parent.y);
+            snprintf(line, sizeof(line), "Child origin: (%.3f, %.3f)", debug_snapshot.child_origin_in_parent.x,
+                     debug_snapshot.child_origin_in_parent.y);
             DrawDashboardLine(line, col1_x, row_y_left, body_color);
             row_y_left += row_step;
 
-            snprintf(line, sizeof(line), "Child cell index: %d", universe_debug_snapshot.world_cell_index);
+            snprintf(line, sizeof(line), "Child cell index: %d", debug_snapshot.world_cell_index);
             DrawDashboardLine(line, col1_x, row_y_left, body_color);
             row_y_left += row_step;
         }
@@ -325,8 +329,8 @@ static void DrawDebugDashboard(void)
         }
 
         snprintf(line, sizeof(line), "Camera focus(%.2f, %.2f) zoom=%.3f rot=%.3f",
-                 universe_debug_snapshot.camera_focus.x, universe_debug_snapshot.camera_focus.y,
-                 universe_debug_snapshot.camera_zoom, universe_debug_snapshot.camera_rotation);
+                 debug_snapshot.camera_focus.x, debug_snapshot.camera_focus.y,
+                 debug_snapshot.camera_zoom, debug_snapshot.camera_rotation);
         DrawDashboardLine(line, col1_x, row_y_left, body_color);
     }
     else
@@ -348,14 +352,14 @@ static void DrawDebugDashboard(void)
     DrawDashboardLine(line, col2_x, row_y_right, body_color);
     row_y_right += row_step;
     snprintf(line, sizeof(line), "Region center local(%.2f, %.2f) pixel(%.1f, %.1f)",
-             universe_debug_snapshot.viewport_local_center.x, universe_debug_snapshot.viewport_local_center.y,
-             universe_debug_snapshot.viewport_pixel_center.x, universe_debug_snapshot.viewport_pixel_center.y);
+             debug_snapshot.viewport_local_center.x, debug_snapshot.viewport_local_center.y,
+             debug_snapshot.viewport_pixel_center.x, debug_snapshot.viewport_pixel_center.y);
     DrawDashboardLine(line, col2_x, row_y_right, body_color);
     row_y_right += row_step;
     snprintf(line, sizeof(line), "Px/unit U=%.2f V=%.2f", VectorMagnitude_2d(game_viewport.pixel_u), VectorMagnitude_2d(game_viewport.pixel_v));
     DrawDashboardLine(line, col2_x, row_y_right, body_color);
     row_y_right += row_step;
-    //snprintf(line, sizeof(line), "Viewport size %.1f x %.1f", universe_debug_snapshot.viewport_width_px, universe_debug_snapshot.viewport_height_px);
+    //snprintf(line, sizeof(line), "Viewport size %.1f x %.1f", debug_snapshot.viewport_width_px, debug_snapshot.viewport_height_px);
     //DrawDashboardLine(line, col2_x, row_y_right, body_color);
     //row_y_right += row_step * 2;
 
@@ -402,11 +406,17 @@ void ToggleDebug(DebugOverlayId overlay_id)
     case DEBUG_VIEWPORT_GRID:
         ToggleViewportDebugGrid();
         break;
+    case DEBUG_WORLD_GRID:
+        world_grid_overlay_enabled = !world_grid_overlay_enabled;
+        break;
     case DEBUG_WORLD_GRID_LABELS:
         world_grid_debug_labels_enabled = !world_grid_debug_labels_enabled;
         break;
     case DEBUG_UNIVERSE_GRID_LABELS:
-        universe_grid_labels_overlay_enabled = !universe_grid_labels_overlay_enabled;
+        grid_labels_overlay_enabled = !grid_labels_overlay_enabled;
+        break;
+    case DEBUG_UI_BORDERS:
+        ui_borders_enabled = !ui_borders_enabled;
         break;
     default:
         break;
@@ -421,10 +431,14 @@ int IsDebugEnabled(DebugOverlayId overlay_id)
         return dashboard_overlay_enabled;
     case DEBUG_VIEWPORT_GRID:
         return IsViewportDebugGridEnabled();
+    case DEBUG_WORLD_GRID:
+        return world_grid_overlay_enabled;
     case DEBUG_WORLD_GRID_LABELS:
         return world_grid_debug_labels_enabled;
     case DEBUG_UNIVERSE_GRID_LABELS:
-        return universe_grid_labels_overlay_enabled;
+        return grid_labels_overlay_enabled;
+    case DEBUG_UI_BORDERS:
+        return ui_borders_enabled;
     default:
         return 0;
     }
@@ -453,6 +467,12 @@ void UpdateDebugOverlayHotkeys(int screen_width, int screen_height, int screen_r
     {
         ToggleDebug(DEBUG_VIEWPORT_GRID);
         printf("[Viewport] Debug region grid: %s\n", IsDebugEnabled(DEBUG_VIEWPORT_GRID) ? "ON" : "OFF");
+    }
+
+    if (IsKeyPressed(KEY_F3))
+    {
+        ToggleDebug(DEBUG_UI_BORDERS);
+        printf("[UI] Element borders: %s\n", IsDebugEnabled(DEBUG_UI_BORDERS) ? "ON" : "OFF");
     }
 
     if (IsKeyPressed(KEY_F11))
@@ -624,7 +644,7 @@ void DrawGlobalDebugOverlays(void)
 
 void DrawUniverseDebugOverlays(Matrix3x3 root_world_to_pixel_mtx)
 {
-    universe_debug_snapshot.valid = false;
+    debug_snapshot.valid = false;
 
     if (!dashboard_overlay_enabled)
     {
@@ -671,25 +691,25 @@ void DrawUniverseDebugOverlays(Matrix3x3 root_world_to_pixel_mtx)
         }
     }
 
-    memset(&universe_debug_snapshot, 0, sizeof(universe_debug_snapshot));
-    universe_debug_snapshot.valid = true;
-    universe_debug_snapshot.cursor_in_game_viewport = cursor_in_game_viewport;
-    universe_debug_snapshot.has_child_local = has_child_local;
-    universe_debug_snapshot.pixel = pixel;
-    universe_debug_snapshot.parent_local = parent_local;
-    universe_debug_snapshot.child_origin_in_parent = child_origin_in_parent;
-    universe_debug_snapshot.child_local = child_local;
-    universe_debug_snapshot.viewport_pixel_center = ResolveGameViewportPixelCenter();
-    universe_debug_snapshot.viewport_local_center = ResolveGameViewportLocalCenter();
-    universe_debug_snapshot.viewport_ppu_u = VectorMagnitude_2d(game_viewport.pixel_u);
-    universe_debug_snapshot.viewport_ppu_v = VectorMagnitude_2d(game_viewport.pixel_v);
-    universe_debug_snapshot.viewport_width_px = game_viewport.pixel_end.x - game_viewport.pixel_origin.x;
-    universe_debug_snapshot.viewport_height_px = game_viewport.pixel_end.y - game_viewport.pixel_origin.y;
-    universe_debug_snapshot.selected_index = selected_index;
-    universe_debug_snapshot.hovered_world_index = hovered_world_index;
-    universe_debug_snapshot.target_world_index = target_world_index;
-    universe_debug_snapshot.world_cell_index = world_cell_index;
-    universe_debug_snapshot.camera_zoom = G_Universe.camera.zoom;
-    universe_debug_snapshot.camera_rotation = G_Universe.camera.rotation;
-    universe_debug_snapshot.camera_focus = G_Universe.camera.source_focus_coords;
+    memset(&debug_snapshot, 0, sizeof(debug_snapshot));
+    debug_snapshot.valid = true;
+    debug_snapshot.cursor_in_game_viewport = cursor_in_game_viewport;
+    debug_snapshot.has_child_local = has_child_local;
+    debug_snapshot.pixel = pixel;
+    debug_snapshot.parent_local = parent_local;
+    debug_snapshot.child_origin_in_parent = child_origin_in_parent;
+    debug_snapshot.child_local = child_local;
+    debug_snapshot.viewport_pixel_center = ResolveGameViewportPixelCenter();
+    debug_snapshot.viewport_local_center = ResolveGameViewportLocalCenter();
+    debug_snapshot.viewport_ppu_u = VectorMagnitude_2d(game_viewport.pixel_u);
+    debug_snapshot.viewport_ppu_v = VectorMagnitude_2d(game_viewport.pixel_v);
+    debug_snapshot.viewport_width_px = game_viewport.pixel_end.x - game_viewport.pixel_origin.x;
+    debug_snapshot.viewport_height_px = game_viewport.pixel_end.y - game_viewport.pixel_origin.y;
+    debug_snapshot.selected_index = selected_index;
+    debug_snapshot.hovered_world_index = hovered_world_index;
+    debug_snapshot.target_world_index = target_world_index;
+    debug_snapshot.world_cell_index = world_cell_index;
+    debug_snapshot.camera_zoom = G_Universe.camera.zoom;
+    debug_snapshot.camera_rotation = G_Universe.camera.rotation;
+    debug_snapshot.camera_focus = G_Universe.camera.source_focus_coords;
 }

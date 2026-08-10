@@ -92,28 +92,39 @@ void PhysicsUpdateJob(void *context, int start, int end)
     World2d *world = (World2d *)context;
     GridSpace2d *space_entity = &world->grid_space;
     Space2d *space = &space_entity->space;
-    LArray *objects = &world->objects;
     FlatMapInt *entity_space_map = &world->entity_space_map;
-    Newtonoid2d *newtonoids = (Newtonoid2d *)objects->items;
 
-    for (int index = start; index < end && index < (int)objects->count; ++index)
+    LArray *object_arrays[] = {&world->objects, &world->temp_objects};
+    int global_index = 0;
+    for (size_t array_index = 0; array_index < 2; array_index++)
     {
-        Newtonoid2d *obj = &newtonoids[index];
+        LArray *objects = object_arrays[array_index];
+        Newtonoid2d *newtonoids = (Newtonoid2d *)objects->items;
+        for (int index = 0; index < (int)objects->count; index++, global_index++)
+        {
+            if (global_index < start || global_index >= end)
+            {
+                continue;
+            }
 
-        if (!(obj->status_flags & FLAG_STATUS_ALIVE) || (obj->entity_flags & FLAG_TYPE_EFFECT) || obj->parent_id != space_entity->object.id)
-            continue;
+            Newtonoid2d *obj = &newtonoids[index];
 
-        // Use the current center position to derive the snapped grid footprint for this frame.
-        Vector2d snapped_aabb_verts[4] = {0};
-        CalcSnappedAABB_Vertices(obj->surface.surface_vectors.items, obj->surface.surface_vectors.count, obj->coords_center, space->frame.basis, snapped_aabb_verts);
-        Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
+            if (!(obj->status_flags & FLAG_STATUS_ALIVE) || (obj->entity_flags & FLAG_TYPE_EFFECT) || obj->parent_id != space_entity->object.id)
+                continue;
 
-        Vector2d authored_acceleration = obj->acceleration;
-        obj->acceleration.y += world->gravity;
-        CalcVectors(obj, frame_counter.delta_time);
-        obj->acceleration = authored_acceleration;
-        MapEntityToASpace(space, obj, snapped_aabb_box, entity_space_map);
-        ResolveCollision_ContainerRect(obj, &space_entity->object);
+            Vector2d authored_acceleration = obj->acceleration;
+            obj->acceleration.y += world->gravity;
+            CalcVectors(obj, frame_counter.delta_time);
+            obj->acceleration = authored_acceleration;
+
+            // Map the position after physics has advanced the object so hit-testing
+            // and collision broad-phase use the same location that is rendered.
+            Vector2d snapped_aabb_verts[4] = {0};
+            CalcSnappedAABB_Vertices(obj->surface.surface_vectors.items, obj->surface.surface_vectors.count, obj->coords_center, space->frame.basis, snapped_aabb_verts);
+            Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
+            MapEntityToASpace(space, obj, snapped_aabb_box, entity_space_map);
+            ResolveCollision_ContainerRect(obj, &space_entity->object);
+        }
     }
 }
 
@@ -403,7 +414,7 @@ void MapEntityToASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 snapped_aa
     }
 }
 
-static void RemoveEntityFromASpace(Space2d *space, int entity_id, Matrix2x2 snapped_aabb_box, FlatMapInt *entity_space_map)
+static void RemoveEntityFromASpace(Space2d *space, EntityId entity_id, Matrix2x2 snapped_aabb_box, FlatMapInt *entity_space_map)
 {
     float snapped_w = snapped_aabb_box.col2.x - snapped_aabb_box.col1.x;
     float snapped_h = snapped_aabb_box.col2.y - snapped_aabb_box.col1.y;
@@ -480,25 +491,30 @@ void RefreshWorldSpatialMap(World2d *world)
         }
     }
 
-    Newtonoid2d *objects = (Newtonoid2d *)world->objects.items;
-    for (size_t index = 0; index < world->objects.count; index++)
+    LArray *object_arrays[] = {&world->objects, &world->temp_objects};
+    for (size_t array_index = 0; array_index < 2; array_index++)
     {
-        Newtonoid2d *object = &objects[index];
-        if (!(object->status_flags & FLAG_STATUS_ALIVE) ||
-            (object->entity_flags & FLAG_TYPE_EFFECT) ||
-            object->parent_id != world->grid_space.object.id)
+        LArray *object_array = object_arrays[array_index];
+        Newtonoid2d *objects = (Newtonoid2d *)object_array->items;
+        for (size_t index = 0; index < object_array->count; index++)
         {
-            continue;
-        }
+            Newtonoid2d *object = &objects[index];
+            if (!(object->status_flags & FLAG_STATUS_ALIVE) ||
+                (object->entity_flags & FLAG_TYPE_EFFECT) ||
+                object->parent_id != world->grid_space.object.id)
+            {
+                continue;
+            }
 
-        Vector2d snapped_aabb_verts[4] = {0};
-        CalcSnappedAABB_Vertices(object->surface.surface_vectors.items,
-                                 object->surface.surface_vectors.count,
-                                 object->coords_center,
-                                 space->frame.basis,
-                                 snapped_aabb_verts);
-        Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
-        MapEntityToASpace(space, object, snapped_aabb_box, &world->entity_space_map);
+            Vector2d snapped_aabb_verts[4] = {0};
+            CalcSnappedAABB_Vertices(object->surface.surface_vectors.items,
+                                     object->surface.surface_vectors.count,
+                                     object->coords_center,
+                                     space->frame.basis,
+                                     snapped_aabb_verts);
+            Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
+            MapEntityToASpace(space, object, snapped_aabb_box, &world->entity_space_map);
+        }
     }
 }
 

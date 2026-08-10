@@ -1,4 +1,4 @@
-#include "system/drag_interaction.h"
+#include "input/drag_interaction.h"
 
 static DragInteractionState g_drag_contexts[DRAG_CONTEXT_COUNT] = {0};
 
@@ -20,6 +20,7 @@ void DragInteraction_Reset(DragInteractionState *state)
     }
 
     ResetPointerState(&state->pointer_state);
+
     state->target_kind = DRAG_TARGET_NONE;
     state->target = NULL;
     state->target_anchor = ZERO_VECTOR_2D;
@@ -30,6 +31,34 @@ void DragInteraction_ResetContext(DragContextId id)
 {
     DragInteractionState *state = DragInteraction_GetContext(id);
     DragInteraction_Reset(state);
+}
+
+void DragInteraction_BeginFrame(DragInteractionState *state, const InputFrame *input)
+{
+    if (!state || !input)
+    {
+        return;
+    }
+
+    if (input->left_pressed)
+    {
+        DragInteraction_Reset(state);
+    }
+
+    if (input->left_down)
+    {
+        DragInteraction_UpdateButtonDown(state, input->pointer_position);
+    }
+}
+
+void DragInteraction_EndFrame(DragInteractionState *state, const InputFrame *input)
+{
+    if (!state || !input || !input->left_released)
+    {
+        return;
+    }
+
+    DragInteraction_UpdateButtonUp(state);
 }
 
 void DragInteraction_UpdateButtonDown(DragInteractionState *state, Vector2d pointer_pos)
@@ -44,13 +73,7 @@ void DragInteraction_UpdateButtonDown(DragInteractionState *state, Vector2d poin
 
 void DragInteraction_UpdateButtonUp(DragInteractionState *state)
 {
-    if (!state)
-    {
-        return;
-    }
-
-    ResetPointerState(&state->pointer_state);
-    DragInteraction_ClearCapture(state);
+    DragInteraction_Reset(state);
 }
 
 void DragInteraction_BeginCapture(DragInteractionState *state, DragTargetKind kind, void *target, Vector2d anchor)
@@ -86,7 +109,7 @@ bool DragInteraction_IsClick(const DragInteractionState *state, int max_hold_tic
         return false;
     }
 
-    return IsPointerClick(state->pointer_state, max_hold_ticks, max_travel_pixels);
+    return Pointer_IsClick(state->pointer_state, max_hold_ticks, max_travel_pixels);
 }
 
 bool DragInteraction_IsDragActive(const DragInteractionState *state, float min_travel_pixels)
@@ -96,7 +119,7 @@ bool DragInteraction_IsDragActive(const DragInteractionState *state, float min_t
         return false;
     }
 
-    return IsPointerDrag(state->pointer_state, min_travel_pixels);
+    return Pointer_IsDrag(state->pointer_state, min_travel_pixels);
 }
 
 Vector2d DragInteraction_GetPointerDelta(const DragInteractionState *state)
@@ -106,5 +129,5 @@ Vector2d DragInteraction_GetPointerDelta(const DragInteractionState *state)
         return ZERO_VECTOR_2D;
     }
 
-    return GetPointerTravelDelta(state->pointer_state);
+    return Pointer_GetTravelDelta(state->pointer_state);
 }

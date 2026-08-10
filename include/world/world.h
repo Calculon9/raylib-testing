@@ -54,14 +54,14 @@ typedef struct World2d
     LArray scheduled_world_cmds;
     float gravity;
     WorldMode mode;
-    int next_object_id; // Global variable to keep track of the next available ID for NewtonObjects
+    struct Universe *universe; // Owner used for universe-wide entity ID allocation.
     Vector2d uni_coords_center; // Position of this world in the shared universe space (world-local units). Keeps local coords 0-based.
 } World2d;
 
 typedef struct
 {
     WorldCmdType type;
-    int target_id;
+    EntityId target_id;
     int payload_value;   // Reuse this slot for flags, statuses, etc.
     int interval_frames; // How often to run it (e.g., 60 for once per 60 frames)
     int run_count;       // Counts down or up to track the elapsed frames
@@ -70,23 +70,6 @@ typedef struct
     int initial_frame_delay;
     bool active; // Can toggle this schedule on or off
 } WorldCommand;
-
-typedef struct
-{
-    int type_flag; // Which array is it in?
-    int index;     // What slot is it in inside that array?
-} EntityLocation;
-
-// typedef struct WorldContext
-// {
-//     FlatMapInt *entity_world_index_registry;
-//     LArray *inhabitant_objects;
-//     LArray *temp_objects;
-//     LArray *collisions;
-//     GridSpace2d *space_entity;
-//     World2d *world;
-//     Vector2d game_viewport_local_origin;
-// } WorldContext;
 
 typedef struct AxisIntersectionRange2d
 {
@@ -118,7 +101,8 @@ extern World2d world_1;
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 void UpdateWorld(World2d *world, float delta_time);
-int AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id);
+EntityId AddObjectToWorld(World2d *world, Newtonoid2d *object, EntityId parent_id);
+EntityId MoveObjectBetweenWorlds(World2d *source_world, World2d *destination_world, EntityId object_id, EntityId destination_parent_id);
 // Vector2d GetCellIndicesFromCoordinates(Vector2d origin_coordinates, Vector2d input_coordinates, Basis2d basis);
 // Field UpdateFieldCellValues(Field field);
 
@@ -184,7 +168,6 @@ extern bool world_grid_debug_labels_enabled;
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-//void *GetEntityByID(WorldState *context, int entity_id);
 //UIElement *CreateTextField(float width, float height, Vector2d origin_coords, Vector2d parent_offset, Vector2d label_tbox_offset, Vector2d label_tbox_padding, char max_label_chars, char max_text_box_chars);
 void ProcessCommandQueue(void);
 #endif

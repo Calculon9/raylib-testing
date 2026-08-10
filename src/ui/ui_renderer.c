@@ -11,6 +11,7 @@
 #include "ui/ui.h"
 #include "ui/text_region.h"
 #include "system/ui_system.h"
+#include "system/debug_overlay_system.h"
 #include "system/systems.h"
 #include "system/utility_system.h"
 
@@ -60,8 +61,14 @@ void DrawElementBox(UIElement *e)
     UIBox box = e->screen_box;
     ColourRgba colour_fill = e->colour_fill;
     ColourRgba colour_border = e->colour_border;
-    DrawRectangle((int)box.coords.x, (int)box.coords.y, (int)box.dimensions.x, (int)box.dimensions.y, (Color){colour_fill.r, colour_fill.g, colour_fill.b, colour_fill.a});
-    DrawRectangleLines((int)box.coords.x, (int)box.coords.y, (int)(box.dimensions.x), (int)(box.dimensions.y), (Color){colour_border.r, colour_border.g, colour_border.b, colour_border.a});
+    if (!IsDebugEnabled(DEBUG_UI_BORDERS))
+    {
+        colour_border.a = 0;
+    }
+    DrawRectangleRec((Rectangle){box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y},
+                     (Color){colour_fill.r, colour_fill.g, colour_fill.b, colour_fill.a});
+    DrawRectangleLinesEx((Rectangle){box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y},
+                         1.0f, (Color){colour_border.r, colour_border.g, colour_border.b, colour_border.a});
 }
 
 void DrawTextArea(UIElement *e)
@@ -82,10 +89,19 @@ void DrawTextArea(UIElement *e)
         text_ptr = e->data.button.label.string;
         font = e->data.button.font;
     }
+    else if (e->type == UI_ELEMENT_HOVER_ITEM)
+    {
+        text_ptr = e->data.hover_item.label.string;
+        font = e->data.hover_item.font;
+    }
     else if (e->type == UI_ELEMENT_LABEL)
     {
         text_ptr = e->data.label.text.string;
         font = e->data.label.font;
+    }
+    if (!text_ptr || text_ptr[0] == '\0')
+    {
+        return;
     }
     Vector2d available_space = e->screen_box.dimensions;
 
@@ -115,7 +131,7 @@ void DrawTextArea(UIElement *e)
     // if (rows_that_fit <= 0)
     // return;
 
-    // 3. Segmenting and Drawing
+    // Segmenting and Drawing
     // We'll draw row-by-row to save memory (no need for a massive 2D array)
     while (text_ptr[char_ptr] != '\0' && current_row < rows_that_fit)
     {
@@ -157,8 +173,18 @@ void DrawTextArea(UIElement *e)
         current_row++;
     }
 
-    // 4. Cursor Rendering
-    if (e->is_focused && (frame_counter.total_frames % 60 < 30))
+    const char *remaining_text = text_ptr + char_ptr;
+    if (remaining_text[0] != '\0')
+    {
+        if (frame_counter.total_frames % 300 == 0)
+        {
+            LOG_WARN("Text was truncated for %s. Rendered rows: %d, Rows that fit: %d. Remaining text: \"%s\"",
+                     GetElementTypeName(e->type), current_row, rows_that_fit, remaining_text);
+        }
+    }
+
+    // Cursor Rendering
+    if (e->is_focused && (frame_counter.total_frames % 60 < 30) && IsTextbox(e))
     {
         // Place cursor at the end of the last drawn character
         // Note: Subtract 1 from current_row because it was incremented after the last draw
@@ -240,7 +266,8 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel)
 
     // Draw background & border
     DrawElementBox(e);
-    if (IsTextbox(e) || IsBtn(e) || e->type == UI_ELEMENT_LABEL)
+    if (IsTextbox(e) || IsBtn(e) || e->type == UI_ELEMENT_LABEL ||
+        e->type == UI_ELEMENT_HOVER_ITEM)
     {
         // Draw the Text
         DrawTextArea(e);

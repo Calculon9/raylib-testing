@@ -13,6 +13,41 @@
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
+const CoordinateSpacePreset COORDINATE_SPACE_PRESET_REGULAR = {
+   GRID_GEOMETRY_REGULAR,
+   COORDINATE_SPACE_DEFAULT_RESOLUTION,
+   IDENTITY_BASIS_2D
+};
+
+const CoordinateSpacePreset COORDINATE_SPACE_PRESET_SHEARED_Y = {
+   GRID_GEOMETRY_SHEARED_Y,
+   COORDINATE_SPACE_DEFAULT_RESOLUTION,
+   (Basis2d){{1.0f, 0.0f}, {0.5f, 1.0f}}
+};
+
+const CoordinateSpacePreset COORDINATE_SPACE_PRESET_SHEARED_X = {
+   GRID_GEOMETRY_SHEARED_X,
+   COORDINATE_SPACE_DEFAULT_RESOLUTION,
+   (Basis2d){{1.0f, 0.5f}, {0.0f, 1.0f}}
+};
+
+const CoordinateSpacePreset COORDINATE_SPACE_PRESET_ISOMETRIC = {
+   GRID_GEOMETRY_ISOMETRIC,
+   COORDINATE_SPACE_DEFAULT_RESOLUTION,
+   (Basis2d){{0.7071f, 0.5f}, {-0.7071f, 0.5f}}
+};
+
+const CoordinateSpacePreset COORDINATE_SPACE_PRESET_PERSPECTIVE = {
+   GRID_GEOMETRY_PERSPECTIVE,
+   COORDINATE_SPACE_DEFAULT_RESOLUTION,
+   IDENTITY_BASIS_2D
+};
+
+const CoordinateSpacePreset COORDINATE_SPACE_PRESET_RADIAL = {
+   GRID_GEOMETRY_RADIAL,
+   COORDINATE_SPACE_DEFAULT_RESOLUTION,
+   IDENTITY_BASIS_2D
+};
 
 //----------------------------------------------------------------------------------
 // Functions Definition
@@ -28,25 +63,6 @@ Frame2d CreateFrame2d(Basis2d basis, Vector2d origin_in_parent, Vector2d local_r
         .local_min = ZERO_VECTOR_2D,
         .local_max = local_resolution
     };
-}
-
-// Creates a local child coordinate space with physical attributes.
-// Basis vectors in most cases (orthogonal dimensions) should be u = {1,0}, v = {0,1}.
-// The origin is in the child/local frame; parent-space placement is handled externally.
-GridSpace2d NewGridSpace2d(Vector2d origin_in_parent, Vector2d local_resolution, Basis2d basis, ColourRgba colour_fill, ColourRgba colour_line)
-{
-   GridSpace2d space_obj = {0};
-   space_obj.space = NewSpace2d(origin_in_parent, local_resolution, basis);
-   space_obj.colour_line = colour_line;
-   space_obj.colour_fill = colour_fill;
-
-   Vector2d grid_size = {(float)space_obj.space.columns, (float)space_obj.space.rows};
-   Surface2d surface = CreateSurface_Rectangular(grid_size, ZERO_VECTOR_2D);
-
-   // Calc coords_center - this is required when creating new objects
-   Vector2d coords_center = (Vector2d){origin_in_parent.x + (grid_size.x / 2.0f), origin_in_parent.y + (grid_size.y / 2.0f)};
-   space_obj.object = CreateNewtonoid2d_Static(coords_center, surface);
-   return space_obj;
 }
 
 // Creates a local coordinate space. Basis vectors in most cases (orthogonal dimensions) should be u = {1,0}, v = {0,1}.
@@ -73,13 +89,10 @@ Space2d NewSpace2d(Vector2d origin_in_parent, Vector2d local_resolution, Basis2d
 
    // Total units are deterministic from requested i/j resolution.
    int totalUnits = space.columns * space.rows;
-
    space.cells = MakeDArray(totalUnits, sizeof(Cell));
 
-   // CalculateLineSegmentVectors(&coordinate_space);
    InitUnitCells(&space);
 
-   // LOG FIELD INFO
    Vector2d basis_u = space.frame.basis.u;
    Vector2d basis_v = space.frame.basis.v;
 
@@ -90,6 +103,24 @@ Space2d NewSpace2d(Vector2d origin_in_parent, Vector2d local_resolution, Basis2d
    return space;
 }
 
+// Creates a local child coordinate space with physical attributes.
+// Basis vectors in most cases (orthogonal dimensions) should be u = {1,0}, v = {0,1}.
+// The origin is in the child/local frame; parent-space placement is handled externally.
+GridSpace2d NewGridSpace2d(Vector2d origin_in_parent, Vector2d local_resolution, Basis2d basis, ColourRgba colour_fill, ColourRgba colour_line)
+{
+   GridSpace2d space_obj = {0};
+   space_obj.space = NewSpace2d(origin_in_parent, local_resolution, basis);
+   space_obj.colour_line = colour_line;
+   space_obj.colour_fill = colour_fill;
+
+   Vector2d grid_size = {(float)space_obj.space.columns, (float)space_obj.space.rows};
+   Surface2d surface = CreateSurface_Rectangular(grid_size, ZERO_VECTOR_2D);
+
+   // Calc coords_center - this is required when creating new objects
+   Vector2d coords_center = (Vector2d){origin_in_parent.x + (grid_size.x / 2.0f), origin_in_parent.y + (grid_size.y / 2.0f)};
+   space_obj.object = CreateNewtonoid2d_Static(coords_center, surface);
+   return space_obj;
+}
 
 void InitUnitCells(Space2d *space)
 {
@@ -126,6 +157,11 @@ void InitUnitCells(Space2d *space)
    }
    cells->count = columns * rows;
    LOG_INFO("Initialised %d cells\n", count);
+}
+
+GridSpace2d NewGridSpace2d_FromPreset(Vector2d origin_in_parent, CoordinateSpacePreset preset, ColourRgba colour_fill, ColourRgba colour_line)
+{
+   return NewGridSpace2d(origin_in_parent, preset.resolution, preset.basis, colour_fill, colour_line);
 }
 
 void RebuildSpaceCells(Space2d *space)

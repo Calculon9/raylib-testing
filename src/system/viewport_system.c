@@ -7,17 +7,17 @@
 // ============================================================================
 // Configuration & Constants
 // ============================================================================
-static float viewport_left_panel_ratio = 0.15f;
-static float viewport_right_panel_ratio = 0.15f;
-static float viewport_target_game_logical_height = 9.0f;
-static int viewport_ui_pixels_per_unit_override = 0;
-static const float viewport_min_target_logical_height = 8.0f;
-static const float viewport_max_target_logical_height = 400.0f;
-static const float viewport_min_panel_ratio = 0.05f;
-static const float viewport_max_panel_ratio = 0.45f;
-static const float viewport_max_combined_panel_ratio = 0.90f;
-static int viewport_debug_grid_enabled = 0;
-static const float viewport_basis_min_magnitude = 0.0001f;
+static float left_panel_ratio = 0.175f;
+static float right_panel_ratio = 0.175f;
+static float target_game_logical_height = 9.0f;
+static int ui_ppu_override = 0;
+static const float min_target_logical_height = 8.0f;
+static const float max_target_logical_height = 400.0f;
+static const float min_panel_ratio = 0.05f;
+static const float max_panel_ratio = 0.45f;
+static const float max_combined_panel_ratio = 0.90f;
+static int debug_grid_enabled = 0;
+static const float basis_min_magnitude = 0.0001f;
 
 #ifndef VIEWPORT_VERBOSE_LOGGING
 #define VIEWPORT_VERBOSE_LOGGING 0
@@ -126,35 +126,35 @@ static float ClampFloat(float value, float min_value, float max_value)
 
 void SetViewportTargetLogicalHeight(float logical_height)
 {
-    viewport_target_game_logical_height = ClampFloat(logical_height, viewport_min_target_logical_height, viewport_max_target_logical_height);
+    target_game_logical_height = ClampFloat(logical_height, min_target_logical_height, max_target_logical_height);
 }
 
 void SetViewportUIScaleScalar(int ui_pixels_per_unit_override)
 {
-    viewport_ui_pixels_per_unit_override = ui_pixels_per_unit_override;
+    ui_ppu_override = ui_pixels_per_unit_override;
 }
 
 void SetViewportPanelRatios(float left_panel_ratio, float right_panel_ratio)
 {
-    float left = ClampFloat(left_panel_ratio, viewport_min_panel_ratio, viewport_max_panel_ratio);
-    float right = ClampFloat(right_panel_ratio, viewport_min_panel_ratio, viewport_max_panel_ratio);
+    float left = ClampFloat(left_panel_ratio, min_panel_ratio, max_panel_ratio);
+    float right = ClampFloat(right_panel_ratio, min_panel_ratio, max_panel_ratio);
 
     // Keep enough width for the world region.
-    if ((left + right) > viewport_max_combined_panel_ratio)
+    if ((left + right) > max_combined_panel_ratio)
     {
-        float scale = viewport_max_combined_panel_ratio / (left + right);
+        float scale = max_combined_panel_ratio / (left + right);
         left *= scale;
         right *= scale;
     }
 
-    viewport_left_panel_ratio = left;
-    viewport_right_panel_ratio = right;
+    left_panel_ratio = left;
+    right_panel_ratio = right;
 }
 
 bool SetViewportSpaceBasis(ViewportSpaceId space_id, Vector2d basis_u, Vector2d basis_v)
 {
-    if (VectorMagnitude_2d(basis_u) < viewport_basis_min_magnitude ||
-        VectorMagnitude_2d(basis_v) < viewport_basis_min_magnitude)
+    if (VectorMagnitude_2d(basis_u) < basis_min_magnitude ||
+        VectorMagnitude_2d(basis_v) < basis_min_magnitude)
     {
         return false;
     }
@@ -211,7 +211,7 @@ void ResetViewportSpaceBasis(ViewportSpaceId space_id)
 
 void DrawViewportDebugGrid(void)
 {
-    if (!viewport_debug_grid_enabled)
+    if (!debug_grid_enabled)
     {
         return;
     }
@@ -228,12 +228,12 @@ void DrawViewportDebugGrid(void)
 
 void ToggleViewportDebugGrid(void)
 {
-    viewport_debug_grid_enabled = !viewport_debug_grid_enabled;
+    debug_grid_enabled = !debug_grid_enabled;
 }
 
 int IsViewportDebugGridEnabled(void)
 {
-    return viewport_debug_grid_enabled;
+    return debug_grid_enabled;
 }
 
 Vector2d ResolveGameViewportPixelCenter()
@@ -257,12 +257,12 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
     int screen_pixels_per_unit = game_pixels_per_unit_override;
     if (screen_pixels_per_unit <= 0)
     {
-        screen_pixels_per_unit = (int)roundf((float)screen_height / viewport_target_game_logical_height);
+        screen_pixels_per_unit = (int)roundf((float)screen_height / target_game_logical_height);
         if (screen_pixels_per_unit < 1)
             screen_pixels_per_unit = 1;
     }
 
-    int ui_pixels_per_unit = viewport_ui_pixels_per_unit_override > 0 ? viewport_ui_pixels_per_unit_override : screen_pixels_per_unit;
+    int ui_pixels_per_unit = ui_ppu_override > 0 ? ui_ppu_override : screen_pixels_per_unit;
 
     // Calculate logical screen size
     Vector2d logical_screen = {floorf((float)screen_width / (float)screen_pixels_per_unit),
@@ -280,7 +280,7 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
 
     // LEFT PANEL: origin at 0, width by ratio, full height
     lpanel_viewport.local_origin = ZERO_VECTOR_2D;
-    lpanel_viewport.local_end = (Vector2d){floorf(viewport_left_panel_ratio * logical_screen.x), logical_screen.y};
+    lpanel_viewport.local_end = (Vector2d){floorf(left_panel_ratio * logical_screen.x), logical_screen.y};
     FinalizeViewportRegion(&lpanel_viewport, lpanel_u, lpanel_v, (float)ui_pixels_per_unit, &screen_frame);
 
     // RIGHT PANEL: mirror of left panel at the right edge
@@ -295,13 +295,13 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
     FinalizeViewportRegion(&game_viewport, resolved_u, resolved_v, (float)screen_pixels_per_unit, &screen_frame);
     game_viewport.local_resolution = game_viewport.resolution;
 
-    // BOTTOM ENTITY PANEL: horizontal panel spanning the full screen viewport.
+    // BOTTOM ENTITY PANEL: horizontal panel occupying the area left of the utility panel.
+    float utility_width = fminf(lpanel_viewport.resolution.x, logical_screen.x);
     entity_panel_viewport.local_origin = (Vector2d){0.0f, game_viewport.local_end.y};
-    entity_panel_viewport.local_end = (Vector2d){logical_screen.x, logical_screen.y};
+    entity_panel_viewport.local_end = (Vector2d){logical_screen.x - utility_width, logical_screen.y};
     FinalizeViewportRegion(&entity_panel_viewport, entity_panel_u, entity_panel_v, (float)ui_pixels_per_unit, &screen_frame);
 
-    // UTILITY PANEL: rightmost section of the full-width bottom state-manager band.
-    float utility_width = fminf(lpanel_viewport.resolution.x, logical_screen.x);
+    // UTILITY PANEL: rightmost section of the bottom panel band.
     utility_panel_viewport.local_origin = (Vector2d){
         logical_screen.x - utility_width,
         game_viewport.local_end.y};
@@ -319,5 +319,5 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
            game_viewport.pixel_origin.x, game_viewport.pixel_origin.y,
            rpanel_viewport.pixel_origin.x, rpanel_viewport.pixel_origin.y);
     printf("VIEWPORT SCALE --> GAME_PX_PER_UNIT:%d UI_PX_PER_UNIT:%d TARGET_GAME_H:%.1f\n",
-           screen_pixels_per_unit, ui_pixels_per_unit, viewport_target_game_logical_height);
+           screen_pixels_per_unit, ui_pixels_per_unit, target_game_logical_height);
 }

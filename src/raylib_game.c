@@ -22,6 +22,9 @@
 #include "system/viewport_system.h"
 #include "system/ui/rpanel_system.h"
 #include "system/debug_overlay_system.h"
+#include "editor/geometry_editor.h"
+#include "input/drag_interaction.h"
+#include "input/input_system.h"
 #if defined(PLATFORM_WEB)
 #include <emscripten/emscripten.h>
 #endif
@@ -353,9 +356,16 @@ void UpdateGameplayScreen(void)
 
     int mouse_x = GetMouseX();
     int mouse_y = GetMouseY();
+     InputFrame input = {
+        .pointer_position = {(float)mouse_x, (float)mouse_y},
+        .left_pressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT),
+        .left_down = IsMouseButtonDown(MOUSE_BUTTON_LEFT),
+        .left_released = IsMouseButtonReleased(MOUSE_BUTTON_LEFT),
+        .right_pressed = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT),
+        .right_down = IsMouseButtonDown(MOUSE_BUTTON_RIGHT),
+        .right_released = IsMouseButtonReleased(MOUSE_BUTTON_RIGHT),
+        .wheel_delta = GetMouseWheelMove()};
 
-    UpdateUISystem(mouse_x, mouse_y);
-    UpdateUniverseSystem(mouse_x, mouse_y);
-    UpdateWorldSystem(mouse_x, mouse_y);
+    UpdateInputSystem(&input);
 }
 

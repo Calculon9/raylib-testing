@@ -26,7 +26,6 @@ static View lpanel_edit_entity_view_storage = {0};
 // ============================================================================
 // Visual Style Properties
 // ============================================================================
-static Vector2d lpanel_tfield_padding = {0.03f, 0.03f};
 static Size lpanel_title_tfield_size = {{6.0f, 0.5f}, SIZE_FIXED};
 
 // ============================================================================
@@ -36,42 +35,30 @@ View *lpanel_state_view = {0};
 View *lpanel_edit_entity_view = {0};
 UIElement *lpanel_state_view_cont = {0};
 UIElement *lpanel_edit_view_cont = {0};
-UIElement *lpanel_btn_toggle_view_cont = {0};
-UIElement *lpanel_btn_create_entity_cont = {0};
+UIElement *lpanel_view_selector_cont = {0};
 UIElement *lpanel_edit_entity_tcont = {0};
 static ViewSelector *lpanel_view_selector = NULL;
 
 // ============================================================================
 // Root Layout
 // ============================================================================
-Spacing lpanel_root_child_spacing = {{0.0f, 0.01f}, PERCENT, SPACING_STACKED};
-
 // ============================================================================
 // Toggle Button Layout
 // ============================================================================
-Size lpanel_btn_cont_size = {{1.0f, 0.03f}, SIZE_PERCENT};
-Size lpanel_toggle_button_size = {{0.5f, 1.0f}, SIZE_PERCENT};
-Spacing lpanel_btn_child_spacing = {{0.0f, 0.0f}, NONE, SPACING_INLINE};
-
 // ============================================================================
 // State View Layout
 // ============================================================================
 Offset lpanel_state_view_cont_offset = {{0, 0.0f}, OFFSET_PERCENT};
-Size lpanel_state_view_cont_size = {{1.0f, 1.0f}, SIZE_FILL};
-
 // ============================================================================
 // Edit View Layout
 // ============================================================================
 Offset lpanel_edit_view_cont_offset = {{0, 0.0f}, OFFSET_PERCENT};
-Size lpanel_edit_view_cont_size = {{1.0f, 1.0f}, SIZE_FILL};
 Offset lpanel_edit_entity_tcont_offset = {{0, 0.0}, OFFSET_PERCENT};
 Size lpanel_edit_entity_tcont_size = {{1.0f, 0.50f}, SIZE_PERCENT};
-Offset lpanel_btn_create_entity_cont_offset = {{0.0, 0.0}, OFFSET_PERCENT};
-Offset lpanel_btn_delete_entity_cont_offset = {{0.0, 0.0}, OFFSET_PERCENT};
 
-void InitPanelStateView(void);
-void InitPanelEditView(void);
-void InitPanelToggleButtons(void);
+void InitLPanelStateView(void);
+void InitLPanelEditView(void);
+void InitLPanelViewSelector(void);
 void InitEntityEditorContainer(void);
 
 static void InitEntityCreateDefaults(void)
@@ -82,6 +69,7 @@ static void InitEntityCreateDefaults(void)
     }
 
     Newtonoid2dParams *params = G_UIState.newtonoid_params;
+    params->shape_type = SHAPE_AUTO;
     params->vertice_count = 4;
     params->width = 1.0f;
     params->height = 1.0f;
@@ -89,12 +77,12 @@ static void InitEntityCreateDefaults(void)
     params->coords_center = ZERO_VECTOR_2D;
     params->velocity = ZERO_VECTOR_2D;
 
-    WriteTextboxInt(G_UIState.lpanel_entity_edit_vertice_count_tbox, params->vertice_count);
-    WriteTextboxFloat(G_UIState.lpanel_entity_edit_width_tbox, params->width, 2);
-    WriteTextboxFloat(G_UIState.lpanel_entity_edit_height_tbox, params->height, 2);
-    WriteTextboxFloat(G_UIState.lpanel_entity_edit_mass_tbox, params->mass, 2);
-    WriteTextboxVectorPair(G_UIState.lpanel_entity_edit_pos_c_tbox, params->coords_center);
-    WriteTextboxVectorPair(G_UIState.lpanel_entity_edit_vel_tbox, params->velocity);
+    WriteTextboxInt(G_UIState.edit_vertice_count_tbox, params->vertice_count);
+    WriteTextboxFloat(G_UIState.edit_width_tbox, params->width, 2);
+    WriteTextboxFloat(G_UIState.edit_height_tbox, params->height, 2);
+    WriteTextboxFloat(G_UIState.edit_mass_tbox, params->mass, 2);
+    WriteTextboxVectorPair(G_UIState.edit_pos_c_tbox, params->coords_center);
+    WriteTextboxVectorPair(G_UIState.edit_vel_tbox, params->velocity);
 }
 
 static void HandleLPanelViewSelected(View *view)
@@ -109,7 +97,7 @@ void InitLPanel()
 {
     // Create panel system
     lpanel = PanelSystem_Create(&lpanel_viewport, 1.0f, (Vector2d){0.1f, 0.1f},
-                                &ui_default_palette, lpanel_root_child_spacing);
+                                &ui_default_palette, ui_standard_stack_spacing);
     if (!lpanel)
     {
         return;
@@ -126,94 +114,91 @@ void InitLPanel()
     lpanel_edit_entity_view = &lpanel_edit_entity_view_storage;
     
     // Build panel-specific UI
-    InitPanelToggleButtons();
-    InitPanelStateView();
-    InitPanelEditView();
+    InitLPanelViewSelector();
+    InitLPanelStateView();
+    InitLPanelEditView();
     PanelSystem_SelectView(lpanel_view_selector, 0);
 
     // Initial layout update
     UpdateUISpace(lpanel->root, lpanel->seed_box);
 }
 
-void InitPanelStateView(void)
+void InitLPanelStateView(void)
 {
-    lpanel_state_view_cont = CreateUIContainer(lpanel->root, lpanel_state_view_cont_size,
+    lpanel_state_view_cont = CreateUIContainer(lpanel->root, ui_fill_container_size,
                                                   lpanel_state_view_cont_offset, ZERO_VECTOR_2D,
                                                   lpanel->palette, UI_PALETTE_SURFACE_TRANSPARENT,
-                                                  cont_default_child_spacing, false, true);
+                                                  ui_standard_stack_spacing, false, true);
     PanelSystem_AddView(lpanel, lpanel_state_view, lpanel_state_view_cont, LPANEL_STATE_VIEW);
 }
 
-void InitPanelEditView(void)
+void InitLPanelEditView(void)
 {
-    lpanel_edit_view_cont = CreateUIContainer(lpanel->root, lpanel_edit_view_cont_size,
+    // Create View's container & register the View
+    lpanel_edit_view_cont = CreateUIContainer(lpanel->root, ui_fill_container_size,
                                                  lpanel_edit_view_cont_offset, ZERO_VECTOR_2D,
                                                  lpanel->palette, UI_PALETTE_SURFACE_TRANSPARENT,
-                                                 cont_default_child_spacing, false, false);
+                                                 ui_standard_stack_spacing, false, false);
     PanelSystem_AddView(lpanel, lpanel_edit_entity_view, lpanel_edit_view_cont, LPANEL_EDIT_ENTITY_VIEW);
-    InitEntityEditorContainer();
-}
 
-void InitPanelToggleButtons(void)
-{
-    lpanel_btn_toggle_view_cont = CreateUIContainer(lpanel->root, lpanel_btn_cont_size,
-                                                       (Offset){{0.0, 0.0}, OFFSET_PERCENT},
-                                                       ZERO_VECTOR_2D, lpanel->palette,
-                                                       UI_PALETTE_SURFACE_TRANSPARENT,
-                                                       lpanel_btn_child_spacing,
-                                                       false, true);
-    lpanel_btn_toggle_view_cont->colour_border = lpanel->palette->container_border;
-    const char *labels[] = {"STATE", "CREATE"};
-    lpanel_view_selector = PanelSystem_CreateViewSelector(
-        lpanel, lpanel_btn_toggle_view_cont, lpanel_toggle_button_size,
-        labels, sizeof(labels) / sizeof(labels[0]), HandleLPanelViewSelected);
-}
-
-void InitEntityEditorContainer(void)
-{
+    // Customise the View
     lpanel_edit_entity_tcont = CreateUIContainer(
         lpanel_edit_view_cont, lpanel_edit_entity_tcont_size,
-        lpanel_edit_entity_tcont_offset, tcont_default_padding,
+        lpanel_edit_entity_tcont_offset, ui_standard_container_padding,
         lpanel->palette, UI_PALETTE_SURFACE_CONTAINER,
-        tcont_default_child_spacing, true, true);
+        ui_standard_stack_spacing, true, true);
 
     CreateUILabelTitleDefault(lpanel_edit_entity_tcont, "Object Create",
-                         lpanel_title_tfield_size, lpanel_tfield_padding,
+                         lpanel_title_tfield_size, ui_standard_field_padding,
                          lpanel->palette);
 
     const UIFieldSpec edit_specs[] = {
-        {"Vertices", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, INT, &G_UIState.lpanel_entity_edit_vertice_count_tbox, NULL},
-        {"Width", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, FLOAT, &G_UIState.lpanel_entity_edit_width_tbox, NULL},
-        {"Height", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, FLOAT, &G_UIState.lpanel_entity_edit_height_tbox, NULL},
-        {"Mass", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, FLOAT, &G_UIState.lpanel_entity_edit_mass_tbox, NULL},
-        {"Pos.c", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, FLOAT, &G_UIState.lpanel_entity_edit_pos_c_tbox, NULL},
-        {"Vel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, VECTOR2D, &G_UIState.lpanel_entity_edit_vel_tbox, NULL},
-        {"Acc", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, VECTOR2D, &G_UIState.lpanel_entity_edit_accel_tbox, NULL},
-        {"Moment", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_default_control_size, VECTOR2D, &G_UIState.lpanel_entity_edit_moment_tbox, NULL},
+        {"Vertices", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, INT, &G_UIState.edit_vertice_count_tbox, NULL},
+        {"Width", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_width_tbox, NULL},
+        {"Height", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_height_tbox, NULL},
+        {"Mass", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_mass_tbox, NULL},
+        {"Pos.c", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_pos_c_tbox, NULL},
+        {"Vel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.edit_vel_tbox, NULL},
+        {"Acc", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.edit_accel_tbox, NULL},
+        {"Moment", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.edit_moment_tbox, NULL},
     };
     InitUIFields(lpanel_edit_entity_tcont, edit_specs,
-                    sizeof(edit_specs) / sizeof(edit_specs[0]), lpanel_tfield_padding,
+                    sizeof(edit_specs) / sizeof(edit_specs[0]), ui_standard_field_padding,
                     lpanel->palette);
 
-    BindTextboxData(G_UIState.lpanel_entity_edit_vertice_count_tbox, INT, &G_UIState.newtonoid_params->vertice_count);
-    BindTextboxData(G_UIState.lpanel_entity_edit_width_tbox, FLOAT, &G_UIState.newtonoid_params->width);
-    BindTextboxData(G_UIState.lpanel_entity_edit_height_tbox, FLOAT, &G_UIState.newtonoid_params->height);
-    BindTextboxData(G_UIState.lpanel_entity_edit_mass_tbox, FLOAT, &G_UIState.newtonoid_params->mass);
-    BindTextboxData(G_UIState.lpanel_entity_edit_pos_c_tbox, VECTOR2D, &G_UIState.newtonoid_params->coords_center);
-    BindTextboxData(G_UIState.lpanel_entity_edit_vel_tbox, VECTOR2D, &G_UIState.newtonoid_params->velocity);
+    BindTextboxData(G_UIState.edit_vertice_count_tbox, INT, &G_UIState.newtonoid_params->vertice_count);
+    BindTextboxData(G_UIState.edit_width_tbox, FLOAT, &G_UIState.newtonoid_params->width);
+    BindTextboxData(G_UIState.edit_height_tbox, FLOAT, &G_UIState.newtonoid_params->height);
+    BindTextboxData(G_UIState.edit_mass_tbox, FLOAT, &G_UIState.newtonoid_params->mass);
+    BindTextboxData(G_UIState.edit_pos_c_tbox, VECTOR2D, &G_UIState.newtonoid_params->coords_center);
+    BindTextboxData(G_UIState.edit_vel_tbox, VECTOR2D, &G_UIState.newtonoid_params->velocity);
     InitEntityCreateDefaults();
 
-    lpanel_btn_create_entity_cont = CreateUIContainer(
-        lpanel_edit_entity_tcont, ui_default_control_size,
-        lpanel_btn_create_entity_cont_offset, ZERO_VECTOR_2D,
-        lpanel->palette, UI_PALETTE_SURFACE_TRANSPARENT,
-        lpanel_btn_child_spacing, false, true);
-
-    CreateUIButtonDefault(lpanel_btn_create_entity_cont, UI_ELEMENT_BUTTON_SUBMIT,
-                             "CREATE", btn_default_size, btn_default_padding,
+    CreateUIButtonDefault(lpanel_edit_entity_tcont, UI_ELEMENT_BUTTON_SUBMIT,
+                             "CREATE", ui_standard_button_size, ui_standard_button_padding,
                              lpanel->palette, HandleBtnSubmitClick,
                              &btn_action_create_entity, NULL);
 }
+
+void InitLPanelViewSelector(void)
+{
+    lpanel_view_selector_cont = CreateUIContainer(lpanel->root, ui_standard_selector_container_size,
+                                                       (Offset){{0.0, 0.0}, OFFSET_PERCENT},
+                                                       ZERO_VECTOR_2D, lpanel->palette,
+                                                       UI_PALETTE_SURFACE_TRANSPARENT,
+                                                       ui_zero_inline_spacing,
+                                                       false, true);
+    lpanel_view_selector_cont->colour_border = lpanel->palette->container_border;
+    const char *labels[] = {"STATE", "CREATE"};
+    lpanel_view_selector = PanelSystem_CreateViewSelector(
+        lpanel, lpanel_view_selector_cont, ui_standard_selector_button_size,
+        labels, sizeof(labels) / sizeof(labels[0]), HandleLPanelViewSelected);
+}
+
+// void InitEntityEditorContainer(void)
+// {
+    
+// }
 
 void DrawLPanel(void)
 {

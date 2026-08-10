@@ -104,8 +104,8 @@ typedef struct Newtonoid2d
     uint32_t entity_flags;   // What AM I? (e.g., LAYER_PROJECTILE)
     uint32_t collision_mask; // What can I HIT? (e.g., LAYER_ENEMY | LAYER_WALL)
     uint32_t status_flags;   // Runtime status flags (e.g., FLAG_POISONED)
-    int id;                  // Unique entity ID
-    int parent_id;           // Parent entity ID (-1 if root)
+    EntityId id;             // Universal entity ID
+    EntityId parent_id;      // Parent entity ID (INVALID_ENTITY_ID if root)
 } Newtonoid2d;
 
 typedef struct Newtonoid2dParams
@@ -120,6 +120,7 @@ typedef struct Newtonoid2dParams
     float height;
     // int edge_count;
     int vertice_count;
+    ShapeType shape_type;
     ColourRgba line_colour;
     ColourRgba fill_colour;
     Surface2d surface;
@@ -132,8 +133,8 @@ typedef struct Newtonoid2d_Static
     Surface2d surface;
     float mass;
     float inverse_mass;
-    int id;
-    int parent_id;
+    EntityId id;
+    EntityId parent_id;
 } Newtonoid2d_Static;
 
 typedef enum

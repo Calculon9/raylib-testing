@@ -8,6 +8,7 @@ QUEUE MODULE
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include "common/entity_id.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
@@ -21,7 +22,7 @@ QUEUE MODULE
 // Individual slot node
 typedef struct FlatMapIntEntry
 {
-    int key;       // Native integer ID key
+    EntityId key;  // Entity identity or integer index key
     int value;     // Associated integer value
     uint8_t state; // Slot state tracker (empty/occupied/deleted)
 } FlatMapIntEntry;
@@ -49,10 +50,10 @@ typedef struct FlatMapInt
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 FlatMapInt *AllocFlatMapInt(int capacity);
-bool FlatMapInt_InsertOrUpdate(FlatMapInt *m, int key, int value);
+bool FlatMapInt_InsertOrUpdate(FlatMapInt *m, EntityId key, int value);
 FlatMapInt MakeFlatMapInt(int capacity);
-bool FlatMapInt_GetValue(FlatMapInt *m, int key, int *out_value);
-bool FlatMapInt_DeactivateSlot(FlatMapInt *m, int key);
+bool FlatMapInt_GetValue(FlatMapInt *m, EntityId key, int *out_value);
+bool FlatMapInt_DeactivateSlot(FlatMapInt *m, EntityId key);
 void DisposeFlatMapInt(FlatMapInt *m);
 void ClearFlatMapInt(FlatMapInt *m);
 void ResetFlatMapInt(FlatMapInt *m);

@@ -34,11 +34,18 @@ typedef enum {
 } ShapeLayoutType;
 
 typedef enum {
-    SHAPE_MATH_EQUIDISTANT, // A Primitive shape with uniform radius (Circles, regular hexagons, squares)
+    SHAPE_AUTO,
+    SHAPE_TRIANGLE,
+    SHAPE_SQUARE,
     SHAPE_CIRCLE,
-    SHAPE_BOX,
-    SHAPE_MATH_POLY_HULL    // Asymmetric/Irregular shapes requiring full vertex-edge checking loops. Tells the collision resolver: "Use the SAT/GJK loop!"
+    SHAPE_POLYGON,
+    SHAPE_RECTANGLE
 } ShapeType;
+
+typedef enum {
+    SHAPE_BUILD_REGULAR,
+    SHAPE_BUILD_IRREGULAR
+} ShapeBuildType;
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)

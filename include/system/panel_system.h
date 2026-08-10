@@ -20,6 +20,7 @@ typedef struct UIPalette UIPalette;
 // Forward declarations
 typedef struct ViewportRegion ViewportRegion;
 typedef struct ViewSelector ViewSelector;
+typedef struct ViewSwitcher ViewSwitcher;
 
 typedef void (*ViewSelectionCallback)(View *view);
 
@@ -60,6 +61,11 @@ struct ViewSelector {
     ViewSelectionCallback on_view_selected;
 };
 
+struct ViewSwitcher {
+    PanelSystem *panel;
+    size_t active_index;
+};
+
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
@@ -77,11 +83,29 @@ void PanelSystem_InitViews(PanelSystem *panel, size_t view_count);
 // Register an existing view storage object with its container and type.
 bool PanelSystem_AddView(PanelSystem *panel, View *view, UIElement *container, ViewType type);
 
+// Create a view switcher for the panel's registered views.
+ViewSwitcher *PanelSystem_CreateViewSwitcher(PanelSystem *panel);
+
+// Select a view and update the enabled state of all registered view containers.
+bool PanelSystem_SwitchView(ViewSwitcher *switcher, size_t view_index);
+
+// Get the switcher's currently active view, or NULL if no view is active.
+View *PanelSystem_GetActiveView(ViewSwitcher *switcher);
+
+// Destroy a button-free view switcher.
+void PanelSystem_DestroyViewSwitcher(ViewSwitcher *switcher);
+
 // Create buttons that select views in the panel's view array.
 ViewSelector *PanelSystem_CreateViewSelector(PanelSystem *panel, UIElement *parent,
                                                   Size button_size, const char *labels[],
                                                   size_t count,
                                                   ViewSelectionCallback on_view_selected);
+
+// Create hover items that select views when the cursor enters them.
+ViewSelector *PanelSystem_CreateHoverViewSelector(PanelSystem *panel, UIElement *parent,
+                                                       Size item_size, const char *labels[],
+                                                       size_t count,
+                                                       ViewSelectionCallback on_view_selected);
 
 // Select a view and update the selector's active button styling.
 bool PanelSystem_SelectView(ViewSelector *selector, size_t view_index);

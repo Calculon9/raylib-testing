@@ -12,11 +12,11 @@ FONT MODULE
 //----------------------------------------------------------------------------------
 #define FONT_BASIC (Bitmap_Font){.bitmap = font8x8_bitmap_basic_6x7, .bitmap_width = 7, .bitmap_shift = 0, .spacing = -2, .scale = 2, .colour = COLOUR_UI_INK_RGBA}
 #define FONT_BASIC_WITH_COLOUR(text_colour) (Bitmap_Font){.bitmap = font8x8_bitmap_basic_6x7, .bitmap_width = 7, .bitmap_shift = 0, .spacing = -2, .scale = 2, .colour = (text_colour)}
-#define FONT_MEDIUM (Bitmap_Font){.bitmap = font8x8_bitmap_basic_5x6, .bitmap_width = 5, .bitmap_shift = 2, .spacing = -2, .scale = 2, .colour = COLOUR_UI_INK_RGBA}
-#define FONT_MEDIUM_WITH_COLOUR(text_colour) (Bitmap_Font){.bitmap = font8x8_bitmap_basic_5x6, .bitmap_width = 5, .bitmap_shift = 2, .spacing = -2, .scale = 2, .colour = (text_colour)}
-#define FONT_SMALL (Bitmap_Font){.bitmap = font8x8_bitmap_basic_5x5, .bitmap_width = 5, .bitmap_shift = 2, .spacing = -3, .scale = 2, .colour = COLOUR_UI_INK_RGBA}
-#define FONT_SMALL_WITH_COLOUR(text_colour) (Bitmap_Font){.bitmap = font8x8_bitmap_basic_5x5, .bitmap_width = 5, .bitmap_shift = 2, .spacing = -3, .scale = 2, .colour = (text_colour)}
-#define FONT_BASIC_S FONT_SMALL
+#define FONT_LARGE (Bitmap_Font){.bitmap = font8x8_bitmap_basic_5x6, .bitmap_width = 5, .bitmap_shift = 2, .spacing = -2, .scale = 2, .colour = COLOUR_UI_INK_RGBA}
+#define FONT_LARGE_WITH_COLOUR(text_colour) (Bitmap_Font){.bitmap = font8x8_bitmap_basic_5x6, .bitmap_width = 5, .bitmap_shift = 2, .spacing = -2, .scale = 2, .colour = (text_colour)}
+#define FONT_MEDIUM (Bitmap_Font){.bitmap = font8x8_bitmap_basic_5x5, .bitmap_width = 5, .bitmap_shift = 2, .spacing = -3, .scale = 2, .colour = COLOUR_UI_INK_RGBA}
+#define FONT_MEDIUM_WITH_COLOUR(text_colour) (Bitmap_Font){.bitmap = font8x8_bitmap_basic_5x5, .bitmap_width = 5, .bitmap_shift = 2, .spacing = -3, .scale = 2, .colour = (text_colour)}
+#define FONT_BASIC_S FONT_MEDIUM
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition

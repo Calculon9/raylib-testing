@@ -8,6 +8,8 @@ SYSTEMS MODULE
 #include "common/common.h"
 #include "math/coordinate_space.h"
 #include "camera/camera.h"
+#include "input/drag_interaction.h"
+#include "input/pointer_input.h"
 #include "raylib.h"
 #include "system/utility_system.h"
 #include "system/viewport_system.h"
@@ -63,7 +65,7 @@ FrameCounter InitFrameCounter();
 void UpdateUtilities();
 void UpdateFrameCounter(FrameCounter *fc);
 size_t GetCurrentMemoryAllocated();
-void *GetEntityByID(World2d *world, int entity_id);
+void *GetEntityByID(World2d *world, EntityId entity_id);
 //----------------------------------------------------------------------------------
 // UI Functions Declaration
 //----------------------------------------------------------------------------------
@@ -75,20 +77,20 @@ void DrawLPanel(void);
 void DrawRPanel(void);
 void DrawUtilityPanel(void);
 UIElement *GetUtilityPanelRoot(void);
-void UpdateUISystem(int mouse_x, int mouse_y);
+InputRouteResult UpdateUISystem(const InputFrame *input);
 void DrawUI(void);
-void ProcessUIInput(int mouse_x, int mouse_y, bool cursor_in_region);
+void ProcessUIInput(const InputFrame *input, bool cursor_in_region);
 void HandleBtnSwitchClick(UIElement *target);
 void HandleBtnEnumerateClick(UIElement *btn);
 void HandleBtnSubmitClick(UIElement *btn);
 //----------------------------------------------------------------------------------
 // World Functions Declaration
 //----------------------------------------------------------------------------------
-void UpdateWorldSystem(int mouse_x, int mouse_y);
+InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult prior_result);
 int GetNewtonoidCount(void);
 void InitWorldSystem(void);
 void InitUniverseSystem(void);
-void UpdateUniverseSystem(int mouse_x, int mouse_y);
+InputRouteResult UpdateUniverseSystem(const InputFrame *input, InputRouteResult prior_result);
 void DrawWorldRegion(World2d *world, Camera2d *universe_camera);
 Newtonoid2d *ResolveEntityParamsToEntity(Newtonoid2dParams *newtonoid_params);
 //----------------------------------------------------------------------------------

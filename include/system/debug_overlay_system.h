@@ -13,10 +13,14 @@ typedef enum DebugOverlayId
 {
     DEBUG_DASHBOARD = 0,
     DEBUG_VIEWPORT_GRID,
+    DEBUG_WORLD_GRID,
     DEBUG_WORLD_GRID_LABELS,
     DEBUG_UNIVERSE_GRID_LABELS,
+    DEBUG_UI_BORDERS,
     DEBUG_COUNT
 } DebugOverlayId;
+
+extern bool ui_borders_enabled;
 
 void ToggleDebug(DebugOverlayId overlay_id);
 int IsDebugEnabled(DebugOverlayId overlay_id);

@@ -35,10 +35,10 @@ UIElement *CreateUILabelTitleDefault(UIElement *parent, const char *text,
 UIElement *CreateUILabeledField(UIElement *parent, const char *label_text,
                                 UIElementType input_type, Size row_size,
                                 Size textbox_size, Vector2d row_padding,
-                                Vector2d label_offset, ColourRgba row_border,
-                                ColourRgba row_fill, Vector2d cell_padding,
+                                ColourRgba row_border, ColourRgba row_fill,
+                                Vector2d cell_padding,
                                 ColourRgba cell_border, ColourRgba cell_fill,
-                                Bitmap_Font font);
+                                Bitmap_Font label_font, Bitmap_Font font);
 
 UIElement *CreateUILabeledFieldDefault(UIElement *parent, const char *label_text,
                                        UIElementType input_type, Size row_size,
@@ -57,6 +57,12 @@ UIElement *CreateUIButtonDefault(UIElement *parent, UIElementType type,
                                  Vector2d padding, const UIPalette *palette,
                                  UIEventHandler on_click,
                                  void *user_data, void *data_bind);
+
+UIElement *CreateUIHoverItemDefault(UIElement *parent, const char *text,
+                                    Size size, Vector2d padding,
+                                    const UIPalette *palette,
+                                    UIEventHandler on_hover,
+                                    void *user_data);
 
 UIElement *CreateUIContainer(UIElement *parent, Size size, Offset offset,
                              Vector2d padding, const UIPalette *palette,

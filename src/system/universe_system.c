@@ -14,13 +14,13 @@ UNIVERSE SYSTEM MODULE
 #include "system/universe_system.h"
 #include "system/viewport_system.h"
 #include "system/debug_overlay_system.h"
-#include "system/drag_interaction.h"
+#include "input/drag_interaction.h"
 #include "system/systems.h"
 #include "system/ui/popup_menu.h"
 
 static int create_world_auto_select = 0;
-static bool universe_camera_diagnostic_printed = false;
-static bool world_click_pending = false;
+static bool camera_diagnostic_printed = false;
+static bool click_pending = false;
 ColourRgba camera_marker_colour = COLOUR_GAME_TEAL_RGBA;
 Frame2d universe_frame = {0};
 FrameTunnel universe_tunnel = {0};
@@ -119,15 +119,23 @@ void InitUniverseSystem(void)
     CreateNewWorld(false);
 }
 
-void UpdateUniverseSystem(int mouse_x, int mouse_y)
+InputRouteResult UpdateUniverseSystem(const InputFrame *input, InputRouteResult prior_result)
 {
+    if (!input || prior_result != INPUT_ROUTE_IGNORED)
+    {
+        return prior_result;
+    }
+
+    int mouse_x = (int)input->pointer_position.x;
+    int mouse_y = (int)input->pointer_position.y;
+
     Matrix3x3 root_world_to_pixel = BuildCameraToScreenMatrix();
     bool cursor_in_game_viewport = mouse_x >= game_viewport.pixel_origin.x &&
                                    mouse_x <= (game_viewport.pixel_origin.x + (game_viewport.pixel_u.x * game_viewport.resolution.x)) &&
                                    mouse_y >= game_viewport.pixel_origin.y &&
                                    mouse_y <= (game_viewport.pixel_origin.y + (game_viewport.pixel_v.y * game_viewport.resolution.y));
 
-    if (!universe_camera_diagnostic_printed)
+    if (!camera_diagnostic_printed)
     {
         Vector2d game_viewport_local_centre = ResolveGameViewportLocalCenter();
         Vector2d game_viewport_pixel_centre = TransformCoordinates(root_world_to_pixel, game_viewport_local_centre);
@@ -136,28 +144,50 @@ void UpdateUniverseSystem(int mouse_x, int mouse_y)
                  G_Universe.camera.source_focus_coords.x, G_Universe.camera.source_focus_coords.y,
                  game_viewport_pixel_centre.x, game_viewport_pixel_centre.y,
                  game_viewport_local_centre.x, game_viewport_local_centre.y);
-        universe_camera_diagnostic_printed = true;
+        camera_diagnostic_printed = true;
     }
 
-    UpdateUniverseInput(mouse_x, mouse_y, cursor_in_game_viewport);
+    UpdateUniverseInput(input, cursor_in_game_viewport);
+    DragInteractionState *game_drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
+    if (game_drag_ctx->has_capture &&
+        game_drag_ctx->target_kind == DRAG_TARGET_WORLD_CONTAINER)
+    {
+        return INPUT_ROUTE_CAPTURED;
+    }
+
+    if (input->left_pressed || input->left_released)
+    {
+        return INPUT_ROUTE_HANDLED;
+    }
+
+    return INPUT_ROUTE_IGNORED;
 }
 
-void UpdateUniverseInput(int mouse_x, int mouse_y, bool cursor_in_game_viewport)
+void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
 {
+    if (!input)
+    {
+        return;
+    }
+
     Matrix3x3 pixel_to_world = MatrixInvert_3x3(BuildCameraToScreenMatrix());
     DragInteractionState *game_drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
-    Vector2d mouse_pixel_coords = {(float)mouse_x, (float)mouse_y};
+    Vector2d mouse_pixel_coords = input->pointer_position;
 
     if (cursor_in_game_viewport)
     {
-        float wheel_move = GetMouseWheelMove();
+        float wheel_move = input->wheel_delta;
         Vector2d pan_delta = ZERO_VECTOR_2D;
         float current_speed = cam_ctrl.base_pan_speed / cam_ctrl.target_zoom;
 
-        if (IsKeyDown(KEY_UP)) pan_delta.y -= current_speed;
-        if (IsKeyDown(KEY_DOWN)) pan_delta.y += current_speed;
-        if (IsKeyDown(KEY_LEFT)) pan_delta.x -= current_speed;
-        if (IsKeyDown(KEY_RIGHT)) pan_delta.x += current_speed;
+        if (IsKeyDown(KEY_W))
+            pan_delta.y -= current_speed;
+        if (IsKeyDown(KEY_S))
+            pan_delta.y += current_speed;
+        if (IsKeyDown(KEY_A))
+            pan_delta.x -= current_speed;
+        if (IsKeyDown(KEY_D))
+            pan_delta.x += current_speed;
 
         if (pan_delta.x != 0.0f || pan_delta.y != 0.0f)
         {
@@ -166,35 +196,23 @@ void UpdateUniverseInput(int mouse_x, int mouse_y, bool cursor_in_game_viewport)
 
         if (IsKeyDown(KEY_LEFT_CONTROL))
         {
-            if (wheel_move > 0.0f) cam_ctrl.target_zoom *= cam_ctrl.zoom_speed;
-            else if (wheel_move < 0.0f) cam_ctrl.target_zoom /= cam_ctrl.zoom_speed;
+            if (wheel_move > 0.0f)
+                cam_ctrl.target_zoom *= cam_ctrl.zoom_speed;
+            else if (wheel_move < 0.0f)
+                cam_ctrl.target_zoom /= cam_ctrl.zoom_speed;
         }
 
         if (IsKeyDown(KEY_LEFT_SHIFT))
         {
-            if (wheel_move > 0.0f) Controller_Rotate(&cam_ctrl, -0.05f);
-            else if (wheel_move < 0.0f) Controller_Rotate(&cam_ctrl, 0.05f);
-        }
-
-        if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
-        {
-            if (IsPopupMenuVisible())
-            {
-                HidePopupMenu();
-            }
-            else
-            {
-                Vector2d popup_position = TransformCoordinates(
-                    game_viewport.tunnel.dest_to_source_mtx, mouse_pixel_coords);
-                ShowPopupMenu(popup_position);
-            }
+            if (wheel_move > 0.0f)
+                Controller_Rotate(&cam_ctrl, -0.05f);
+            else if (wheel_move < 0.0f)
+                Controller_Rotate(&cam_ctrl, 0.05f);
         }
     }
 
-    if (G_Universe.selected_world_index < 0 && cursor_in_game_viewport && IsMouseButtonDown((int)MOUSE_BUTTON_LEFT))
+    if (G_Universe.selected_world_index < 0 && cursor_in_game_viewport && input->left_down)
     {
-        DragInteraction_UpdateButtonDown(game_drag_ctx, mouse_pixel_coords);
-
         if (game_drag_ctx->pointer_state.left_button_hold_ticks == 1)
         {
             Vector2d click_universe_coords = TransformCoordinates(pixel_to_world, mouse_pixel_coords);
@@ -212,7 +230,7 @@ void UpdateUniverseInput(int mouse_x, int mouse_y, bool cursor_in_game_viewport)
         }
 
         if (game_drag_ctx->has_capture && game_drag_ctx->target_kind == DRAG_TARGET_WORLD_CONTAINER &&
-            DragInteraction_IsDragActive(game_drag_ctx, 5.0f))
+            DragInteraction_IsDragActive(game_drag_ctx, INPUT_DRAG_THRESHOLD_PIXELS))
         {
             World2d *world = (World2d *)game_drag_ctx->target;
             if (world)
@@ -226,19 +244,21 @@ void UpdateUniverseInput(int mouse_x, int mouse_y, bool cursor_in_game_viewport)
     }
     else if (G_Universe.selected_world_index < 0 && game_drag_ctx->pointer_state.left_button_hold_ticks > 0)
     {
-        bool was_click = DragInteraction_IsClick(game_drag_ctx, 20, 5.0f);
+        bool was_click = DragInteraction_IsClick(game_drag_ctx, INPUT_CLICK_MAX_HOLD_TICKS,
+                              INPUT_DRAG_THRESHOLD_PIXELS);
         if (was_click && cursor_in_game_viewport)
         {
             Vector2d click_universe_coords = TransformCoordinates(pixel_to_world, mouse_pixel_coords);
             bool world_hit = Universe_ResolveClick(&G_Universe, click_universe_coords, NULL);
-            if (!world_hit) G_Universe.selected_world_index = -1;
-            else world_click_pending = true;
+            if (!world_hit)
+                G_Universe.selected_world_index = -1;
+            else
+                click_pending = true;
             SyncWorldStateFromSelection();
         }
 
-        DragInteraction_UpdateButtonUp(game_drag_ctx);
     }
-    else if (G_Universe.selected_world_index >= 0 && IsMouseButtonPressed((int)MOUSE_BUTTON_LEFT) && cursor_in_game_viewport)
+    else if (G_Universe.selected_world_index >= 0 && input->left_pressed && cursor_in_game_viewport)
     {
         Vector2d click_universe_coords = TransformCoordinates(pixel_to_world, mouse_pixel_coords);
         if (!Universe_ResolveClick(&G_Universe, click_universe_coords, NULL))
@@ -261,8 +281,30 @@ void DrawUniverse(void)
 int CreateNewWorld(bool auto_select)
 {
     int index = Universe_CreateWorld(&G_Universe, COLOUR_GAME_PARCHMENT_RGBA, COLOUR_GAME_OLIVE_RGBA,
-                                     camera_marker_colour, G_Universe.next_spawn,
-                                     auto_select);
+                                     camera_marker_colour, G_Universe.next_spawn, auto_select);
+    if (index >= 0 && auto_select)
+    {
+        SyncWorldStateFromSelection();
+    }
+    return index;
+}
+
+int CreateNewWorld_Preset(bool auto_select, CoordinateSpacePreset preset)
+{
+    Vector2d previous_resolution = G_Universe.next_resolution;
+    Vector2d previous_basis_u = G_Universe.next_basis_u;
+    Vector2d previous_basis_v = G_Universe.next_basis_v;
+
+    G_Universe.next_resolution = preset.resolution;
+    G_Universe.next_basis_u = preset.basis.u;
+    G_Universe.next_basis_v = preset.basis.v;
+
+    int index = CreateNewWorld(auto_select);
+
+    G_Universe.next_resolution = previous_resolution;
+    G_Universe.next_basis_u = previous_basis_u;
+    G_Universe.next_basis_v = previous_basis_v;
+
     if (index >= 0 && auto_select)
     {
         SyncWorldStateFromSelection();
@@ -304,7 +346,7 @@ int *GetNextWorldObjectCountPtr(void) { return &G_Universe.next_object_count; }
 
 bool ConsumeUniverseWorldClick(void)
 {
-    bool pending = world_click_pending;
-    world_click_pending = false;
+    bool pending = click_pending;
+    click_pending = false;
     return pending;
 }

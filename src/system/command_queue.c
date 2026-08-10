@@ -106,8 +106,8 @@ void ProcessCommandQueue(void)
 
                 if (world)
                 {
-                    int entity_id = AddObjectToWorld(world, new_entity, world->grid_space.object.id);
-                    if (entity_id >= 0)
+                    EntityId entity_id = AddObjectToWorld(world, new_entity, world->grid_space.object.id);
+                    if (entity_id != INVALID_ENTITY_ID)
                     {
                         added_to_world = true;
                         Newtonoid2d *spawned = GetEntityByID(world, entity_id);
@@ -140,7 +140,7 @@ void ProcessCommandQueue(void)
             if (G_UIState.selected_object)
             {
                 World2d *world = Universe_GetSelectedWorld(&G_Universe);
-                int entity_id = G_UIState.selected_object->id;
+                EntityId entity_id = G_UIState.selected_object->id;
                 DeregisterEntity(world, entity_id);
                 G_UIState.selected_object = NULL;
                 LOG_INFO("Processed CMD_DELETE_ENTITY -> deleted id=%d\n", entity_id);

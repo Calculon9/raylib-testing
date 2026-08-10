@@ -6,10 +6,10 @@
 
 //----------------------------------------------------------------------------------
 // Global Variables Definition (local to this module)
-static unsigned long CalcIntHash(int key, int capacity);
+static unsigned long CalcIntHash(EntityId key, int capacity);
 static bool GrowFlatMapInt(FlatMapInt *m);
 
-static unsigned long CalcIntHash(int key, int capacity)
+static unsigned long CalcIntHash(EntityId key, int capacity)
 {
     // Scramble the integer bits so sequential IDs distribute beautifully
     unsigned long hash = (unsigned long)key * 2654435761UL;
@@ -58,7 +58,7 @@ FlatMapInt MakeFlatMapInt(int capacity)
     return m;
 }
 
-bool FlatMapInt_GetValue(FlatMapInt *m, int key, int *out_value)
+bool FlatMapInt_GetValue(FlatMapInt *m, EntityId key, int *out_value)
 {
     // Safety Guardrails
     if (m == NULL || out_value == NULL)
@@ -102,7 +102,7 @@ bool FlatMapInt_GetValue(FlatMapInt *m, int key, int *out_value)
     return false;
 }
 
-bool FlatMapInt_DeactivateSlot(FlatMapInt *m, int key)
+bool FlatMapInt_DeactivateSlot(FlatMapInt *m, EntityId key)
 {
     // Safety Guardrails
     if (m == NULL)
@@ -153,7 +153,7 @@ bool FlatMapInt_DeactivateSlot(FlatMapInt *m, int key)
 }
 
 // Inserting or Updating an int only for now
-bool FlatMapInt_InsertOrUpdate(FlatMapInt *m, int key, int value)
+bool FlatMapInt_InsertOrUpdate(FlatMapInt *m, EntityId key, int value)
 {
     if (m == NULL || m->capacity == 0)
         return false;
@@ -241,7 +241,7 @@ static bool GrowFlatMapInt(FlatMapInt *m)
             // Only migrate items that are actively holding data (tombstone cleanup optimization)
             if (m->slots[i].state == FLAT_MAP_SLOT_OCCUPIED)
             {
-                int current_key = m->slots[i].key;
+                EntityId current_key = m->slots[i].key;
                 int current_value = m->slots[i].value;
 
                 // Re-calculate hash position using the brand new layout size

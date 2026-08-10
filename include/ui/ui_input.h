@@ -23,14 +23,15 @@ typedef struct
     String64 temp_buffer;
 } Text_64_IOState;
 
-typedef PointerState MouseDownState;
-
-typedef struct
-{
-    UIElement *target_element;
-    Vector2d drag_delta;
-    Vector2d initial_element_offset; 
-} DragState;
+// Legacy UI drag types retained for migration reference. DragInteractionState is authoritative.
+// typedef PointerState MouseDownState;
+//
+// typedef struct
+// {
+//     UIElement *target_element;
+//     Vector2d drag_delta;
+//     Vector2d initial_element_offset;
+// } DragState;
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition

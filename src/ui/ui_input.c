@@ -18,37 +18,41 @@
 #include <stdlib.h>
 #include "world/world.h"
 #include "system/ui/rpanel_system.h"
+#include "system/ui/popup_menu.h"
 #include "world/universe.h"
 #include "system/command_queue.h"
-#include "system/drag_interaction.h"
+#include "input/drag_interaction.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
-DragState G_DragState = {0};
+// Legacy UI drag mirror retained for reference; DragInteractionState is authoritative.
+// DragState G_DragState = {0};
 // UIElement *G_DraggedElement = NULL;
 // Vector2d G_DragOffset = ZERO_VECTOR_2D;
 Text_64_IOState tbox_io_buffers = {0};
-MouseDownState mouse_down_state = {0};
+// MouseDownState mouse_down_state = {0};
 // char tbox_input_buffer[sizeof(G_UIState.focused_element->data.textbox.text.string)] = ""; // Stores textbox input
 // char tbox_temp_buffer[sizeof(G_UIState.focused_element->data.textbox.text.string)] = "";  // Stores the original text being output to a focused textbox before it was modified by the user - this buffer is used to restore it if needed
 
 //----------------------------------------------------------------------------------
 // Functions Definition
 //----------------------------------------------------------------------------------
-void HandleMouseEvents(UIElement *root_element, Vector2d mouse_coords);
+void HandleMouseEvents(UIElement *root_element, const InputFrame *input);
 void HandleLeftMouseDown(UIElement *element, Vector2d mouse_coords);
 void HandleLeftMouseUp(UIElement *target, Vector2d mouse_coords);
 void HandleTextBoxClick(UIElement *clicked);
 void HandleBtnClick(UIElement *target);
+void HandleHoverItem(UIElement *target);
+static UIElement *hovered_item = NULL;
 void HandleUIDragging(UIElement *e, Vector2d mouse_coords);
 //void HandleFocusSwitch(UIElement *curr_focus, UIElement *prev_focus);
 void HandleTextCommit(UIElement *element, Text_64_IOState *tbox_buffers);
 // Vector2d CalculateDragOffset(UIElement *target, Vector2d mouse_coords);
 void UpdateTextIO(void);
 void RevertTextChanges(UIElement *tbox, Text_64_IOState *t_bufs);
-bool IsMouseDragged(MouseDownState mouse_down_state);
-bool IsMouseClicked(MouseDownState mouse_down_state);
+// bool IsMouseDragged(MouseDownState mouse_down_state);
+// bool IsMouseClicked(MouseDownState mouse_down_state);
 void InitTextBuffers(UIElement *e, Text_64_IOState *t_bufs);
 UIElement *ResolveUIRootTarget(Vector2d mouse_coords);
 Vector2d ResolvePixelToLocalDragScale(UIElement *element);
@@ -56,7 +60,7 @@ bool ResolvePointerLocalCoords(UIElement *element, Vector2d mouse_pixel_coords, 
 void UpdateUIFocus(UIElement *element);
 void UpdateDragFocus(UIElement *element, Vector2d mouse_coords);
 void ClearUIFocus(void);
-void ResetDragState(void);
+// void ResetDragState(void);
 
 static DragInteractionState *GetUIDragContext(void)
 {
@@ -167,11 +171,22 @@ bool ResolvePointerLocalCoords(UIElement *element, Vector2d mouse_pixel_coords, 
     return true;
 }
 // DISPATCHER - UI activities
-void ProcessUIInput(int mouse_x, int mouse_y, bool cursor_in_region)
+void ProcessUIInput(const InputFrame *input, bool cursor_in_region)
 {
-    Vector2d mouse_coords = {(float)mouse_x, (float)mouse_y};
+    if (!input)
+    {
+        return;
+    }
+
+    Vector2d mouse_coords = input->pointer_position;
     if (!cursor_in_region)
     {
+        DragInteractionState *drag_ctx = GetUIDragContext();
+        if ((input->left_down && drag_ctx->has_capture) ||
+            (input->left_released && drag_ctx->pointer_state.left_button_hold_ticks > 0))
+        {
+            HandleMouseEvents(NULL, input);
+        }
         return;
     }
 
@@ -188,21 +203,28 @@ void ProcessUIInput(int mouse_x, int mouse_y, bool cursor_in_region)
         target = NULL;
     }
 
-    HandleMouseEvents(target, mouse_coords);
+    HandleHoverItem(target);
+    HandleMouseEvents(target, input);
     UpdateTextIO();
 }
 
-void HandleMouseEvents(UIElement *target, Vector2d mouse_coords)
+void HandleMouseEvents(UIElement *target, const InputFrame *input)
 {
+    if (!input)
+    {
+        return;
+    }
+
+    Vector2d mouse_coords = input->pointer_position;
     // -----HANDLE LEFT MOUSE-----
     // Phase A: Handle the Start/New Events
-    // Update mouse_down_state
-    if (IsMouseButtonDown(MOUSE_BUTTON_LEFT))
+    // Update the shared UI drag context.
+    if (input->left_down)
     {
         // Handle it
         HandleLeftMouseDown(target, mouse_coords);
     }
-    else // It must be UP
+    else if (input->left_released)
     {
         HandleLeftMouseUp(target, mouse_coords);
     }
@@ -218,13 +240,8 @@ void HandleLeftMouseDown(UIElement *target, Vector2d mouse_coords)
         target = NULL;
     }
 
-    // -----UPDATE MOUSE DOWN STATE-----
-    // ALWAYS update the mouse state first so everything below has fresh data
-    DragInteraction_UpdateButtonDown(drag_ctx, mouse_coords);
-    mouse_down_state = drag_ctx->pointer_state;
-
     // EVENT PHASE: Check if focus shifted (Only runs on the *initial* press frame)
-    if (mouse_down_state.left_button_hold_ticks == 1)
+    if (drag_ctx->pointer_state.left_button_hold_ticks == 1)
     {
         if (target != G_UIState.focused_element)
         {
@@ -246,25 +263,23 @@ void HandleLeftMouseDown(UIElement *target, Vector2d mouse_coords)
         }
 
         // EVENT PHASE: Initialize Dragging if applicable
-        if (target && !G_DragState.target_element) // && target->is_draggable ) //Assume everything is draggable for now
+        if (target && !drag_ctx->has_capture) // && target->is_draggable ) //Assume everything is draggable for now
         {
             UpdateDragFocus(target, mouse_coords);
         }
     }
 
     // STATE PHASE: Process Ongoing Drag (Runs every frame the mouse is held down, including frame 1)
-    if (G_DragState.target_element)
+    if (drag_ctx->has_capture && drag_ctx->target_kind == DRAG_TARGET_UI_ELEMENT)
     {
-        // Calculate fresh delta
-        G_DragState.drag_delta = DragInteraction_GetPointerDelta(drag_ctx);
-
         // Use threshold check to see if the user has dragged past the deadzone
-        if (IsMouseDragged(mouse_down_state))
+        if (DragInteraction_IsDragActive(drag_ctx, INPUT_DRAG_THRESHOLD_PIXELS))
         {
-            if (G_DragState.target_element->is_draggable)
+            UIElement *dragged_element = (UIElement *)drag_ctx->target;
+            if (dragged_element && dragged_element->is_draggable)
             {
                 // CRITICAL: Always drag the lock-on target, NOT the element currently under the hover cursor!
-                HandleUIDragging(G_DragState.target_element, mouse_coords);
+                HandleUIDragging(dragged_element, mouse_coords);
             }
         }
     }
@@ -272,7 +287,8 @@ void HandleLeftMouseDown(UIElement *target, Vector2d mouse_coords)
     // Debug logging
     if (frame_counter.total_frames % 180 == 0)
     {
-        printf("MOUSE DOWN [%s] | DRAG_DELTA (%0.0f,%0.0f)\n", GetElementTypeName(target ? target->type : UI_ELEMENT_NONE), G_DragState.drag_delta.x, G_DragState.drag_delta.y);
+        Vector2d drag_delta = DragInteraction_GetPointerDelta(drag_ctx);
+        printf("MOUSE DOWN [%s] | DRAG_DELTA (%0.0f,%0.0f)\n", GetElementTypeName(target ? target->type : UI_ELEMENT_NONE), drag_delta.x, drag_delta.y);
     }
 }
 
@@ -287,9 +303,9 @@ void HandleLeftMouseUp(UIElement *target, Vector2d mouse_coords)
     }
 
     // -----CHECK IF IT WAS A CLICK (e.g. MOUSE DOWN FOR <20 frames)-----
-    if (mouse_down_state.left_button_hold_ticks > 0) // Only need to do something if the mouse was down, i.e. there was either a drag, or click
+    if (drag_ctx->pointer_state.left_button_hold_ticks > 0) // Only need to do something if the mouse was down, i.e. there was either a drag, or click
     {
-        if (IsMouseClicked(mouse_down_state))
+        if (DragInteraction_IsClick(drag_ctx, INPUT_CLICK_MAX_HOLD_TICKS, INPUT_DRAG_THRESHOLD_PIXELS))
         {
             Vector2d local_coords = ZERO_VECTOR_2D;
             bool has_local_coords = ResolvePointerLocalCoords(target, mouse_coords, &local_coords);
@@ -314,10 +330,7 @@ void HandleLeftMouseUp(UIElement *target, Vector2d mouse_coords)
             }
         }
 
-        DragInteraction_UpdateButtonUp(drag_ctx);
-        mouse_down_state = drag_ctx->pointer_state;
-        ResetDragState();
-        printf("ENDED MOUSE DOWN [%s]\n", GetElementTypeName(target ? target->type : UI_ELEMENT_NONE), G_DragState.drag_delta.x, G_DragState.drag_delta.y);
+        printf("ENDED MOUSE DOWN [%s]\n", GetElementTypeName(target ? target->type : UI_ELEMENT_NONE));
     }
 }
 
@@ -334,6 +347,26 @@ void HandleBtnClick(UIElement *target)
         if (target->data.button.on_click != NULL)
         {
             target->data.button.on_click(target);
+        }
+    }
+}
+
+void HandleHoverItem(UIElement *target)
+{
+    if (hovered_item != target && hovered_item &&
+        hovered_item->type == UI_ELEMENT_HOVER_ITEM)
+    {
+        hovered_item->colour_fill = hovered_item->data.hover_item.normal_fill;
+    }
+
+    hovered_item = NULL;
+    if (target && target->is_enabled && target->type == UI_ELEMENT_HOVER_ITEM)
+    {
+        hovered_item = target;
+        target->colour_fill = target->data.hover_item.hover_fill;
+        if (target->data.hover_item.on_hover)
+        {
+            target->data.hover_item.on_hover(target);
         }
     }
 }
@@ -448,17 +481,17 @@ void HandleUIDragging(UIElement *e, Vector2d mouse_coords)
     Vector2d pixels_to_ui_local_scale = ResolvePixelToLocalDragScale(e);
 
     // Calculate the raw mouse travel distance since the click frame
-    Vector2d mouse_down_origin = mouse_down_state.initial_pos;
-    Vector2d total_pixel_travel = VectorSum_2d(mouse_down_state.current_pos, (Vector2d){-mouse_down_origin.x, -mouse_down_origin.y});
+    DragInteractionState *drag_ctx = GetUIDragContext();
+    Vector2d mouse_down_origin = drag_ctx->pointer_state.initial_pos;
+    Vector2d total_pixel_travel = VectorSum_2d(drag_ctx->pointer_state.current_pos, (Vector2d){-mouse_down_origin.x, -mouse_down_origin.y});
 
     // Convert total pixel travel into total virtual unit travel
     Vector2d total_local_travel = (Vector2d){total_pixel_travel.x * pixels_to_ui_local_scale.x, total_pixel_travel.y * pixels_to_ui_local_scale.y};
 
     // Absolute Target Calculation
-    // For this approach to be seamless, G_DragState.initial_element_offset must be a Vector2d captured inside your UpdateDragFocus function on the frame left_button_hold_ticks == 1.
     Vector2d new_local_offset;
-    new_local_offset.x = G_DragState.initial_element_offset.x + total_local_travel.x;
-    new_local_offset.y = G_DragState.initial_element_offset.y + total_local_travel.y;
+    new_local_offset.x = drag_ctx->target_anchor.x + total_local_travel.x;
+    new_local_offset.y = drag_ctx->target_anchor.y + total_local_travel.y;
 
     // Compute real pixel offsets for accurate telemetry tracking
     Vector2d new_pixel_offset = (Vector2d){new_local_offset.x / pixels_to_ui_local_scale.x, new_local_offset.y / pixels_to_ui_local_scale.y};
@@ -644,15 +677,17 @@ void UpdateTextIO()
     }
 }
 
-bool IsMouseDragged(MouseDownState mouse_down_state)
-{
-    return IsPointerDrag(mouse_down_state, 5.0f);
-}
-
-bool IsMouseClicked(MouseDownState mouse_down_state)
-{
-    return IsPointerClick(mouse_down_state, 20, 5.0f);
-}
+// Legacy UI drag predicates retained for reference; use DragInteraction_IsDragActive
+// and DragInteraction_IsClick instead.
+// bool IsMouseDragged(MouseDownState mouse_down_state)
+// {
+//     return IsPointerDrag(mouse_down_state, 5.0f);
+// }
+//
+// bool IsMouseClicked(MouseDownState mouse_down_state)
+// {
+//     return IsPointerClick(mouse_down_state, 20, 5.0f);
+// }
 
 // ----------------------------------------------------------------------------------
 // Utility Functions
@@ -693,36 +728,34 @@ void UpdateDragFocus(UIElement *element, Vector2d mouse_coords)
         return;
     }
 
-    G_DragState.target_element = element;
-
     // Drag math operates in fixed local units without changing layout until a drag starts.
+    Vector2d initial_element_offset;
     if (element->parent && element->resolved_offset.offset_mode == OFFSET_PERCENT)
     {
         float content_area_w = fmaxf(0.0f, element->parent->local_box.dimensions.x - (element->parent->padding.x * 2.0f));
         float content_area_h = fmaxf(0.0f, element->parent->local_box.dimensions.y - (element->parent->padding.y * 2.0f));
 
-        G_DragState.initial_element_offset = (Vector2d){
+        initial_element_offset = (Vector2d){
             content_area_w * element->authored_offset.offset.x,
             content_area_h * element->authored_offset.offset.y};
     }
     else
     {
-        G_DragState.initial_element_offset = element->authored_offset.offset;
+        initial_element_offset = element->authored_offset.offset;
     }
 
-    DragInteraction_BeginCapture(drag_ctx, DRAG_TARGET_UI_ELEMENT, element, G_DragState.initial_element_offset);
+    DragInteraction_BeginCapture(drag_ctx, DRAG_TARGET_UI_ELEMENT, element, initial_element_offset);
     printf("DRAG FOCUS CHANGE: [%s]\n", GetElementTypeName(element->type));
 }
 
-void ResetDragState()
-{
-    DragInteractionState *drag_ctx = GetUIDragContext();
-
-    G_DragState.drag_delta = (Vector2d){0, 0};
-    G_DragState.target_element = NULL;
-    DragInteraction_ClearCapture(drag_ctx);
-    printf("DRAG FOCUS CLEARED\n");
-}
+// Legacy reset path retained for reference; DragInteraction_UpdateButtonUp clears
+// the pointer state and capture together.
+// void ResetDragState(void)
+// {
+//     DragInteractionState *drag_ctx = GetUIDragContext();
+//     DragInteraction_ClearCapture(drag_ctx);
+//     printf("DRAG FOCUS CLEARED\n");
+// }
 
 void InitTextBuffers(UIElement *e, Text_64_IOState *t_bufs)
 {
@@ -737,6 +770,7 @@ void InitTextBuffers(UIElement *e, Text_64_IOState *t_bufs)
 UIElement *ResolveUIRootTarget(Vector2d mouse_coords)
 {
     UIElement *roots[] = {
+        GetPopupMenuRoot(),
         GetUtilityPanelRoot(),
         GetStateManagerRoot(),
         GetRPanelRoot(),

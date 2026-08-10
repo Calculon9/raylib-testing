@@ -14,6 +14,66 @@ static Vector2d GetContentArea(Vector2d dimensions, Vector2d padding)
     return (Vector2d){content_w, content_h};
 }
 
+static Vector2d MeasureElementContent(UIElement *element)
+{
+    if (!element)
+    {
+        return ZERO_VECTOR_2D;
+    }
+
+    Vector2d measured = ZERO_VECTOR_2D;
+    float spacing_x = element->child_spacing.spacing.x;
+    float spacing_y = element->child_spacing.spacing.y;
+    int child_count = 0;
+
+    for (UIElement *child = element->first_child; child; child = child->next_sibling)
+    {
+        if (!child->is_enabled)
+        {
+            continue;
+        }
+
+        child->measured_content_size = MeasureElementContent(child);
+
+        Vector2d child_size = child->size.dimensions;
+        if (child->size.size_mode == SIZE_CONTENT)
+        {
+            child_size = child->measured_content_size;
+        }
+
+        if (element->child_spacing.spacing_type == SPACING_INLINE)
+        {
+            measured.x += child_size.x;
+            measured.y = fmaxf(measured.y, child_size.y);
+        }
+        else if (element->child_spacing.spacing_type == SPACING_STACKED)
+        {
+            measured.x = fmaxf(measured.x, child_size.x);
+            measured.y += child_size.y;
+        }
+        else
+        {
+            measured.x = fmaxf(measured.x, child_size.x);
+            measured.y = fmaxf(measured.y, child_size.y);
+        }
+
+        child_count++;
+    }
+
+    if (child_count > 1 && element->child_spacing.spacing_type == SPACING_INLINE)
+    {
+        measured.x += spacing_x * (child_count - 1);
+    }
+    else if (child_count > 1 && element->child_spacing.spacing_type == SPACING_STACKED)
+    {
+        measured.y += spacing_y * (child_count - 1);
+    }
+
+    measured.x += element->padding.x * 2.0f;
+    measured.y += element->padding.y * 2.0f;
+    return measured;
+}
+
 static float ResolveOffsetToPercent(float offset_fixed, float content_extent)
 {
     return content_extent > 0.0f ? (offset_fixed / content_extent) : 0.0f;
@@ -365,6 +425,7 @@ UIElement *CreateUIElement(UIElementType type, Size size, Offset parent_offset, 
     e->text_horizontal_alignment = UI_TEXT_ALIGN_LEFT;
     e->text_vertical_alignment = UI_TEXT_VERTICAL_ALIGN_CENTRE;
     e->padding = padding;
+    e->measured_content_size = ZERO_VECTOR_2D;
     e->resolved_offset = parent_offset;
     e->authored_offset = parent_offset;
     e->type = type;
@@ -526,6 +587,8 @@ void UI_LayoutSubtree(UIElement *e, UIBox parent_box)
 
     // ResolveElementBox looks UP at parent_box to figure out e's own dimensions.
     // UI_DistributeChildren looks DOWN at its children using e's own resolved content area to position them.
+
+    e->measured_content_size = MeasureElementContent(e);
 
     // Resolve THIS element's box based on parent context
     e->local_box = ResolveElementBox(e, parent_box);
@@ -754,6 +817,10 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box)
         box.dimensions.x = element->size.dimensions.x * content_area_w;
         box.dimensions.y = element->size.dimensions.y * content_area_h;
     }
+    else if (element->size.size_mode == SIZE_CONTENT)
+    {
+        box.dimensions = element->measured_content_size;
+    }
     else
     {
         box.dimensions.x = element->size.dimensions.x; // * basis_tfrm.x;
@@ -826,6 +893,8 @@ const char *GetElementTypeName(UIElementType type)
         return "BUTTON_ENUMERATE";
     case UI_ELEMENT_BUTTON_SUBMIT:
         return "BUTTON_SUBMIT";
+    case UI_ELEMENT_HOVER_ITEM:
+        return "HOVER_ITEM";
     case UI_ELEMENT_IMAGE:
         return "IMAGE";
     default:

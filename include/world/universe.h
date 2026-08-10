@@ -11,6 +11,8 @@ and all creation parameters for new worlds.
 #define UNIVERSE_H
 
 #include "common/common.h"
+#include "input/pointer_input.h"
+#include "input/drag_interaction.h"
 #include "math/cvectors.h"
 #include "camera/camera.h"
 #include "world/world.h"
@@ -29,7 +31,8 @@ typedef struct Universe
     World2d worlds[UNIVERSE_MAX_WORLDS];
     int world_count;
     int selected_world_index;
-    int camera_marker_ids[UNIVERSE_MAX_WORLDS]; // Per-world camera-position marker entity IDs
+    EntityId next_entity_id; // IDs are allocated once for the whole universe, not once per world.
+    EntityId camera_marker_ids[UNIVERSE_MAX_WORLDS]; // Per-world camera-position marker entity IDs
     Vector2d world_bounds_min[UNIVERSE_MAX_WORLDS];
     Vector2d world_bounds_max[UNIVERSE_MAX_WORLDS];
     bool world_bounds_valid[UNIVERSE_MAX_WORLDS];
@@ -87,6 +90,13 @@ void Universe_SetWorldBounds(Universe *u, int index, Vector2d min_bound, Vector2
 // Find the world index at a universe-space point, or -1 if none.
 int Universe_FindWorldAt(const Universe *u, Vector2d universe_point);
 
+// Find the world that owns an entity pointer, or -1 if it is not registered.
+int Universe_FindWorldContainingObject(const Universe *u, const Newtonoid2d *object);
+
+// Find an entity by universal ID and optionally return its owning world index.
+Newtonoid2d *Universe_GetEntityByID(const Universe *u, EntityId entity_id, int *world_index_out);
+EntityId Universe_AllocateEntityId(Universe *u);
+
 // --- Camera control ---
 Camera2d *Universe_GetCamera(Universe *u);
 // void Universe_ZoomCamera(Universe *u, float factor);
@@ -142,13 +152,13 @@ void SetUniverseGridCellSize(float cell_size);
  * Update universe-level state while no world is selected.
  * Handles viewport hit testing, camera navigation, and world selection.
  */
-void UpdateUniverseSystem(int mouse_x, int mouse_y);
+InputRouteResult UpdateUniverseSystem(const InputFrame *input, InputRouteResult prior_result);
 
 /**
  * Update universe-level input (world selection, camera navigation)
  * Called when no world is selected
  */
-void UpdateUniverseInput(int mouse_x, int mouse_y, bool cursor_in_game_viewport);
+void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport);
 
 /**
  * Draw all worlds in the universe using the appropriate camera

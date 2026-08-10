@@ -6,10 +6,10 @@
 #include "ui/ui_constructors.h"
 #include "system/viewport_system.h"
 
-PanelSystem* PanelSystem_Create(ViewportRegion *viewport, float scale, Vector2d padding,
+PanelSystem *PanelSystem_Create(ViewportRegion *viewport, float scale, Vector2d padding,
                                 const UIPalette *palette, Spacing root_child_spacing)
 {
-    PanelSystem *panel = (PanelSystem*)AllocateBytes(sizeof(PanelSystem));
+    PanelSystem *panel = (PanelSystem *)AllocateBytes(sizeof(PanelSystem));
     if (!panel)
     {
         return NULL;
@@ -40,13 +40,12 @@ void PanelSystem_InitRoot(PanelSystem *panel)
 
     // Calculate resolution scaled to panel space
     Vector2d resolution = VectorScale_2d(panel->viewport->resolution, panel->space_to_viewport_scale);
-    
+
     // Setup basis (default or override)
     Basis2d viewport_basis = (Basis2d){
         (Vector2d){1.0f / panel->space_to_viewport_scale, 0.0f},
-        (Vector2d){0.0f, 1.0f / panel->space_to_viewport_scale}
-    };
-    
+        (Vector2d){0.0f, 1.0f / panel->space_to_viewport_scale}};
+
     if (panel->basis_override_enabled)
     {
         viewport_basis.u = panel->basis_override_u;
@@ -62,7 +61,7 @@ void PanelSystem_InitRoot(PanelSystem *panel)
                                   (Offset){ZERO_VECTOR_2D, OFFSET_FIXED},
                                   panel->default_padding, COLOURLESS_RGBA,
                                   panel->palette->panel_background);
-    
+
     if (panel->root)
     {
         panel->root->data.root.space = panel->space;
@@ -81,7 +80,7 @@ void PanelSystem_InitViews(PanelSystem *panel, size_t view_count)
         return;
     }
 
-    panel->views = MakeLArray(view_count, sizeof(View*));
+    panel->views = MakeLArray(view_count, sizeof(View *));
 }
 
 bool PanelSystem_AddView(PanelSystem *panel, View *view, UIElement *container, ViewType type)
@@ -102,11 +101,21 @@ static void UpdatePanelViewSelectorButtons(ViewSelector *selector)
     {
         bool is_active = i == selector->active_index;
         selector->buttons[i]->colour_fill = is_active
-                                                 ? selector->panel->palette->button_fill
-                                                 : selector->panel->palette->panel_background;
-        selector->buttons[i]->data.button.font.colour = is_active
-                                                            ? selector->panel->palette->text_on_dark
-                                                            : selector->panel->palette->button_fill;
+                                                ? selector->panel->palette->button_fill
+                                                : selector->panel->palette->panel_background;
+        if (selector->buttons[i]->type == UI_ELEMENT_HOVER_ITEM)
+        {
+            selector->buttons[i]->data.hover_item.normal_fill = selector->buttons[i]->colour_fill;
+            selector->buttons[i]->data.hover_item.font.colour = is_active
+                                                                    ? selector->panel->palette->text_on_dark
+                                                                    : selector->panel->palette->button_fill;
+        }
+        else
+        {
+            selector->buttons[i]->data.button.font.colour = is_active
+                                                                ? selector->panel->palette->text_on_dark
+                                                                : selector->panel->palette->button_fill;
+        }
     }
 }
 
@@ -121,10 +130,89 @@ static void HandlePanelViewSelectorClick(UIElement *button)
     PanelSystem_SelectView(selector, (size_t)*((int *)button->data.button.user_data));
 }
 
-ViewSelector *PanelSystem_CreateViewSelector(PanelSystem *panel, UIElement *parent,
-                                                  Size button_size, const char *labels[],
-                                                  size_t count,
-                                                  ViewSelectionCallback on_view_selected)
+static void HandlePanelViewSelectorHover(UIElement *item)
+{
+    ViewSelector *selector = (ViewSelector *)item->data.hover_item.data_bind;
+    if (!selector || !item->data.hover_item.user_data)
+    {
+        return;
+    }
+
+    PanelSystem_SelectView(selector, (size_t)*((int *)item->data.hover_item.user_data));
+}
+
+static bool SetPanelActiveView(PanelSystem *panel, size_t view_index)
+{
+    if (!panel || view_index >= panel->views.count)
+    {
+        return false;
+    }
+
+    for (size_t i = 0; i < panel->views.count; i++)
+    {
+        View *view = *((View **)LArray_Get(&panel->views, i));
+        if (view && view->container)
+        {
+            if (i == view_index)
+            {
+                EnableElement(view->container);
+            }
+            else
+            {
+                DisableElement(view->container);
+            }
+        }
+    }
+
+    return true;
+}
+
+ViewSwitcher *PanelSystem_CreateViewSwitcher(PanelSystem *panel)
+{
+    if (!panel)
+    {
+        return NULL;
+    }
+
+    ViewSwitcher *switcher = AllocateBytes(sizeof(ViewSwitcher));
+    if (!switcher)
+    {
+        return NULL;
+    }
+
+    switcher->panel = panel;
+    switcher->active_index = panel->views.count;
+    return switcher;
+}
+
+bool PanelSystem_SwitchView(ViewSwitcher *switcher, size_t view_index)
+{
+    if (!switcher || !SetPanelActiveView(switcher->panel, view_index))
+    {
+        return false;
+    }
+
+    switcher->active_index = view_index;
+    return true;
+}
+
+View *PanelSystem_GetActiveView(ViewSwitcher *switcher)
+{
+    if (!switcher || switcher->active_index >= switcher->panel->views.count)
+    {
+        return NULL;
+    }
+
+    return *((View **)LArray_Get(&switcher->panel->views, switcher->active_index));
+}
+
+void PanelSystem_DestroyViewSwitcher(ViewSwitcher *switcher)
+{
+    free(switcher);
+}
+
+ViewSelector *PanelSystem_CreateViewSelector(PanelSystem *panel, UIElement *parent, Size button_size, const char *labels[],
+                                             size_t count, ViewSelectionCallback on_view_selected)
 {
     if (!panel || !parent || !labels || count == 0)
     {
@@ -144,8 +232,50 @@ ViewSelector *PanelSystem_CreateViewSelector(PanelSystem *panel, UIElement *pare
         selector->view_indices[i] = (int)i;
         selector->buttons[i] = CreateUIButtonDefault(
             parent, UI_ELEMENT_BUTTON_ENUMERATE, labels[i], button_size,
-            btn_default_padding, panel->palette, HandlePanelViewSelectorClick,
+            ui_standard_button_padding, panel->palette, HandlePanelViewSelectorClick,
             &selector->view_indices[i], selector);
+    }
+
+    UpdatePanelViewSelectorButtons(selector);
+    return selector;
+}
+
+ViewSelector *PanelSystem_CreateHoverViewSelector(PanelSystem *panel, UIElement *parent,
+                                                  Size item_size, const char *labels[],
+                                                  size_t count,
+                                                  ViewSelectionCallback on_view_selected)
+{
+    if (!panel || !parent || !labels || count == 0)
+    {
+        return NULL;
+    }
+
+    ViewSelector *selector = AllocateBytes(sizeof(ViewSelector));
+    if (!selector)
+    {
+        return NULL;
+    }
+
+    selector->panel = panel;
+    selector->buttons = AllocateBytes(sizeof(UIElement *) * count);
+    selector->view_indices = AllocateBytes(sizeof(int) * count);
+    selector->count = count;
+    selector->active_index = count;
+    selector->on_view_selected = on_view_selected;
+
+    for (size_t i = 0; i < count; i++)
+    {
+        selector->view_indices[i] = (int)i;
+        selector->buttons[i] = CreateUIHoverItemDefault(
+            parent, labels[i], item_size, ui_standard_button_padding,
+            panel->palette, HandlePanelViewSelectorHover,
+            &selector->view_indices[i]);
+        if (!selector->buttons[i])
+        {
+            return NULL;
+        }
+
+        selector->buttons[i]->data.hover_item.data_bind = selector;
     }
 
     UpdatePanelViewSelectorButtons(selector);
@@ -154,25 +284,9 @@ ViewSelector *PanelSystem_CreateViewSelector(PanelSystem *panel, UIElement *pare
 
 bool PanelSystem_SelectView(ViewSelector *selector, size_t view_index)
 {
-    if (!selector || view_index >= selector->count || view_index >= selector->panel->views.count)
+    if (!selector || view_index >= selector->count || !SetPanelActiveView(selector->panel, view_index))
     {
         return false;
-    }
-
-    for (size_t i = 0; i < selector->panel->views.count; i++)
-    {
-        View *view = *((View **)LArray_Get(&selector->panel->views, i));
-        if (view && view->container)
-        {
-            if (i == view_index)
-            {
-                EnableElement(view->container);
-            }
-            else
-            {
-                DisableElement(view->container);
-            }
-        }
     }
 
     selector->active_index = view_index;
@@ -202,12 +316,12 @@ void PanelSystem_Draw(PanelSystem *panel)
     panel_basis_frame.origin_in_parent = ZERO_VECTOR_2D;
     Matrix3x3 panel_local_to_viewport = MtxTransform_GetLocalToParent(panel_basis_frame);
     Matrix3x3 panel_local_to_pixel = MatrixMultiply_3x3_3x3(panel->viewport->tunnel.source_to_dest_mtx,
-                                                           panel_local_to_viewport);
+                                                            panel_local_to_viewport);
 
     DrawRootUIElement(panel->root, panel->seed_box, panel_local_to_pixel);
 }
 
-Frame2d* PanelSystem_GetSpaceFrame(PanelSystem *panel)
+Frame2d *PanelSystem_GetSpaceFrame(PanelSystem *panel)
 {
     if (!panel)
     {

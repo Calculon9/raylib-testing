@@ -24,8 +24,7 @@ bool IsFocused(Vector2d pixel_coords, Vector2d *vertices, int vertex_count)
     return IsPointInPolygon(pixel_coords, vertices, ZERO_VECTOR_2D, vertex_count);
 }
 
-// Ensure the dimensions and label_tbox_offset values are the same SIZE_MODE (e.g., fixed, percentage)
-UIElement *CreateTextFieldInTree(Size size, UIElement *parent, Offset parent_offset, Size tbox_size, Vector2d padding, Vector2d label_tbox_offset, ColourRgba colour_border, ColourRgba colour_fill, Bitmap_Font font)
+UIElement *CreateTextFieldInTree(Size size, UIElement *parent, Offset parent_offset, Size tbox_size, Vector2d padding, bool label_is_inline, ColourRgba colour_border, ColourRgba colour_fill, Bitmap_Font font)
 {
     UIElement *tf = CreateUIElementInTree(UI_ELEMENT_TEXTFIELD, size, parent, parent_offset, padding, colour_border, colour_fill);
     tf->type = UI_ELEMENT_TEXTFIELD;
@@ -40,8 +39,6 @@ UIElement *CreateTextFieldInTree(Size size, UIElement *parent, Offset parent_off
     tb->data.textbox.font = font;
 
     // Determine layout style
-    bool label_is_inline = (label_tbox_offset.y < size.dimensions.y / 4);
-
     if (tbox_size.size_mode == SIZE_PERCENT)
     {
         if (label_is_inline) // Inline layout

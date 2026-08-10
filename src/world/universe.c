@@ -56,10 +56,11 @@ void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_wor
 {
     u->world_count = 0;
     u->selected_world_index = -1;
+    u->next_entity_id = 1;
 
     for (int i = 0; i < UNIVERSE_MAX_WORLDS; i++)
     {
-        u->camera_marker_ids[i] = 0;
+        u->camera_marker_ids[i] = INVALID_ENTITY_ID;
         u->world_bounds_valid[i] = false;
         u->world_bounds_min[i] = ZERO_VECTOR_2D;
         u->world_bounds_max[i] = ZERO_VECTOR_2D;
@@ -75,6 +76,16 @@ void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_wor
     // Default step: 15 % of the coord-space extent so successive spaces are offset but visible.
     u->spawn_step.x = (default_new_world_resolution.x > 0.0f) ? default_new_world_resolution.x * 0.15f : 5.0f;
     u->spawn_step.y = (default_new_world_resolution.y > 0.0f) ? default_new_world_resolution.y * 0.15f : 5.0f;
+}
+
+EntityId Universe_AllocateEntityId(Universe *u)
+{
+    if (!u || u->next_entity_id == INVALID_ENTITY_ID)
+    {
+        return INVALID_ENTITY_ID;
+    }
+
+    return u->next_entity_id++;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,7 +105,7 @@ int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_co
     u->next_basis_v = world_basis.v;
 
     GridSpace2d space_g = NewGridSpace2d(world_center_in_universe, requested_res, world_basis, fill_colour, line_colour);
-    space_g.object.id = 0;
+    space_g.object.id = INVALID_ENTITY_ID;
     space_g.object.status_flags = FLAG_ATTR_RIGID | FLAG_STATUS_ALIVE;
     space_g.object.collision_mask = FLAG_TYPE_NEWTONOID | FLAG_TYPE_PROJECTILE | FLAG_TYPE_WALL;
     space_g.object.entity_flags = FLAG_TYPE_WALL;
@@ -105,7 +116,11 @@ int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_co
     new_world->tunnel.source_frame = &space_g.space.frame;
     new_world->tunnel.destination_frame = u->camera.tunnel.source_frame;
 
-    CreateWorld(space_g, u->next_gravity, new_world);
+    if (!CreateWorld(space_g, u->next_gravity, u, new_world))
+    {
+        LOG_ERROR("Cannot create world: world initialization failed.\n");
+        return -1;
+    }
 
     // Rebind tunnel frames to persistent storage owned by the world and universe camera.
     new_world->tunnel.source_frame = &new_world->grid_space.space.frame;
@@ -288,6 +303,58 @@ int Universe_FindWorldAt(const Universe *u, Vector2d universe_point)
     }
 
     return -1;
+}
+
+int Universe_FindWorldContainingObject(const Universe *u, const Newtonoid2d *object)
+{
+    if (!u || !object)
+    {
+        return -1;
+    }
+
+    for (int world_index = 0; world_index < u->world_count; world_index++)
+    {
+        const World2d *world = &u->worlds[world_index];
+        const LArray *object_arrays[] = {&world->objects, &world->temp_objects};
+        for (size_t array_index = 0; array_index < 2; array_index++)
+        {
+            const LArray *object_array = object_arrays[array_index];
+            const Newtonoid2d *objects = (const Newtonoid2d *)object_array->items;
+            for (size_t object_index = 0; object_index < object_array->count; object_index++)
+            {
+                if (&objects[object_index] == object)
+                {
+                    return world_index;
+                }
+            }
+        }
+    }
+
+    return -1;
+}
+
+Newtonoid2d *Universe_GetEntityByID(const Universe *u, EntityId entity_id, int *world_index_out)
+{
+    if (!u || entity_id == INVALID_ENTITY_ID)
+    {
+        return NULL;
+    }
+
+    for (int world_index = 0; world_index < u->world_count; world_index++)
+    {
+        World2d *world = (World2d *)&u->worlds[world_index];
+        Newtonoid2d *entity = (Newtonoid2d *)GetEntityByID(world, entity_id);
+        if (entity)
+        {
+            if (world_index_out)
+            {
+                *world_index_out = world_index;
+            }
+            return entity;
+        }
+    }
+
+    return NULL;
 }
 
 // ---------------------------------------------------------------------------

@@ -61,43 +61,6 @@ void UpdateUtilities()
     //UpdateFps();
 }
 
-// FPS Update logic
-// void UpdateFps()
-// {
-//     // Need to remove the oldest frame time and add the current time to maintain a sliding window of frame times for accurate FPS calculation
-//     prevFrameTime = currTime;
-//     currTime = GetPreciseTime();
-
-//     // 1. If the queue is full, we must remove the OLDEST to make room
-//     double oldestTime;
-//     bool queueWasFull = (frameTimes->coll->count == frameTimes->coll->capacity);
-
-//     if (queueWasFull)
-//     {
-//         Queue_Pop(frameTimes, &oldestTime); // Remove the oldest time to maintain the sliding window
-//     }
-
-//     // 2. Add the NEWEST time
-//     Queue_Push(frameTimes, &currTime);
-
-//     // 3. Calculate FPS only if we have a full window of data
-//     if (queueWasFull)
-//     {
-//         double timeSpan = currTime - oldestTime;
-
-//         if (timeSpan > 0)
-//         {
-//             // Use capacity because that's the size of our window
-//             fps.fps = (float)(frameTimes->coll->capacity / timeSpan);
-//             // printf("FPS: %.2f\n", fps.fps); // Debug print to verify FPS calculation
-//         }
-//     }
-//     else
-//     {
-//         fps.fps = 0.0f;
-//     }
-// }
-
 double GetPreciseTime()
 {
     struct timespec ts;
@@ -106,81 +69,6 @@ double GetPreciseTime()
 
     // Convert seconds and nanoseconds into a single double
     return (double)ts.tv_sec + (double)ts.tv_nsec / 1000000000.0;
-}
-
-void UpdatePointerState(PointerButton button, PointerState *pointer_state, Vector2d pointer_pos)
-{
-    if (!pointer_state)
-    {
-        return;
-    }
-
-    switch (button)
-    {
-    case POINTER_BUTTON_LEFT:
-        pointer_state->left_button_hold_ticks++;
-        break;
-    case POINTER_BUTTON_RIGHT:
-        pointer_state->right_button_hold_ticks++;
-        break;
-    default:
-        break;
-    }
-
-    if (pointer_state->left_button_hold_ticks == 1 || pointer_state->right_button_hold_ticks == 1)
-    {
-        pointer_state->initial_pos = pointer_pos;
-        pointer_state->current_pos = pointer_pos;
-        return;
-    }
-
-    pointer_state->previous_pos = pointer_state->current_pos;
-    pointer_state->current_pos = pointer_pos;
-}
-
-void ResetPointerState(PointerState *pointer_state)
-{
-    if (!pointer_state)
-    {
-        return;
-    }
-
-    pointer_state->left_button_hold_ticks = 0;
-    pointer_state->right_button_hold_ticks = 0;
-    pointer_state->initial_pos = ZERO_VECTOR_2D;
-    pointer_state->current_pos = ZERO_VECTOR_2D;
-    pointer_state->previous_pos = ZERO_VECTOR_2D;
-}
-
-Vector2d GetPointerTravelDelta(PointerState pointer_state)
-{
-    return VectorSum_2d(pointer_state.current_pos,
-                        (Vector2d){-pointer_state.initial_pos.x, -pointer_state.initial_pos.y});
-}
-
-float GetPointerTravelMagnitude(PointerState pointer_state)
-{
-    return VectorMagnitude_2d(GetPointerTravelDelta(pointer_state));
-}
-
-bool IsPointerClick(PointerState pointer_state, int max_hold_ticks, float max_travel_pixels)
-{
-    if (pointer_state.left_button_hold_ticks <= 0 || pointer_state.left_button_hold_ticks >= max_hold_ticks)
-    {
-        return false;
-    }
-
-    return GetPointerTravelMagnitude(pointer_state) < max_travel_pixels;
-}
-
-bool IsPointerDrag(PointerState pointer_state, float min_travel_pixels)
-{
-    if (pointer_state.left_button_hold_ticks <= 0)
-    {
-        return false;
-    }
-
-    return GetPointerTravelMagnitude(pointer_state) > min_travel_pixels;
 }
 
 // Utility function to get current memory allocated in bytes

@@ -6,9 +6,11 @@
 #include "common/common.h"
 #include "world/world.h"
 #include "world/world_internal.h"
+#include "world/universe.h"
 #include "events/events.h"
 #include "physics/physics.h"
 #include "system/job_system.h"
+#include "editor/geometry_editor.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -20,261 +22,300 @@ static int initObjectCount = 4;
 // Functions Definition
 //----------------------------------------------------------------------------------
 
-void CreateWorld(GridSpace2d space_obj, float gravity, World2d *out_world)
+bool CreateWorld(GridSpace2d space_obj, float gravity, struct Universe *universe, World2d *out_world)
 {
-   // World2d world = {0};
-   out_world->grid_space = space_obj;
-   out_world->gravity = gravity;
-    out_world->next_object_id = 1;
+    if (!out_world || !universe)
+    {
+        LOG_ERROR("Cannot create world without output storage and a universe owner.\n");
+        return false;
+    }
+
+    out_world->grid_space = space_obj;
+    out_world->gravity = gravity;
+    out_world->universe = universe;
+    if (universe)
+    {
+        out_world->grid_space.object.id = Universe_AllocateEntityId(universe);
+    }
+
+    if (out_world->grid_space.object.id == INVALID_ENTITY_ID)
+    {
+        LOG_ERROR("Cannot create world: universe entity ID allocation failed.\n");
+        return false;
+    }
     int object_count = *GetNextWorldObjectCountPtr();
     if (object_count < 0)
     {
         object_count = 0;
     }
-   out_world->objects = MakeLArray(object_count, sizeof(Newtonoid2d));
-   out_world->collisions = MakeLArray(object_count, sizeof(Matrix2x2));
-   out_world->temp_objects = MakeLArray(object_count, sizeof(Newtonoid2d));
+    out_world->objects = MakeLArray(object_count, sizeof(Newtonoid2d));
+    out_world->collisions = MakeLArray(object_count, sizeof(Matrix2x2));
+    out_world->temp_objects = MakeLArray(object_count, sizeof(Newtonoid2d));
 
-   // INIT WORLD INTERNAL STATE (PER-WORLD)
-   out_world->entity_space_map = MakeFlatMapInt(1 + (int)(space_obj.space.cells.count / 5));
-   out_world->resolved_collisions = MakeFlatMapInt(1 + (int)(out_world->entity_space_map.count / 2));
-   out_world->entity_world_index_registry = MakeFlatMapInt(1 + (int)(out_world->entity_space_map.count / 2));
-   out_world->scheduled_world_cmds = MakeLArray(initObjectCount, sizeof(WorldCommand));
-   InitJobSystem(256);
-   // return world;
+    // INIT WORLD INTERNAL STATE (PER-WORLD)
+    out_world->entity_space_map = MakeFlatMapInt(1 + (int)(space_obj.space.cells.count / 5));
+    out_world->resolved_collisions = MakeFlatMapInt(1 + (int)(out_world->entity_space_map.count / 2));
+    out_world->entity_world_index_registry = MakeFlatMapInt(1 + (int)(out_world->entity_space_map.count / 2));
+    out_world->scheduled_world_cmds = MakeLArray(initObjectCount, sizeof(WorldCommand));
+    InitJobSystem(256);
+    return true;
 }
 
-int AddObjectToWorld(World2d *world, Newtonoid2d *object, int parent_id)
+EntityId AddObjectToWorld(World2d *world, Newtonoid2d *object, EntityId parent_id)
 {
-   // Object placement is center-based; grid occupancy still snaps that center into a cell index.
-   Vector2d local_coords = object->coords_center;
-   object->parent_id = parent_id;
-   if (local_coords.x < 0 || local_coords.y < 0 || local_coords.x >= world->grid_space.space.columns || local_coords.y >= world->grid_space.space.rows)
-   {
-      LOG_WARN("Desired spawn point (%0.2f,%0.2f) out of bounds. Cannot add entity to the world.\n", local_coords.x, local_coords.y);
-      return -1; // Click is outside the structural world viewport boundaries! Avoid resolving cell.
-   }
+    // Object placement is center-based; grid occupancy still snaps that center into a cell index.
+    Vector2d local_coords = object->coords_center;
+    if (local_coords.x < 0 || local_coords.y < 0 || local_coords.x >= world->grid_space.space.columns || local_coords.y >= world->grid_space.space.rows)
+    {
+        LOG_WARN("Desired spawn point (%0.2f,%0.2f) out of bounds. Cannot add entity to the world.\n", local_coords.x, local_coords.y);
+        return INVALID_ENTITY_ID; // Click is outside the structural world viewport boundaries! Avoid resolving cell.
+    }
 
-   // Register the object first so the world/entity maps stay in sync with its center position.
-   int assigned_id = RegisterEntity(world, object);
-
-   // Solid objects are collision-enabled, need to be tracked spacially
-   int cell_index = -1;
+    // Solid objects are collision-enabled, need to be tracked spacially
+    int cell_index = -1;
     if (!(object->entity_flags & FLAG_TYPE_EFFECT))
-   {
-      cell_index = ((int)local_coords.y * world->grid_space.space.columns) + (int)local_coords.x;
-      // Add the object's ID to the cell's object_ids array if there is space, and update the object's footprint based on its surface and the coordinate space's basis vectors.
-      // We also need to update the occupancy of the cell and ensure that we don't exceed the maximum
-      Cell *cells = world->grid_space.space.cells.items;
-      Cell *target_cell = &cells[cell_index];
-      if (target_cell->occupancy < MAX_CELL_OCCUPANCY)
-      {
-         target_cell->object_ids[target_cell->occupancy] = object->id;
-         target_cell->occupancy++;
-      }
-      else
-      {
-         LOG_WARN("Cell %d full. ID %d not tracked spatially.\n", cell_index, object->id);
-         return assigned_id;
-      }
-   }
-   // object->id = world->next_object_id++;
-   // LArray_Push(&world->objects, object);
-   LOG_INFO("CREATED OBJECT (ID %d): Cell %d : Center(%.1f, %.1f)\n", object->id, cell_index, local_coords.x, local_coords.y);
-   return assigned_id;
+    {
+        cell_index = ((int)local_coords.y * world->grid_space.space.columns) + (int)local_coords.x;
+        // Add the object's ID to the cell's object_ids array if there is space, and update the object's footprint based on its surface and the coordinate space's basis vectors.
+        // We also need to update the occupancy of the cell and ensure that we don't exceed the maximum
+        Cell *cells = world->grid_space.space.cells.items;
+        Cell *target_cell = &cells[cell_index];
+        if (target_cell->occupancy >= MAX_CELL_OCCUPANCY)
+        {
+            LOG_WARN("Cell %d full. ID %d not tracked spatially.\n", cell_index, object->id);
+            return INVALID_ENTITY_ID;
+        }
+    }
+
+    object->parent_id = parent_id;
+
+    // Register only after all placement checks pass so failed adds leave no stale entity.
+    EntityId assigned_id = RegisterEntity(world, object);
+    if (assigned_id == INVALID_ENTITY_ID)
+    {
+        return INVALID_ENTITY_ID;
+    }
+
+    if (cell_index >= 0)
+    {
+        Cell *target_cell = &((Cell *)world->grid_space.space.cells.items)[cell_index];
+        target_cell->object_ids[target_cell->occupancy] = object->id;
+        target_cell->occupancy++;
+    }
+
+    LOG_INFO("CREATED OBJECT (ID %d): Cell %d : Center(%.1f, %.1f)\n", object->id, cell_index, local_coords.x, local_coords.y);
+    return assigned_id;
 }
 
 // Process a single collision pair and handle collision response
 // Returns true if collision was processed, false if skipped
-bool ProcessCollisionPair(World2d *world, int obj_id_a, int obj_id_b, int cell_i, FlatMapInt *resolved_collisions, LArray *scheduled_world_cmds)
+bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, int cell_i, FlatMapInt *resolved_collisions, LArray *scheduled_world_cmds)
 {
-   // Validate entity IDs
+    // Validate entity IDs
     if (obj_id_a < 1 || obj_id_b < 1)
-   {
-      LOG_ERROR("Could not find objects with IDs %d and %d in Cell (index = %d).\n", obj_id_a, obj_id_b, cell_i);
-      return false;
-   }
+    {
+        LOG_ERROR("Could not find objects with IDs %d and %d in Cell (index = %d).\n", obj_id_a, obj_id_b, cell_i);
+        return false;
+    }
 
-   // Check if this collision pair was already resolved
-   unsigned long obj_pair_hash_key = CalcHashFromInts(obj_id_a, obj_id_b);
-   short is_resolved = 0;
-   if (FlatMapInt_GetValue(resolved_collisions, obj_pair_hash_key, (int *)&is_resolved))
-      return false;
+    // Check if this collision pair was already resolved
+    unsigned long obj_pair_hash_key = CalcHashFromInts(obj_id_a, obj_id_b);
+    short is_resolved = 0;
+    if (FlatMapInt_GetValue(resolved_collisions, obj_pair_hash_key, (int *)&is_resolved))
+        return false;
 
     Newtonoid2d *a = GetEntityByID(world, obj_id_a);
     Newtonoid2d *b = GetEntityByID(world, obj_id_b);
     if (!a || !b)
     {
         LOG_WARN("Collision pair references missing entities %d and %d in Cell (index = %d).\n",
-                    obj_id_a, obj_id_b, cell_i);
-      return false;
+                 obj_id_a, obj_id_b, cell_i);
+        return false;
     }
 
-   // Check collision masks for compatibility
+    // Check collision masks for compatibility
     if (!(a->collision_mask & b->entity_flags) || !(b->collision_mask & a->entity_flags))
-      return false;
+        return false;
 
-   // Run SAT collision detection
-   CollisionResult_SAT collision_result = CheckForCollision_SAT(a, b);
-   if (!collision_result.is_colliding)
-      return false;
+    // Run SAT collision detection
+    CollisionResult_SAT collision_result = CheckForCollision_SAT(a, b);
+    if (!collision_result.is_colliding)
+        return false;
 
-   // Record collision
-   LArray_Push(&world->collisions, &collision_result.collision_box);
-   LOG_INFO("COLLISION detected between Object ID %d and Object ID %d Coord Box Range: [%0.2f,%0.2f] [%0.2f,%0.2f] \n", 
-            obj_id_a, obj_id_b, collision_result.collision_box.col1.x, collision_result.collision_box.col1.y, 
-            collision_result.collision_box.col2.x, collision_result.collision_box.col2.y);
+    // Record collision
+    LArray_Push(&world->collisions, &collision_result.collision_box);
+    LOG_INFO("COLLISION detected between Object ID %d and Object ID %d Coord Box Range: [%0.2f,%0.2f] [%0.2f,%0.2f] \n",
+             obj_id_a, obj_id_b, collision_result.collision_box.col1.x, collision_result.collision_box.col1.y,
+             collision_result.collision_box.col2.x, collision_result.collision_box.col2.y);
 
-   // Resolve collision
-   ResolveCollision(a, b);
+    // Resolve collision
+    ResolveCollision(a, b);
 
-   // Mark as resolved
-   FlatMapInt_InsertOrUpdate(resolved_collisions, obj_pair_hash_key, 1);
+    // Mark as resolved
+    FlatMapInt_InsertOrUpdate(resolved_collisions, obj_pair_hash_key, 1);
 
-   // Create debug visualization object
-   Newtonoid2d *penetrating_entity = collision_result.penetrating_entity;
-   Matrix2x2 collision_box = collision_result.collision_box;
-   Vector2d collision_center = CalcGeometricCentre_FromBox(collision_box);
-   Vector2d dimensions = {collision_box.col2.x - collision_box.col1.x, collision_box.col2.y - collision_box.col1.y};
-   Vector2d collision_vertices_arr[4];
-   CalcBoxVertices(dimensions, ZERO_VECTOR_2D, collision_vertices_arr);
-   Surface2d collision_surface = {0};
-   collision_surface.surface_vectors = MakeLArray(4, sizeof(Vector2d));
-   MemoryCopy(collision_surface.surface_vectors.items, collision_vertices_arr, sizeof(collision_vertices_arr));
-   collision_surface.surface_vectors.count = 4;
-   Newtonoid2d collision_obj = CreateNewtonoid2d(0.00001f, collision_center, penetrating_entity->velocity, 
+    // Create debug visualization object
+    Newtonoid2d *penetrating_entity = collision_result.penetrating_entity;
+    Matrix2x2 collision_box = collision_result.collision_box;
+    Vector2d collision_center = CalcGeometricCentre_FromBox(collision_box);
+    Vector2d dimensions = {collision_box.col2.x - collision_box.col1.x, collision_box.col2.y - collision_box.col1.y};
+    Vector2d collision_vertices_arr[4];
+    CalcBoxVertices(dimensions, ZERO_VECTOR_2D, collision_vertices_arr);
+    Surface2d collision_surface = {0};
+    collision_surface.surface_vectors = MakeLArray(4, sizeof(Vector2d));
+    MemoryCopy(collision_surface.surface_vectors.items, collision_vertices_arr, sizeof(collision_vertices_arr));
+    collision_surface.surface_vectors.count = 4;
+    Newtonoid2d collision_obj = CreateNewtonoid2d(0.00001f, collision_center, penetrating_entity->velocity,
                                                   penetrating_entity->acceleration, collision_surface);
     collision_obj.entity_flags = FLAG_TYPE_EFFECT;
     collision_obj.status_flags |= FLAG_LIFETIME_CLOCKED;
-   StickEntity(world, &collision_obj, penetrating_entity);
-   int id = AddObjectToWorld(world, &collision_obj, penetrating_entity->id);
+    StickEntity(world, &collision_obj, penetrating_entity);
+    EntityId id = AddObjectToWorld(world, &collision_obj, penetrating_entity->id);
 
-   // Schedule deletion of debug object
-   ScheduleEntityDeletion(scheduled_world_cmds, id, FLAG_STATUS_ALIVE, 120, 1, 1);
+    // Schedule deletion of debug object
+    if (id != INVALID_ENTITY_ID)
+    {
+        ScheduleEntityDeletion(scheduled_world_cmds, id, FLAG_STATUS_ALIVE, 120, 1, 1);
+    }
 
-   return true;
+    return true;
 }
 
 void UpdateWorld(World2d *world, float delta_time)
 {
-   // PrintCurrentBytesAlloc();
-   LArray *objects = &world->objects;
-   GridSpace2d *space_entity = &world->grid_space;
-   Space2d *space = &space_entity->space;
+    // PrintCurrentBytesAlloc();
+    LArray *objects = &world->objects;
+    GridSpace2d *space_entity = &world->grid_space;
+    Space2d *space = &space_entity->space;
 
-   // RESET TRACKING-STATE - Zero out
-   FlatMapInt *entity_space_map = &world->entity_space_map;
-   FlatMapInt *resolved_collisions = &world->resolved_collisions;
-   FlatMapInt *entity_world_index_registry = &world->entity_world_index_registry;
-   LArray *scheduled_world_cmds = &world->scheduled_world_cmds;
+    // RESET TRACKING-STATE - Zero out
+    FlatMapInt *entity_space_map = &world->entity_space_map;
+    FlatMapInt *resolved_collisions = &world->resolved_collisions;
+    FlatMapInt *entity_world_index_registry = &world->entity_world_index_registry;
+    LArray *scheduled_world_cmds = &world->scheduled_world_cmds;
 
-   // RUN SCHEDULED WORLD EVENTS first so delayed deletions continue even when no inhabitants remain.
-   RunScheduledWorldCmds(scheduled_world_cmds, world);
+    // RUN SCHEDULED WORLD EVENTS first so delayed deletions continue even when no inhabitants remain.
+    RunScheduledWorldCmds(scheduled_world_cmds, world);
 
-   int obj_count = objects->count;
-   if (obj_count < 1)
-      return;
+    int obj_count = objects->count + world->temp_objects.count;
+    if (obj_count < 1)
+        return;
 
-   LArray_Reset(&world->collisions);
-   ResetFlatMapInt(entity_space_map);
-   ResetFlatMapInt(resolved_collisions);
+    LArray_Reset(&world->collisions);
+    ResetFlatMapInt(entity_space_map);
+    ResetFlatMapInt(resolved_collisions);
 
-   // Optimized: Only reset cells in active world region instead of entire universe grid
-   // This reduces O(universe_cells) to O(world_cells), typically 3600 -> 12 iterations
-   Cell *cells = space_entity->space.cells.items;
-   int grid_width = space->columns;
-   int grid_height = space->rows;
-   
-   // Reset only cells within the world's active region (bounds are in world-local coordinates)
-   for (int row = 0; row < grid_height; row++)
-   {
-      for (int col = 0; col < grid_width; col++)
-      {
-         int cell_index = row * space->columns + col;
-         Cell *target_cell = &cells[cell_index];
-         target_cell->occupancy = 0;
-         MemorySet(&cells[cell_index].object_ids, 0, sizeof(cells[cell_index].object_ids));
-      }
-   }
+    // Optimized: Only reset cells in active world region instead of entire universe grid
+    // This reduces O(universe_cells) to O(world_cells), typically 3600 -> 12 iterations
+    Cell *cells = space_entity->space.cells.items;
+    int grid_width = space->columns;
+    int grid_height = space->rows;
 
-   if (!IsJobSystemInitialized())
-   {
-      InitJobSystem(256);
-   }
-   ClearJobs();
-   SubmitJob(PhysicsUpdateJob, world, obj_count, 8);
-   ExecuteJobs();
-   ClearJobs();
+    // Reset only cells within the world's active region (bounds are in world-local coordinates)
+    for (int row = 0; row < grid_height; row++)
+    {
+        for (int col = 0; col < grid_width; col++)
+        {
+            int cell_index = row * space->columns + col;
+            Cell *target_cell = &cells[cell_index];
+            target_cell->occupancy = 0;
+            MemorySet(&cells[cell_index].object_ids, 0, sizeof(cells[cell_index].object_ids));
+        }
+    }
 
-   // PASS 1: Simulating Independent Physics
-   // Update object positions based on their velocity and acceleration, then update the cells they occupy in the coordinate space grid as well as the entity_space_map which tracks how many objects occupy each cell (for collision checking later)
-   // The physics work is now split into jobs for better task separation and future parallelism.
+    if (!IsJobSystemInitialized())
+    {
+        InitJobSystem(256);
+    }
+    ClearJobs();
+    SubmitJob(PhysicsUpdateJob, world, obj_count, 8);
+    ExecuteJobs();
+    ClearJobs();
 
-   // NOTE: The loop body is executed via PhysicsUpdateJob. No inline loop here anymore.
+    // PASS 1: Simulating Independent Physics
+    // Update object positions based on their velocity and acceleration, then update the cells they occupy in the coordinate space grid as well as the entity_space_map which tracks how many objects occupy each cell (for collision checking later)
+    // The physics work is now split into jobs for better task separation and future parallelism.
 
-   LArray *temp_objects = &world->temp_objects;
-   // PASS 2: Resolving Attachment Hierarchies
-   Newtonoid2d *child;
-   LArray_ForEach(temp_objects, Newtonoid2d*, child)
-   {
-    if (!(child->status_flags & FLAG_STATUS_ALIVE) || child->parent_id == space_entity->object.id)
-         continue;
+    // NOTE: The loop body is executed via PhysicsUpdateJob. No inline loop here anymore.
 
-      // Look up where the parent currently lives in memory using the registry
-      int parent_packed_loc = 0;
-      if (!FlatMapInt_GetValue(entity_world_index_registry, child->parent_id, &parent_packed_loc))
-      {
-         // The parent was likely deleted! Detach or kill the child so it doesn't crash
-         child->parent_id = -1;
-         continue;
-      }
+    LArray *temp_objects = &world->temp_objects;
+    // PASS 2: Resolving Attachment Hierarchies
+    Newtonoid2d *child;
+    LArray_ForEach(temp_objects, Newtonoid2d *, child)
+    {
+        if (!(child->status_flags & FLAG_STATUS_ALIVE) || child->parent_id == space_entity->object.id)
+            continue;
 
-      // Unpack the routing info to pull the parent out of the correct array
-      int parent_type = UNPACK_INT_HIGH(parent_packed_loc);
-      int parent_idx = UNPACK_INT_LOW(parent_packed_loc);
-      LArray *parent_array = (parent_type == ARCHETYPE_CLOCKED) ? temp_objects : objects;
+        // Look up where the parent currently lives in memory using the registry
+        int parent_packed_loc = 0;
+        if (!FlatMapInt_GetValue(entity_world_index_registry, child->parent_id, &parent_packed_loc))
+        {
+            // The parent was likely deleted! Detach or kill the child so it doesn't crash
+            child->parent_id = INVALID_ENTITY_ID;
+            continue;
+        }
 
-      Newtonoid2d *parent = (Newtonoid2d *)LArray_Get(parent_array, parent_idx);
+        // Unpack the routing info to pull the parent out of the correct array
+        int parent_type = UNPACK_INT_HIGH(parent_packed_loc);
+        int parent_idx = UNPACK_INT_LOW(parent_packed_loc);
+        LArray *parent_array = (parent_type == ARCHETYPE_CLOCKED) ? temp_objects : objects;
 
-      // Glue the child's world position to the parent's new position + offset
-      child->coords_center = VectorSum_2d(parent->coords_center, child->local_offset);
-      child->coords_origin = VectorSum_2d(parent->coords_origin, child->coords_origin);
-   }
-   // Check for collisions
-   if (obj_count < 2) // early return
-   {
-      // ClearFlatMapInt(&entity_space_map);
-      // PrintCurrentBytesAlloc();
-      return;
-   }
+        Newtonoid2d *parent = (Newtonoid2d *)LArray_Get(parent_array, parent_idx);
+        if (!parent)
+        {
+            child->parent_id = INVALID_ENTITY_ID;
+            continue;
+        }
 
-   // RESOLVE ENTITY-ENTITY COLLISIONS
-   for (size_t i = 0; i < entity_space_map->capacity; i++)
-   {
-      if (entity_space_map->slots[i].key == 0 && entity_space_map->slots[i].value == 0)
-         continue;
+        Vector2d previous_snapped_aabb_verts[4] = {0};
+        CalcSnappedAABB_Vertices(child->surface.surface_vectors.items,
+                                 child->surface.surface_vectors.count,
+                                 child->coords_center,
+                                 space->frame.basis,
+                                 previous_snapped_aabb_verts);
+        Matrix2x2 previous_snapped_aabb_box = CalcAABBCoords_Tight(
+            previous_snapped_aabb_verts, 4, ZERO_VECTOR_2D);
 
-      int cell_i = entity_space_map->slots[i].key;
-      int cell_occ = 0;
-      FlatMapInt_GetValue(entity_space_map, cell_i, &cell_occ);
+        // Glue the child's world position to the parent's new position + offset
+        child->coords_center = VectorSum_2d(parent->coords_center, child->local_offset);
+        child->coords_origin = VectorSum_2d(parent->coords_origin, child->coords_origin);
+        RemapEntityInASpace(space, child, previous_snapped_aabb_box,
+                            entity_space_map);
+    }
+    // Check for collisions
+    if (obj_count < 2) // early return
+    {
+        // ClearFlatMapInt(&entity_space_map);
+        // PrintCurrentBytesAlloc();
+        return;
+    }
 
-      if (cell_occ >= 2)
-      {
-         Cell *cell = &cells[cell_i];
-         for (size_t m = 0; m < cell_occ; m++)
-         {
-            // Check against all possible object pairings out of all object occupants in this cell
-            for (size_t n = m + 1; n < cell_occ; n++)
+    // RESOLVE ENTITY-ENTITY COLLISIONS
+    for (size_t i = 0; i < entity_space_map->capacity; i++)
+    {
+        if (entity_space_map->slots[i].key == 0 && entity_space_map->slots[i].value == 0)
+            continue;
+
+        int cell_i = entity_space_map->slots[i].key;
+        int cell_occ = 0;
+        FlatMapInt_GetValue(entity_space_map, cell_i, &cell_occ);
+
+        if (cell_occ >= 2)
+        {
+            Cell *cell = &cells[cell_i];
+            for (size_t m = 0; m < cell_occ; m++)
             {
-               int obj_id_a = cell->object_ids[m];
-               int obj_id_b = cell->object_ids[n];
-               ProcessCollisionPair(world, obj_id_a, obj_id_b, cell_i, resolved_collisions, scheduled_world_cmds);
+                // Check against all possible object pairings out of all object occupants in this cell
+                for (size_t n = m + 1; n < cell_occ; n++)
+                {
+                    EntityId obj_id_a = cell->object_ids[m];
+                    EntityId obj_id_b = cell->object_ids[n];
+                    ProcessCollisionPair(world, obj_id_a, obj_id_b, cell_i, resolved_collisions, scheduled_world_cmds);
+                }
             }
-         }
-      }
-   }
+        }
+    }
 }
-
 
 // Vector2d ResolveEntityWorldCoords(Newtonoid2d *a, WorldState context)
 // {
@@ -722,7 +763,7 @@ void UpdateWorld(World2d *world, float delta_time)
 #include "camera/camera.h"
 #include "math/affine_space_ops.h"
 #include <math/helpers.h>
-#include "system/drag_interaction.h"
+#include "input/drag_interaction.h"
 #include "system/debug_overlay_system.h"
 // #include "screens.h"
 
@@ -737,7 +778,6 @@ bool world_grid_debug_labels_enabled = false;
 // Vector2d game_viewport_local_resolution = {0};
 float gravity = 10;
 // Objects and properties
-int next_object_id = 1; // Global variable to keep track of the next available ID for NewtonObjects
 static ColourRgba polygonoid_line_colour = COLOUR_GAME_TERRACOTTA_RGBA;
 static float polygonoid_radius_default = 1.0;
 static float polygonoid_mass_default = 1.0;
@@ -757,8 +797,8 @@ static EntityDragMotionSnapshot g_drag_motion_snapshot = {0};
 //----------------------------------------------------------------------------------
 // Gameplay Screen Functions Definition
 //----------------------------------------------------------------------------------
-void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region);
-void CreateAddNewtonoid(int vertice_count, float radius, ShapeType shape_type,
+// void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region);
+void CreateAddNewtonoid(int vertice_count, float radius, ShapeBuildType build_type,
                         float mass, ColourRgba colour, Vector2d coords_center,
                         Vector2d velocity, Vector2d acceleration);
 void TogglePause(World2d *world);
@@ -832,19 +872,11 @@ static Vector2d ResolvePixelToWorldFrame(const World2d *active_world, Vector2d p
     {
         return ZERO_VECTOR_2D;
     }
-    // Convert click pixel coordinates from pixel --> viewport --> universe --> world-local coordinates
-    // Frame2d input_frame = screen_frame;
-    // Frame2d parent_frame = *G_Universe.camera.tunnel.source_frame;// ? *G_Universe.camera.tunnel.source_frame : CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D, G_Universe.resolution);
-    // Frame2d child_frame = *active_world->camera.tunnel.source_frame;// ? *active_world->camera.tunnel.source_frame : active_world->grid_space.space.frame;
 
     Matrix3x3 game_viewport_inv_transform = game_viewport.tunnel.dest_to_source_mtx; // pixel to viewport
     Matrix3x3 parent_inv_transform = G_Universe.camera.tunnel.dest_to_source_mtx;    // viewport to universe
     Matrix3x3 child_inv_transform = active_world->tunnel.dest_to_source_mtx;         // universe to world-local
 
-    // Frame2d parent_system = CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D, active_world->grid_space.space.frame.local_max);
-    // Frame2d child_local_system = active_world->grid_space.space.frame;
-    // Frame2d input_system = CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D, active_world->grid_space.space.frame.local_max);
-    // Matrix3x3 input_to_child_local_mtx = CalcChainTransform_FromFrame(input_system, parent_system, child_local_system);
     Vector2d viewport_coords = TransformCoordinates(game_viewport_inv_transform, pixel_coords);
     Vector2d parent_coords = TransformCoordinates(parent_inv_transform, viewport_coords);
     Vector2d child_coords = TransformCoordinates(child_inv_transform, parent_coords);
@@ -858,8 +890,7 @@ static Vector2d ResolvePixelToWorldFrame(const World2d *active_world, Vector2d p
     // return TransformCoordinates(input_to_child_local_mtx, click_parent_coords);
 }
 
-static bool TryGetClickedSpaceCell(Space2d *space, Vector2d click_local_coords,
-                                   int *out_cell_index, Cell **out_cell)
+static bool TryGetClickedSpaceCell(Space2d *space, Vector2d click_local_coords, int *out_cell_index, Cell **out_cell)
 {
     if (!space || !out_cell_index || !out_cell)
     {
@@ -914,7 +945,7 @@ static Newtonoid2d *FindClosestObjectInCell(World2d *world, const Cell *cell, Ve
             continue;
         }
 
-        int obj_id = obj->id;
+        EntityId obj_id = obj->id;
         if (obj_id != cell_id)
         {
             LOG_ERROR("Object Id stored in Cell doesn't match the Id in the object OR the array index-object Id no longer match. ID in CELL = %d. ID in ENTITY = %d.\n", cell_id, obj_id);
@@ -997,15 +1028,9 @@ void InitWorldSystem(void)
     InitCommandQueue();
 }
 
-// Gameplay Screen Update logic
-void UpdateWorldSystem(int mouse_x, int mouse_y)
+static void UpdateWorldSimulation(void)
 {
-    // Process any pending UI->World commands
     ProcessCommandQueue();
-
-    bool cursor_in_game_viewport = mouse_x >= game_viewport.pixel_origin.x && mouse_x <= (game_viewport.pixel_origin.x + (game_viewport.pixel_u.x * game_viewport.resolution.x)) && mouse_y >= game_viewport.pixel_origin.y && mouse_y <= (game_viewport.pixel_origin.y + (game_viewport.pixel_v.y * game_viewport.resolution.y));
-    if (G_Universe.world_count == 0)
-        return;
 
     for (int world_index = 0; world_index < G_Universe.world_count; world_index++)
     {
@@ -1015,22 +1040,29 @@ void UpdateWorldSystem(int mouse_x, int mouse_y)
             UpdateWorld(world, frame_counter.delta_time);
         }
     }
+}
+
+// Gameplay Screen Update logic
+InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult prior_result)
+{
+    if (!input)
+    {
+        return prior_result;
+    }
+
+    UpdateWorldSimulation();
+
+    int mouse_x = (int)input->pointer_position.x;
+    int mouse_y = (int)input->pointer_position.y;
+
+    bool cursor_in_game_viewport = mouse_x >= game_viewport.pixel_origin.x && mouse_x <= (game_viewport.pixel_origin.x + (game_viewport.pixel_u.x * game_viewport.resolution.x)) && mouse_y >= game_viewport.pixel_origin.y && mouse_y <= (game_viewport.pixel_origin.y + (game_viewport.pixel_v.y * game_viewport.resolution.y));
+    if (G_Universe.world_count == 0)
+        return prior_result;
 
     World2d *active_world = Universe_GetSelectedWorld(&G_Universe);
     Vector2d click_pixel_coords = {mouse_x, mouse_y};
     Vector2d click_world_coords = ResolvePixelToWorldFrame(active_world, click_pixel_coords);
     DragInteractionState *game_drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
-
-    if (active_world && ConsumeUniverseWorldClick())
-    {
-        Cell *selected_cell = NULL;
-        int selected_cell_index = -1;
-        G_UIState.selected_object = ResolveClosestEntityAt(active_world, click_world_coords,
-                                                            &selected_cell, &selected_cell_index,
-                                                            NULL, 0, NULL);
-        G_UIState.selected_cell = selected_cell;
-        G_UIState.selected_cell_index = selected_cell_index;
-    }
 
     // DEFAULT TESTING SPAWN of polygonoids with random properties
     float radius = GetRandomFloat(0.1, polygonoid_radius_default * 0.8);
@@ -1064,9 +1096,249 @@ void UpdateWorldSystem(int mouse_x, int mouse_y)
 
         if (IsKeyPressed(KEY_ONE))
         {
-            CreateAddNewtonoid(vertice_count, radius, SHAPE_MATH_POLY_HULL, mass, colour, click_world_coords, velocity, acceleration);
+            CreateAddNewtonoid(vertice_count, radius, SHAPE_BUILD_IRREGULAR, mass, colour, click_world_coords, velocity, acceleration);
             UpdateWorld(active_world, frame_counter.delta_time);
         }
+
+        if (prior_result == INPUT_ROUTE_IGNORED && cursor_in_game_viewport && input->left_down)
+        {
+            if (!game_drag_ctx->has_capture) // Only attempt to select an entity if we don't already have a drag capture
+            {
+                char log[256] = "";
+                int offset = 0;
+                AppendLogLine(log, sizeof(log), &offset, "WORLD (%.1f,%.1f) --> ", game_viewport.local_origin.x, game_viewport.local_origin.y);
+
+                Cell *selected_cell = NULL;
+                int selected_cell_index = -1;
+                Newtonoid2d *p_closest = ResolveClosestEntityAt(active_world, click_world_coords, &selected_cell, &selected_cell_index,
+                                                                log, sizeof(log), &offset);
+
+                G_UIState.selected_cell = selected_cell;
+                G_UIState.selected_cell_index = selected_cell_index;
+
+                if (p_closest)
+                {
+                    G_UIState.selected_object = p_closest;
+                    SnapshotDraggedEntityMotion(p_closest);
+                    DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_ENTITY, p_closest, p_closest->coords_center);
+                    AppendLogLine(log, sizeof(log), &offset, "--> SELECTED ENTITY: ID:%d", p_closest->id);
+                }
+                else
+                {
+                    G_UIState.selected_object = NULL;
+                    g_drag_motion_snapshot.entity = NULL;
+                    g_drag_motion_snapshot.has_snapshot = false;
+                    DragInteraction_ClearCapture(game_drag_ctx);
+                    AppendLogLine(log, sizeof(log), &offset, " --> SELECTED ENTITY: NULL");
+                }
+
+                LOG_INFO("CLICKED (%d,%d) | %s\n", mouse_x, mouse_y, log);
+                prior_result = p_closest ? INPUT_ROUTE_CAPTURED : INPUT_ROUTE_HANDLED;
+            }
+
+            if (game_drag_ctx->has_capture && game_drag_ctx->target_kind == DRAG_TARGET_WORLD_ENTITY &&
+                     DragInteraction_IsDragActive(game_drag_ctx, INPUT_DRAG_THRESHOLD_PIXELS))
+            {
+                Newtonoid2d *dragged = (Newtonoid2d *)game_drag_ctx->target;
+                if (dragged)
+                {
+                    Vector2d previous_snapped_aabb_verts[4] = {0};
+                    CalcSnappedAABB_Vertices(dragged->surface.surface_vectors.items,
+                                             dragged->surface.surface_vectors.count,
+                                             dragged->coords_center, active_world->grid_space.space.frame.basis,
+                                             previous_snapped_aabb_verts);
+                    Matrix2x2 previous_snapped_aabb_box = CalcAABBCoords_Tight(previous_snapped_aabb_verts, 4, ZERO_VECTOR_2D);
+
+                    Vector2d initial_world_coords = ResolvePixelToWorldFrame(active_world, game_drag_ctx->pointer_state.initial_pos);
+                    Vector2d current_world_coords = ResolvePixelToWorldFrame(active_world, game_drag_ctx->pointer_state.current_pos);
+                    Vector2d drag_delta_world = VectorSum_2d(current_world_coords, (Vector2d){-initial_world_coords.x, -initial_world_coords.y});
+
+                    Vector2d new_center = VectorSum_2d(game_drag_ctx->target_anchor, drag_delta_world);
+                    float max_x = fmaxf(0.0f, (float)active_world->grid_space.space.columns - 0.001f);
+                    float max_y = fmaxf(0.0f, (float)active_world->grid_space.space.rows - 0.001f);
+                    new_center.x = fmaxf(0.0f, fminf(new_center.x, max_x));
+                    new_center.y = fmaxf(0.0f, fminf(new_center.y, max_y));
+
+                    dragged->coords_center = new_center;
+                    dragged->coords_origin = (Vector2d){
+                        new_center.x - (dragged->boxed_dimensions.x * 0.5f),
+                        new_center.y - (dragged->boxed_dimensions.y * 0.5f)};
+
+                    // Keep drag interaction deterministic while the cursor is controlling the entity.
+                    dragged->velocity = ZERO_VECTOR_2D;
+                    dragged->acceleration = ZERO_VECTOR_2D;
+                    dragged->momentum = ZERO_VECTOR_2D;
+                    RemapEntityInASpace(&active_world->grid_space.space, dragged, previous_snapped_aabb_box,
+                                        &active_world->entity_space_map);
+                }
+            }
+        }
+        else if (input->left_released && game_drag_ctx->pointer_state.left_button_hold_ticks > 0)
+        {
+            if (game_drag_ctx->has_capture && game_drag_ctx->target_kind == DRAG_TARGET_WORLD_ENTITY)
+            {
+                RestoreDraggedEntityMotion((Newtonoid2d *)game_drag_ctx->target);
+                prior_result = INPUT_ROUTE_HANDLED;
+            }
+        }
+    }
+
+    return prior_result;
+}
+
+// Gameplay Screen Stage Update logic
+// void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
+
+void CreateAddNewtonoid(int vertice_count, float radius, ShapeBuildType build_type,
+                        float mass, ColourRgba colour, Vector2d coords_center,
+                        Vector2d velocity, Vector2d acceleration)
+{
+    World2d *active_world = Universe_GetSelectedWorld(&G_Universe);
+    if (!active_world)
+    {
+        return;
+    }
+
+    Newtonoid2d new_newtonoid = {0};
+
+    switch (build_type)
+    {
+    case SHAPE_BUILD_REGULAR:
+        new_newtonoid = CreateNewtonoid2d_Symmetric(vertice_count, radius, colour, mass, coords_center, velocity, acceleration);
+        break;
+    case SHAPE_BUILD_IRREGULAR:
+        float min_radius = GetRandomFloat(0, radius);
+        new_newtonoid = CreateNewtonoid2d_Irregular(vertice_count, min_radius, radius, colour, mass, coords_center, velocity, acceleration);
+        break;
+    default:
+        break;
+    }
+
+    if (new_newtonoid.radius > 0.0)
+    {
+        new_newtonoid.line_colour = COLOUR_GAME_INK_RGBA;
+        new_newtonoid.fill_colour = colour;
+        AddObjectToWorld(active_world, &new_newtonoid, active_world->grid_space.object.id);
+    }
+}
+
+void TogglePause(World2d *world)
+{
+    if (world->mode == RUNNING || world->mode == PAUSED)
+    {
+        world->mode = (world->mode == RUNNING) ? PAUSED : RUNNING;
+    }
+}
+
+Newtonoid2d *ResolveEntityParamsToEntity(Newtonoid2dParams *newtonoid_params)
+{
+    if (!newtonoid_params)
+    {
+        return NULL;
+    }
+
+    ShapeType shape_type = newtonoid_params->shape_type;
+    int vertice_count = newtonoid_params->vertice_count;
+
+    if (shape_type == SHAPE_AUTO)
+    {
+        if (vertice_count == 3)
+        {
+            shape_type = SHAPE_TRIANGLE;
+        }
+        else if (vertice_count == 4)
+        {
+            shape_type = SHAPE_SQUARE;
+        }
+        else
+        {
+            shape_type = SHAPE_POLYGON;
+        }
+    }
+
+    switch (shape_type)
+    {
+    case SHAPE_TRIANGLE:
+        vertice_count = 3;
+        break;
+    case SHAPE_SQUARE:
+    case SHAPE_RECTANGLE:
+        vertice_count = 4;
+        break;
+    case SHAPE_CIRCLE:
+        vertice_count = MAX_SHAPE_VERTICES;
+        break;
+    case SHAPE_POLYGON:
+        break;
+    default:
+        return NULL;
+    }
+
+    if (vertice_count < 3)
+    {
+        LOG_WARN("Invalid vertice_count: vertice_count = %d\n", vertice_count);
+        return NULL;
+    }
+    if (newtonoid_params->width <= 0.0 || newtonoid_params->height <= 0.0)
+    {
+        LOG_WARN("Invalid size: width = %f, height = %f\n", newtonoid_params->width, newtonoid_params->height);
+        return NULL;
+    }
+
+    Surface2d surface = {0};
+    if (shape_type == SHAPE_SQUARE || shape_type == SHAPE_RECTANGLE)
+    {
+        surface.surface_vectors = MakeLArray(vertice_count, sizeof(Vector2d));
+        Vector2d box_vertices[4];
+        CalcBoxVertices((Vector2d){newtonoid_params->width, newtonoid_params->height},
+                        ZERO_VECTOR_2D, box_vertices);
+        for (int i = 0; i < vertice_count; i++)
+        {
+            LArray_Push(&surface.surface_vectors, &box_vertices[i]);
+        }
+    }
+    else
+    {
+        surface.surface_vectors = CreateVertices_Symmetric(
+            vertice_count, newtonoid_params->width * 0.5f,
+            newtonoid_params->height * 0.5f);
+    }
+
+    Newtonoid2d *obj = CreateNewtonoid2d_Reference(
+        newtonoid_params->mass, newtonoid_params->coords_center,
+        newtonoid_params->velocity, newtonoid_params->acceleration,
+        surface);
+    if (!obj)
+    {
+        LOG_WARN("Failed to allocate new physical object. World entity pool full.\n");
+        return NULL;
+    }
+    obj->shape_type = shape_type;
+
+    LOG_INFO("Successfully spawned Entity ID: %d [Type: %d] at Position (%.2f, %.2f)\n",
+             obj->id, shape_type, obj->coords_center.x, obj->coords_center.y);
+
+    return obj;
+}
+int GetNewtonoidCount(void)
+{
+    World2d *active_world = Universe_GetSelectedWorld(&G_Universe);
+    return active_world ? active_world->objects.count + active_world->temp_objects.count : 0;
+}
+
+// Gameplay Screen Unload logic
+void UnloadGameplayScreen(void)
+{
+    ShutdownJobSystem();
+}
+
+// Gameplay Screen should finish?
+int FinishGameplayScreen(void)
+{
+    return finishScreen;
+}
+
+
 
         // DEBUGGING - Rapid firing of polygonoids
         // keyDown = IsKeyDown(KEY_ONE);
@@ -1156,203 +1428,3 @@ void UpdateWorldSystem(int mouse_x, int mouse_y)
         //         //G_Universe.camera_offset = ZERO_VECTOR_2D;
         //     }
         // }
-
-        if (cursor_in_game_viewport && IsMouseButtonDown(MOUSE_BUTTON_LEFT))
-        {
-            DragInteraction_UpdateButtonDown(game_drag_ctx, click_pixel_coords);
-
-            if (game_drag_ctx->pointer_state.left_button_hold_ticks == 1)
-            {
-                char log[256] = "";
-                int offset = 0;
-                AppendLogLine(log, sizeof(log), &offset, "WORLD (%.1f,%.1f) --> ", game_viewport.local_origin.x, game_viewport.local_origin.y);
-
-                Cell *selected_cell = NULL;
-                int selected_cell_index = -1;
-                Newtonoid2d *p_closest = ResolveClosestEntityAt(active_world, click_world_coords, &selected_cell, &selected_cell_index,
-                                                                log, sizeof(log), &offset);
-
-                G_UIState.selected_cell = selected_cell;
-                G_UIState.selected_cell_index = selected_cell_index;
-
-                if (p_closest)
-                {
-                    G_UIState.selected_object = p_closest;
-                    SnapshotDraggedEntityMotion(p_closest);
-                    DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_ENTITY, p_closest, p_closest->coords_center);
-                    AppendLogLine(log, sizeof(log), &offset, "--> SELECTED ENTITY: ID:%d", p_closest->id);
-                }
-                else
-                {
-                    G_UIState.selected_object = NULL;
-                    g_drag_motion_snapshot.entity = NULL;
-                    g_drag_motion_snapshot.has_snapshot = false;
-                    DragInteraction_ClearCapture(game_drag_ctx);
-                    AppendLogLine(log, sizeof(log), &offset, " --> SELECTED ENTITY: NULL");
-                }
-
-                LOG_INFO("CLICKED (%d,%d) | %s\n", mouse_x, mouse_y, log);
-            }
-
-            if (game_drag_ctx->has_capture && game_drag_ctx->target_kind == DRAG_TARGET_WORLD_ENTITY &&
-                DragInteraction_IsDragActive(game_drag_ctx, 5.0f))
-            {
-                Newtonoid2d *dragged = (Newtonoid2d *)game_drag_ctx->target;
-                if (dragged)
-                {
-                    Vector2d previous_snapped_aabb_verts[4] = {0};
-                    CalcSnappedAABB_Vertices(dragged->surface.surface_vectors.items,
-                                             dragged->surface.surface_vectors.count,
-                                             dragged->coords_center,
-                                             active_world->grid_space.space.frame.basis,
-                                             previous_snapped_aabb_verts);
-                    Matrix2x2 previous_snapped_aabb_box = CalcAABBCoords_Tight(previous_snapped_aabb_verts, 4, ZERO_VECTOR_2D);
-
-                    Vector2d initial_world_coords = ResolvePixelToWorldFrame(active_world, game_drag_ctx->pointer_state.initial_pos);
-                    Vector2d current_world_coords = ResolvePixelToWorldFrame(active_world, game_drag_ctx->pointer_state.current_pos);
-                    Vector2d drag_delta_world = VectorSum_2d(current_world_coords, (Vector2d){-initial_world_coords.x, -initial_world_coords.y});
-
-                    Vector2d new_center = VectorSum_2d(game_drag_ctx->target_anchor, drag_delta_world);
-                    float max_x = fmaxf(0.0f, (float)active_world->grid_space.space.columns - 0.001f);
-                    float max_y = fmaxf(0.0f, (float)active_world->grid_space.space.rows - 0.001f);
-                    new_center.x = fmaxf(0.0f, fminf(new_center.x, max_x));
-                    new_center.y = fmaxf(0.0f, fminf(new_center.y, max_y));
-
-                    dragged->coords_center = new_center;
-                    dragged->coords_origin = (Vector2d){
-                        new_center.x - (dragged->boxed_dimensions.x * 0.5f),
-                        new_center.y - (dragged->boxed_dimensions.y * 0.5f)};
-
-                    // Keep drag interaction deterministic while the cursor is controlling the entity.
-                    dragged->velocity = ZERO_VECTOR_2D;
-                    dragged->acceleration = ZERO_VECTOR_2D;
-                    dragged->momentum = ZERO_VECTOR_2D;
-                    RemapEntityInASpace(&active_world->grid_space.space, dragged, previous_snapped_aabb_box,
-                                       &active_world->entity_space_map);
-                }
-            }
-        }
-        else if (game_drag_ctx->pointer_state.left_button_hold_ticks > 0)
-        {
-            if (game_drag_ctx->has_capture && game_drag_ctx->target_kind == DRAG_TARGET_WORLD_ENTITY)
-            {
-                RestoreDraggedEntityMotion((Newtonoid2d *)game_drag_ctx->target);
-            }
-            DragInteraction_UpdateButtonUp(game_drag_ctx);
-        }
-    }
-}
-
-// Gameplay Screen Stage Update logic
-// void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
-
-void CreateAddNewtonoid(int vertice_count, float radius, ShapeType shape_type,
-                        float mass, ColourRgba colour, Vector2d coords_center,
-                        Vector2d velocity, Vector2d acceleration)
-{
-    World2d *active_world = Universe_GetSelectedWorld(&G_Universe);
-    if (!active_world)
-    {
-        return;
-    }
-
-    Newtonoid2d new_newtonoid = {0};
-
-    switch (shape_type)
-    {
-    case SHAPE_MATH_EQUIDISTANT:
-        new_newtonoid = CreateNewtonoid2d_Symmetric(vertice_count, radius, colour, mass, coords_center, velocity, acceleration);
-        break;
-    case SHAPE_MATH_POLY_HULL:
-        float min_radius = GetRandomFloat(0, radius);
-        new_newtonoid = CreateNewtonoid2d_Irregular(vertice_count, min_radius, radius, colour, mass, coords_center, velocity, acceleration);
-        break;
-    default:
-        break;
-    }
-
-    if (new_newtonoid.radius > 0.0)
-    {
-        new_newtonoid.line_colour = COLOUR_GAME_INK_RGBA;
-        new_newtonoid.fill_colour = colour;
-        AddObjectToWorld(active_world, &new_newtonoid, active_world->grid_space.object.id);
-    }
-}
-
-void TogglePause(World2d *world)
-{
-    if (world->mode == RUNNING || world->mode == PAUSED)
-    {
-        world->mode = (world->mode == RUNNING) ? PAUSED : RUNNING;
-    }
-}
-
-Newtonoid2d *ResolveEntityParamsToEntity(Newtonoid2dParams *newtonoid_params)
-{
-    if (newtonoid_params->vertice_count <= 0)
-    {
-        LOG_WARN("Invalid vertice_count: vertice_count = %d\n", newtonoid_params->vertice_count);
-        return NULL;
-    }
-    if (newtonoid_params->width <= 0.0 || newtonoid_params->height <= 0.0)
-    {
-        LOG_WARN("Invalid size: width = %f, height = %f\n", newtonoid_params->width, newtonoid_params->height);
-        return NULL;
-    }
-
-    // Resolve the Shape Type
-    // If it has 4 vertices and 4 edges, it's a box. If it has high vertex counts, it approximates a circle/equidistant shape.
-    ShapeType shape_type = SHAPE_MATH_EQUIDISTANT;
-    Newtonoid2d *obj = CreateNewtonoid2d_Reference(newtonoid_params->mass, newtonoid_params->coords_center, newtonoid_params->velocity, newtonoid_params->acceleration, (Surface2d){0});
-    if (!obj)
-    {
-        LOG_WARN("Failed to allocate new physical object. World entity pool full.\n");
-        return NULL;
-    }
-    obj->surface.surface_vectors = MakeLArray(newtonoid_params->vertice_count, sizeof(Vector2d));
-    if (newtonoid_params->vertice_count == 4)
-    {
-        obj->shape_type = SHAPE_BOX;
-        CalcBoxVertices((Vector2d){newtonoid_params->width, newtonoid_params->height}, ZERO_VECTOR_2D, (Vector2d *)obj->surface.surface_vectors.items);
-    }
-    else if (newtonoid_params->vertice_count == 0)
-    {
-        obj->shape_type = SHAPE_CIRCLE;
-    }
-    else
-    {
-        obj->shape_type = shape_type;
-    }
-
-    if (shape_type == SHAPE_MATH_EQUIDISTANT)
-    {
-        // Generate regular polygon vertices distributed equidistantly around a unit radius loop
-        int total_verts = newtonoid_params->vertice_count;
-        float radius_x = newtonoid_params->width * 0.5f;
-        float radius_y = newtonoid_params->height * 0.5f;
-        obj->surface.surface_vectors = CreateVertices_Symmetric(total_verts, radius_x, radius_y);
-    }
-
-    LOG_INFO("Successfully spawned Entity ID: %d [Type: %d] at Position (%.2f, %.2f)\n",
-             obj->id, shape_type, obj->coords_center.x, obj->coords_center.y);
-
-    return obj;
-}
-int GetNewtonoidCount(void)
-{
-    World2d *active_world = Universe_GetSelectedWorld(&G_Universe);
-    return active_world ? active_world->objects.count : 0;
-}
-
-// Gameplay Screen Unload logic
-void UnloadGameplayScreen(void)
-{
-    ShutdownJobSystem();
-}
-
-// Gameplay Screen should finish?
-int FinishGameplayScreen(void)
-{
-    return finishScreen;
-}
-
