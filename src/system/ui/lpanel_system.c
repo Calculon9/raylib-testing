@@ -85,14 +85,6 @@ static void InitEntityCreateDefaults(void)
     WriteTextboxVectorPair(G_UIState.edit_vel_tbox, params->velocity);
 }
 
-static void HandleLPanelViewSelected(View *view)
-{
-    if (view)
-    {
-        G_UIState.active_panel_view = view->type;
-    }
-}
-
 void InitLPanel()
 {
     // Create panel system
@@ -192,7 +184,7 @@ void InitLPanelViewSelector(void)
     const char *labels[] = {"STATE", "CREATE"};
     lpanel_view_selector = PanelSystem_CreateViewSelector(
         lpanel, lpanel_view_selector_cont, ui_standard_selector_button_size,
-        labels, sizeof(labels) / sizeof(labels[0]), HandleLPanelViewSelected);
+        labels, sizeof(labels) / sizeof(labels[0]), PanelSystem_HandleViewSelected);
 }
 
 // void InitEntityEditorContainer(void)

@@ -778,7 +778,7 @@ bool world_grid_debug_labels_enabled = false;
 // Vector2d game_viewport_local_resolution = {0};
 float gravity = 10;
 // Objects and properties
-static ColourRgba polygonoid_line_colour = COLOUR_GAME_TERRACOTTA_RGBA;
+static ColourRgba polygonoid_line_colour = {194, 105, 83, 255};
 static float polygonoid_radius_default = 1.0;
 static float polygonoid_mass_default = 1.0;
 static Vector2d polygonoid_velocity_default = {1.0, 1.0};
@@ -1085,13 +1085,6 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
             // PrintCurrentBytesAlloc();
             UpdateWorld(active_world, frame_counter.delta_time);
             // PrintCurrentBytesAlloc();
-        }
-
-        if (IsKeyPressed(KEY_F7))
-        {
-            ToggleDebug(DEBUG_WORLD_GRID_LABELS);
-            printf("[World] Grid debug labels: %s\n",
-                   IsDebugEnabled(DEBUG_WORLD_GRID_LABELS) ? "ON" : "OFF");
         }
 
         if (IsKeyPressed(KEY_ONE))

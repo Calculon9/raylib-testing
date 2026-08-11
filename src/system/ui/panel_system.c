@@ -6,6 +6,14 @@
 #include "ui/ui_constructors.h"
 #include "system/viewport_system.h"
 
+void PanelSystem_HandleViewSelected(View *view)
+{
+    if (view)
+    {
+        G_UIState.active_panel_view = view->type;
+    }
+}
+
 PanelSystem *PanelSystem_Create(ViewportRegion *viewport, float scale, Vector2d padding,
                                 const UIPalette *palette, Spacing root_child_spacing)
 {

@@ -75,11 +75,11 @@ extern const Spacing ui_zero_horizontal_wrap_spacing;
 extern const Spacing ui_standard_inline_spacing;
 extern const Spacing ui_zero_inline_spacing;
 
-extern const UIPalette ui_default_palette;
-extern const UIPalette ui_classic_palette;
-extern const UIPalette ui_earth_palette;
-extern const UIPalette ui_harbor_palette;
-extern const UIPalette ui_meadow_palette;
+extern UIPalette ui_default_palette;
+extern UIPalette ui_classic_palette;
+extern UIPalette ui_earth_palette;
+extern UIPalette ui_harbor_palette;
+extern UIPalette ui_meadow_palette;
 
 void UIPalette_GetSurfaceColours(const UIPalette *palette, UIPaletteSurface surface,
 								 ColourRgba *out_border, ColourRgba *out_fill);

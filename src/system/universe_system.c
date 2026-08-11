@@ -21,7 +21,7 @@ UNIVERSE SYSTEM MODULE
 static int create_world_auto_select = 0;
 static bool camera_diagnostic_printed = false;
 static bool click_pending = false;
-ColourRgba camera_marker_colour = COLOUR_GAME_TEAL_RGBA;
+ColourRgba camera_marker_colour = {86, 139, 127, 230};
 Frame2d universe_frame = {0};
 FrameTunnel universe_tunnel = {0};
 static CameraController cam_ctrl = {0};

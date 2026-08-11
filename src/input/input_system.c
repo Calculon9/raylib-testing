@@ -1,10 +1,53 @@
 #include "input/input_system.h"
 
+#include <stddef.h>
+
 #include "editor/geometry_editor.h"
 #include "system/systems.h"
 #include "system/ui_system.h"
 #include "system/universe_system.h"
 #include "world/universe.h"
+
+typedef InputRouteResult (*InputRouteHandler)(const InputFrame *input, InputRouteResult prior_result);
+
+static InputRouteResult RouteUIInput(const InputFrame *input, InputRouteResult prior_result)
+{
+    (void)prior_result;
+    return UpdateUISystem(input);
+}
+
+static InputRouteResult RouteGeometryEditorInput(const InputFrame *input, InputRouteResult prior_result)
+{
+    if (prior_result != INPUT_ROUTE_IGNORED)
+    {
+        return prior_result;
+    }
+
+    World2d *active_world = Universe_GetSelectedWorld(&G_Universe);
+    if (!active_world)
+    {
+        return prior_result;
+    }
+
+    return UpdateGeometryEditor(active_world, input);
+}
+
+static InputRouteResult RouteUniverseInput(const InputFrame *input, InputRouteResult prior_result)
+{
+    return UpdateUniverseSystem(input, prior_result);
+}
+
+static InputRouteResult RouteWorldInput(const InputFrame *input, InputRouteResult prior_result)
+{
+    return UpdateWorldSystem(input, prior_result);
+}
+
+static const InputRouteHandler input_route_chain[] = {
+    RouteUIInput,
+    RouteGeometryEditorInput,
+    RouteUniverseInput,
+    RouteWorldInput,
+};
 
 InputRouteResult UpdateInputSystem(const InputFrame *input)
 {
@@ -13,18 +56,14 @@ InputRouteResult UpdateInputSystem(const InputFrame *input)
         return INPUT_ROUTE_IGNORED;
     }
 
-    InputRouteResult result = UpdateUISystem(input);
-    DragInteractionState *drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
-    DragInteraction_BeginFrame(drag_ctx, input);
+    InputRouteResult result = INPUT_ROUTE_IGNORED;
+    DragInteraction_BeginContextFrame(DRAG_CONTEXT_GAME, input);
 
-    World2d *active_world = Universe_GetSelectedWorld(&G_Universe);
-    if (result == INPUT_ROUTE_IGNORED && active_world)
+    for (size_t i = 0; i < sizeof(input_route_chain) / sizeof(input_route_chain[0]); i++)
     {
-        result = UpdateGeometryEditor(active_world, input);
+        result = input_route_chain[i](input, result);
     }
-    result = UpdateUniverseSystem(input, result);
-    result = UpdateWorldSystem(input, result);
 
-    DragInteraction_EndFrame(drag_ctx, input);
+    DragInteraction_EndContextFrame(DRAG_CONTEXT_GAME, input);
     return result;
 }

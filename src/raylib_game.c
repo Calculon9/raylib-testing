@@ -25,6 +25,7 @@
 #include "editor/geometry_editor.h"
 #include "input/drag_interaction.h"
 #include "input/input_system.h"
+#include <stddef.h>
 #if defined(PLATFORM_WEB)
 #include <emscripten/emscripten.h>
 #endif
@@ -52,11 +53,192 @@ static float viewport_target_game_logical_height = 18.0f;
 static int viewport_ui_pixels_per_unit_override = 0;
 
 // Required variables to manage screen transitions (fade-in, fade-out)
-static float transAlpha = 0.0f;
-static bool onTransition = false;
-static bool transFadeOut = false;
-static int transFromScreen = -1;
-static GameScreen transToScreen = UNKNOWN;
+typedef struct
+{
+    float alpha;
+    bool active;
+    bool fade_out;
+    GameScreen from_screen;
+    GameScreen to_screen;
+} ScreenTransition;
+
+static ScreenTransition transition_state = {
+    .alpha = 0.0f,
+    .active = false,
+    .fade_out = false,
+    .from_screen = UNKNOWN,
+    .to_screen = UNKNOWN,
+};
+
+typedef struct
+{
+    void (*init_direct_fn)(void);
+    void (*init_transition_fn)(void);
+    void (*update_fn)(void);
+    void (*draw_fn)(void);
+    void (*unload_fn)(void);
+    int (*finish_fn)(void);
+} ScreenHandler;
+
+typedef struct
+{
+    GameScreen source_screen;
+    GameScreen target_screen;
+    int expected_finish_code;
+    bool match_nonzero;
+} ScreenFinishTransitionRule;
+
+static void InitGameplayDirectScreen(void)
+{
+    InitViewportLayout(screenWidth, screenHeight, screen_resolution_scalar);
+}
+
+static const ScreenHandler screen_handlers[ENDING + 1] = {
+    [LOGO] = {
+        .init_direct_fn = InitLogoScreen,
+        .init_transition_fn = InitLogoScreen,
+        .update_fn = UpdateLogoScreen,
+        .draw_fn = DrawLogoScreen,
+        .unload_fn = UnloadLogoScreen,
+        .finish_fn = FinishLogoScreen,
+    },
+    [TITLE] = {
+        .init_direct_fn = InitTitleScreen,
+        .init_transition_fn = InitTitleScreen,
+        .update_fn = UpdateTitleScreen,
+        .draw_fn = DrawTitleScreen,
+        .unload_fn = UnloadTitleScreen,
+        .finish_fn = FinishTitleScreen,
+    },
+    [OPTIONS] = {
+        .init_direct_fn = InitOptionsScreen,
+        .init_transition_fn = InitOptionsScreen,
+        .update_fn = UpdateOptionsScreen,
+        .draw_fn = DrawOptionsScreen,
+        .unload_fn = UnloadOptionsScreen,
+        .finish_fn = FinishOptionsScreen,
+    },
+    [GAMEPLAY] = {
+        .init_direct_fn = InitGameplayDirectScreen,
+        .init_transition_fn = InitGameplayScreen,
+        .update_fn = UpdateGameplayScreen,
+        .draw_fn = DrawGameplayScreen,
+        .unload_fn = UnloadGameplayScreen,
+        .finish_fn = FinishGameplayScreen,
+    },
+    [ENDING] = {
+        .init_direct_fn = InitEndingScreen,
+        .init_transition_fn = InitEndingScreen,
+        .update_fn = UpdateEndingScreen,
+        .draw_fn = DrawEndingScreen,
+        .unload_fn = UnloadEndingScreen,
+        .finish_fn = FinishEndingScreen,
+    },
+};
+
+static const ScreenFinishTransitionRule screen_finish_transition_rules[] = {
+    {LOGO, TITLE, 0, true},
+    {TITLE, GAMEPLAY, 2, false},
+    // {GAMEPLAY, ENDING, 1, false},
+    // {GAMEPLAY, TITLE, 2, false},
+};
+
+static const ScreenHandler *GetScreenHandler(GameScreen screen)
+{
+    if (screen < LOGO || screen > ENDING)
+    {
+        return NULL;
+    }
+
+    return &screen_handlers[(int)screen];
+}
+
+static void TransitionToScreen(int screen);
+
+static bool ResolveRequestedTransition(GameScreen screen, int finish_code, GameScreen *next_screen)
+{
+    if (!next_screen)
+    {
+        return false;
+    }
+
+    for (size_t i = 0; i < sizeof(screen_finish_transition_rules) / sizeof(screen_finish_transition_rules[0]); i++)
+    {
+        const ScreenFinishTransitionRule rule = screen_finish_transition_rules[i];
+        bool matched = false;
+
+        if (rule.source_screen != screen)
+        {
+            continue;
+        }
+
+        if (rule.match_nonzero)
+        {
+            matched = (finish_code != 0);
+        }
+        else
+        {
+            matched = (finish_code == rule.expected_finish_code);
+        }
+
+        if (matched)
+        {
+            *next_screen = rule.target_screen;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void InitScreenForMode(GameScreen screen, bool use_transition_init)
+{
+    const ScreenHandler *handler = GetScreenHandler(screen);
+    if (!handler)
+    {
+        return;
+    }
+
+    if (use_transition_init)
+    {
+        if (handler->init_transition_fn)
+        {
+            handler->init_transition_fn();
+        }
+    }
+    else if (handler->init_direct_fn)
+    {
+        handler->init_direct_fn();
+    }
+
+    currentScreen = screen;
+}
+
+static void UpdateCurrentScreenAndTransition(void)
+{
+    const ScreenHandler *handler = GetScreenHandler(currentScreen);
+    if (!handler)
+    {
+        return;
+    }
+
+    if (handler->update_fn)
+    {
+        handler->update_fn();
+    }
+
+    if (!handler->finish_fn)
+    {
+        return;
+    }
+
+    GameScreen next_screen = UNKNOWN;
+    int finish_code = handler->finish_fn();
+    if (ResolveRequestedTransition(currentScreen, finish_code, &next_screen))
+    {
+        TransitionToScreen(next_screen);
+    }
+}
 
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
@@ -69,25 +251,10 @@ static void UpdateDrawFrame(void);          // Update and draw one frame
 
 static void UnloadScreenData(GameScreen screen)
 {
-    switch (screen)
+    const ScreenHandler *handler = GetScreenHandler(screen);
+    if (handler && handler->unload_fn)
     {
-    case LOGO:
-        UnloadLogoScreen();
-        break;
-    case TITLE:
-        UnloadTitleScreen();
-        break;
-    case OPTIONS:
-        UnloadOptionsScreen();
-        break;
-    case GAMEPLAY:
-        UnloadGameplayScreen();
-        break;
-    case ENDING:
-        UnloadEndingScreen();
-        break;
-    default:
-        break;
+        handler->unload_fn();
     }
 }
 
@@ -157,92 +324,59 @@ int main(void)
 // Change to next screen, no transition
 static void ChangeToScreen(int screen)
 {
+    GameScreen next_screen = (GameScreen)screen;
+
     // Unload current screen
     UnloadScreenData(currentScreen);
 
     // Init next screen
-    switch (screen)
-    {
-    case LOGO:
-        InitLogoScreen();
-        break;
-    case TITLE:
-        InitTitleScreen();
-        break;
-    // case OPTIONS: InitOptionsScreen(); break;
-    case GAMEPLAY:
-        InitViewportLayout(screenWidth, screenHeight, screen_resolution_scalar);
-        // InitGameWorld();
-        break;
-    // case ENDING: InitEndingScreen(); break;
-    default:
-        break;
-    }
-
-    currentScreen = screen;
+    InitScreenForMode(next_screen, false);
 }
 
 // Request transition to next screen
 static void TransitionToScreen(int screen)
 {
-    onTransition = true;
-    transFadeOut = false;
-    transFromScreen = currentScreen;
-    transToScreen = screen;
-    transAlpha = 0.0f;
+    transition_state.active = true;
+    transition_state.fade_out = false;
+    transition_state.from_screen = currentScreen;
+    transition_state.to_screen = (GameScreen)screen;
+    transition_state.alpha = 0.0f;
 }
 
 // Update transition effect (fade-in, fade-out)
 static void UpdateTransition(void)
 {
-    if (!transFadeOut)
+    if (!transition_state.fade_out)
     {
-        transAlpha += 0.05f;
+        transition_state.alpha += 0.05f;
 
         // NOTE: Due to float internal representation, condition jumps on 1.0f instead of 1.05f
         // For that reason we compare against 1.01f, to avoid last frame loading stop
-        if (transAlpha > 1.01f)
+        if (transition_state.alpha > 1.01f)
         {
-            transAlpha = 1.0f;
+            transition_state.alpha = 1.0f;
 
             // Unload current screen
-            UnloadScreenData((GameScreen)transFromScreen);
+            UnloadScreenData(transition_state.from_screen);
 
             // Load next screen
-            switch (transToScreen)
-            {
-            case LOGO:
-                InitLogoScreen();
-                break;
-            case TITLE:
-                InitTitleScreen();
-                break;
-            // case OPTIONS: InitOptionsScreen(); break;
-            case GAMEPLAY:
-                InitGameplayScreen();
-                break;
-            // case ENDING: InitEndingScreen(); break;
-            default:
-                break;
-            }
-
-            currentScreen = transToScreen;
+            InitScreenForMode(transition_state.to_screen, true);
 
             // Activate fade out effect to next loaded screen
-            transFadeOut = true;
+            transition_state.fade_out = true;
         }
     }
     else // Transition fade out logic
     {
-        transAlpha -= 0.02f;
+        transition_state.alpha -= 0.02f;
 
-        if (transAlpha < -0.01f)
+        if (transition_state.alpha < -0.01f)
         {
-            transAlpha = 0.0f;
-            transFadeOut = false;
-            onTransition = false;
-            transFromScreen = -1;
-            transToScreen = UNKNOWN;
+            transition_state.alpha = 0.0f;
+            transition_state.fade_out = false;
+            transition_state.active = false;
+            transition_state.from_screen = UNKNOWN;
+            transition_state.to_screen = UNKNOWN;
         }
     }
 }
@@ -250,7 +384,7 @@ static void UpdateTransition(void)
 // Draw transition effect (full-screen rectangle)
 static void DrawTransition(void)
 {
-    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(BLACK, transAlpha));
+    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(BLACK, transition_state.alpha));
 }
 
 // Update and draw game frame
@@ -262,37 +396,9 @@ static void UpdateDrawFrame(void)
     //----------------------------------------------------------------------------------
     // UpdateMusicStream(music);       // NOTE: Music keeps playing between screens
 
-    if (!onTransition)
+    if (!transition_state.active)
     {
-        switch (currentScreen)
-        {
-        case LOGO:
-        {
-            UpdateLogoScreen();
-
-            if (FinishLogoScreen())
-                TransitionToScreen(TITLE);
-        }
-        break;
-        case TITLE:
-        {
-            UpdateTitleScreen();
-
-            if (FinishTitleScreen() == 2)
-                TransitionToScreen(GAMEPLAY);
-        }
-        break;
-        case GAMEPLAY:
-        {
-            UpdateGameplayScreen();
-
-            // if (FinishGameplayScreen() == 1) TransitionToScreen(ENDING);
-            // else if (FinishGameplayScreen() == 2) TransitionToScreen(TITLE);
-        }
-        break;
-        default:
-            break;
-        }
+        UpdateCurrentScreenAndTransition();
     }
     else
         UpdateTransition(); // Update transition (fade-in, fade-out)
@@ -304,25 +410,14 @@ static void UpdateDrawFrame(void)
 
     ClearBackground(RAYWHITE);
 
-    switch (currentScreen)
+    const ScreenHandler *draw_handler = GetScreenHandler(currentScreen);
+    if (draw_handler && draw_handler->draw_fn)
     {
-    case LOGO:
-        DrawLogoScreen();
-        break;
-    case TITLE:
-        DrawTitleScreen();
-        break;
-    // case OPTIONS: DrawOptionsScreen(); break;
-    case GAMEPLAY:
-        DrawGameplayScreen();
-        break;
-    // case ENDING: DrawEndingScreen(); break;
-    default:
-        break;
+        draw_handler->draw_fn();
     }
 
     // Draw full screen rectangle in front of everything
-    if (onTransition)
+    if (transition_state.active)
         DrawTransition();
 
     // DrawFPS(10, 10);

@@ -45,6 +45,8 @@ typedef struct
 } DragInteractionState;
 
 DragInteractionState *DragInteraction_GetContext(DragContextId id);
+DragInteractionState *DragInteraction_BeginContextFrame(DragContextId id, const InputFrame *input);
+void DragInteraction_EndContextFrame(DragContextId id, const InputFrame *input);
 void DragInteraction_Reset(DragInteractionState *state);
 void DragInteraction_ResetContext(DragContextId id);
 void DragInteraction_BeginFrame(DragInteractionState *state, const InputFrame *input);

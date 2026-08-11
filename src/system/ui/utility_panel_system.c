@@ -20,8 +20,8 @@ typedef struct
 
 static const UtilityDebugToggle utility_debug_toggles[] = {
     {DEBUG_WORLD_GRID, "World Grid"},
-    {DEBUG_WORLD_GRID_LABELS, "Grid Text (W)"},
-    {DEBUG_UNIVERSE_GRID_LABELS, "Grid Text (U)"},
+    {DEBUG_WORLD_GRID_LABELS, "Grid Text (World/F2)"},
+    {DEBUG_UNIVERSE_GRID_LABELS, "Grid Text (Universe/F4)"},
 };
 
 static void HandleUtilityDebugToggleClick(UIElement *button)

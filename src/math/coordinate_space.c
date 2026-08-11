@@ -15,38 +15,38 @@
 //----------------------------------------------------------------------------------
 const CoordinateSpacePreset COORDINATE_SPACE_PRESET_REGULAR = {
    GRID_GEOMETRY_REGULAR,
-   COORDINATE_SPACE_DEFAULT_RESOLUTION,
-   IDENTITY_BASIS_2D
+   {7.0f, 5.0f},
+   {{1.0f, 0.0f}, {0.0f, 1.0f}}
 };
 
 const CoordinateSpacePreset COORDINATE_SPACE_PRESET_SHEARED_Y = {
    GRID_GEOMETRY_SHEARED_Y,
-   COORDINATE_SPACE_DEFAULT_RESOLUTION,
-   (Basis2d){{1.0f, 0.0f}, {0.5f, 1.0f}}
+   {7.0f, 5.0f},
+   {{1.0f, 0.0f}, {0.5f, 1.0f}}
 };
 
 const CoordinateSpacePreset COORDINATE_SPACE_PRESET_SHEARED_X = {
    GRID_GEOMETRY_SHEARED_X,
-   COORDINATE_SPACE_DEFAULT_RESOLUTION,
-   (Basis2d){{1.0f, 0.5f}, {0.0f, 1.0f}}
+   {7.0f, 5.0f},
+   {{1.0f, 0.5f}, {0.0f, 1.0f}}
 };
 
 const CoordinateSpacePreset COORDINATE_SPACE_PRESET_ISOMETRIC = {
    GRID_GEOMETRY_ISOMETRIC,
-   COORDINATE_SPACE_DEFAULT_RESOLUTION,
-   (Basis2d){{0.7071f, 0.5f}, {-0.7071f, 0.5f}}
+   {7.0f, 5.0f},
+   {{0.7071f, 0.5f}, {-0.7071f, 0.5f}}
 };
 
 const CoordinateSpacePreset COORDINATE_SPACE_PRESET_PERSPECTIVE = {
    GRID_GEOMETRY_PERSPECTIVE,
-   COORDINATE_SPACE_DEFAULT_RESOLUTION,
-   IDENTITY_BASIS_2D
+   {7.0f, 5.0f},
+   {{1.0f, 0.0f}, {0.0f, 1.0f}}
 };
 
 const CoordinateSpacePreset COORDINATE_SPACE_PRESET_RADIAL = {
    GRID_GEOMETRY_RADIAL,
-   COORDINATE_SPACE_DEFAULT_RESOLUTION,
-   IDENTITY_BASIS_2D
+   {7.0f, 5.0f},
+   {{1.0f, 0.0f}, {0.0f, 1.0f}}
 };
 
 //----------------------------------------------------------------------------------

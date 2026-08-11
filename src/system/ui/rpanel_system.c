@@ -40,7 +40,7 @@ static UIElement *rpanel_state_view_cont = NULL;
 static UIElement *rpanel_create_view_cont = NULL;
 static ViewSelector *rpanel_view_selector = NULL;
 static int rpanel_basis_world_index = -1;
-static Basis2d rpanel_last_world_basis = IDENTITY_BASIS_2D;
+static Basis2d rpanel_last_world_basis = {0};
 
 static UIElement *rpanel_stats_entities_tbox = NULL;
 static UIElement *rpanel_world_index_tbox = NULL;
@@ -122,14 +122,6 @@ static void InitRPanelStateWorldContainer(void);
 // static void InitRPanelStateStatsContainer(void);
 static void InitRPanelCreateWorldContainer(void);
 
-static void HandleRPanelViewSelected(View *view)
-{
-    if (view)
-    {
-        G_UIState.active_panel_view = view->type;
-    }
-}
-
 static void InitRViewSelector(void)
 {
     rpanel_toggle_cont = CreateUIContainer(
@@ -142,7 +134,7 @@ static void InitRViewSelector(void)
     const char *labels[] = {"STATE", "CREATE"};
     rpanel_view_selector = PanelSystem_CreateViewSelector(
         rpanel, rpanel_toggle_cont, ui_standard_selector_button_size,
-        labels, sizeof(labels) / sizeof(labels[0]), HandleRPanelViewSelected);
+        labels, sizeof(labels) / sizeof(labels[0]), PanelSystem_HandleViewSelected);
 }
 
 static void InitRPanelStateWorldContainer(void)
@@ -258,6 +250,11 @@ static void InitRPanelCreateView(void)
 
 void InitRPanel(void)
 {
+    rpanel_last_world_basis.u.x = 1.0f;
+    rpanel_last_world_basis.u.y = 0.0f;
+    rpanel_last_world_basis.v.x = 0.0f;
+    rpanel_last_world_basis.v.y = 1.0f;
+
     // Create panel system
     rpanel = PanelSystem_Create(&rpanel_viewport, 1.0f, (Vector2d){0.1f, 0.1f},
                                 &ui_default_palette, ui_standard_stack_spacing);

@@ -55,90 +55,94 @@ const Spacing ui_zero_horizontal_wrap_spacing = {{0.0f, 0.06f}, SIZE_FIXED, SPAC
 const Spacing ui_standard_inline_spacing = {{0.06f, 0.0f}, SIZE_FIXED, SPACING_INLINE};
 const Spacing ui_zero_inline_spacing = {{0.0f, 0.0f}, NONE, SPACING_INLINE};
 
-const UIPalette ui_classic_palette = {
-    .panel_background = COLOUR_UI_INK_RGBA,
-    .container_border = COLOUR_UI_TERRACOTTA_RGBA,
-    .container_fill = COLOUR_UI_SAGE_RGBA,
-    .field_row_border = WHITE_RGBA,
-    .field_row_fill = COLOURLESS_RGBA,
-    .input_border = COLOUR_UI_INK_RGBA,
-    .input_fill = COLOUR_UI_PAPER_RGBA,
-    .button_border = COLOUR_UI_INK_RGBA,
-    .button_fill = COLOUR_UI_GOLD_RGBA,
-    .text = COLOUR_UI_INK_RGBA,
-    .label_text = WHITE_RGBA,
-    .text_on_dark = COLOUR_UI_PAPER_RGBA,
-    .error = RED_RGBA,
-    .warning = YELLOW_WARNING_RGBA
-};
+UIPalette ui_classic_palette = {0};
+UIPalette ui_earth_palette = {0};
+UIPalette ui_harbor_palette = {0};
+UIPalette ui_meadow_palette = {0};
+UIPalette ui_default_palette = {0};
 
-const UIPalette ui_earth_palette = {
-    .panel_background = COLOUR_UI_EARTH_TEAL_RGBA,
-    .container_border = COLOUR_UI_EARTH_RUST_RGBA,
-    .container_fill = COLOUR_UI_EARTH_OLIVE_RGBA,
-    .field_row_border = COLOUR_UI_EARTH_BROWN_RGBA,
-    .field_row_fill = COLOURLESS_RGBA,
-    .input_border = COLOUR_UI_EARTH_TEAL_RGBA,
-    .input_fill = COLOUR_UI_EARTH_CREAM_RGBA,
-    .button_border = COLOUR_UI_EARTH_TEAL_RGBA,
-    .button_fill = COLOUR_UI_EARTH_BROWN_RGBA,
-    .text = COLOUR_UI_EARTH_TEAL_RGBA,
-    .label_text = COLOUR_UI_EARTH_BROWN_RGBA,
-    .text_on_dark = COLOUR_UI_EARTH_CREAM_RGBA,
-    .error = RED_RGBA,
-    .warning = YELLOW_WARNING_RGBA
-};
+static bool ui_palettes_initialized = false;
 
-const UIPalette ui_harbor_palette = {
-    .panel_background = COLOUR_UI_HARBOR_NAVY_RGBA,
-    .container_border = COLOUR_UI_HARBOR_CORAL_RGBA,
-    .container_fill = COLOUR_UI_HARBOR_SEAFOAM_RGBA,
-    .field_row_border = COLOUR_UI_HARBOR_AMBER_RGBA,
-    .field_row_fill = COLOURLESS_RGBA,
-    .input_border = COLOUR_UI_HARBOR_NAVY_RGBA,
-    .input_fill = COLOUR_UI_HARBOR_SAND_RGBA,
-    .button_border = COLOUR_UI_HARBOR_NAVY_RGBA,
-    .button_fill = COLOUR_UI_HARBOR_AMBER_RGBA,
-    .text = COLOUR_UI_HARBOR_NAVY_RGBA,
-    .label_text = COLOUR_UI_HARBOR_AMBER_RGBA,
-    .text_on_dark = COLOUR_UI_HARBOR_SAND_RGBA,
-    .error = RED_RGBA,
-    .warning = YELLOW_WARNING_RGBA
-};
+static ColourRgba MakeColour(unsigned char r, unsigned char g, unsigned char b, unsigned char a)
+{
+    ColourRgba c;
+    c.r = r;
+    c.g = g;
+    c.b = b;
+    c.a = a;
+    return c;
+}
 
-const UIPalette ui_meadow_palette = {
-    .panel_background = COLOUR_UI_EARTH_OLIVE_RGBA,
-    .container_border = COLOUR_UI_GOLD_RGBA,
-    .container_fill = COLOUR_UI_SAGE_RGBA,
-    .field_row_border = COLOUR_UI_EARTH_TEAL_RGBA,
-    .field_row_fill = COLOURLESS_RGBA,
-    .input_border = COLOUR_UI_EARTH_TEAL_RGBA,
-    .input_fill = COLOUR_UI_PAPER_RGBA,
-    .button_border = COLOUR_UI_EARTH_TEAL_RGBA,
-    .button_fill = COLOUR_UI_GOLD_RGBA,
-    .text = COLOUR_UI_INK_RGBA,
-    .label_text = COLOUR_UI_EARTH_TEAL_RGBA,
-    .text_on_dark = COLOUR_UI_PAPER_RGBA,
-    .error = RED_RGBA,
-    .warning = YELLOW_WARNING_RGBA
-};
+static void InitUIPalettes(void)
+{
+    if (ui_palettes_initialized)
+    {
+        return;
+    }
 
-const UIPalette ui_default_palette = {
-    .panel_background = COLOUR_UI_HARBOR_NAVY_RGBA,
-    .container_border = COLOUR_UI_HARBOR_CORAL_RGBA,
-    .container_fill = COLOUR_UI_HARBOR_SEAFOAM_RGBA,
-    .field_row_border = COLOUR_UI_HARBOR_AMBER_RGBA,
-    .field_row_fill = COLOURLESS_RGBA,
-    .input_border = COLOUR_UI_HARBOR_NAVY_RGBA,
-    .input_fill = COLOUR_UI_HARBOR_SAND_RGBA,
-    .button_border = COLOUR_UI_HARBOR_NAVY_RGBA,
-    .button_fill = COLOUR_UI_HARBOR_AMBER_RGBA,
-    .text = COLOUR_UI_HARBOR_NAVY_RGBA,
-    .label_text = COLOUR_UI_HARBOR_AMBER_RGBA,
-    .text_on_dark = COLOUR_UI_HARBOR_SAND_RGBA,
-    .error = RED_RGBA,
-    .warning = YELLOW_WARNING_RGBA
-};
+    ui_classic_palette.panel_background = MakeColour(32, 42, 37, 255);
+    ui_classic_palette.container_border = MakeColour(194, 105, 83, 255);
+    ui_classic_palette.container_fill = MakeColour(111, 137, 119, 255);
+    ui_classic_palette.field_row_border = MakeColour(255, 255, 255, 255);
+    ui_classic_palette.field_row_fill = MakeColour(0, 0, 0, 0);
+    ui_classic_palette.input_border = MakeColour(32, 42, 37, 255);
+    ui_classic_palette.input_fill = MakeColour(245, 241, 230, 255);
+    ui_classic_palette.button_border = MakeColour(32, 42, 37, 255);
+    ui_classic_palette.button_fill = MakeColour(230, 194, 119, 255);
+    ui_classic_palette.text = MakeColour(32, 42, 37, 255);
+    ui_classic_palette.label_text = MakeColour(255, 255, 255, 255);
+    ui_classic_palette.text_on_dark = MakeColour(245, 241, 230, 255);
+    ui_classic_palette.error = MakeColour(230, 41, 55, 255);
+    ui_classic_palette.warning = MakeColour(255, 255, 176, 255);
+
+    ui_earth_palette.panel_background = MakeColour(38, 101, 115, 255);
+    ui_earth_palette.container_border = MakeColour(191, 78, 36, 255);
+    ui_earth_palette.container_fill = MakeColour(121, 120, 49, 255);
+    ui_earth_palette.field_row_border = MakeColour(166, 109, 60, 255);
+    ui_earth_palette.field_row_fill = MakeColour(0, 0, 0, 0);
+    ui_earth_palette.input_border = MakeColour(38, 101, 115, 255);
+    ui_earth_palette.input_fill = MakeColour(242, 211, 172, 255);
+    ui_earth_palette.button_border = MakeColour(38, 101, 115, 255);
+    ui_earth_palette.button_fill = MakeColour(166, 109, 60, 255);
+    ui_earth_palette.text = MakeColour(38, 101, 115, 255);
+    ui_earth_palette.label_text = MakeColour(166, 109, 60, 255);
+    ui_earth_palette.text_on_dark = MakeColour(242, 211, 172, 255);
+    ui_earth_palette.error = MakeColour(230, 41, 55, 255);
+    ui_earth_palette.warning = MakeColour(255, 255, 176, 255);
+
+    ui_harbor_palette.panel_background = MakeColour(28, 58, 67, 255);
+    ui_harbor_palette.container_border = MakeColour(218, 117, 96, 255);
+    ui_harbor_palette.container_fill = MakeColour(86, 139, 127, 255);
+    ui_harbor_palette.field_row_border = MakeColour(220, 158, 70, 255);
+    ui_harbor_palette.field_row_fill = MakeColour(0, 0, 0, 0);
+    ui_harbor_palette.input_border = MakeColour(28, 58, 67, 255);
+    ui_harbor_palette.input_fill = MakeColour(239, 221, 184, 255);
+    ui_harbor_palette.button_border = MakeColour(28, 58, 67, 255);
+    ui_harbor_palette.button_fill = MakeColour(220, 158, 70, 255);
+    ui_harbor_palette.text = MakeColour(28, 58, 67, 255);
+    ui_harbor_palette.label_text = MakeColour(220, 158, 70, 255);
+    ui_harbor_palette.text_on_dark = MakeColour(239, 221, 184, 255);
+    ui_harbor_palette.error = MakeColour(230, 41, 55, 255);
+    ui_harbor_palette.warning = MakeColour(255, 255, 176, 255);
+
+    ui_meadow_palette.panel_background = MakeColour(121, 120, 49, 255);
+    ui_meadow_palette.container_border = MakeColour(230, 194, 119, 255);
+    ui_meadow_palette.container_fill = MakeColour(111, 137, 119, 255);
+    ui_meadow_palette.field_row_border = MakeColour(38, 101, 115, 255);
+    ui_meadow_palette.field_row_fill = MakeColour(0, 0, 0, 0);
+    ui_meadow_palette.input_border = MakeColour(38, 101, 115, 255);
+    ui_meadow_palette.input_fill = MakeColour(245, 241, 230, 255);
+    ui_meadow_palette.button_border = MakeColour(38, 101, 115, 255);
+    ui_meadow_palette.button_fill = MakeColour(230, 194, 119, 255);
+    ui_meadow_palette.text = MakeColour(32, 42, 37, 255);
+    ui_meadow_palette.label_text = MakeColour(38, 101, 115, 255);
+    ui_meadow_palette.text_on_dark = MakeColour(245, 241, 230, 255);
+    ui_meadow_palette.error = MakeColour(230, 41, 55, 255);
+    ui_meadow_palette.warning = MakeColour(255, 255, 176, 255);
+
+    ui_default_palette = ui_harbor_palette;
+    ui_palettes_initialized = true;
+}
 
 void UIPalette_GetSurfaceColours(const UIPalette *palette, UIPaletteSurface surface,
                                  ColourRgba *out_border, ColourRgba *out_fill)
@@ -217,6 +221,8 @@ static void ClearString64(String64 *value)
 
 void InitUI(void)
 {
+    InitUIPalettes();
+
     // Init Global UI State
     G_UIState.focused_element = NULL;
     InitLPanel();
@@ -261,8 +267,7 @@ InputRouteResult UpdateUISystem(const InputFrame *input)
         cursor_in_ui = true;
     }
 
-    DragInteractionState *drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_UI);
-    DragInteraction_BeginFrame(drag_ctx, input);
+    DragInteractionState *drag_ctx = DragInteraction_BeginContextFrame(DRAG_CONTEXT_UI, input);
     ProcessUIInput(input, cursor_in_ui);
     InputRouteResult result = INPUT_ROUTE_IGNORED;
     if (drag_ctx->has_capture && (input->left_down || input->left_released))
@@ -273,7 +278,7 @@ InputRouteResult UpdateUISystem(const InputFrame *input)
     {
         result = INPUT_ROUTE_BLOCKED;
     }
-    DragInteraction_EndFrame(drag_ctx, input);
+    DragInteraction_EndContextFrame(DRAG_CONTEXT_UI, input);
     UpdateGlobalUIState();
     return result;
 }

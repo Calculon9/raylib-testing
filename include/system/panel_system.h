@@ -24,6 +24,9 @@ typedef struct ViewSwitcher ViewSwitcher;
 
 typedef void (*ViewSelectionCallback)(View *view);
 
+// Shared callback that updates global active panel view from selected view type.
+void PanelSystem_HandleViewSelected(View *view);
+
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------

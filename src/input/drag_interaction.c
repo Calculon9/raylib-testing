@@ -12,6 +12,19 @@ DragInteractionState *DragInteraction_GetContext(DragContextId id)
     return &g_drag_contexts[id];
 }
 
+DragInteractionState *DragInteraction_BeginContextFrame(DragContextId id, const InputFrame *input)
+{
+    DragInteractionState *state = DragInteraction_GetContext(id);
+    DragInteraction_BeginFrame(state, input);
+    return state;
+}
+
+void DragInteraction_EndContextFrame(DragContextId id, const InputFrame *input)
+{
+    DragInteractionState *state = DragInteraction_GetContext(id);
+    DragInteraction_EndFrame(state, input);
+}
+
 void DragInteraction_Reset(DragInteractionState *state)
 {
     if (!state)

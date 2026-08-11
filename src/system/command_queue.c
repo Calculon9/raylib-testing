@@ -30,6 +30,22 @@ static bool EnqueueCommand(CommandType type, const Newtonoid2dParams *params, in
     return true;
 }
 
+static bool EnqueueCommandWithQueueLog(CommandType type, const Newtonoid2dParams *params,
+                                       int world_select_delta, const char *command_name)
+{
+    if (!EnqueueCommand(type, params, world_select_delta))
+    {
+        return false;
+    }
+
+    if (command_name)
+    {
+        LOG_INFO("Enqueued %s (queue_count=%d)\n", command_name, q_count);
+    }
+
+    return true;
+}
+
 void InitCommandQueue(void)
 {
     MemorySet(queue, 0, sizeof(queue));
@@ -43,13 +59,7 @@ bool EnqueueCreateEntity(const Newtonoid2dParams *params)
         return false;
     }
 
-    if (!EnqueueCommand(CMD_CREATE_ENTITY, params, 0))
-    {
-        return false;
-    }
-
-    LOG_INFO("Enqueued CMD_CREATE_ENTITY (queue_count=%d)\n", q_count);
-    return true;
+    return EnqueueCommandWithQueueLog(CMD_CREATE_ENTITY, params, 0, "CMD_CREATE_ENTITY");
 }
 
 bool EnqueueDeleteEntity(Newtonoid2d *obj)
@@ -59,29 +69,17 @@ bool EnqueueDeleteEntity(Newtonoid2d *obj)
         return false;
     }
 
-    if (!EnqueueCommand(CMD_DELETE_ENTITY, NULL, 0))
-    {
-        return false;
-    }
-
-    LOG_INFO("Enqueued CMD_DELETE_ENTITY (queue_count=%d)\n", q_count);
-    return true;
+    return EnqueueCommandWithQueueLog(CMD_DELETE_ENTITY, NULL, 0, "CMD_DELETE_ENTITY");
 }
 
 bool EnqueueCreateWorld(void)
 {
-    if (!EnqueueCommand(CMD_CREATE_WORLD, NULL, 0))
-    {
-        return false;
-    }
-
-    LOG_INFO("Enqueued CMD_CREATE_WORLD (queue_count=%d)\n", q_count);
-    return true;
+    return EnqueueCommandWithQueueLog(CMD_CREATE_WORLD, NULL, 0, "CMD_CREATE_WORLD");
 }
 
 bool EnqueueSelectWorld(int delta)
 {
-    if (!EnqueueCommand(CMD_SELECT_WORLD, NULL, delta))
+    if (!EnqueueCommandWithQueueLog(CMD_SELECT_WORLD, NULL, delta, NULL))
     {
         return false;
     }
