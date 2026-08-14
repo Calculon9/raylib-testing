@@ -754,8 +754,22 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
                     }
                     else
                     {
-                        // Convert the pointer to destination-local coordinates before queueing the transfer.
-                        Vector2d destination_coords = TransformCoordinates(destination_world->tunnel.dest_to_source_mtx, uni_coords);
+                        // Use the same pixel->world conversion path used for selection/drag updates
+                        // so destination placement stays aligned under the pointer across worlds.
+                        Vector2d pointer_px = game_drag_ctx->pointer_state.current_pos;
+                        Vector2d destination_coords = ResolvePixelToWorldFrame(
+                            destination_world,
+                            pointer_px);
+                        LOG_INFO("DRAG_TRANSFER enqueue: entity=%d src_world=%d dst_world=%d pointer_px=(%.2f,%.2f) uni=(%.2f,%.2f) dst_local=(%.2f,%.2f)\n",
+                                 dragged->id,
+                                 source_world_index,
+                                 destination_world_index,
+                                 pointer_px.x,
+                                 pointer_px.y,
+                                 uni_coords.x,
+                                 uni_coords.y,
+                                 destination_coords.x,
+                                 destination_coords.y);
                         if (EnqueueMoveEntity(dragged->id, source_world_index, destination_world_index,
                                               destination_world->grid_space.object.id, destination_coords,
                                               g_drag_motion_snapshot.collision_mask))
