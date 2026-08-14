@@ -213,6 +213,7 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
 
     if (G_Universe.selected_world_index < 0 && cursor_in_game_viewport && input->left_down)
     {
+        // Start drag if the mouse is down and the user has not yet selected a world
         if (game_drag_ctx->pointer_state.left_button_hold_ticks == 1)
         {
             Vector2d click_universe_coords = TransformCoordinates(pixel_to_world, mouse_pixel_coords);
@@ -228,7 +229,7 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
                 DragInteraction_ClearCapture(game_drag_ctx);
             }
         }
-
+        // Check if drag threshold has been exceeded and apply updates if so
         if (game_drag_ctx->has_capture && game_drag_ctx->target_kind == DRAG_TARGET_WORLD_CONTAINER &&
             DragInteraction_IsDragActive(game_drag_ctx, INPUT_DRAG_THRESHOLD_PIXELS))
         {

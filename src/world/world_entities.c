@@ -178,7 +178,9 @@ static bool RemoveRegisteredEntity(World2d *world, EntityId entity_id, bool free
     return true;
 }
 
-EntityId MoveObjectBetweenWorlds(World2d *source_world, World2d *destination_world, EntityId object_id, EntityId destination_parent_id)
+EntityId MoveObjectBetweenWorlds(World2d *source_world, World2d *destination_world,
+                                 EntityId object_id, EntityId destination_parent_id,
+                                 Vector2d destination_coords)
 {
     if (!source_world || !destination_world || source_world == destination_world)
     {
@@ -192,7 +194,7 @@ EntityId MoveObjectBetweenWorlds(World2d *source_world, World2d *destination_wor
         return INVALID_ENTITY_ID;
     }
 
-    Vector2d local_coords = source_entity->coords_center;
+    Vector2d local_coords = destination_coords;
     if (local_coords.x < 0 || local_coords.y < 0 ||
         local_coords.x >= destination_world->grid_space.space.columns ||
         local_coords.y >= destination_world->grid_space.space.rows)
@@ -203,7 +205,13 @@ EntityId MoveObjectBetweenWorlds(World2d *source_world, World2d *destination_wor
     }
 
     EntityId original_parent_id = source_entity->parent_id;
+    Vector2d original_coords_center = source_entity->coords_center;
+    Vector2d original_coords_origin = source_entity->coords_origin;
     Newtonoid2d moved_entity = *source_entity;
+    moved_entity.coords_center = destination_coords;
+    moved_entity.coords_origin = (Vector2d){
+        destination_coords.x - (moved_entity.boxed_dimensions.x * 0.5f),
+        destination_coords.y - (moved_entity.boxed_dimensions.y * 0.5f)};
     if (!RemoveRegisteredEntity(source_world, object_id, false))
     {
         return INVALID_ENTITY_ID;
@@ -214,6 +222,8 @@ EntityId MoveObjectBetweenWorlds(World2d *source_world, World2d *destination_wor
     {
         // The source was detached first to prevent both worlds from owning the same entity.
         moved_entity.parent_id = original_parent_id;
+        moved_entity.coords_center = original_coords_center;
+        moved_entity.coords_origin = original_coords_origin;
         if (AddObjectToWorld(source_world, &moved_entity, original_parent_id) == INVALID_ENTITY_ID)
         {
             LOG_ERROR("Failed to restore entity %d after a rejected world transfer.\n", object_id);

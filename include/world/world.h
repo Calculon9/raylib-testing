@@ -102,7 +102,9 @@ extern World2d world_1;
 //----------------------------------------------------------------------------------
 void UpdateWorld(World2d *world, float delta_time);
 EntityId AddObjectToWorld(World2d *world, Newtonoid2d *object, EntityId parent_id);
-EntityId MoveObjectBetweenWorlds(World2d *source_world, World2d *destination_world, EntityId object_id, EntityId destination_parent_id);
+EntityId MoveObjectBetweenWorlds(World2d *source_world, World2d *destination_world,
+                                 EntityId object_id, EntityId destination_parent_id,
+                                 Vector2d destination_coords);
 // Vector2d GetCellIndicesFromCoordinates(Vector2d origin_coordinates, Vector2d input_coordinates, Basis2d basis);
 // Field UpdateFieldCellValues(Field field);
 
