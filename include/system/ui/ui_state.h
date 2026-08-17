@@ -105,6 +105,7 @@ typedef struct
     ViewType active_panel_view;
 
     // SELECTION STATE (previously in WorldState)
+    EntityId selected_object_id;
     Newtonoid2d *selected_object;
     Newtonoid2dParams *newtonoid_params;
     Cell *selected_cell;

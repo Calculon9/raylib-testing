@@ -17,6 +17,7 @@
 #include "system/ui/utility_panel_system.h"
 #include "system/ui/popup_menu.h"
 #include "world/world.h"
+#include "world/universe.h"
 #include "input/drag_interaction.h"
 #include "system/systems.h"
 #include "system/utility_system.h"
@@ -63,6 +64,8 @@ UIPalette ui_meadow_palette = {0};
 UIPalette ui_default_palette = {0};
 
 static bool ui_palettes_initialized = false;
+static UIStateSelectionChangedCallback ui_selection_changed_callback = NULL;
+static void *ui_selection_changed_user_data = NULL;
 
 static ColourRgba MakeColour(unsigned char r, unsigned char g, unsigned char b, unsigned char a)
 {
@@ -220,11 +223,127 @@ static void ClearString64(String64 *value)
     value->string[0] = '\0';
 }
 
+void UIState_SetSelectedObject(Newtonoid2d *object)
+{
+    // Centralise object selection writes so other systems stop mutating the UI state directly.
+    UIState_SetSelection(object, G_UIState.selected_cell, G_UIState.selected_cell_index);
+}
+
+void UIState_SetSelectedObjectById(EntityId entity_id)
+{
+    // Resolve by stable ID at write time to avoid leaking cross-module pointer lookup details.
+    if (entity_id == INVALID_ENTITY_ID)
+    {
+        UIState_SetSelection(NULL, G_UIState.selected_cell, G_UIState.selected_cell_index);
+        return;
+    }
+
+    Newtonoid2d *selected_object = Universe_GetEntityByID(&G_Universe, entity_id, NULL);
+    UIState_SetSelection(selected_object, G_UIState.selected_cell, G_UIState.selected_cell_index);
+}
+
+void UIState_SetSelection(Newtonoid2d *object, Cell *cell, int cell_index)
+{
+    // Keep object and cell selection updates in one write path to avoid partial state updates.
+    EntityId prev_selected_object_id = G_UIState.selected_object_id;
+    Newtonoid2d *prev_selected_object = G_UIState.selected_object;
+    Cell *prev_selected_cell = G_UIState.selected_cell;
+    int prev_selected_cell_index = G_UIState.selected_cell_index;
+
+    G_UIState.selected_object_id = object ? object->id : INVALID_ENTITY_ID;
+    G_UIState.selected_object = object;
+    G_UIState.selected_cell = cell;
+    G_UIState.selected_cell_index = cell_index;
+
+    bool selection_changed = prev_selected_object_id != G_UIState.selected_object_id ||
+                            prev_selected_object != G_UIState.selected_object ||
+                            prev_selected_cell != G_UIState.selected_cell ||
+                            prev_selected_cell_index != G_UIState.selected_cell_index;
+    if (selection_changed && ui_selection_changed_callback)
+    {
+        ui_selection_changed_callback(G_UIState.selected_object_id,
+                                      G_UIState.selected_object,
+                                      G_UIState.selected_cell,
+                                      G_UIState.selected_cell_index,
+                                      ui_selection_changed_user_data);
+    }
+}
+
+void UIState_SetSelectionChangedCallback(UIStateSelectionChangedCallback callback, void *user_data)
+{
+    ui_selection_changed_callback = callback;
+    ui_selection_changed_user_data = user_data;
+}
+
+void UIState_ClearSelectedObject(void)
+{
+    UIState_SetSelection(NULL, G_UIState.selected_cell, G_UIState.selected_cell_index);
+}
+
+void UIState_ValidateSelection(void)
+{
+    // Keep pointer state synchronised with the selected ID to prevent stale references after deletes/moves.
+    if (G_UIState.selected_object_id == INVALID_ENTITY_ID)
+    {
+        if (G_UIState.selected_object)
+        {
+            UIState_SetSelection(NULL, G_UIState.selected_cell, G_UIState.selected_cell_index);
+        }
+        return;
+    }
+
+    Newtonoid2d *selected_object = Universe_GetEntityByID(&G_Universe, G_UIState.selected_object_id, NULL);
+    if (!selected_object)
+    {
+        UIState_SetSelection(NULL, G_UIState.selected_cell, G_UIState.selected_cell_index);
+        return;
+    }
+
+    if (selected_object != G_UIState.selected_object)
+    {
+        UIState_SetSelection(selected_object, G_UIState.selected_cell, G_UIState.selected_cell_index);
+    }
+}
+
+Newtonoid2d *UIState_GetSelectedObject(void)
+{
+    // Always validate before exposing the pointer to callers.
+    UIState_ValidateSelection();
+    return G_UIState.selected_object;
+}
+
+EntityId UIState_GetSelectedObjectId(void)
+{
+    return G_UIState.selected_object_id;
+}
+
+void UIState_SetSelectedCell(Cell *cell, int cell_index)
+{
+    // Keep cell pointer and index updates atomic from the caller's perspective.
+    UIState_SetSelection(G_UIState.selected_object, cell, cell_index);
+}
+
+void UIState_ClearSelectedCell(void)
+{
+    UIState_SetSelection(G_UIState.selected_object, NULL, -1);
+}
+
+Cell *UIState_GetSelectedCell(void)
+{
+    return G_UIState.selected_cell;
+}
+
+int UIState_GetSelectedCellIndex(void)
+{
+    return G_UIState.selected_cell_index;
+}
+
 void InitUI(void)
 {
     InitUIPalettes();
 
     // Init Global UI State
+    UIState_SetSelection(NULL, NULL, -1);
     G_UIState.focused_element = NULL;
     InitLPanel();
     InitUtilityPanel();
@@ -357,7 +476,8 @@ void UpdateGlobalUIState()
     // ----DEBUG //
 
     // COLLECT & UPDATE "SELECTED ENTITY" PROPERTIES
-    Newtonoid2d *obj = G_UIState.selected_object;
+    // Read via the validated accessor so bindings never use stale entity pointers.
+    Newtonoid2d *obj = UIState_GetSelectedObject();
     if (obj)
     {
         // Bind selected_object data to the Object Properties TextBoxes
@@ -386,13 +506,12 @@ void UpdateGlobalUIState()
     {
         ClearAndUnbindTextboxGroup(state_boxes, state_box_count);
     }
-    UpdateStateManagerSelectedObject();
 
     // COLLECT & UPDATE SELECTED CELL PROPERTIES
-    Cell *cell = G_UIState.selected_cell;
+    Cell *cell = UIState_GetSelectedCell();
     if (cell)
     {
-        int index = G_UIState.selected_cell_index;
+        int index = UIState_GetSelectedCellIndex();
         int occu = cell->occupancy;
         float val = cell->value;
         float fill = 0; // set to 0 for now

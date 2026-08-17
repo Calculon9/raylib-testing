@@ -20,6 +20,7 @@ static Size state_manager_toggle_size = {{1.0f, 0.15f}, SIZE_PERCENT};
 static Size phys_section_size = {{0.375f, 1.0f}, SIZE_PERCENT};
 static Size attr_section_size = {{0.25f, 1.0f}, SIZE_PERCENT};
 static ViewSelector *state_manager_view_selector = NULL;
+static bool state_manager_refresh_dirty = true;
 
 typedef struct
 {
@@ -54,6 +55,7 @@ typedef struct
     StateManagerFlagBinding *binding;
     UIElement **registry;
     size_t registry_count;
+    size_t registry_offset;
 } StateManagerButtonSpec;
 
 static StateManagerFlagBinding flag_alive = {FLAG_STATUS_ALIVE, false, false, false, false, false};
@@ -86,11 +88,78 @@ static UIElement *state_manager_collision_buttons[5] = {0};
 static UIElement *state_manager_world_buttons[7] = {0};
 static UIElement *state_manager_cell_buttons[4] = {0};
 
+static const StateManagerButtonSpec state_manager_identity_specs[] = {
+    {"WALL", &flag_wall, state_manager_flag_buttons, 8, 0},
+    {"NEWTONOID", &flag_newtonoid, state_manager_flag_buttons, 8, 0},
+    {"PROJECTILE", &flag_projectile, state_manager_flag_buttons, 8, 0},
+    {"EFFECT", &flag_effect, state_manager_flag_buttons, 8, 0},
+    {"CAMERA", &flag_camera, state_manager_flag_buttons, 8, 0},
+};
+static const StateManagerButtonSpec state_manager_behaviour_specs[] = {
+    {"ALIVE", &flag_alive, state_manager_flag_buttons, 8, 5},
+    {"RIGID", &flag_rigid, state_manager_flag_buttons, 8, 5},
+    {"CLOCKED", &flag_clocked, state_manager_flag_buttons, 8, 5},
+};
+static const StateManagerButtonSpec state_manager_collision_specs[] = {
+    {"WALL", &mask_wall, state_manager_collision_buttons, 5, 0},
+    {"NEWTONOID", &mask_newtonoid, state_manager_collision_buttons, 5, 0},
+    {"PROJECTILE", &mask_projectile, state_manager_collision_buttons, 5, 0},
+    {"EFFECT", &mask_effect, state_manager_collision_buttons, 5, 0},
+    {"CAMERA", &mask_camera, state_manager_collision_buttons, 5, 0},
+};
+static const StateManagerButtonSpec state_manager_world_specs[] = {
+    {"ACTIVE", &world_active, state_manager_world_buttons, 7, 0},
+    {"VISIBLE", &world_visible, state_manager_world_buttons, 7, 0},
+    {"SELECTABLE", &world_selectable, state_manager_world_buttons, 7, 0},
+    {"PHYSICS", &world_physics, state_manager_world_buttons, 7, 0},
+    {"SPAWNS", &world_spawns, state_manager_world_buttons, 7, 0},
+    {"LOCKED", &world_locked, state_manager_world_buttons, 7, 0},
+    {"DRAG", &world_draggable, state_manager_world_buttons, 7, 0},
+};
+static const StateManagerButtonSpec state_manager_cell_specs[] = {
+    {"SOLID", &cell_solid, state_manager_cell_buttons, 4, 0},
+    {"WALKABLE", &cell_walkable, state_manager_cell_buttons, 4, 0},
+    {"HAZARD", &cell_hazardous, state_manager_cell_buttons, 4, 0},
+    {"SPAWN", &cell_spawnable, state_manager_cell_buttons, 4, 0},
+};
+
 // PHYS view geometry readouts.
 static UIElement *state_rotation_tbox = NULL;
 static UIElement *state_basis_u_tbox = NULL;
 static UIElement *state_basis_v_tbox = NULL;
 static UIElement *state_geometry_center_tbox = NULL;
+
+typedef enum
+{
+    STATE_MANAGER_GEOMETRY_NUMBER,
+    STATE_MANAGER_GEOMETRY_VECTOR,
+} StateManagerGeometryFormat;
+
+void MarkStateManagerRefreshDirty(void)
+{
+    state_manager_refresh_dirty = true;
+}
+
+static void HandleSelectionChanged(EntityId selected_object_id,
+                                   const Newtonoid2d *selected_object,
+                                   const Cell *selected_cell,
+                                   int selected_cell_index,
+                                   void *user_data)
+{
+    (void)selected_object_id;
+    (void)selected_object;
+    (void)selected_cell;
+    (void)selected_cell_index;
+    (void)user_data;
+
+    if (!state_manager_panel)
+    {
+        return;
+    }
+
+    // Selection transitions mark the state-manager UI dirty and defer refresh to draw.
+    MarkStateManagerRefreshDirty();
+}
 
 static int GetStateManagerObjectWorld(const Newtonoid2d *object)
 {
@@ -110,7 +179,7 @@ static void HandleStateManagerFlagClick(UIElement *button)
     }
 
     StateManagerFlagBinding *binding = (StateManagerFlagBinding *)button->data.button.user_data;
-    Newtonoid2d *object = G_UIState.selected_object;
+    Newtonoid2d *object = UIState_GetSelectedObject();
 
     if (!binding->is_cell && !binding->is_world && !object)
     {
@@ -133,7 +202,7 @@ static void HandleStateManagerFlagClick(UIElement *button)
         {
             world->flags |= binding->flag;
         }
-        UpdateStateManagerSelectedObject();
+        MarkStateManagerRefreshDirty();
         return;
     }
 
@@ -151,13 +220,13 @@ static void HandleStateManagerFlagClick(UIElement *button)
         {
             object->collision_mask |= binding->flag;
         }
-        UpdateStateManagerSelectedObject();
+        MarkStateManagerRefreshDirty();
         return;
     }
 
     if (binding->is_cell)
     {
-        Cell *cell = G_UIState.selected_cell;
+        Cell *cell = UIState_GetSelectedCell();
         if (!cell)
         {
             return;
@@ -172,7 +241,7 @@ static void HandleStateManagerFlagClick(UIElement *button)
         {
             *target_flags |= binding->flag;
         }
-        UpdateStateManagerSelectedObject();
+        MarkStateManagerRefreshDirty();
         return;
     }
 
@@ -198,7 +267,7 @@ static void HandleStateManagerFlagClick(UIElement *button)
     {
         *target_flags |= binding->flag;
     }
-    UpdateStateManagerSelectedObject();
+    MarkStateManagerRefreshDirty();
 }
 
 static void RegisterStateManagerButton(UIElement *button, UIElement **buttons, size_t count)
@@ -242,17 +311,30 @@ static void CreateStateManagerSectionButtons(UIElement *section,const StateManag
     }
 }
 
-static void InitPhysStateView(void)
+// Create and register a state-manager view while preserving per-view layout behavior.
+static UIElement *CreateStateManagerViewContainer(int view_id, bool is_draggable, bool is_enabled,
+                                                  bool use_zero_wrap_spacing)
 {
-    // Create View's container & register the View
-    UIElement *entity_container = CreateUIContainer(
+    UIElement *container = CreateUIContainer(
         state_manager_panel->root, state_manager_view_size,
         state_manager_entity_offset, ui_standard_container_padding,
         state_manager_panel->palette, UI_PALETTE_SURFACE_CONTAINER,
-        ui_standard_inline_spacing, true, true);
-    View *physics_view = AllocateBytes(sizeof(View));
-    PanelSystem_AddView(state_manager_panel, physics_view, entity_container, STATE_MANAGER_PHYSICS_VIEW);
-    entity_container->child_spacing = ui_zero_horizontal_wrap_spacing;
+        ui_standard_inline_spacing, is_draggable, is_enabled);
+    View *view = AllocateBytes(sizeof(View));
+    PanelSystem_AddView(state_manager_panel, view, container, view_id);
+
+    if (use_zero_wrap_spacing)
+    {
+        container->child_spacing = ui_zero_horizontal_wrap_spacing;
+    }
+
+    return container;
+}
+
+static void InitPhysStateView(void)
+{
+    UIElement *entity_container = CreateStateManagerViewContainer(
+        STATE_MANAGER_PHYSICS_VIEW, true, true, true);
 
     // Customise the View
     UIElement *newtonian_section = CreateViewSection_Wrap(entity_container, "Newtonian", phys_section_size,
@@ -292,91 +374,41 @@ static void InitPhysStateView(void)
 
 static void InitAttributeStateView(void)
 {
-    // Create View's container & register the View
-    UIElement *attributes_container = CreateUIContainer(
-        state_manager_panel->root, state_manager_view_size,
-        state_manager_entity_offset, ui_standard_container_padding,
-        state_manager_panel->palette, UI_PALETTE_SURFACE_CONTAINER,
-        ui_standard_inline_spacing, true, false);
-    View *attributes_view = AllocateBytes(sizeof(View));
-    PanelSystem_AddView(state_manager_panel, attributes_view, attributes_container, STATE_MANAGER_ATTRIBUTES_VIEW);
-    attributes_container->child_spacing = ui_zero_horizontal_wrap_spacing;
+    UIElement *attributes_container = CreateStateManagerViewContainer(
+        STATE_MANAGER_ATTRIBUTES_VIEW, true, false, true);
 
     // Customise the View
-    const size_t flag_registry_count = sizeof(state_manager_flag_buttons) / sizeof(state_manager_flag_buttons[0]);
-    const size_t collision_registry_count = sizeof(state_manager_collision_buttons) / sizeof(state_manager_collision_buttons[0]);
-
     UIElement *identity_section = CreateViewSection_Wrap(attributes_container, "Entity", attr_section_size,
                                                     state_manager_panel->palette);
-    const StateManagerButtonSpec identity_specs[] = {
-        {"WALL", &flag_wall, state_manager_flag_buttons, flag_registry_count},
-        {"NEWTONOID", &flag_newtonoid, state_manager_flag_buttons, flag_registry_count},
-        {"PROJECTILE", &flag_projectile, state_manager_flag_buttons, flag_registry_count},
-        {"EFFECT", &flag_effect, state_manager_flag_buttons, flag_registry_count},
-        {"CAMERA", &flag_camera, state_manager_flag_buttons, flag_registry_count},
-    };
-    CreateStateManagerSectionButtons(identity_section, identity_specs,
-                                     sizeof(identity_specs) / sizeof(identity_specs[0]));
+    CreateStateManagerSectionButtons(identity_section, state_manager_identity_specs,
+                                     sizeof(state_manager_identity_specs) / sizeof(state_manager_identity_specs[0]));
 
     UIElement *behaviour_section = CreateViewSection_Wrap(attributes_container, "Behaviour", attr_section_size,
                                                      state_manager_panel->palette);
-    const StateManagerButtonSpec behaviour_specs[] = {
-        {"ALIVE", &flag_alive, state_manager_flag_buttons, flag_registry_count},
-        {"RIGID", &flag_rigid, state_manager_flag_buttons, flag_registry_count},
-        {"CLOCKED", &flag_clocked, state_manager_flag_buttons, flag_registry_count},
-    };
-    CreateStateManagerSectionButtons(behaviour_section, behaviour_specs,
-                                     sizeof(behaviour_specs) / sizeof(behaviour_specs[0]));
+    CreateStateManagerSectionButtons(behaviour_section, state_manager_behaviour_specs,
+                                     sizeof(state_manager_behaviour_specs) / sizeof(state_manager_behaviour_specs[0]));
 
     UIElement *collision_section = CreateViewSection_Wrap(attributes_container, "Collision", attr_section_size,
                                                      state_manager_panel->palette);
-    const StateManagerButtonSpec collision_specs[] = {
-        {"WALL", &mask_wall, state_manager_collision_buttons, collision_registry_count},
-        {"NEWTONOID", &mask_newtonoid, state_manager_collision_buttons, collision_registry_count},
-        {"PROJECTILE", &mask_projectile, state_manager_collision_buttons, collision_registry_count},
-        {"EFFECT", &mask_effect, state_manager_collision_buttons, collision_registry_count},
-        {"CAMERA", &mask_camera, state_manager_collision_buttons, collision_registry_count},
-    };
-    CreateStateManagerSectionButtons(collision_section, collision_specs,
-                                     sizeof(collision_specs) / sizeof(collision_specs[0]));
+    CreateStateManagerSectionButtons(collision_section, state_manager_collision_specs,
+                                     sizeof(state_manager_collision_specs) / sizeof(state_manager_collision_specs[0]));
 }
 
 static void InitWorldStateView(void)
 {
-    UIElement *world_container = CreateUIContainer(
-        state_manager_panel->root, state_manager_view_size,
-        state_manager_entity_offset, ui_standard_container_padding,
-        state_manager_panel->palette, UI_PALETTE_SURFACE_CONTAINER,
-        ui_standard_inline_spacing, true, false);
-    View *world_view = AllocateBytes(sizeof(View));
-    PanelSystem_AddView(state_manager_panel, world_view, world_container, STATE_MANAGER_WORLD_VIEW);
-    world_container->child_spacing = ui_zero_horizontal_wrap_spacing;
+    UIElement *world_container = CreateStateManagerViewContainer(
+        STATE_MANAGER_WORLD_VIEW, true, false, true);
 
     UIElement *world_section = CreateViewSection_Wrap(world_container, "World", attr_section_size,
                                                  state_manager_panel->palette);
-    const size_t world_registry_count = sizeof(state_manager_world_buttons) / sizeof(state_manager_world_buttons[0]);
-    const StateManagerButtonSpec world_specs[] = {
-        {"ACTIVE", &world_active, state_manager_world_buttons, world_registry_count},
-        {"VISIBLE", &world_visible, state_manager_world_buttons, world_registry_count},
-        {"SELECTABLE", &world_selectable, state_manager_world_buttons, world_registry_count},
-        {"PHYSICS", &world_physics, state_manager_world_buttons, world_registry_count},
-        {"SPAWNS", &world_spawns, state_manager_world_buttons, world_registry_count},
-        {"LOCKED", &world_locked, state_manager_world_buttons, world_registry_count},
-        {"DRAG", &world_draggable, state_manager_world_buttons, world_registry_count},
-    };
-    CreateStateManagerSectionButtons(world_section, world_specs,
-                                     sizeof(world_specs) / sizeof(world_specs[0]));
+    CreateStateManagerSectionButtons(world_section, state_manager_world_specs,
+                                     sizeof(state_manager_world_specs) / sizeof(state_manager_world_specs[0]));
 }
 
 static void InitCellStateView(void)
 {
-    UIElement *cell_container = CreateUIContainer(
-        state_manager_panel->root, state_manager_view_size,
-        state_manager_entity_offset, ui_standard_container_padding,
-        state_manager_panel->palette, UI_PALETTE_SURFACE_CONTAINER,
-        ui_standard_inline_spacing, true, false);
-    View *cell_view = AllocateBytes(sizeof(View));
-    PanelSystem_AddView(state_manager_panel, cell_view, cell_container, STATE_MANAGER_CELL_STATE_VIEW);
+    UIElement *cell_container = CreateStateManagerViewContainer(
+        STATE_MANAGER_CELL_STATE_VIEW, true, false, false);
 
     const UIFieldSpec cell_specs[] = {
         {"Index", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &G_UIState.cell_id_str},
@@ -393,15 +425,8 @@ static void InitCellStateView(void)
 
     UIElement *cell_flags_section = CreateViewSection_Wrap(cell_container, "Flags", attr_section_size,
                                                       state_manager_panel->palette);
-    const size_t cell_flag_registry_count = sizeof(state_manager_cell_buttons) / sizeof(state_manager_cell_buttons[0]);
-    const StateManagerButtonSpec cell_flag_specs[] = {
-        {"SOLID", &cell_solid, state_manager_cell_buttons, cell_flag_registry_count},
-        {"WALKABLE", &cell_walkable, state_manager_cell_buttons, cell_flag_registry_count},
-        {"HAZARD", &cell_hazardous, state_manager_cell_buttons, cell_flag_registry_count},
-        {"SPAWN", &cell_spawnable, state_manager_cell_buttons, cell_flag_registry_count},
-    };
-    CreateStateManagerSectionButtons(cell_flags_section, cell_flag_specs,
-                                     sizeof(cell_flag_specs) / sizeof(cell_flag_specs[0]));
+    CreateStateManagerSectionButtons(cell_flags_section, state_manager_cell_specs,
+                                     sizeof(state_manager_cell_specs) / sizeof(state_manager_cell_specs[0]));
 }
 
 void InitStateManagerSystem(void)
@@ -428,13 +453,27 @@ void InitStateManagerSystem(void)
         state_manager_panel, toggle_container, ui_small_horizontal_button_size,
         labels, sizeof(labels) / sizeof(labels[0]), NULL);
     PanelSystem_SelectView(state_manager_view_selector, 0);
+
+    // Subscribe once so selection transitions can proactively refresh this panel.
+    UIState_SetSelectionChangedCallback(HandleSelectionChanged, NULL);
+
+    // First frame should always render initialised state-manager values.
+    MarkStateManagerRefreshDirty();
+
     UpdateUISpace(state_manager_panel->root, state_manager_panel->seed_box);
 }
 
 void DrawStateManagerSystem(void)
 {
     if (state_manager_panel)
+    {
+        if (state_manager_refresh_dirty)
+        {
+            UpdateStateManagerSelectedObject();
+            state_manager_refresh_dirty = false;
+        }
         PanelSystem_Draw(state_manager_panel);
+    }
 }
 
 UIElement *GetStateManagerRoot(void)
@@ -472,29 +511,31 @@ static uint32_t GetStateManagerSourceFlags(const StateManagerFlagBinding *bindin
     }
 }
 
-static void UpdateStateManagerButtonGroup(UIElement **buttons, const StateManagerFlagBinding *bindings[],
-                                          const char *labels[], size_t count,
+static void UpdateStateManagerButtonGroup(const StateManagerButtonSpec *specs, size_t count,
                                           StateManagerFlagSource source)
 {
     for (size_t i = 0; i < count; i++)
     {
-        if (!buttons[i])
+        UIElement *button = specs[i].registry[specs[i].registry_offset + i];
+        if (!button)
         {
             continue;
         }
-        uint32_t source_flags = GetStateManagerSourceFlags(bindings[i], source);
+        uint32_t source_flags = GetStateManagerSourceFlags(specs[i].binding, source);
         bool enabled = source.kind != STATE_MANAGER_FLAG_SOURCE_NONE &&
-                       (source_flags & bindings[i]->flag) != 0;
-        UpdateString64(buttons[i]->data.button.label.string,
-                       "%s: %s", labels[i], enabled ? "ON" : "OFF");
-        buttons[i]->is_enabled = true;
+                       (source_flags & specs[i].binding->flag) != 0;
+        UpdateString64(button->data.button.label.string,
+                       "%s: %s", specs[i].label, enabled ? "ON" : "OFF");
+        button->is_enabled = true;
     }
 }
 
 void UpdateStateManagerSelectedObject(void)
 {
-    Newtonoid2d *object = G_UIState.selected_object;
+    Newtonoid2d *object = UIState_GetSelectedObject();
     World2d *world = Universe_GetSelectedWorld(&G_Universe);
+    UIElement *geometry_textboxes[] = {
+        state_rotation_tbox, state_basis_u_tbox, state_basis_v_tbox, state_geometry_center_tbox};
 
     if (G_UIState.state_world_str)
     {
@@ -513,106 +554,85 @@ void UpdateStateManagerSelectedObject(void)
     {
         // Pipe the object's current frame values into the Geometry readouts.
         SyncNewtonoidRotation(object);
-        BindTextboxData(state_rotation_tbox, FLOAT, &object->rotation);
-        BindTextboxData(state_basis_u_tbox, VECTOR2D, &object->local_axis_x);
-        BindTextboxData(state_basis_v_tbox, VECTOR2D, &object->local_axis_y);
-        BindTextboxData(state_geometry_center_tbox, VECTOR2D, &object->local_geometry_center);
+        const DataType geometry_types[] = {FLOAT, VECTOR2D, VECTOR2D, VECTOR2D};
+        const StateManagerGeometryFormat geometry_formats[] = {
+            STATE_MANAGER_GEOMETRY_NUMBER, STATE_MANAGER_GEOMETRY_VECTOR,
+            STATE_MANAGER_GEOMETRY_VECTOR, STATE_MANAGER_GEOMETRY_VECTOR};
+        const float *number_values[] = {&object->rotation, NULL, NULL, NULL};
+        const Vector2d *vector_values[] = {
+            NULL, &object->local_axis_x, &object->local_axis_y, &object->local_geometry_center};
 
-        if (state_geometry_center_tbox)
+        for (size_t i = 0; i < sizeof(geometry_textboxes) / sizeof(geometry_textboxes[0]); i++)
         {
-            WriteTextboxVectorIfUnfocused(state_geometry_center_tbox,
-                                          object->local_geometry_center);
-        }
-        if (state_rotation_tbox)
-        {
-            WriteTextboxNumberIfUnfocused(state_rotation_tbox, object->rotation, 3);
-        }
-        if (state_basis_u_tbox)
-        {
-            WriteTextboxVectorIfUnfocused(state_basis_u_tbox, object->local_axis_x);
-        }
-        if (state_basis_v_tbox)
-        {
-            WriteTextboxVectorIfUnfocused(state_basis_v_tbox, object->local_axis_y);
+            if (!geometry_textboxes[i])
+            {
+                continue;
+            }
+
+            BindTextboxData(geometry_textboxes[i], geometry_types[i],
+                            (void *)(geometry_formats[i] == STATE_MANAGER_GEOMETRY_NUMBER
+                                         ? (const void *)number_values[i]
+                                         : (const void *)vector_values[i]));
+            if (geometry_formats[i] == STATE_MANAGER_GEOMETRY_NUMBER)
+            {
+                WriteTextboxNumberIfUnfocused(geometry_textboxes[i], *number_values[i], 3);
+            }
+            else
+            {
+                WriteTextboxVectorIfUnfocused(geometry_textboxes[i], *vector_values[i]);
+            }
         }
     }
     else
     {
-        if (state_geometry_center_tbox)
+        for (size_t i = 0; i < sizeof(geometry_textboxes) / sizeof(geometry_textboxes[0]); i++)
         {
-            WriteTextboxText(state_geometry_center_tbox, "N/A");
-            state_geometry_center_tbox->data.textbox.data_bind = NULL;
-        }
-        if (state_rotation_tbox)
-        {
-            WriteTextboxText(state_rotation_tbox, "N/A");
-            state_rotation_tbox->data.textbox.data_bind = NULL;
-        }
-        if (state_basis_u_tbox)
-        {
-            WriteTextboxText(state_basis_u_tbox, "N/A");
-            state_basis_u_tbox->data.textbox.data_bind = NULL;
-        }
-        if (state_basis_v_tbox)
-        {
-            WriteTextboxText(state_basis_v_tbox, "N/A");
-            state_basis_v_tbox->data.textbox.data_bind = NULL;
+            if (geometry_textboxes[i])
+            {
+                WriteTextboxText(geometry_textboxes[i], "N/A");
+                geometry_textboxes[i]->data.textbox.data_bind = NULL;
+            }
         }
     }
 
-    const StateManagerFlagBinding *bindings[] = {
-        &flag_wall, &flag_newtonoid, &flag_projectile, &flag_effect, &flag_camera,
-        &flag_alive, &flag_rigid, &flag_clocked};
-    const char *labels[] = {"Wall", "Newtonoid", "Projectile", "Effect", "Camera",
-                            "Alive", "Rigid", "Clocked"};
-    UpdateStateManagerButtonGroup(state_manager_flag_buttons, bindings, labels,
-                                  sizeof(bindings) / sizeof(bindings[0]),
-                                  (StateManagerFlagSource){
-                                      .kind = STATE_MANAGER_FLAG_SOURCE_ENTITY,
-                                      .entity = object,
-                                      .world = NULL,
-                                      .cell = NULL,
-                                      .use_collision_mask = false,
-                                  });
+    StateManagerFlagSource entity_source = {
+        .kind = STATE_MANAGER_FLAG_SOURCE_ENTITY,
+        .entity = object,
+        .world = NULL,
+        .cell = NULL,
+        .use_collision_mask = false,
+    };
+    UpdateStateManagerButtonGroup(state_manager_identity_specs,
+                                  sizeof(state_manager_identity_specs) / sizeof(state_manager_identity_specs[0]),
+                                  entity_source);
+    UpdateStateManagerButtonGroup(state_manager_behaviour_specs,
+                                  sizeof(state_manager_behaviour_specs) / sizeof(state_manager_behaviour_specs[0]),
+                                  entity_source);
 
-    const StateManagerFlagBinding *collision_bindings[] = {
-        &mask_wall, &mask_newtonoid, &mask_projectile, &mask_effect, &mask_camera};
-    const char *collision_labels[] = {"Wall", "Newtonoid", "Projectile", "Effect", "Camera"};
-    UpdateStateManagerButtonGroup(state_manager_collision_buttons, collision_bindings,
-                                  collision_labels, sizeof(collision_bindings) / sizeof(collision_bindings[0]),
-                                  (StateManagerFlagSource){
-                                      .kind = STATE_MANAGER_FLAG_SOURCE_ENTITY,
-                                      .entity = object,
-                                      .world = NULL,
-                                      .cell = NULL,
-                                      .use_collision_mask = true,
-                                  });
+    entity_source.use_collision_mask = true;
+    UpdateStateManagerButtonGroup(state_manager_collision_specs,
+                                  sizeof(state_manager_collision_specs) / sizeof(state_manager_collision_specs[0]),
+                                  entity_source);
 
-    const StateManagerFlagBinding *world_bindings[] = {
-        &world_active, &world_visible, &world_selectable, &world_physics, &world_spawns, &world_locked,
-        &world_draggable};
-    const char *world_labels[] = {"Active", "Visible", "Selectable", "Physics", "Spawns", "Locked",
-                                  "Draggable"};
-    UpdateStateManagerButtonGroup(state_manager_world_buttons, world_bindings, world_labels,
-                                  sizeof(world_bindings) / sizeof(world_bindings[0]),
-                                  (StateManagerFlagSource){
-                                      .kind = STATE_MANAGER_FLAG_SOURCE_WORLD,
-                                      .entity = NULL,
-                                      .world = world,
-                                      .cell = NULL,
-                                      .use_collision_mask = false,
-                                  });
+    StateManagerFlagSource world_source = {
+        .kind = STATE_MANAGER_FLAG_SOURCE_WORLD,
+        .entity = NULL,
+        .world = world,
+        .cell = NULL,
+        .use_collision_mask = false,
+    };
+    UpdateStateManagerButtonGroup(state_manager_world_specs,
+                                  sizeof(state_manager_world_specs) / sizeof(state_manager_world_specs[0]),
+                                  world_source);
 
-    const StateManagerFlagBinding *cell_bindings[] = {
-        &cell_solid, &cell_walkable, &cell_hazardous, &cell_spawnable};
-    const char *cell_labels[] = {"Solid", "Walkable", "Hazard", "Spawn"};
-    UpdateStateManagerButtonGroup(state_manager_cell_buttons, cell_bindings,
-                                  cell_labels, sizeof(cell_bindings) / sizeof(cell_bindings[0]),
-                                  (StateManagerFlagSource){
-                                      .kind = STATE_MANAGER_FLAG_SOURCE_CELL,
-                                      .entity = NULL,
-                                      .world = NULL,
-                                      .cell = G_UIState.selected_cell,
-                                      .use_collision_mask = false,
-                                  });
+    StateManagerFlagSource cell_source = {
+        .kind = STATE_MANAGER_FLAG_SOURCE_CELL,
+        .entity = NULL,
+        .world = NULL,
+        .cell = UIState_GetSelectedCell(),
+        .use_collision_mask = false,
+    };
+    UpdateStateManagerButtonGroup(state_manager_cell_specs,
+                                  sizeof(state_manager_cell_specs) / sizeof(state_manager_cell_specs[0]),
+                                  cell_source);
 }

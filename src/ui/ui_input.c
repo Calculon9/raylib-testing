@@ -452,9 +452,10 @@ void HandleBtnSubmitClick(UIElement *btn)
             return;
 
         // Enqueue a delete-entity command instead of deleting immediately
-        if (G_UIState.selected_object)
+        EntityId selected_object_id = UIState_GetSelectedObjectId();
+        if (selected_object_id != INVALID_ENTITY_ID)
         {
-            EnqueueDeleteEntity(G_UIState.selected_object->id);
+            EnqueueDeleteEntity(selected_object_id);
         }
     }
     else if (action == BUTTON_ACTION_CREATE_WORLD)

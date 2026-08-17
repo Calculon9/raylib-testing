@@ -47,6 +47,15 @@ typedef struct UIPalette
 	ColourRgba warning;
 } UIPalette;
 
+// Forward declarations keep selection APIs lightweight without pulling full physics/world headers.
+typedef struct Newtonoid2d Newtonoid2d;
+typedef struct Cell Cell;
+typedef void (*UIStateSelectionChangedCallback)(EntityId selected_object_id,
+												const Newtonoid2d *selected_object,
+												const Cell *selected_cell,
+												int selected_cell_index,
+												void *user_data);
+
 
 
 //----------------------------------------------------------------------------------
@@ -85,6 +94,20 @@ extern UIPalette ui_meadow_palette;
 void UIPalette_GetSurfaceColours(const UIPalette *palette, UIPaletteSurface surface,
 								 ColourRgba *out_border, ColourRgba *out_fill);
 InputRouteResult UpdateUISystem(const InputFrame *input);
+
+// Centralised selection setters reduce cross-module direct writes to UI state.
+void UIState_SetSelectedObject(Newtonoid2d *object);
+void UIState_SetSelectedObjectById(EntityId entity_id);
+void UIState_SetSelection(Newtonoid2d *object, Cell *cell, int cell_index);
+void UIState_SetSelectionChangedCallback(UIStateSelectionChangedCallback callback, void *user_data);
+void UIState_ClearSelectedObject(void);
+void UIState_ValidateSelection(void);
+Newtonoid2d *UIState_GetSelectedObject(void);
+EntityId UIState_GetSelectedObjectId(void);
+void UIState_SetSelectedCell(Cell *cell, int cell_index);
+void UIState_ClearSelectedCell(void);
+Cell *UIState_GetSelectedCell(void);
+int UIState_GetSelectedCellIndex(void);
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------

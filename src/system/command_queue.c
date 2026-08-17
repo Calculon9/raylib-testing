@@ -6,6 +6,7 @@
 #include "world/world_internal.h"
 #include "input/drag_interaction.h"
 #include "common/common.h"
+#include "system/ui_system.h"
 
 // Simple circular buffer queue
 #define COMMAND_QUEUE_CAPACITY 128
@@ -131,7 +132,7 @@ void ProcessCommandQueue(void)
                                                        G_Universe.root_world.grid_space.object.id);
                 if (spawned_id != INVALID_ENTITY_ID)
                 {
-                    G_UIState.selected_object = Universe_GetEntityByID(&G_Universe, spawned_id, NULL);
+                    UIState_SetSelectedObjectById(spawned_id);
                     LOG_INFO("Processed CMD_CREATE_ENTITY -> spawned id=%d\n", spawned_id);
                 }
                 else
@@ -158,9 +159,9 @@ void ProcessCommandQueue(void)
             if (entity && owner_world)
             {
                 DeregisterEntity(owner_world, entity_id);
-                if (G_UIState.selected_object == entity)
+                if (UIState_GetSelectedObjectId() == entity_id)
                 {
-                    G_UIState.selected_object = NULL;
+                    UIState_ClearSelectedObject();
                 }
                 LOG_INFO("Processed CMD_DELETE_ENTITY -> deleted id=%d\n", entity_id);
             }
@@ -205,17 +206,18 @@ void ProcessCommandQueue(void)
             if (moved_id != INVALID_ENTITY_ID)
             {
                 Universe_SelectWorld(&G_Universe, c->data.move_entity.destination_world_index);
-                G_UIState.selected_object = Universe_GetEntityByID(&G_Universe, moved_id, NULL);
-                if (G_UIState.selected_object)
+                UIState_SetSelectedObjectById(moved_id);
+                Newtonoid2d *selected_object = UIState_GetSelectedObject();
+                if (selected_object)
                 {
-                    G_UIState.selected_object->collision_mask = c->data.move_entity.original_collision_mask;
+                    selected_object->collision_mask = c->data.move_entity.original_collision_mask;
 
                     DragInteractionState *game_drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
                     if (game_drag_ctx && game_drag_ctx->has_capture &&
                         game_drag_ctx->target_kind == DRAG_TARGET_WORLD_ENTITY)
                     {
-                        game_drag_ctx->target = G_UIState.selected_object;
-                        game_drag_ctx->target_anchor = G_UIState.selected_object->anchor_position;
+                        game_drag_ctx->target = selected_object;
+                        game_drag_ctx->target_anchor = selected_object->anchor_position;
                         game_drag_ctx->pointer_state.initial_pos = game_drag_ctx->pointer_state.current_pos;
                         game_drag_ctx->pointer_state.previous_pos = game_drag_ctx->pointer_state.current_pos;
                     }

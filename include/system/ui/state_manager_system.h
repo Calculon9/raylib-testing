@@ -6,6 +6,7 @@
 void InitStateManagerSystem(void);
 void DrawStateManagerSystem(void);
 UIElement *GetStateManagerRoot(void);
+void MarkStateManagerRefreshDirty(void);
 void UpdateStateManagerSelectedObject(void);
 
 #endif

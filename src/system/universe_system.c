@@ -16,6 +16,8 @@ UNIVERSE SYSTEM MODULE
 #include "system/debug_overlay_system.h"
 #include "input/drag_interaction.h"
 #include "system/systems.h"
+#include "system/ui_system.h"
+#include "system/ui/state_manager_system.h"
 #include "system/ui/popup_menu.h"
 #include "world/world_internal.h"
 
@@ -29,9 +31,8 @@ static CameraController cam_ctrl = {0};
 
 static void SyncWorldStateFromSelection(void)
 {
-    G_UIState.selected_object = NULL;
-    G_UIState.selected_cell = NULL;
-    G_UIState.selected_cell_index = -1;
+    UIState_SetSelection(NULL, NULL, -1);
+    MarkStateManagerRefreshDirty();
 }
 
 static bool Universe_HasRootEntityAt(Vector2d universe_point)

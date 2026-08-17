@@ -12,6 +12,7 @@
 #include "system/job_system.h"
 #include "editor/geometry_editor.h"
 #include "system/command_queue.h"
+#include "system/ui_system.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -602,9 +603,7 @@ Newtonoid2d *ResolveClosestEntityAt(World2d *active_world, Vector2d click_local_
 void InitWorldSystem(void)
 {
     // Init Global World State
-    G_UIState.selected_object = NULL;
-    G_UIState.selected_cell = NULL;
-    G_UIState.selected_cell_index = -1;
+    UIState_SetSelection(NULL, NULL, -1);
     G_UIState.newtonoid_params = AllocateBytes(sizeof(Newtonoid2dParams));
     // Initialise command queue for UI->World commands
     extern void InitCommandQueue(void);
@@ -623,6 +622,9 @@ static void UpdateWorldSimulation(void)
             UpdateWorld(world, frame_counter.delta_time);
         }
     }
+
+    // Re-resolve selected entity pointer after simulation mutations to avoid stale references.
+    UIState_ValidateSelection();
 }
 
 // Gameplay Screen Update logic
@@ -692,19 +694,17 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
                 Newtonoid2d *p_closest = ResolveClosestEntityAt(active_world, click_world_coords, &selected_cell, &selected_cell_index,
                                                                 log, sizeof(log), &offset);
 
-                G_UIState.selected_cell = selected_cell;
-                G_UIState.selected_cell_index = selected_cell_index;
+                // Update object/cell selection atomically so downstream UI readers see a coherent state.
+                UIState_SetSelection(p_closest, selected_cell, selected_cell_index);
 
                 if (p_closest)
                 {
-                    G_UIState.selected_object = p_closest;
                     SnapshotDraggedEntityMotion(p_closest);
                     DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_ENTITY, p_closest, p_closest->anchor_position);
                     AppendLogLine(log, sizeof(log), &offset, "--> SELECTED ENTITY: ID:%d", p_closest->id);
                 }
                 else
                 {
-                    G_UIState.selected_object = NULL;
                     g_drag_motion_snapshot.entity = NULL;
                     g_drag_motion_snapshot.has_snapshot = false;
                     DragInteraction_ClearCapture(game_drag_ctx);

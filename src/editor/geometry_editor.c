@@ -5,6 +5,7 @@
 #include "input/drag_interaction.h"
 #include "raylib.h"
 #include "system/systems.h"
+#include "system/ui_system.h"
 #include "system/viewport_system.h"
 #include "world/universe.h"
 #include "world/world_internal.h"
@@ -19,9 +20,10 @@ static VertexHandleTarget vertex_handle_target = {0};
 
 static bool GeometryEditor_IsEnabled(const World2d *world)
 {
+    Newtonoid2d *selected_object = UIState_GetSelectedObject();
     return world && world->mode == PAUSED &&
            Universe_FindWorldContainingObject(&G_Universe,
-                                              G_UIState.selected_object) >= 0 &&
+                                              selected_object) >= 0 &&
            G_UIState.active_panel_view == LPANEL_DRAW_VIEW;
 }
 
@@ -61,7 +63,7 @@ static void RefreshObjectGeometry(World2d *world, Newtonoid2d *object,
 
 static bool GeometryEditor_TryBeginDrag(World2d *world, Vector2d pixel_coords)
 {
-    Newtonoid2d *object = G_UIState.selected_object;
+    Newtonoid2d *object = UIState_GetSelectedObject();
     if (!GeometryEditor_IsEnabled(world) || !object ||
         object->surface.surface_vectors.count == 0)
     {
@@ -115,7 +117,7 @@ static bool GeometryEditor_UpdateDrag(World2d *world, Vector2d pixel_coords)
     }
 
     Newtonoid2d *object = vertex_handle_target.object;
-    if (!object || object != G_UIState.selected_object ||
+    if (!object || object != UIState_GetSelectedObject() ||
         vertex_handle_target.vertex_index < 0 ||
         (size_t)vertex_handle_target.vertex_index >= object->surface.surface_vectors.count)
     {
@@ -243,14 +245,14 @@ InputRouteResult UpdateGeometryEditor(World2d *world, const InputFrame *input)
 
 void GeometryEditor_DrawHandles(const World2d *world, Camera2d *universe_camera)
 {
-    if (!GeometryEditor_IsEnabled(world) || G_UIState.selected_object == NULL ||
-        G_UIState.selected_object->surface.surface_vectors.count == 0)
+    Newtonoid2d *object = UIState_GetSelectedObject();
+    if (!GeometryEditor_IsEnabled(world) || object == NULL ||
+        object->surface.surface_vectors.count == 0)
     {
         return;
     }
 
     Matrix3x3 world_to_pixel = GetWorldToPixelMatrix(world, universe_camera);
-    Newtonoid2d *object = G_UIState.selected_object;
     Vector2d *vertices = object->surface.surface_vectors.items;
     for (size_t index = 0; index < object->surface.surface_vectors.count; index++)
     {
