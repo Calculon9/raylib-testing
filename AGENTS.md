@@ -11,6 +11,7 @@ Your job is to complete the requested task autonomously while preserving existin
 ## General Rules
 
 - Be proactive.
+- Always add comments in the code to describe the logic and type of operation being done when making any changes to this repository.
 - Prefer action over questions.
 - Read code before making changes.
 - Make reasonable assumptions based on the repository.

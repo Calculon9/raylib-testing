@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include "collections/dynamic_array.h"
+#include "collections/collection_internal.h"
 #include "memory/cmemory.h"
 #include "common/common.h"
 
@@ -25,10 +26,9 @@ DArray *AllocDArray(int elem_count, size_t elem_bytes)
     a->count = 0;
     a->enumeratorIndex = 0;
     a->enumerationCount = 0;
-    a->items = AllocateBytes(elem_bytes * elem_count);
+    a->items = Collection_AllocItemsBuffer(elem_count, elem_bytes, "Dynamic Array");
     if (a->items == NULL)
     {
-        fprintf(stderr, "Failed to allocate memory for Dynamic Array!\n");
         a->capacity = 0;
     }
     return a;
@@ -43,12 +43,11 @@ DArray MakeDArray(int elem_count, size_t elem_bytes)
     a.count = 0;
     a.enumeratorIndex = 0;
     a.enumerationCount = 0;
-    a.items = AllocateBytes(elem_bytes * elem_count);
+    a.items = Collection_AllocItemsBuffer(elem_count, elem_bytes, "Dynamic Array");
 
     // Simple safety check
     if (a.items == NULL)
     {
-        fprintf(stderr, "Failed to allocate memory for Dynamic Array!\n");
         a.capacity = 0; // Ensure nothing can be pushed
     }
     return a;
@@ -143,7 +142,7 @@ bool GrowDynamicArray(DArray *a)
     }
 
     // Explicitly guarantee capacity expands significantly
-    int new_capacity = (a->capacity == 0) ? 4 : (int)(a->capacity * 1.4f) + 1;
+    int new_capacity = Collection_CalcGrowthCapacity(a->capacity);
 
     // Allocate the fresh buffer block safely
     void *new_items = AllocateBytes(new_capacity * a->elem_bytes);

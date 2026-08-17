@@ -115,6 +115,16 @@ void DragInteraction_ClearCapture(DragInteractionState *state)
     state->has_capture = false;
 }
 
+void DragInteraction_ChangeAnchor(DragInteractionState *state, Vector2d new_anchor)
+{
+    if (!state)
+    {
+        return;
+    }
+
+    state->target_anchor = new_anchor;
+}
+
 bool DragInteraction_IsClick(const DragInteractionState *state, int max_hold_ticks, float max_travel_pixels)
 {
     if (!state)

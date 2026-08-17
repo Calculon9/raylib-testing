@@ -116,9 +116,9 @@ GridSpace2d NewGridSpace2d(Vector2d origin_in_parent, Vector2d local_resolution,
    Vector2d grid_size = {(float)space_obj.space.columns, (float)space_obj.space.rows};
    Surface2d surface = CreateSurface_Rectangular(grid_size, ZERO_VECTOR_2D);
 
-   // Calc coords_center - this is required when creating new objects
-   Vector2d coords_center = (Vector2d){origin_in_parent.x + (grid_size.x / 2.0f), origin_in_parent.y + (grid_size.y / 2.0f)};
-   space_obj.object = CreateNewtonoid2d_Static(coords_center, surface);
+   // Calc anchor_position - this is required when creating new objects
+   Vector2d anchor_position = (Vector2d){origin_in_parent.x + (grid_size.x / 2.0f), origin_in_parent.y + (grid_size.y / 2.0f)};
+   space_obj.object = CreateNewtonoid2d_Static(anchor_position, surface);
    return space_obj;
 }
 

@@ -58,5 +58,6 @@ void DragInteraction_ClearCapture(DragInteractionState *state);
 bool DragInteraction_IsClick(const DragInteractionState *state, int max_hold_ticks, float max_travel_pixels);
 bool DragInteraction_IsDragActive(const DragInteractionState *state, float min_travel_pixels);
 Vector2d DragInteraction_GetPointerDelta(const DragInteractionState *state);
+void DragInteraction_ChangeAnchor(DragInteractionState *state, Vector2d new_anchor);
 
 #endif

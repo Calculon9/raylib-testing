@@ -74,8 +74,8 @@ static void ApplyPositionSeparation(Newtonoid2d *entity, Vector2d separation_vec
         return;
     }
 
-    entity->coords_center = VectorSum_2d(entity->coords_center, VectorScale_2d(separation_vector, move_fraction));
-    entity->coords_origin = VectorSum_2d(entity->coords_origin, VectorScale_2d(separation_vector, move_fraction));
+    entity->anchor_position = VectorSum_2d(entity->anchor_position, VectorScale_2d(separation_vector, move_fraction));
+    entity->bounds_origin = VectorSum_2d(entity->bounds_origin, VectorScale_2d(separation_vector, move_fraction));
 }
 
 static float CalcElasticImpulseMagnitude(float normal_velocity_dot, float total_inv_mass)
@@ -120,7 +120,7 @@ void PhysicsUpdateJob(void *context, int start, int end)
             // Map the position after physics has advanced the object so hit-testing
             // and collision broad-phase use the same location that is rendered.
             Vector2d snapped_aabb_verts[4] = {0};
-            CalcSnappedAABB_Vertices(obj->surface.surface_vectors.items, obj->surface.surface_vectors.count, obj->coords_center, space->frame.basis, snapped_aabb_verts);
+            CalcSnappedAABB_Vertices(obj->surface.surface_vectors.items, obj->surface.surface_vectors.count, obj->anchor_position, space->frame.basis, snapped_aabb_verts);
             Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
             MapEntityToASpace(space, obj, snapped_aabb_box, entity_space_map);
             ResolveCollision_ContainerRect(obj, &space_entity->object);
@@ -134,7 +134,7 @@ CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b)
     result.is_colliding = false;
 
     // AABB broad-phase early exit (prevents unnecessary SAT computation)
-    if (!AABBOverlaps(a->coords_origin, a->boxed_dimensions, b->coords_origin, b->boxed_dimensions))
+    if (!AABBOverlaps(a->bounds_origin, a->bounds_size, b->bounds_origin, b->bounds_size))
         return result;
 
     LArray a_vertices_arr = a->surface.surface_vectors;
@@ -157,13 +157,13 @@ CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b)
     // Transform vertices to world space once (cache for multiple axis tests)
     for (size_t i = 0; i < a_count; i++)
     {
-        a_world[i].x = (a_local[i].x * a->local_axis_x.x) + (a_local[i].y * a->local_axis_y.x) + a->coords_center.x;
-        a_world[i].y = (a_local[i].x * a->local_axis_x.y) + (a_local[i].y * a->local_axis_y.y) + a->coords_center.y;
+        a_world[i].x = (a_local[i].x * a->local_axis_x.x) + (a_local[i].y * a->local_axis_y.x) + a->anchor_position.x;
+        a_world[i].y = (a_local[i].x * a->local_axis_x.y) + (a_local[i].y * a->local_axis_y.y) + a->anchor_position.y;
     }
     for (size_t i = 0; i < b_count; i++)
     {
-        b_world[i].x = (b_local[i].x * b->local_axis_x.x) + (b_local[i].y * b->local_axis_y.x) + b->coords_center.x;
-        b_world[i].y = (b_local[i].x * b->local_axis_x.y) + (b_local[i].y * b->local_axis_y.y) + b->coords_center.y;
+        b_world[i].x = (b_local[i].x * b->local_axis_x.x) + (b_local[i].y * b->local_axis_y.x) + b->anchor_position.x;
+        b_world[i].y = (b_local[i].x * b->local_axis_x.y) + (b_local[i].y * b->local_axis_y.y) + b->anchor_position.y;
     }
 
     float min_overlap_u = INFINITY;
@@ -225,7 +225,7 @@ CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b)
     result.entity_b = b;
 
     Vector2d separation_vector = VectorScale_2d(final_u_axis, min_overlap_u);
-    Vector2d center_to_center = (Vector2d){b->coords_center.x - a->coords_center.x, b->coords_center.y - a->coords_center.y};
+    Vector2d center_to_center = (Vector2d){b->anchor_position.x - a->anchor_position.x, b->anchor_position.y - a->anchor_position.y};
     if (VectorDot_2d(separation_vector, center_to_center) < 0.0f)
     {
         final_u_axis = (Vector2d){-final_u_axis.x, -final_u_axis.y};
@@ -251,7 +251,7 @@ CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b)
 
 bool CheckForCollision_AABB(Newtonoid2d a, Newtonoid2d b)
 {
-    return AABBOverlaps(a.coords_origin, a.boxed_dimensions, b.coords_origin, b.boxed_dimensions);
+    return AABBOverlaps(a.bounds_origin, a.bounds_size, b.bounds_origin, b.bounds_size);
 }
 
 void ResolveCollision(Newtonoid2d *a, Newtonoid2d *b)
@@ -260,12 +260,12 @@ void ResolveCollision(Newtonoid2d *a, Newtonoid2d *b)
     if (total_inv_mass <= 0.0f)
         return;
 
-    float a_half_w = a->boxed_dimensions.x * 0.5f;
-    float a_half_h = a->boxed_dimensions.y * 0.5f;
-    float b_half_w = b->boxed_dimensions.x * 0.5f;
-    float b_half_h = b->boxed_dimensions.y * 0.5f;
+    float a_half_w = a->bounds_size.x * 0.5f;
+    float a_half_h = a->bounds_size.y * 0.5f;
+    float b_half_w = b->bounds_size.x * 0.5f;
+    float b_half_h = b->bounds_size.y * 0.5f;
 
-    Vector2d distance_vec = VectorSum_2d(b->coords_center, VectorScale_2d(a->coords_center, -1.0f));
+    Vector2d distance_vec = VectorSum_2d(b->anchor_position, VectorScale_2d(a->anchor_position, -1.0f));
 
     float x_overlap = (a_half_w + b_half_w) - fabsf(distance_vec.x);
     float y_overlap = (a_half_h + b_half_h) - fabsf(distance_vec.y);
@@ -317,13 +317,13 @@ void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container)
 
     float c_min_x = 0.0f;
     float c_min_y = 0.0f;
-    float c_max_x = container->boxed_dimensions.x;
-    float c_max_y = container->boxed_dimensions.y;
+    float c_max_x = container->bounds_size.x;
+    float c_max_y = container->bounds_size.y;
 
-    float e_min_x = entity->coords_origin.x;
-    float e_min_y = entity->coords_origin.y;
-    float e_max_x = entity->coords_origin.x + entity->boxed_dimensions.x;
-    float e_max_y = entity->coords_origin.y + entity->boxed_dimensions.y;
+    float e_min_x = entity->bounds_origin.x;
+    float e_min_y = entity->bounds_origin.y;
+    float e_max_x = entity->bounds_origin.x + entity->bounds_size.x;
+    float e_max_y = entity->bounds_origin.y + entity->bounds_size.y;
 
     float penetration_depth = 0.0f;
     Vector2d inward_normal = {0.0f, 0.0f};
@@ -463,7 +463,7 @@ void RemapEntityInASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 previous
     Vector2d snapped_aabb_verts[4] = {0};
     CalcSnappedAABB_Vertices(object->surface.surface_vectors.items,
                              object->surface.surface_vectors.count,
-                             object->coords_center,
+                             object->anchor_position,
                              space->frame.basis,
                              snapped_aabb_verts);
     Matrix2x2 current_snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
@@ -509,7 +509,7 @@ void RefreshWorldSpatialMap(World2d *world)
             Vector2d snapped_aabb_verts[4] = {0};
             CalcSnappedAABB_Vertices(object->surface.surface_vectors.items,
                                      object->surface.surface_vectors.count,
-                                     object->coords_center,
+                                     object->anchor_position,
                                      space->frame.basis,
                                      snapped_aabb_verts);
             Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);

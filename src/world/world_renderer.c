@@ -8,6 +8,7 @@
 #include "common/common.h"
 #include "editor/geometry_editor.h"
 #include "camera/camera.h"
+#include "system/draw_primitives.h"
 #include "system/debug_overlay_system.h"
 #include "system/systems.h"
 #include "world/world.h"
@@ -20,6 +21,10 @@ void DrawCollisions(LArray *collisions, Matrix3x3 space_to_pixel_mtx);
 void DrawObjectVertices(Vector2d *local_vertices, int vertices_count, Vector2d offset,
                         Matrix3x3 space_to_pixel_mtx, ColourRgba line_colour,
                         ColourRgba fill_colour);
+void DrawRotatedObjectVertices(Vector2d *local_vertices, int vertices_count, Vector2d offset,
+                               Vector2d axis_x, Vector2d axis_y,
+                               Matrix3x3 space_to_pixel_mtx, ColourRgba line_colour,
+                               ColourRgba fill_colour);
 void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 space_to_pixel_mtx);
 
 static Color ToRaylibColor(ColourRgba colour)
@@ -27,28 +32,23 @@ static Color ToRaylibColor(ColourRgba colour)
     return (Color){colour.r, colour.g, colour.b, colour.a};
 }
 
-static void TransformLineEndpoints(Vector2d start, Vector2d end, Matrix3x3 world_to_pixel_mtx, Vector2d *out_start, Vector2d *out_end)
+static void DrawNewtonoidAxes(const Newtonoid2d *newtonoid, Matrix3x3 space_to_pixel_mtx)
 {
-    if (out_start != NULL)
+    if (!newtonoid || !IsDebugEnabled(DEBUG_OBJECT_AXES))
     {
-        *out_start = TransformCoordinates(world_to_pixel_mtx, start);
+        return;
     }
 
-    if (out_end != NULL)
-    {
-        *out_end = TransformCoordinates(world_to_pixel_mtx, end);
-    }
-}
+    // Scale each local basis arrow from its corresponding local AABB dimension.
+    float x_axis_length = fmaxf(newtonoid->bounds_size.x * 0.75f, 0.5f);
+    float y_axis_length = fmaxf(newtonoid->bounds_size.y * 0.75f, 0.5f);
 
-static void DrawTransformedLineV(Vector2d start, Vector2d end, Matrix3x3 world_to_pixel_mtx, ColourRgba line_colour)
-{
-    Vector2d line_pixel_origin = {0};
-    Vector2d line_pixel_end = {0};
-    TransformLineEndpoints(start, end, world_to_pixel_mtx, &line_pixel_origin, &line_pixel_end);
+    Vector2d center = newtonoid->anchor_position;
+    Vector2d x_axis_end = VectorSum_2d(center, VectorScale_2d(newtonoid->local_axis_x, x_axis_length));
+    Vector2d y_axis_end = VectorSum_2d(center, VectorScale_2d(newtonoid->local_axis_y, y_axis_length));
 
-    DrawLineV((Vector2){line_pixel_origin.x, line_pixel_origin.y},
-              (Vector2){line_pixel_end.x, line_pixel_end.y},
-              ToRaylibColor(line_colour));
+    DrawTransformedArrowV(center, x_axis_end, space_to_pixel_mtx, COLOUR_GAME_AXIS_X_RGBA);
+    DrawTransformedArrowV(center, y_axis_end, space_to_pixel_mtx, COLOUR_GAME_AXIS_Y_RGBA);
 }
 
 void DrawWorldRegion(World2d *world, Camera2d *universe_camera)
@@ -170,11 +170,13 @@ void DrawNewtonoids(LArray *newtonoids, Matrix3x3 space_to_pixel_mtx)
     Newtonoid2d *newtonoid;
     LArray_ForEach(newtonoids, Newtonoid2d*, newtonoid)
     {
-        Vector2d obj_center_coords = newtonoid->coords_center;
+        Vector2d obj_center_coords = newtonoid->anchor_position;
         LArray surf_vectors = newtonoid->surface.surface_vectors;
-        DrawObjectVertices(surf_vectors.items, surf_vectors.count, obj_center_coords,
-                   space_to_pixel_mtx, newtonoid->line_colour,
-                   newtonoid->fill_colour);
+        DrawRotatedObjectVertices(surf_vectors.items, surf_vectors.count, obj_center_coords,
+                                  newtonoid->local_axis_x, newtonoid->local_axis_y,
+                                  space_to_pixel_mtx, newtonoid->line_colour,
+                                  newtonoid->fill_colour);
+        DrawNewtonoidAxes(newtonoid, space_to_pixel_mtx);
     }
 }
 
@@ -190,8 +192,8 @@ void DrawCollisions(LArray *collisions, Matrix3x3 space_to_pixel_mtx)
     {
         Vector2d collision_vertices[4] = {0};
         Vector2d dimensions = {collision_box->col2.x - collision_box->col1.x, collision_box->col2.y - collision_box->col1.y};
-        Vector2d coords_center = CalcGeometricCentre_FromBox(*collision_box);
-        CalcBoxVertices(dimensions, coords_center, collision_vertices);
+        Vector2d anchor_position = CalcGeometricCentre_FromBox(*collision_box);
+        CalcBoxVertices(dimensions, anchor_position, collision_vertices);
         DrawObjectVertices(collision_vertices, 4, ZERO_VECTOR_2D, space_to_pixel_mtx,
                            COLOUR_GAME_INK_RGBA, COLOUR_GAME_OLIVE_RGBA);
     }
@@ -226,25 +228,39 @@ void DrawObjectVertices(Vector2d *local_vertices, int vertices_count, Vector2d o
     for (int i = 1; i < vertices_count; i++)
     {
         Vector2d vertice_end = VectorSum_2d(local_vertices[i], offset);
-        Vector2d line_pixel_origin = {0};
-        Vector2d line_pixel_end = {0};
-        TransformLineEndpoints(vertice_start, vertice_end, space_to_pixel_mtx, &line_pixel_origin, &line_pixel_end);
-
-        DrawLine(line_pixel_origin.x,
-                 line_pixel_origin.y,
-                 line_pixel_end.x,
-                 line_pixel_end.y,
-                 colour);
+        DrawTransformedLineV(vertice_start, vertice_end, space_to_pixel_mtx, line_colour);
 
         vertice_start = vertice_end;
     }
 
-    Vector2d line_pixel_origin = {0};
-    Vector2d line_pixel_end = {0};
-    TransformLineEndpoints(vertice_start, vertice_start_cache, space_to_pixel_mtx, &line_pixel_origin, &line_pixel_end);
-    DrawLine(line_pixel_origin.x,
-             line_pixel_origin.y,
-             line_pixel_end.x,
-             line_pixel_end.y,
-             colour);
+    DrawTransformedLineV(vertice_start, vertice_start_cache, space_to_pixel_mtx, line_colour);
+}
+
+void DrawRotatedObjectVertices(Vector2d *local_vertices, int vertices_count, Vector2d offset,
+                               Vector2d axis_x, Vector2d axis_y,
+                               Matrix3x3 space_to_pixel_mtx, ColourRgba line_colour,
+                               ColourRgba fill_colour)
+{
+    if (local_vertices == NULL || vertices_count < 2)
+    {
+        return;
+    }
+
+    // Rebuild the vertex list in world space using the object's current basis.
+    Vector2d world_vertices[MAX_SHAPE_VERTICES];
+    if (vertices_count > MAX_SHAPE_VERTICES)
+    {
+        vertices_count = MAX_SHAPE_VERTICES;
+    }
+
+    for (int i = 0; i < vertices_count; i++)
+    {
+        // Map the local vertex through the object's basis into world space.
+        Vector2d local_vertex = local_vertices[i];
+        world_vertices[i].x = (local_vertex.x * axis_x.x) + (local_vertex.y * axis_y.x) + offset.x;
+        world_vertices[i].y = (local_vertex.x * axis_x.y) + (local_vertex.y * axis_y.y) + offset.y;
+    }
+
+    DrawObjectVertices(world_vertices, vertices_count, ZERO_VECTOR_2D,
+                       space_to_pixel_mtx, line_colour, fill_colour);
 }

@@ -171,6 +171,7 @@ typedef struct UniverseDebugSnapshot
 static bool dashboard_overlay_enabled = false;
 static bool grid_labels_overlay_enabled = false;
 static bool world_grid_overlay_enabled = true;
+static bool object_axes_overlay_enabled = false;
 static bool basis_editor_enabled = false;
 static bool basis_editor_editing_u = true;
 static DebugBasisTargetId basis_editor_target = DEBUG_BASIS_TARGET_LPANEL_VIEWPORT;
@@ -322,6 +323,9 @@ static void DrawDashboardControlsSection(int col_x, int *row_y, int row_step,
     DrawDashboardLine(line, col_x, *row_y, body_color);
     *row_y += row_step;
     snprintf(line, line_size, "F4 Universe grid labels: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_UNIVERSE_GRID_LABELS)));
+    DrawDashboardLine(line, col_x, *row_y, body_color);
+    *row_y += row_step;
+    snprintf(line, line_size, "F1 Object axes: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_OBJECT_AXES)));
     DrawDashboardLine(line, col_x, *row_y, body_color);
     *row_y += row_step;
     DrawDashboardLine("F7/F8 Logical height   F9/F10 UI scale", col_x, *row_y, body_color);
@@ -516,6 +520,9 @@ void ToggleDebug(DebugOverlayId overlay_id)
     case DEBUG_UI_BORDERS:
         ui_borders_enabled = !ui_borders_enabled;
         break;
+    case DEBUG_OBJECT_AXES:
+        object_axes_overlay_enabled = !object_axes_overlay_enabled;
+        break;
     default:
         break;
     }
@@ -537,6 +544,8 @@ int IsDebugEnabled(DebugOverlayId overlay_id)
         return grid_labels_overlay_enabled;
     case DEBUG_UI_BORDERS:
         return ui_borders_enabled;
+    case DEBUG_OBJECT_AXES:
+        return object_axes_overlay_enabled;
     default:
         return 0;
     }
@@ -572,6 +581,12 @@ static void HandleDebugToggleHotkeys(void)
     {
         ToggleDebug(DEBUG_UNIVERSE_GRID_LABELS);
         printf("[Universe] Grid debug labels: %s\n", IsDebugEnabled(DEBUG_UNIVERSE_GRID_LABELS) ? "ON" : "OFF");
+    }
+
+    if (IsKeyPressed(KEY_F1))
+    {
+        ToggleDebug(DEBUG_OBJECT_AXES);
+        printf("[World] Object axes: %s\n", IsDebugEnabled(DEBUG_OBJECT_AXES) ? "ON" : "OFF");
     }
 }
 

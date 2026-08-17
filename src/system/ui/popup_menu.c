@@ -18,6 +18,7 @@ static View popup_create_view_storage = {0};
 static View *popup_recent_view = NULL;
 static View popup_recent_view_storage = {0};
 static bool popup_menu_visible = false;
+static Vector2d popup_spawn_position = ZERO_VECTOR_2D;
 static float max_w = 3.75f;
 static float max_h = 5.75f;
 static const Size popup_menu_size = {{6.9f, 5.75f}, SIZE_FIXED};
@@ -92,11 +93,8 @@ static void HandlePopupHover(UIElement *item)
 
 static void HandlePopupShapeClick(UIElement *button)
 {
-    World2d *world = NULL;
-
     if (!button || !button->is_enabled ||
-        !G_UIState.newtonoid_params ||
-        !(world = Universe_GetSelectedWorld(&G_Universe)))
+        !G_UIState.newtonoid_params)
     {
         return;
     }
@@ -124,13 +122,7 @@ static void HandlePopupShapeClick(UIElement *button)
     }
 
     G_UIState.newtonoid_params->shape_type = action->shape;
-    if (G_UIState.newtonoid_params->coords_center.x == 0.0f &&
-        G_UIState.newtonoid_params->coords_center.y == 0.0f)
-    {
-        G_UIState.newtonoid_params->coords_center = (Vector2d){
-            world->grid_space.space.columns * 0.5f,
-            world->grid_space.space.rows * 0.5f};
-    }
+    G_UIState.newtonoid_params->anchor_position = popup_spawn_position;
     EnqueueCreateEntity(G_UIState.newtonoid_params);
     HidePopupMenu();
 }
@@ -337,6 +329,7 @@ void ShowPopupMenu(Vector2d position)
     }
     // Update the position of the popup menu's root container to the specified position
     popup_menu->root->authored_offset = (Offset){position, OFFSET_FIXED};
+    popup_spawn_position = position;
     popup_menu->root->resolved_offset = (Offset){position, OFFSET_FIXED};
     // popup_menu_create_cont->authored_offset = (Offset){position, OFFSET_FIXED};
     // popup_menu_create_cont->resolved_offset = popup_menu_create_cont->authored_offset;

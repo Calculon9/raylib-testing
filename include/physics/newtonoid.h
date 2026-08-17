@@ -13,18 +13,43 @@ NEWTONOID MODULE
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
-// Status Flags
-#define FLAG_STATUS_ALIVE (1 << 0) // 00000001 (1)
-// Identity Flags
-#define FLAG_TYPE_WALL (1 << 1)       // 00000010 (2)
-#define FLAG_TYPE_NEWTONOID (1 << 2)  // 00000100 (4)
-#define FLAG_TYPE_PROJECTILE (1 << 3) // 00001000 (8)
-#define FLAG_TYPE_EFFECT (1 << 4)     // 00010000 (16)
-#define FLAG_TYPE_CAMERA (1 << 5)     // 00100000 (32)
-// Attribute Flags
-#define FLAG_ATTR_RIGID (1 << 5) // 00100000 (32)
-// Lifetime type
-#define FLAG_LIFETIME_CLOCKED (1 << 6) // 01000000 (64)
+typedef enum EntityTypeFlags
+{
+    ENTITY_FLAG_NONE = 0,
+    ENTITY_FLAG_WALL = 1 << 1,
+    ENTITY_FLAG_NEWTONOID = 1 << 2,
+    ENTITY_FLAG_PROJECTILE = 1 << 3,
+    ENTITY_FLAG_EFFECT = 1 << 4,
+    ENTITY_FLAG_CAMERA = 1 << 5,
+} EntityTypeFlags;
+
+typedef enum EntityStatusFlags
+{
+    ENTITY_STATUS_FLAG_NONE = 0,
+    ENTITY_STATUS_FLAG_ALIVE = 1 << 0,
+    ENTITY_STATUS_FLAG_CLOCKED = 1 << 6,
+} EntityStatusFlags;
+
+typedef enum EntityAttributeFlags
+{
+    ENTITY_ATTR_FLAG_NONE = 0,
+    ENTITY_ATTR_FLAG_RIGID = 1 << 5,
+} EntityAttributeFlags;
+
+typedef EntityTypeFlags EntityFlags;
+typedef EntityTypeFlags EntityTypeFlag;
+typedef EntityStatusFlags EntityStatusFlag;
+typedef EntityAttributeFlags EntityAttributeFlag;
+
+// Compatibility aliases used throughout the existing codebase.
+#define FLAG_STATUS_ALIVE ENTITY_STATUS_FLAG_ALIVE
+#define FLAG_TYPE_WALL ENTITY_FLAG_WALL
+#define FLAG_TYPE_NEWTONOID ENTITY_FLAG_NEWTONOID
+#define FLAG_TYPE_PROJECTILE ENTITY_FLAG_PROJECTILE
+#define FLAG_TYPE_EFFECT ENTITY_FLAG_EFFECT
+#define FLAG_TYPE_CAMERA ENTITY_FLAG_CAMERA
+#define FLAG_ATTR_RIGID ENTITY_ATTR_FLAG_RIGID
+#define FLAG_LIFETIME_CLOCKED ENTITY_STATUS_FLAG_CLOCKED
 
 // DEFAULT COLOURS
 #define COLOUR_LINE_DEFAULT COLOUR_GAME_INK_RGBA
@@ -71,7 +96,7 @@ typedef struct Newtonoid2d
     // ============================================================================
     // HOT FIELDS - Physics Update (accessed every frame, ~72 bytes, fits 2 cache lines)
     // ============================================================================
-    Vector2d coords_center; // Authoritative position used by physics, collision, and rendering
+    Vector2d anchor_position; // Authoritative position used by physics, collision, and rendering
     Vector2d velocity;      // Linear velocity (units/sec)
     Vector2d acceleration;  // Linear acceleration (units/sec²)
     Vector2d momentum;      // Linear momentum (mass × velocity)
@@ -81,8 +106,9 @@ typedef struct Newtonoid2d
     // ============================================================================
     // WARM FIELDS - Bounds, Rotation, Collision (~96 bytes)
     // ============================================================================
-    Vector2d coords_origin;    // Derived top-left/AABB origin for box, grid, and hit-test helpers
-    Vector2d boxed_dimensions; // AABB width/height
+    Vector2d bounds_origin;    // Derived parent-space AABB minimum for box, grid, and hit-test helpers
+    Vector2d bounds_size;      // AABB width/height
+    Vector2d local_geometry_center; // Cached center of the local vertex bounds
     Vector2d local_axis_x;     // Object's Forward/Right axis (cos(rotation), sin(rotation))
     Vector2d local_axis_y;     // Object's Up axis
     float rotation;            // Rotation angle in radians
@@ -96,21 +122,21 @@ typedef struct Newtonoid2d
     // COLD FIELDS - Metadata, Rendering, Hierarchy (~variable size)
     // ============================================================================
     Surface2d surface;       // Vertex data (heap-allocated LArray inside)
-    Vector2d local_offset;   // Relative to parent (only used for child entities)
+    Vector2d parent_offset;   // Relative to parent (only used for child entities)
     ColourRgba line_colour;  // Outline color
     ColourRgba fill_colour;  // Fill color
     ShapeType shape_type;    // Shape classification for collision algorithms
     int edge_count;          // Cached edge count
-    uint32_t entity_flags;   // What AM I? (e.g., LAYER_PROJECTILE)
-    uint32_t collision_mask; // What can I HIT? (e.g., LAYER_ENEMY | LAYER_WALL)
-    uint32_t status_flags;   // Runtime status flags (e.g., FLAG_POISONED)
+    EntityFlags entity_flags;        // What AM I? (e.g., LAYER_PROJECTILE)
+    EntityFlags collision_mask;      // What can I HIT? (e.g., LAYER_ENEMY | LAYER_WALL)
+    EntityStatusFlags status_flags;   // Runtime status flags (e.g., FLAG_POISONED)
     EntityId id;             // Universal entity ID
     EntityId parent_id;      // Parent entity ID (INVALID_ENTITY_ID if root)
 } Newtonoid2d;
 
 typedef struct Newtonoid2dParams
 {
-    Vector2d coords_center;
+    Vector2d anchor_position;
     Vector2d velocity;
     Vector2d acceleration;
     Vector2d momentum;
@@ -128,8 +154,8 @@ typedef struct Newtonoid2dParams
 
 typedef struct Newtonoid2d_Static
 {
-    Vector2d coords_center;
-    Vector2d coords_origin;
+    Vector2d anchor_position;
+    Vector2d bounds_origin;
     Surface2d surface;
     float mass;
     float inverse_mass;
@@ -156,11 +182,13 @@ typedef enum
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 
-Newtonoid2d CreateNewtonoid2d(float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration, Surface2d surface);
-Newtonoid2d *CreateNewtonoid2d_Reference(float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration, Surface2d surface);
-Newtonoid2d CreateNewtonoid2d_Static(Vector2d coords_center, Surface2d surface);
-Newtonoid2d CreateNewtonoid2d_Symmetric(int vertice_count, float radius, ColourRgba colour, float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration);
-Newtonoid2d CreateNewtonoid2d_Irregular(int vertice_count, float min_radius, float max_radius, ColourRgba colour, float mass, Vector2d coords_center, Vector2d velocity, Vector2d acceleration);
+Newtonoid2d CreateNewtonoid2d(float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration, Surface2d surface);
+Newtonoid2d *CreateNewtonoid2d_Reference(float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration, Surface2d surface);
+Newtonoid2d CreateNewtonoid2d_Static(Vector2d anchor_position, Surface2d surface);
+Newtonoid2d CreateNewtonoid2d_Symmetric(int vertice_count, float radius, ColourRgba colour, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration);
+Newtonoid2d CreateNewtonoid2d_Irregular(int vertice_count, float min_radius, float max_radius, ColourRgba colour, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration);
+void RebuildNewtonoidGeometry(Newtonoid2d *object);
+void SyncNewtonoidRotation(Newtonoid2d *object);
 void CalcVectors(Newtonoid2d *object, float deltaTime);
 Vector2d RotateVertex(Vector2d local_vertex, Vector2d local_axis);
 // Matrix2x2 FindBoxedCoords(DArray vertices);

@@ -81,17 +81,17 @@ Surface2d CreateSurface_Rectangular(Vector2d dimensions, Vector2d vertice_offset
     return surf;
 }
 
-void CalcBoxVertices(Vector2d dimensions, Vector2d coords_center, Vector2d *out_vertices)
+void CalcBoxVertices(Vector2d dimensions, Vector2d anchor_position, Vector2d *out_vertices)
 {
     // Calculate the half-extents
     float hx = dimensions.x / 2.0f;
     float hy = dimensions.y / 2.0f;
 
     // Assign each corner individually, offset by the center coordinates
-    out_vertices[0] = (Vector2d){coords_center.x - hx, coords_center.y - hy}; // Top-Left
-    out_vertices[1] = (Vector2d){coords_center.x + hx, coords_center.y - hy}; // Top-Right
-    out_vertices[2] = (Vector2d){coords_center.x + hx, coords_center.y + hy}; // Bottom-Right
-    out_vertices[3] = (Vector2d){coords_center.x - hx, coords_center.y + hy}; // Bottom-Left
+    out_vertices[0] = (Vector2d){anchor_position.x - hx, anchor_position.y - hy}; // Top-Left
+    out_vertices[1] = (Vector2d){anchor_position.x + hx, anchor_position.y - hy}; // Top-Right
+    out_vertices[2] = (Vector2d){anchor_position.x + hx, anchor_position.y + hy}; // Bottom-Right
+    out_vertices[3] = (Vector2d){anchor_position.x - hx, anchor_position.y + hy}; // Bottom-Left
 }
 
 // Returns the boxed coords from a collection of vertice vectors with an offset applied to the vertices (e.g. to account for the position of the shape in world space, rather than just the local vertices)

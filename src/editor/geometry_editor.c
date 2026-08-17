@@ -20,7 +20,9 @@ static VertexHandleTarget vertex_handle_target = {0};
 static bool GeometryEditor_IsEnabled(const World2d *world)
 {
     return world && world->mode == PAUSED &&
-           G_UIState.active_panel_view == LPANEL_EDIT_ENTITY_VIEW;
+           Universe_FindWorldContainingObject(&G_Universe,
+                                              G_UIState.selected_object) >= 0 &&
+           G_UIState.active_panel_view == LPANEL_DRAW_VIEW;
 }
 
 static Matrix3x3 GetWorldToPixelMatrix(const World2d *world, const Camera2d *universe_camera)
@@ -51,14 +53,7 @@ static bool IsNear(Vector2d a, Vector2d b, float radius)
 static void RefreshObjectGeometry(World2d *world, Newtonoid2d *object,
                                   Matrix2x2 previous_box)
 {
-    object->boxed_dimensions = CalcAABBDimensions(
-        object->surface.surface_vectors.items,
-        object->surface.surface_vectors.count);
-    object->coords_origin = (Vector2d){
-        object->coords_center.x - object->boxed_dimensions.x * 0.5f,
-        object->coords_center.y - object->boxed_dimensions.y * 0.5f};
-    object->radius = fmaxf(object->boxed_dimensions.x, object->boxed_dimensions.y);
-    object->edge_count = (int)object->surface.surface_vectors.count;
+    RebuildNewtonoidGeometry(object);
 
     RemapEntityInASpace(&world->grid_space.space, object, previous_box,
                         &world->entity_space_map);
@@ -82,7 +77,7 @@ static bool GeometryEditor_TryBeginDrag(World2d *world, Vector2d pixel_coords)
 
     for (size_t index = 0; index < object->surface.surface_vectors.count; index++)
     {
-        Vector2d world_vertex = VectorSum_2d(vertices[index], object->coords_center);
+        Vector2d world_vertex = VectorSum_2d(vertices[index], object->anchor_position);
         Vector2d pixel_vertex = TransformCoordinates(world_to_pixel, world_vertex);
         LOG_INFO("Geometry editor vertex %zu: mouse=(%.1f,%.1f) handle=(%.1f,%.1f)\n",
                  index, pixel_coords.x, pixel_coords.y, pixel_vertex.x, pixel_vertex.y);
@@ -131,14 +126,29 @@ static bool GeometryEditor_UpdateDrag(World2d *world, Vector2d pixel_coords)
     Vector2d previous_vertices[4] = {0};
     CalcSnappedAABB_Vertices(object->surface.surface_vectors.items,
                              object->surface.surface_vectors.count,
-                             object->coords_center,
+                             object->anchor_position,
                              world->grid_space.space.frame.basis,
                              previous_vertices);
     Matrix2x2 previous_box = CalcAABBCoords_Tight(previous_vertices, 4, ZERO_VECTOR_2D);
 
+    Vector2d previous_geometry_center = object->local_geometry_center;
     Vector2d local_coords = PixelToWorld(world, pixel_coords);
     Vector2d *vertex = &((Vector2d *)object->surface.surface_vectors.items)[vertex_handle_target.vertex_index];
-    *vertex = VectorSum_2d(local_coords, (Vector2d){-object->coords_center.x, -object->coords_center.y});
+    *vertex = VectorSum_2d(local_coords, (Vector2d){-object->anchor_position.x, -object->anchor_position.y});
+
+    // Keep the local geometry centered on the anchor while preserving world-space vertex positions.
+    RebuildNewtonoidGeometry(object);
+    Vector2d center_delta = VectorSum_2d(
+        object->local_geometry_center,
+        (Vector2d){-previous_geometry_center.x, -previous_geometry_center.y});
+    object->anchor_position = VectorSum_2d(object->anchor_position, center_delta);
+    Vector2d *local_vertices = (Vector2d *)object->surface.surface_vectors.items;
+    for (size_t index = 0; index < object->surface.surface_vectors.count; index++)
+    {
+        local_vertices[index] = VectorSum_2d(
+            local_vertices[index],
+            (Vector2d){-center_delta.x, -center_delta.y});
+    }
     RefreshObjectGeometry(world, object, previous_box);
     object->velocity = ZERO_VECTOR_2D;
     object->acceleration = ZERO_VECTOR_2D;
@@ -244,7 +254,7 @@ void GeometryEditor_DrawHandles(const World2d *world, Camera2d *universe_camera)
     Vector2d *vertices = object->surface.surface_vectors.items;
     for (size_t index = 0; index < object->surface.surface_vectors.count; index++)
     {
-        Vector2d world_vertex = VectorSum_2d(vertices[index], object->coords_center);
+        Vector2d world_vertex = VectorSum_2d(vertices[index], object->anchor_position);
         Vector2d pixel_vertex = TransformCoordinates(world_to_pixel, world_vertex);
         Color colour = (index == (size_t)vertex_handle_target.vertex_index &&
                         vertex_handle_target.object == object)

@@ -4,6 +4,7 @@
 #include "world/universe.h"
 #include "world/world.h"
 #include "world/world_internal.h"
+#include "input/drag_interaction.h"
 #include "common/common.h"
 
 // Simple circular buffer queue
@@ -122,30 +123,18 @@ void ProcessCommandQueue(void)
         Command *c = &queue[q_head];
         if (c->type == CMD_CREATE_ENTITY)
         {
-            // Resolve params to an entity and add to world
+            // New entities always enter the universe's root world first, unworlded.
             Newtonoid2d *new_entity = ResolveEntityParamsToEntity(&c->data.create_entity);
-            World2d *world = Universe_GetSelectedWorld(&G_Universe);
             if (new_entity)
             {
-                bool added_to_world = false;
-
-                if (world)
+                EntityId spawned_id = AddObjectToWorld(&G_Universe.root_world, new_entity,
+                                                       G_Universe.root_world.grid_space.object.id);
+                if (spawned_id != INVALID_ENTITY_ID)
                 {
-                    EntityId entity_id = AddObjectToWorld(world, new_entity, world->grid_space.object.id);
-                    if (entity_id != INVALID_ENTITY_ID)
-                    {
-                        added_to_world = true;
-                        Newtonoid2d *spawned = GetEntityByID(world, entity_id);
-                        if (spawned)
-                        {
-                            G_UIState.selected_object = spawned;
-                        }
-                        LOG_INFO("Processed CMD_CREATE_ENTITY -> spawned id=%d\n", entity_id);
-                    }
+                    G_UIState.selected_object = Universe_GetEntityByID(&G_Universe, spawned_id, NULL);
+                    LOG_INFO("Processed CMD_CREATE_ENTITY -> spawned id=%d\n", spawned_id);
                 }
-
-                // If spawn failed, the transient entity still owns its surface buffer.
-                if (!added_to_world)
+                else
                 {
                     LArray *vectors = &new_entity->surface.surface_vectors;
                     if (vectors->items && vectors->capacity > 0 && vectors->elem_bytes > 0)
@@ -155,7 +144,7 @@ void ProcessCommandQueue(void)
                     }
                 }
 
-                // Always free the transient wrapper object allocated by CreateNewtonoid2d_Reference.
+                // The world's object array owns the surface buffer after a successful copy.
                 Deallocate((void **)&new_entity, sizeof(Newtonoid2d));
             }
         }
@@ -165,9 +154,10 @@ void ProcessCommandQueue(void)
             EntityId entity_id = c->data.delete_entity;
             int world_index = -1;
             Newtonoid2d *entity = Universe_GetEntityByID(&G_Universe, entity_id, &world_index);
-            if (entity && world_index >= 0)
+            World2d *owner_world = Universe_GetWorld(&G_Universe, world_index);
+            if (entity && owner_world)
             {
-                DeregisterEntity(Universe_GetWorld(&G_Universe, world_index), entity_id);
+                DeregisterEntity(owner_world, entity_id);
                 if (G_UIState.selected_object == entity)
                 {
                     G_UIState.selected_object = NULL;
@@ -219,6 +209,16 @@ void ProcessCommandQueue(void)
                 if (G_UIState.selected_object)
                 {
                     G_UIState.selected_object->collision_mask = c->data.move_entity.original_collision_mask;
+
+                    DragInteractionState *game_drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
+                    if (game_drag_ctx && game_drag_ctx->has_capture &&
+                        game_drag_ctx->target_kind == DRAG_TARGET_WORLD_ENTITY)
+                    {
+                        game_drag_ctx->target = G_UIState.selected_object;
+                        game_drag_ctx->target_anchor = G_UIState.selected_object->anchor_position;
+                        game_drag_ctx->pointer_state.initial_pos = game_drag_ctx->pointer_state.current_pos;
+                        game_drag_ctx->pointer_state.previous_pos = game_drag_ctx->pointer_state.current_pos;
+                    }
                 }
                 LOG_INFO("Processed CMD_MOVE_ENTITY -> moved id=%d\n", moved_id);
             }

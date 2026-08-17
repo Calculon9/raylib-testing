@@ -66,7 +66,8 @@ typedef enum
     SIZE_FIXED,   // Use the literal pixel width
     SIZE_PERCENT, // Use a percentage of the parent's content area (0.0 to 1.0)
     SIZE_FILL,    // Take up all remaining space
-    SIZE_CONTENT  // Size to fit enabled children and padding
+    SIZE_CONTENT, // Size to fit enabled children and padding
+    SIZE_CONTENT_FILL // Fit content height while filling the parent's width
 } SizeMode;
 
 typedef enum

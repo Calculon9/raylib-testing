@@ -205,13 +205,13 @@ EntityId MoveObjectBetweenWorlds(World2d *source_world, World2d *destination_wor
     }
 
     EntityId original_parent_id = source_entity->parent_id;
-    Vector2d original_coords_center = source_entity->coords_center;
-    Vector2d original_coords_origin = source_entity->coords_origin;
+    Vector2d original_coords_center = source_entity->anchor_position;
+    Vector2d original_coords_origin = source_entity->bounds_origin;
     Newtonoid2d moved_entity = *source_entity;
-    moved_entity.coords_center = destination_coords;
-    moved_entity.coords_origin = (Vector2d){
-        destination_coords.x - (moved_entity.boxed_dimensions.x * 0.5f),
-        destination_coords.y - (moved_entity.boxed_dimensions.y * 0.5f)};
+    moved_entity.anchor_position = destination_coords;
+    moved_entity.bounds_origin = (Vector2d){
+        destination_coords.x - (moved_entity.bounds_size.x * 0.5f),
+        destination_coords.y - (moved_entity.bounds_size.y * 0.5f)};
     if (!RemoveRegisteredEntity(source_world, object_id, false))
     {
         return INVALID_ENTITY_ID;
@@ -222,8 +222,8 @@ EntityId MoveObjectBetweenWorlds(World2d *source_world, World2d *destination_wor
     {
         // The source was detached first to prevent both worlds from owning the same entity.
         moved_entity.parent_id = original_parent_id;
-        moved_entity.coords_center = original_coords_center;
-        moved_entity.coords_origin = original_coords_origin;
+        moved_entity.anchor_position = original_coords_center;
+        moved_entity.bounds_origin = original_coords_origin;
         if (AddObjectToWorld(source_world, &moved_entity, original_parent_id) == INVALID_ENTITY_ID)
         {
             LOG_ERROR("Failed to restore entity %d after a rejected world transfer.\n", object_id);
@@ -253,8 +253,8 @@ void StickEntity(World2d *world, Newtonoid2d *child, Newtonoid2d *parent)
         return;
 
     child->parent_id = parent->id;
-    child->local_offset.x = child->coords_center.x - parent->coords_center.x;
-    child->local_offset.y = child->coords_center.y - parent->coords_center.y;
+    child->parent_offset.x = child->anchor_position.x - parent->anchor_position.x;
+    child->parent_offset.y = child->anchor_position.y - parent->anchor_position.y;
     child->velocity.x = 0;
     child->velocity.y = 0;
 }

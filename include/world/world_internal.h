@@ -10,6 +10,9 @@
 
 // World lifecycle internals
 bool CreateWorld(GridSpace2d space_obj, float gravity, struct Universe *universe, World2d *out_world);
+void BindWorldTunnel(World2d *world, Camera2d *camera);
+void World_SetBounds(World2d *world, Vector2d min_bound, Vector2d max_bound);
+void World_RefreshBoundsFromFrame(World2d *world);
 
 // Entity registry / lookup helpers
 void UpdateEntityWorldRegistry(FlatMapInt *entity_world_index_registry, EntityId entity_id, int type_flag, int entity_arr_index);
@@ -19,6 +22,9 @@ void StickEntity(World2d *world, Newtonoid2d *child, Newtonoid2d *parent);
 void SetObjectFlag(World2d *world, EntityId object_id, int flag_to_update);
 void ClearObjectFlag(World2d *world, EntityId object_id, int flag_to_update);
 void *GetEntityByID(World2d *world, EntityId entity_id);
+Newtonoid2d *ResolveClosestEntityAt(World2d *active_world, Vector2d click_local_coords,
+                                    Cell **out_cell, int *out_cell_index,
+                                    char *log, size_t log_size, int *log_offset);
 
 // Scheduled world command helpers
 void ScheduleEntityFlagSet(LArray *scheduled_events, EntityId object_id, int flag_to_set, int initial_frame_delay, int interval_frames, int run_limit);

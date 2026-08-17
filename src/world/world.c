@@ -34,6 +34,9 @@ bool CreateWorld(GridSpace2d space_obj, float gravity, struct Universe *universe
     out_world->grid_space = space_obj;
     out_world->gravity = gravity;
     out_world->universe = universe;
+    out_world->flags = WORLD_FLAG_ACTIVE | WORLD_FLAG_VISIBLE | WORLD_FLAG_SELECTABLE |
+                       WORLD_FLAG_PHYSICS_ENABLED | WORLD_FLAG_SPAWNS_ENABLED |
+                       WORLD_FLAG_DRAGGABLE;
     if (universe)
     {
         out_world->grid_space.object.id = Universe_AllocateEntityId(universe);
@@ -65,7 +68,7 @@ bool CreateWorld(GridSpace2d space_obj, float gravity, struct Universe *universe
 EntityId AddObjectToWorld(World2d *world, Newtonoid2d *object, EntityId parent_id)
 {
     // Object placement is center-based; grid occupancy still snaps that center into a cell index.
-    Vector2d local_coords = object->coords_center;
+    Vector2d local_coords = object->anchor_position;
     if (local_coords.x < 0 || local_coords.y < 0 || local_coords.x >= world->grid_space.space.columns || local_coords.y >= world->grid_space.space.rows)
     {
         LOG_WARN("Desired spawn point (%0.2f,%0.2f) out of bounds. Cannot add entity to the world.\n", local_coords.x, local_coords.y);
@@ -271,15 +274,15 @@ void UpdateWorld(World2d *world, float delta_time)
         Vector2d previous_snapped_aabb_verts[4] = {0};
         CalcSnappedAABB_Vertices(child->surface.surface_vectors.items,
                                  child->surface.surface_vectors.count,
-                                 child->coords_center,
+                                 child->anchor_position,
                                  space->frame.basis,
                                  previous_snapped_aabb_verts);
         Matrix2x2 previous_snapped_aabb_box = CalcAABBCoords_Tight(
             previous_snapped_aabb_verts, 4, ZERO_VECTOR_2D);
 
         // Glue the child's world position to the parent's new position + offset
-        child->coords_center = VectorSum_2d(parent->coords_center, child->local_offset);
-        child->coords_origin = VectorSum_2d(parent->coords_origin, child->coords_origin);
+        child->anchor_position = VectorSum_2d(parent->anchor_position, child->parent_offset);
+        child->bounds_origin = VectorSum_2d(parent->bounds_origin, child->bounds_origin);
         RemapEntityInASpace(space, child, previous_snapped_aabb_box,
                             entity_space_map);
     }
@@ -379,12 +382,9 @@ static EntityDragMotionSnapshot g_drag_motion_snapshot = {0};
 //----------------------------------------------------------------------------------
 // void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region);
 void CreateAddNewtonoid(int vertice_count, float radius, ShapeBuildType build_type,
-                        float mass, ColourRgba colour, Vector2d coords_center,
+                        float mass, ColourRgba colour, Vector2d anchor_position,
                         Vector2d velocity, Vector2d acceleration);
 void TogglePause(World2d *world);
-static Newtonoid2d *ResolveClosestEntityAt(World2d *active_world, Vector2d click_local_coords,
-                                           Cell **out_cell, int *out_cell_index,
-                                           char *log, size_t log_size, int *log_offset);
 
 static void SnapshotDraggedEntityMotion(Newtonoid2d *entity)
 {
@@ -465,11 +465,11 @@ static Vector2d ResolvePixelToWorldFrame(const World2d *active_world, Vector2d p
     Vector2d child_coords = TransformCoordinates(child_inv_transform, parent_coords);
 
     return child_coords;
-    LOG_INFO("ResolvePixelToWorldFrame: pixel_coords=(%.2f, %.2f) -> viewport_coords=(%.2f, %.2f) -> parent_coords=(%.2f, %.2f) -> child_coords=(%.2f, %.2f)\n",
-             pixel_coords.x, pixel_coords.y,
-             viewport_coords.x, viewport_coords.y,
-             parent_coords.x, parent_coords.y,
-             child_coords.x, child_coords.y);
+    // LOG_INFO("ResolvePixelToWorldFrame: pixel_coords=(%.2f, %.2f) -> viewport_coords=(%.2f, %.2f) -> parent_coords=(%.2f, %.2f) -> child_coords=(%.2f, %.2f)\n",
+    //          pixel_coords.x, pixel_coords.y,
+    //          viewport_coords.x, viewport_coords.y,
+    //          parent_coords.x, parent_coords.y,
+    //          child_coords.x, child_coords.y);
     // return TransformCoordinates(input_to_child_local_mtx, click_parent_coords);
 }
 
@@ -536,13 +536,13 @@ static Newtonoid2d *FindClosestObjectInCell(World2d *world, const Cell *cell, Ve
         }
 
         Surface2d surface = obj->surface;
-        Vector2d vertice_offset = obj->coords_center;
+        Vector2d vertice_offset = obj->anchor_position;
         bool click_in_object = IsPointInPolygon(click_local_coords,
                                                 (Vector2d *)surface.surface_vectors.items,
                                                 vertice_offset,
                                                 surface.surface_vectors.count);
 
-        Vector2d click_to_obj_dist = VectorSum_2d(VectorScale_2d(obj->coords_center, -1), click_local_coords);
+        Vector2d click_to_obj_dist = VectorSum_2d(VectorScale_2d(obj->anchor_position, -1), click_local_coords);
         float click_to_obj_mag = fabs(VectorMagnitude_2d(click_to_obj_dist));
         if (click_to_obj_mag < shortest_dist && click_in_object)
         {
@@ -550,15 +550,15 @@ static Newtonoid2d *FindClosestObjectInCell(World2d *world, const Cell *cell, Ve
             closest = obj;
         }
 
-        AppendLogLine(log, log_size, log_offset, "[ID:%d POS:%.1f,%.1f] ", i + 1, obj_id, obj->coords_center.x, obj->coords_center.y);
+        AppendLogLine(log, log_size, log_offset, "[ID:%d POS:%.1f,%.1f] ", i + 1, obj_id, obj->anchor_position.x, obj->anchor_position.y);
     }
 
     return closest;
 }
 
-static Newtonoid2d *ResolveClosestEntityAt(World2d *active_world, Vector2d click_local_coords,
-                                           Cell **out_cell, int *out_cell_index,
-                                           char *log, size_t log_size, int *log_offset)
+Newtonoid2d *ResolveClosestEntityAt(World2d *active_world, Vector2d click_local_coords,
+                                    Cell **out_cell, int *out_cell_index,
+                                    char *log, size_t log_size, int *log_offset)
 {
     if (!active_world)
     {
@@ -639,10 +639,13 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
     int mouse_y = (int)input->pointer_position.y;
 
     bool cursor_in_game_viewport = mouse_x >= game_viewport.pixel_origin.x && mouse_x <= (game_viewport.pixel_origin.x + (game_viewport.pixel_u.x * game_viewport.resolution.x)) && mouse_y >= game_viewport.pixel_origin.y && mouse_y <= (game_viewport.pixel_origin.y + (game_viewport.pixel_v.y * game_viewport.resolution.y));
-    if (G_Universe.world_count == 0)
-        return prior_result;
 
+    // Fall back to the universe's own root world so unworlded entities remain selectable/draggable.
     World2d *active_world = Universe_GetSelectedWorld(&G_Universe);
+    if (!active_world)
+    {
+        active_world = &G_Universe.root_world;
+    }
     Vector2d click_pixel_coords = {mouse_x, mouse_y};
     Vector2d click_world_coords = ResolvePixelToWorldFrame(active_world, click_pixel_coords);
     DragInteractionState *game_drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
@@ -696,7 +699,7 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
                 {
                     G_UIState.selected_object = p_closest;
                     SnapshotDraggedEntityMotion(p_closest);
-                    DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_ENTITY, p_closest, p_closest->coords_center);
+                    DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_ENTITY, p_closest, p_closest->anchor_position);
                     AppendLogLine(log, sizeof(log), &offset, "--> SELECTED ENTITY: ID:%d", p_closest->id);
                 }
                 else
@@ -723,6 +726,11 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
                 Vector2d uni_coords = TransformCoordinates(G_Universe.camera.tunnel.dest_to_source_mtx, viewport_coords);
 
                 int destination_world_index = Universe_FindWorldAt(&G_Universe, uni_coords);
+                if (destination_world_index < 0)
+                {
+                    // No nested world under the cursor: drop back into the universe's root world.
+                    destination_world_index = UNIVERSE_ROOT_WORLD_INDEX;
+                }
                 World2d *destination_world = Universe_GetWorld(&G_Universe, destination_world_index);
                 if (dragged && source_world && destination_world)
                 {
@@ -731,7 +739,7 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
                         Vector2d previous_snapped_aabb_verts[4] = {0};
                         CalcSnappedAABB_Vertices(dragged->surface.surface_vectors.items,
                                                  dragged->surface.surface_vectors.count,
-                                                 dragged->coords_center, source_world->grid_space.space.frame.basis,
+                                                 dragged->anchor_position, source_world->grid_space.space.frame.basis,
                                                  previous_snapped_aabb_verts);
                         Matrix2x2 previous_snapped_aabb_box = CalcAABBCoords_Tight(previous_snapped_aabb_verts, 4, ZERO_VECTOR_2D);
                         Vector2d initial_world_coords = ResolvePixelToWorldFrame(source_world, game_drag_ctx->pointer_state.initial_pos);
@@ -742,10 +750,10 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
                         float max_y = fmaxf(0.0f, (float)source_world->grid_space.space.rows - 0.001f);
                         new_center.x = fmaxf(0.0f, fminf(new_center.x, max_x));
                         new_center.y = fmaxf(0.0f, fminf(new_center.y, max_y));
-                        dragged->coords_center = new_center;
-                        dragged->coords_origin = (Vector2d){
-                            new_center.x - (dragged->boxed_dimensions.x * 0.5f),
-                            new_center.y - (dragged->boxed_dimensions.y * 0.5f)};
+                        dragged->anchor_position = new_center;
+                        dragged->bounds_origin = (Vector2d){
+                            new_center.x - (dragged->bounds_size.x * 0.5f),
+                            new_center.y - (dragged->bounds_size.y * 0.5f)};
                         dragged->velocity = ZERO_VECTOR_2D;
                         dragged->acceleration = ZERO_VECTOR_2D;
                         dragged->momentum = ZERO_VECTOR_2D;
@@ -754,30 +762,24 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
                     }
                     else
                     {
-                        // Use the same pixel->world conversion path used for selection/drag updates
-                        // so destination placement stays aligned under the pointer across worlds.
+                        Vector2d current_world_coords = ResolvePixelToWorldFrame(destination_world, game_drag_ctx->pointer_state.current_pos);
+                        // Re-seed the drag origin so the next capture in the destination world starts from
+                        // the current pointer position instead of reusing the original press location.
+                        game_drag_ctx->pointer_state.initial_pos = game_drag_ctx->pointer_state.current_pos;
+                        game_drag_ctx->pointer_state.previous_pos = game_drag_ctx->pointer_state.current_pos;
+
                         Vector2d pointer_px = game_drag_ctx->pointer_state.current_pos;
-                        Vector2d destination_coords = ResolvePixelToWorldFrame(
-                            destination_world,
-                            pointer_px);
-                        LOG_INFO("DRAG_TRANSFER enqueue: entity=%d src_world=%d dst_world=%d pointer_px=(%.2f,%.2f) uni=(%.2f,%.2f) dst_local=(%.2f,%.2f)\n",
+                        LOG_INFO("DRAG_TRANSFER enqueue: entity=%d src_world=%d dst_world=%d pointer_px=(%.2f,%.2f) uni=(%.2f,%.2f)\n",
                                  dragged->id,
                                  source_world_index,
                                  destination_world_index,
                                  pointer_px.x,
                                  pointer_px.y,
                                  uni_coords.x,
-                                 uni_coords.y,
-                                 destination_coords.x,
-                                 destination_coords.y);
-                        if (EnqueueMoveEntity(dragged->id, source_world_index, destination_world_index,
-                                              destination_world->grid_space.object.id, destination_coords,
-                                              g_drag_motion_snapshot.collision_mask))
-                        {
-                            DragInteraction_ClearCapture(game_drag_ctx);
-                            g_drag_motion_snapshot.entity = NULL;
-                            g_drag_motion_snapshot.has_snapshot = false;
-                        }
+                                 uni_coords.y);
+                        EnqueueMoveEntity(dragged->id, source_world_index, destination_world_index,
+                                           destination_world->grid_space.object.id, current_world_coords,
+                                           g_drag_motion_snapshot.collision_mask);
                     }
                 }
             }
@@ -799,7 +801,7 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
 // void UpdateWorldRegion(int mouse_x, int mouse_y, bool cursor_in_region)
 
 void CreateAddNewtonoid(int vertice_count, float radius, ShapeBuildType build_type,
-                        float mass, ColourRgba colour, Vector2d coords_center,
+                        float mass, ColourRgba colour, Vector2d anchor_position,
                         Vector2d velocity, Vector2d acceleration)
 {
     World2d *active_world = Universe_GetSelectedWorld(&G_Universe);
@@ -813,11 +815,11 @@ void CreateAddNewtonoid(int vertice_count, float radius, ShapeBuildType build_ty
     switch (build_type)
     {
     case SHAPE_BUILD_REGULAR:
-        new_newtonoid = CreateNewtonoid2d_Symmetric(vertice_count, radius, colour, mass, coords_center, velocity, acceleration);
+        new_newtonoid = CreateNewtonoid2d_Symmetric(vertice_count, radius, colour, mass, anchor_position, velocity, acceleration);
         break;
     case SHAPE_BUILD_IRREGULAR:
         float min_radius = GetRandomFloat(0, radius);
-        new_newtonoid = CreateNewtonoid2d_Irregular(vertice_count, min_radius, radius, colour, mass, coords_center, velocity, acceleration);
+        new_newtonoid = CreateNewtonoid2d_Irregular(vertice_count, min_radius, radius, colour, mass, anchor_position, velocity, acceleration);
         break;
     default:
         break;
@@ -914,7 +916,7 @@ Newtonoid2d *ResolveEntityParamsToEntity(Newtonoid2dParams *newtonoid_params)
     }
 
     Newtonoid2d *obj = CreateNewtonoid2d_Reference(
-        newtonoid_params->mass, newtonoid_params->coords_center,
+        newtonoid_params->mass, newtonoid_params->anchor_position,
         newtonoid_params->velocity, newtonoid_params->acceleration,
         surface);
     if (!obj)
@@ -925,7 +927,7 @@ Newtonoid2d *ResolveEntityParamsToEntity(Newtonoid2dParams *newtonoid_params)
     obj->shape_type = shape_type;
 
     LOG_INFO("Successfully spawned Entity ID: %d [Type: %d] at Position (%.2f, %.2f)\n",
-             obj->id, shape_type, obj->coords_center.x, obj->coords_center.y);
+             obj->id, shape_type, obj->anchor_position.x, obj->anchor_position.y);
 
     return obj;
 }
@@ -956,7 +958,7 @@ int FinishGameplayScreen(void)
         //     radius = GetRandomFloat(0.1, polygonoid_radius_default * 0.25);
         //     mass = radius * polygonoid_mass_default;
         //     velocity = (Vector2d){GetRandomFloat(polygonoid_velocity_default.x * -8, polygonoid_velocity_default.x * 8), GetRandomFloat(polygonoid_velocity_default.y * 0, polygonoid_velocity_default.y * 16)};
-        //     Vector2d top_middle_world = (Vector2d){world.grid_space.object.boxed_dimensions.x * 0.5, 0.3};
+        //     Vector2d top_middle_world = (Vector2d){world.grid_space.object.bounds_size.x * 0.5, 0.3};
         //     // Vector2d top_middle_world_pixel = TransformCoordinates(camera_world.source_to_dest_mtx, top_middle_world);
         //     CreateAddNewtonoid(vertice_count, radius, SHAPE_MATH_POLY_HULL, mass, colour, top_middle_world, velocity, acceleration);
         //     UpdateWorld(&G_WorldState, frame_counter.delta_time);
@@ -1043,7 +1045,7 @@ int FinishGameplayScreen(void)
 //    // Base Case 1: If this object has no parent, its local coordinates are its world coordinates
 //    if (a->parent_id == 0)
 //    {
-//       return a->coords_center;
+//       return a->anchor_position;
 //    }
 
 //    int parent_index = 0;
@@ -1053,20 +1055,20 @@ int FinishGameplayScreen(void)
 //    if (parent_index <= 0)
 //    {
 //       LOG_WARN("Parent object with ID %d could not be found in the entiy-world index registry in ResolveEntityWorldCoords.", a->parent_id);
-//       return a->coords_center;
+//       return a->anchor_position;
 //    }
 
 //    Newtonoid2d *parent = (Newtonoid2d *)LArray_Get(context.world_objects, parent_index);
 //    if (parent == NULL)
 //    {
-//       return a->coords_center;
+//       return a->anchor_position;
 //    }
 
 //    // Recursion --> Go find the parent's absolute world coordinates first
 //    Vector2d parent_world_coords = ResolveEntityWorldCoords(parent, context);
 
 //    // Unwinding: Add this object's local offset to the parent's world position
-//    return VectorSum_2d(parent_world_coords, a->coords_center);
+//    return VectorSum_2d(parent_world_coords, a->anchor_position);
 // }
 
 //**********************************************************************************************
@@ -1160,7 +1162,7 @@ int FinishGameplayScreen(void)
 // {
 //    // COMMON DATA FOR PENETRATION & VELOCITY RESOLUTIONS
 //    Vector2d a_b_vel_diff = VectorSum_2d(a->velocity, VectorScale_2d(b->velocity, -1));              // relative velocity, or velocity felt by a
-//    Vector2d a_b_pos_diff = VectorSum_2d(a->coords_center, VectorScale_2d(b->coords_center, -1.0f)); // distance vector between centers (From B to A)
+//    Vector2d a_b_pos_diff = VectorSum_2d(a->anchor_position, VectorScale_2d(b->anchor_position, -1.0f)); // distance vector between centers (From B to A)
 //    float a_b_pos_diff_mag = VectorMagnitude_2d(a_b_pos_diff);                                       // actual distance when just touching
 //    float a_b_min_diff_mag = a->radius + b->radius;                                                  // target distance when just touching
 
@@ -1194,8 +1196,8 @@ int FinishGameplayScreen(void)
 //       Vector2d separation_vector = VectorScale_2d(normal, penetration_depth);
 
 //       // A moves forward along the normal vector direction, B moves backward along the normal vector direction
-//       a->coords_center = VectorSum_2d(a->coords_center, VectorScale_2d(separation_vector, a_move_fraction));
-//       b->coords_center = VectorSum_2d(b->coords_center, VectorScale_2d(separation_vector, -b_move_fraction));
+//       a->anchor_position = VectorSum_2d(a->anchor_position, VectorScale_2d(separation_vector, a_move_fraction));
+//       b->anchor_position = VectorSum_2d(b->anchor_position, VectorScale_2d(separation_vector, -b_move_fraction));
 //    }
 // }
 
@@ -1203,7 +1205,7 @@ int FinishGameplayScreen(void)
 // {
 //    // COMMON DATA FOR PENETRATION & VELOCITY RESOLUTIONS
 //    Vector2d a_b_vel_diff = VectorSum_2d(a->velocity, VectorScale_2d(b->velocity, -1));              // relative velocity, or velocity felt by a
-//    Vector2d a_b_pos_diff = VectorSum_2d(a->coords_center, VectorScale_2d(b->coords_center, -1.0f)); // distance vector between centers (From B to A)
+//    Vector2d a_b_pos_diff = VectorSum_2d(a->anchor_position, VectorScale_2d(b->anchor_position, -1.0f)); // distance vector between centers (From B to A)
 //    float a_b_pos_diff_mag = VectorMagnitude_2d(a_b_pos_diff);                                       // actual distance when just touching
 //    float a_b_min_diff_mag = a->radius + b->radius;                                                  // target distance when just touching
 
@@ -1240,7 +1242,7 @@ int FinishGameplayScreen(void)
 
 // Need assign an area of effect (footprint), i.e. Snapped AABB, for the object based on its radius and update the occupancy of all cells that fall within that area
 // otherwise we won't detect collisions until the objects are already overlapping significantly, which can cause tunneling issues where fast moving objects pass through each other without detecting a collision.
-// Surface2d snapped_aabb = CalculateSnappedAABB(space->basis, object->surface, object->coords_center);
+// Surface2d snapped_aabb = CalculateSnappedAABB(space->basis, object->surface, object->anchor_position);
 
 // void UpdateWorld(World2d *world, float delta_time)
 // {
@@ -1267,21 +1269,21 @@ int FinishGameplayScreen(void)
 //       Newtonoid2d *obj = &polygonoids[i].newtonian_properties;
 
 //       // Ensure the object isn't outside the bounds of the world before we try to get the cell it's in, otherwise we could get an out of bounds error when we try to access the cell's object_ids array. We can just skip updating the cell for this object if it's out of bounds, but we should still update its vectors based on its acceleration and velocity so that it can move back into the bounds of the world.
-//       if (obj->coords_origin.x < 0 || obj->coords_origin.x >= world->grid_space.space.resolution_ixj.x ||
-//           obj->coords_origin.y < 0 || obj->coords_origin.y >= world->grid_space.space.resolution_ixj.y)
+//       if (obj->bounds_origin.x < 0 || obj->bounds_origin.x >= world->grid_space.space.resolution_ixj.x ||
+//           obj->bounds_origin.y < 0 || obj->bounds_origin.y >= world->grid_space.space.resolution_ixj.y)
 //       {
-//          printf("WARNING: Object ID %d is out of bounds at coordinates (%.1f, %.1f). Skipping cell update.\n", polygonoids[i].id, obj->coords_origin.x, obj->coords_origin.y);
+//          printf("WARNING: Object ID %d is out of bounds at coordinates (%.1f, %.1f). Skipping cell update.\n", polygonoids[i].id, obj->bounds_origin.x, obj->bounds_origin.y);
 
 //          // Need to calculate a collision response to push the object back into the bounds of the world here, otherwise it will just keep moving out of bounds and we won't be able to track it anymore. For simplicity, let's just reverse the velocity of the object when it hits the boundary of the world, which will create a bouncing effect. We can also apply a damping factor to the velocity to simulate energy loss during the collision, which will prevent the object from bouncing indefinitely.
-//          if (obj->coords_origin.x < 0 || obj->coords_origin.x >= world->grid_space.space.resolution_ixj.x)
+//          if (obj->bounds_origin.x < 0 || obj->bounds_origin.x >= world->grid_space.space.resolution_ixj.x)
 //          {
 //             obj->velocity.x = -obj->velocity.x; // Reverse and dampen the x velocity
-//             // obj->coords_origin.x = obj->coords_origin.x < 0 ? 0 : world->grid_space.space.resolution_ixj.x - 1; // Move the object back within bounds
+//             // obj->bounds_origin.x = obj->bounds_origin.x < 0 ? 0 : world->grid_space.space.resolution_ixj.x - 1; // Move the object back within bounds
 //          }
-//          if (obj->coords_origin.y < 0 || obj->coords_origin.y >= world->grid_space.space.resolution_ixj.y)
+//          if (obj->bounds_origin.y < 0 || obj->bounds_origin.y >= world->grid_space.space.resolution_ixj.y)
 //          {
 //             obj->velocity.y = -obj->velocity.y; // Reverse and dampen the y velocity
-//             // obj->coords_origin.y = obj->coords_origin.y < 0 ? 0 : world->grid_space.space.resolution_ixj.y - 1; // Move the object back within bounds
+//             // obj->bounds_origin.y = obj->bounds_origin.y < 0 ? 0 : world->grid_space.space.resolution_ixj.y - 1; // Move the object back within bounds
 //          }
 //          //Recalc inverse_mass in case mass was changed
 //          obj->inverseMass = 1.0/obj->mass;
@@ -1290,7 +1292,7 @@ int FinishGameplayScreen(void)
 //       }
 
 //       // Add the object's ID to the cell's object_ids array if there is space
-//       Cell *target_cell = GetCellFromCoords(&world->grid_space.space, polygonoids[i].newtonian_properties.coords_origin);
+//       Cell *target_cell = GetCellFromCoords(&world->grid_space.space, polygonoids[i].newtonian_properties.bounds_origin);
 
 //       if (target_cell != NULL && target_cell->occupancy < MAX_CELL_OCCUPANCY)
 //       {
@@ -1330,7 +1332,7 @@ int FinishGameplayScreen(void)
 
 //             // Get the collision normal - just use A as the reference object
 //             // For simplicity, we'll assume the normal is in the direction that starts at A's origin and points to B's origin
-//             Vector2d a_b_pos = VectorSum_2d(a->newtonian_properties.coords_origin, VectorScale_2d(b->newtonian_properties.coords_origin, -1));
+//             Vector2d a_b_pos = VectorSum_2d(a->newtonian_properties.bounds_origin, VectorScale_2d(b->newtonian_properties.bounds_origin, -1));
 //             Vector2d a_b_pos_normal = VectorScale_2d(a_b_pos, 1 / VectorMagnitude_2d(a_b_pos));
 
 //             // Velocity along the Normal (The Dot Product)
@@ -1354,10 +1356,10 @@ int FinishGameplayScreen(void)
 //          }
 
 //          frame_counter.total_frames % 300 == 0 ? printf("COLLISION CHECK for A(%.0f,%.0f) B(%.0f,%.0f) = %s\n",
-//                 a->newtonian_properties.coords_origin.x,
-//                 a->newtonian_properties.coords_origin.y,
-//                 b->newtonian_properties.coords_origin.x,
-//                 b->newtonian_properties.coords_origin.y,
+//                 a->newtonian_properties.bounds_origin.x,
+//                 a->newtonian_properties.bounds_origin.y,
+//                 b->newtonian_properties.bounds_origin.x,
+//                 b->newtonian_properties.bounds_origin.y,
 //                 colliding ? "TRUE" : "FALSE") : (void)0;
 
 //       }
@@ -1388,7 +1390,7 @@ int FinishGameplayScreen(void)
 //    CalculateVectors(&pts[i].newtonian_properties, delta_time);
 //    // Add the object's ID to the cell's object_ids array if there is space
 
-//    Cell *target_cell = GetCellFromCoords(space, pts[i].newtonian_properties.coords_origin);
+//    Cell *target_cell = GetCellFromCoords(space, pts[i].newtonian_properties.bounds_origin);
 
 //    if (target_cell != NULL && target_cell->occupancy < MAX_CELL_OCCUPANCY)
 //    {
@@ -1417,10 +1419,10 @@ int FinishGameplayScreen(void)
 //       bool colliding = CheckForCollision(a->newtonian_properties, b->newtonian_properties);
 
 //       printf("COLLISION CHECK for A(%.0f,%.0f) B(%.0f,%.0f) = %s\n",
-//              a->newtonian_properties.coords_origin.x,
-//              a->newtonian_properties.coords_origin.y,
-//              b->newtonian_properties.coords_origin.x,
-//              b->newtonian_properties.coords_origin.y,
+//              a->newtonian_properties.bounds_origin.x,
+//              a->newtonian_properties.bounds_origin.y,
+//              b->newtonian_properties.bounds_origin.x,
+//              b->newtonian_properties.bounds_origin.y,
 //              colliding ? "TRUE" : "FALSE");
 //    }
 // }

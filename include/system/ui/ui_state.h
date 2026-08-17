@@ -19,11 +19,13 @@ typedef struct Cell Cell;
 typedef enum
 {
     LPANEL_STATE_VIEW,
-    LPANEL_EDIT_ENTITY_VIEW,
+    // The lpanel draw view also enables geometry editing in the game viewport.
+    LPANEL_DRAW_VIEW,
     RPANEL_STATE_VIEW,
     RPANEL_WORLD_CREATE_VIEW,
     STATE_MANAGER_PHYSICS_VIEW,
     STATE_MANAGER_ATTRIBUTES_VIEW,
+    STATE_MANAGER_WORLD_VIEW,
     STATE_MANAGER_CELL_STATE_VIEW,
     POPUP_MENU_CREATE_VIEW,
     POPUP_MENU_RECENT_VIEW

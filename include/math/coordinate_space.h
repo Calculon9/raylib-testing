@@ -19,6 +19,34 @@ CIRCLOID MODULE
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
 
+typedef enum CellFlags
+{
+    CELL_FLAG_NONE = 0,
+    CELL_FLAG_SOLID = 1 << 0,
+    CELL_FLAG_WALKABLE = 1 << 1,
+    CELL_FLAG_HAZARDOUS = 1 << 2,
+    CELL_FLAG_SPAWNABLE = 1 << 3,
+} CellFlags;
+
+typedef enum CellEffectFlags
+{
+    CELL_EFFECT_FLAG_NONE = 0,
+    CELL_EFFECT_FLAG_DAMAGE = 1 << 0,
+    CELL_EFFECT_FLAG_HEAL = 1 << 1,
+    CELL_EFFECT_FLAG_PUSH = 1 << 2,
+    CELL_EFFECT_FLAG_SLOW = 1 << 3,
+} CellEffectFlags;
+
+typedef struct CellEffect
+{
+    CellEffectFlags type_flags;
+    float magnitude;
+    float duration;
+} CellEffect;
+
+typedef CellFlags CellFlag;
+typedef CellEffectFlags CellEffectFlag;
+
 typedef enum FrameGeometryType
 {
     GRID_GEOMETRY_REGULAR,
@@ -36,24 +64,20 @@ typedef struct CoordinateSpacePreset
     Basis2d basis;
 } CoordinateSpacePreset;
 
-#define COORDINATE_SPACE_DEFAULT_RESOLUTION ((Vector2d){7.0f, 5.0f})
+#define COORDINATE_SPACE_DEFAULT_RESOLUTION ((Vector2d){5.0f, 4.0f})
 
 typedef struct Cell
 {
-    Vector2d local_origin;              // Cell origin in the owning CoordSpace local frame
+    Vector2d local_origin;                   // Cell origin in the owning CoordSpace local frame
     EntityId object_ids[MAX_CELL_OCCUPANCY]; // entity IDs currently occupying this cell (if any)
     int occupancy;
-    float value; // value representing the properties of the field at this cell (e.g., occupied, empty, etc.)
+    CellFlags flags;     // Static tile identity and interaction rules.
+    CellEffect effect;   // Behaviour applied by this cell to overlapping entities.
+    float value;         // Scalar field value for generic cell data.
 } Cell;
 
-typedef struct LineSegment2d
-{
-    Vector2d start;
-    Vector2d end;
-} LineSegment2d;
-
 // A bare-bones coordinate space with no associated object or physicality. Use for describing a logical child grid space.
-// coords_origin is this child space origin in its own local frame. Parent-space placement is stored externally
+// bounds_origin is this child space origin in its own local frame. Parent-space placement is stored externally
 // (for example, a world center in universe space) and mapped via transform helpers.
 // THE SIMULATION DATA CONTAINER (Belongs in world.h / grid.h)
 // This is the domain object that represents your physical game worlds.

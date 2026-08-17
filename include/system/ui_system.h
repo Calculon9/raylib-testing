@@ -62,6 +62,7 @@ extern const Size ui_fill_container_size;
 extern const Vector2d ui_standard_container_padding;
 extern const Vector2d ui_standard_field_padding;
 extern const Size ui_standard_button_size;
+extern const Size ui_wide_button_size;
 extern const Size ui_small_horizontal_button_size;
 extern const Size ui_fill_button_size;
 extern const Vector2d ui_standard_button_padding;

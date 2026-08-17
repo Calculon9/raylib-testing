@@ -291,7 +291,7 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel)
 
 //     // The world position of the coordinate space object is the origin of the coordinate space, so (0,0).
 //     // But to make it more flexible for different coordinate space origins, we will add the world position to the start and end points of the lines to get their actual coordinates in world space, and then convert those to screen coordinates using the basis transform matrix
-//     Vector2d origin = panel_space.coords_origin;
+//     Vector2d origin = panel_space.bounds_origin;
 //     Vector2d end = VectorSum_2d(origin, panel_space.resolution_ixj);
 //     Vector2d basis_scale = BasisTransform_2d_Scale(camera.source_basis, camera.destination_basis); // Need to scale dimensions from world units to pixel units using the camera's basis transform
 

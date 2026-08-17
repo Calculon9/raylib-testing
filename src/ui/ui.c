@@ -36,7 +36,7 @@ static Vector2d MeasureElementContent(UIElement *element)
         child->measured_content_size = MeasureElementContent(child);
 
         Vector2d child_size = child->size.dimensions;
-        if (child->size.size_mode == SIZE_CONTENT)
+        if (child->size.size_mode == SIZE_CONTENT || child->size.size_mode == SIZE_CONTENT_FILL)
         {
             child_size = child->measured_content_size;
         }
@@ -127,6 +127,11 @@ static Vector2d ResolveChildSizeFixed(const UIElement *child, Vector2d content_a
                           fmaxf(0.0f, content_area_local.y - consumed_fixed_y)};
     }
 
+    if (child->size.size_mode == SIZE_CONTENT_FILL)
+    {
+        return (Vector2d){content_area_local.x, child->measured_content_size.y};
+    }
+
     return child->size.dimensions;
 }
 
@@ -160,6 +165,10 @@ static StackedLayoutStats CollectStackedLayoutStats(const UIElement *parent, flo
         else if (child->size.size_mode == SIZE_PERCENT)
         {
             stats.occupied_height += content_area_h * child->size.dimensions.y;
+        }
+        else if (child->size.size_mode == SIZE_CONTENT_FILL)
+        {
+            stats.occupied_height += child->measured_content_size.y;
         }
         else
         {
@@ -236,6 +245,8 @@ static void DistributeChildrenStacked(UIElement *parent, Vector2d content_area_l
             child_h = fill_height_per_child;
         else if (child->size.size_mode == SIZE_PERCENT)
             child_h = content_area_local.y * child->size.dimensions.y;
+        else if (child->size.size_mode == SIZE_CONTENT_FILL)
+            child_h = child->measured_content_size.y;
         else
             child_h = child->size.dimensions.y;
 
@@ -820,6 +831,11 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box)
     else if (element->size.size_mode == SIZE_CONTENT)
     {
         box.dimensions = element->measured_content_size;
+    }
+    else if (element->size.size_mode == SIZE_CONTENT_FILL)
+    {
+        box.dimensions.x = fmaxf(0.0f, content_area_w - adj_offset_x);
+        box.dimensions.y = element->measured_content_size.y;
     }
     else
     {

@@ -17,6 +17,7 @@ UNIVERSE SYSTEM MODULE
 #include "input/drag_interaction.h"
 #include "system/systems.h"
 #include "system/ui/popup_menu.h"
+#include "world/world_internal.h"
 
 static int create_world_auto_select = 0;
 static bool camera_diagnostic_printed = false;
@@ -33,6 +34,25 @@ static void SyncWorldStateFromSelection(void)
     G_UIState.selected_cell_index = -1;
 }
 
+static bool Universe_HasRootEntityAt(Vector2d universe_point)
+{
+    return ResolveClosestEntityAt(&G_Universe.root_world, universe_point,
+                                  NULL, NULL, NULL, 0, NULL) != NULL;
+}
+
+// Single entry point for "what did this universe click hit": a nested world, a root-owned
+// entity, or nothing. Callers no longer need to combine the two checks themselves.
+static bool Universe_ResolveClickHit(Vector2d click_universe_coords, bool *world_hit_out)
+{
+    bool world_hit = Universe_ResolveClick(&G_Universe, click_universe_coords, NULL);
+    bool root_entity_hit = Universe_HasRootEntityAt(click_universe_coords);
+    if (world_hit_out)
+    {
+        *world_hit_out = world_hit;
+    }
+    return world_hit || root_entity_hit;
+}
+
 static Matrix3x3 BuildCameraToScreenMatrix(void)
 {
     return MatrixMultiply_3x3_3x3(
@@ -47,19 +67,16 @@ static void ApplyWorldDragTransform(World2d *world, Vector2d new_universe_origin
         return;
     }
 
-    world->tunnel.source_frame = &world->grid_space.space.frame;
-    world->tunnel.destination_frame = &G_Universe.camera.frame;
     world->grid_space.space.frame.origin_in_parent = new_universe_origin;
     world->uni_coords_center = new_universe_origin;
-    world->tunnel.source_to_dest_mtx = MtxTransform_GetLocalToParent(*world->tunnel.source_frame);
-    world->tunnel.dest_to_source_mtx = MatrixInvert_3x3(world->tunnel.source_to_dest_mtx);
+    BindWorldTunnel(world, &G_Universe.camera);
 
-    int world_index = (int)(world - G_Universe.worlds);
-    if (world_index >= 0 && world_index < G_Universe.world_count)
-    {
-        Matrix2x2 world_bounds = Frame_CalcAABB_InParent(&world->grid_space.space.frame);
-        Universe_SetWorldBounds(&G_Universe, world_index, world_bounds.col1, world_bounds.col2);
-    }
+    World_RefreshBoundsFromFrame(world);
+}
+
+static bool World_IsDraggable(const World2d *world)
+{
+    return world && (world->flags & WORLD_FLAG_DRAGGABLE) != 0;
 }
 
 void SyncUniverseCameraToViewport(void)
@@ -115,7 +132,7 @@ void InitUniverseSystem(void)
 
     int initial_world_columns = (int)fmaxf(1.0f, ceilf(G_Universe.next_resolution.x));
     int initial_world_rows = (int)fmaxf(1.0f, ceilf(G_Universe.next_resolution.y));
-    *GetNextWorldObjectCountPtr() = (initial_world_columns * initial_world_rows) / 3 + 1;
+    *GetNextWorldObjectCountPtr() = 1; // (initial_world_columns * initial_world_rows) / 3 + 1;
     CreateNewWorld(false);
 }
 
@@ -211,62 +228,66 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
         }
     }
 
-    if (G_Universe.selected_world_index < 0 && cursor_in_game_viewport && input->left_down)
+    if (cursor_in_game_viewport && input->left_down && DragInteraction_IsDragActive(game_drag_ctx, INPUT_DRAG_THRESHOLD_PIXELS))
     {
-        // Start drag if the mouse is down and the user has not yet selected a world
-        if (game_drag_ctx->pointer_state.left_button_hold_ticks == 1)
+        // Check if drag threshold has been exceeded and apply updates if so
+        if (!game_drag_ctx->has_capture)
         {
             Vector2d click_universe_coords = TransformCoordinates(pixel_to_world, mouse_pixel_coords);
             int world_index = Universe_FindWorldAt(&G_Universe, click_universe_coords);
-            if (world_index >= 0 && world_index != G_Universe.selected_world_index)
+            if (world_index >= 0)
             {
                 World2d *world = &G_Universe.worlds[world_index];
-                DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_CONTAINER, world,
-                                             world->grid_space.space.frame.origin_in_parent);
-            }
-            else
-            {
-                DragInteraction_ClearCapture(game_drag_ctx);
+                if (World_IsDraggable(world))
+                {
+                    DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_CONTAINER, world,
+                                                 world->grid_space.space.frame.origin_in_parent);
+                }
             }
         }
-        // Check if drag threshold has been exceeded and apply updates if so
-        if (game_drag_ctx->has_capture && game_drag_ctx->target_kind == DRAG_TARGET_WORLD_CONTAINER &&
-            DragInteraction_IsDragActive(game_drag_ctx, INPUT_DRAG_THRESHOLD_PIXELS))
+
+        if (game_drag_ctx->has_capture && game_drag_ctx->target_kind == DRAG_TARGET_WORLD_CONTAINER)
         {
             World2d *world = (World2d *)game_drag_ctx->target;
-            if (world)
+            if (!World_IsDraggable(world))
             {
-                Vector2d initial = TransformCoordinates(pixel_to_world, game_drag_ctx->pointer_state.initial_pos);
-                Vector2d current = TransformCoordinates(pixel_to_world, game_drag_ctx->pointer_state.current_pos);
-                Vector2d delta = VectorSum_2d(current, (Vector2d){-initial.x, -initial.y});
-                ApplyWorldDragTransform(world, VectorSum_2d(game_drag_ctx->target_anchor, delta));
+                DragInteraction_ClearCapture(game_drag_ctx);
+                return;
             }
+
+            Vector2d initial = TransformCoordinates(pixel_to_world, game_drag_ctx->pointer_state.initial_pos);
+            Vector2d current = TransformCoordinates(pixel_to_world, game_drag_ctx->pointer_state.current_pos);
+            Vector2d delta = VectorSum_2d(current, (Vector2d){-initial.x, -initial.y});
+            ApplyWorldDragTransform(world, VectorSum_2d(game_drag_ctx->target_anchor, delta));
         }
     }
-    else if (G_Universe.selected_world_index < 0 && game_drag_ctx->pointer_state.left_button_hold_ticks > 0)
+    else if (game_drag_ctx->pointer_state.left_button_hold_ticks > 0)
     {
         bool was_click = DragInteraction_IsClick(game_drag_ctx, INPUT_CLICK_MAX_HOLD_TICKS,
-                              INPUT_DRAG_THRESHOLD_PIXELS);
+                                                 INPUT_DRAG_THRESHOLD_PIXELS);
         if (was_click && cursor_in_game_viewport)
         {
             Vector2d click_universe_coords = TransformCoordinates(pixel_to_world, mouse_pixel_coords);
-            bool world_hit = Universe_ResolveClick(&G_Universe, click_universe_coords, NULL);
-            if (!world_hit)
+            bool world_hit = false;
+            if (!Universe_ResolveClickHit(click_universe_coords, &world_hit))
+            {
                 G_Universe.selected_world_index = -1;
-            else
+                SyncWorldStateFromSelection();
+            }
+            else if (world_hit)
+            {
                 click_pending = true;
-            SyncWorldStateFromSelection();
+            }
         }
-
     }
     else if (G_Universe.selected_world_index >= 0 && input->left_pressed && cursor_in_game_viewport)
     {
         Vector2d click_universe_coords = TransformCoordinates(pixel_to_world, mouse_pixel_coords);
-        if (!Universe_ResolveClick(&G_Universe, click_universe_coords, NULL))
+        if (!Universe_ResolveClickHit(click_universe_coords, NULL))
         {
             G_Universe.selected_world_index = -1;
+            SyncWorldStateFromSelection();
         }
-        SyncWorldStateFromSelection();
     }
 
     Controller_Update(&cam_ctrl);

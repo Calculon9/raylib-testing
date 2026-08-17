@@ -28,6 +28,18 @@ WORLD MODULE
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
+typedef enum WorldFlags
+{
+    WORLD_FLAG_NONE = 0,
+    WORLD_FLAG_ACTIVE = 1 << 0,
+    WORLD_FLAG_VISIBLE = 1 << 1,
+    WORLD_FLAG_SELECTABLE = 1 << 2,
+    WORLD_FLAG_PHYSICS_ENABLED = 1 << 3,
+    WORLD_FLAG_SPAWNS_ENABLED = 1 << 4,
+    WORLD_FLAG_LOCKED = 1 << 5,
+    WORLD_FLAG_DRAGGABLE = 1 << 6,
+} WorldFlags;
+
 typedef enum
 {
     CMD_CLEAR_OBJECT_FLAG,
@@ -53,10 +65,16 @@ typedef struct World2d
     FlatMapInt entity_world_index_registry;
     LArray scheduled_world_cmds;
     float gravity;
+    WorldFlags flags;
     WorldMode mode;
     struct Universe *universe; // Owner used for universe-wide entity ID allocation.
     Vector2d uni_coords_center; // Position of this world in the shared universe space (world-local units). Keeps local coords 0-based.
+    Matrix2x2 bounds; // Cached universe-space AABB; only meaningful when bounds_valid.
+    bool bounds_valid;
+    EntityId camera_marker_id; // Entity ID of this world's camera-position marker, if any.
 } World2d;
+
+void DrawNewtonoids(LArray *newtonoids, Matrix3x3 space_to_pixel_mtx);
 
 typedef struct
 {

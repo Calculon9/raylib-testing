@@ -384,9 +384,9 @@ bool Frame_ContainsPoint_Local(Vector2d local_point, const Frame2d *frame)
 
 //    Surface2d surface = CreateSurface_Rectangular(resolution_ixj, ZERO_VECTOR_2D);
 
-//    // Calc coords_center - this is required when creating new objects
-//    Vector2d coords_center = (Vector2d){origin.x + (resolution_ixj.x / 2.0), origin.y + (resolution_ixj.y / 2.0)};
-//    space_obj.object = CreateNewtonoid2d_Static(coords_center, surface);
+//    // Calc anchor_position - this is required when creating new objects
+//    Vector2d anchor_position = (Vector2d){origin.x + (resolution_ixj.x / 2.0), origin.y + (resolution_ixj.y / 2.0)};
+//    space_obj.object = CreateNewtonoid2d_Static(anchor_position, surface);
 //    return space_obj;
 // }
 

@@ -21,6 +21,8 @@ and all creation parameters for new worlds.
 // Macros and Defines
 //----------------------------------------------------------------------------------
 #define UNIVERSE_MAX_WORLDS 16
+// Sentinel world index identifying the universe's own root world (objects not owned by a nested world).
+#define UNIVERSE_ROOT_WORLD_INDEX (-2)
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
@@ -31,11 +33,8 @@ typedef struct Universe
     World2d worlds[UNIVERSE_MAX_WORLDS];
     int world_count;
     int selected_world_index;
+    World2d root_world; // Spans the whole universe; holds objects not owned by any nested world.
     EntityId next_entity_id; // IDs are allocated once for the whole universe, not once per world.
-    EntityId camera_marker_ids[UNIVERSE_MAX_WORLDS]; // Per-world camera-position marker entity IDs
-    Vector2d world_bounds_min[UNIVERSE_MAX_WORLDS];
-    Vector2d world_bounds_max[UNIVERSE_MAX_WORLDS];
-    bool world_bounds_valid[UNIVERSE_MAX_WORLDS];
 
     // Universe-space camera (operates in world-local units)
     CameraController camera_ctrl;
@@ -84,9 +83,6 @@ void Universe_Draw(Universe *u);
 bool Universe_ResolveClick(Universe *u,Vector2d universe_click, Vector2d *local_out);
 bool ConsumeUniverseWorldClick(void);
 
-// Register or update the universe-space bounds for a world.
-void Universe_SetWorldBounds(Universe *u, int index, Vector2d min_bound, Vector2d max_bound);
-
 // Find the world index at a universe-space point, or -1 if none.
 int Universe_FindWorldAt(const Universe *u, Vector2d universe_point);
 
@@ -107,6 +103,7 @@ Camera2d *Universe_GetCamera(Universe *u);
 int Universe_GetWorldCount(const Universe *u);
 int Universe_GetSelectedIndex(const Universe *u);
 World2d *Universe_GetSelectedWorld(Universe *u);
+// Resolves nested world indices (0..world_count-1) and UNIVERSE_ROOT_WORLD_INDEX.
 World2d *Universe_GetWorld(Universe *u, int index);
 
 #endif

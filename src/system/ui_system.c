@@ -41,6 +41,7 @@ const Size ui_standard_control_size = {{4.65, 0.50}, SIZE_FIXED};
 // Give labels more room in inline text fields (label width = 1.0 - textbox width).
 const Size ui_standard_textfield_input_size = {{0.62f, 1.0f}, SIZE_PERCENT};
 const Size ui_standard_button_size = {{3.22f, 0.5f}, SIZE_FIXED};
+const Size ui_wide_button_size = {{4.65f, 0.5f}, SIZE_FIXED};
 const Size ui_small_horizontal_button_size = {{1.91f, 0.5f}, SIZE_FIXED};
 const Size ui_fill_button_size = {{1.0f, 1.0f}, SIZE_FILL};
 const Size ui_standard_container_size = {{1, 0.5}, SIZE_PERCENT};
@@ -363,8 +364,8 @@ void UpdateGlobalUIState()
         void *state_bindings[] = {
             &obj->id,
             &obj->mass,
-            &obj->coords_origin,
-            &obj->coords_center,
+            &obj->bounds_origin,
+            &obj->anchor_position,
             &obj->velocity,
             &obj->acceleration,
             &obj->momentum,
@@ -375,8 +376,8 @@ void UpdateGlobalUIState()
         // so that editing of the text by the user doesn't keep getting overwritten with the value stored in the object
         WriteTextboxNumberIfUnfocused(G_UIState.state_id_tbox, (float)obj->id, 0);
         WriteTextboxNumberIfUnfocused(G_UIState.state_mass_tbox, obj->mass, 2);
-        WriteTextboxVectorIfUnfocused(G_UIState.state_pos_tl_tbox, obj->coords_origin);
-        WriteTextboxVectorIfUnfocused(G_UIState.state_pos_c_tbox, obj->coords_center);
+        WriteTextboxVectorIfUnfocused(G_UIState.state_pos_tl_tbox, obj->bounds_origin);
+        WriteTextboxVectorIfUnfocused(G_UIState.state_pos_c_tbox, obj->anchor_position);
         WriteTextboxVectorIfUnfocused(G_UIState.state_vel_tbox, obj->velocity);
         WriteTextboxVectorIfUnfocused(G_UIState.state_accel_tbox, obj->acceleration);
         WriteTextboxVectorIfUnfocused(G_UIState.state_moment_tbox, obj->momentum);
@@ -412,7 +413,7 @@ void UpdateGlobalUIState()
     // COLLECT & UPDATE EDITING ENTITY PROPERTIES
     // Determine if the Edit View is active.
     Newtonoid2dParams *params = G_UIState.newtonoid_params;
-    if (G_UIState.active_panel_view == LPANEL_EDIT_ENTITY_VIEW && params)
+    if (G_UIState.active_panel_view == LPANEL_DRAW_VIEW && params)
     {
         // Bind selected_object data to the Object Properties TextBoxes
         void *edit_bindings[] = {
@@ -420,7 +421,7 @@ void UpdateGlobalUIState()
             &params->width,
             &params->height,
             &params->mass,
-            &params->coords_center,
+            &params->anchor_position,
             &params->velocity,
             &params->acceleration,
             &params->momentum,
@@ -433,7 +434,7 @@ void UpdateGlobalUIState()
         WriteTextboxNumberIfUnfocused(G_UIState.edit_width_tbox, params->width, 2);
         WriteTextboxNumberIfUnfocused(G_UIState.edit_height_tbox, params->height, 2);
         WriteTextboxNumberIfUnfocused(G_UIState.edit_mass_tbox, params->mass, 2);
-        WriteTextboxVectorIfUnfocused(G_UIState.edit_pos_c_tbox, params->coords_center);
+        WriteTextboxVectorIfUnfocused(G_UIState.edit_pos_c_tbox, params->anchor_position);
         WriteTextboxVectorIfUnfocused(G_UIState.edit_vel_tbox, params->velocity);
         WriteTextboxVectorIfUnfocused(G_UIState.edit_accel_tbox, params->acceleration);
         WriteTextboxVectorIfUnfocused(G_UIState.edit_moment_tbox, params->momentum);

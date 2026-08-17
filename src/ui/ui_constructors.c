@@ -218,6 +218,48 @@ UIElement *CreateUIContainer(UIElement *parent, Size size, Offset offset,
     return cont;
 }
 
+UIElement *CreateViewSection_Stack(UIElement *parent, const char *title,
+                             Size section_size, const UIPalette *palette)
+{
+    // Build a reusable wrapped section for panel views.
+    UIElement *section = CreateUIContainer(
+        parent, section_size,
+        (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ui_standard_container_padding,
+        palette, UI_PALETTE_SURFACE_CONTAINER,
+        ui_standard_stack_spacing, true, true);
+    if (!section)
+    {
+        return NULL;
+    }
+
+    // Use the dark ink used by panel controls for ViewSection edges.
+    section->colour_border = palette ? palette->button_border : ui_default_palette.button_border;
+    CreateUILabelDefault(section, title, ui_standard_button_size,
+                         ui_standard_field_padding, palette);
+    return section;
+}
+
+UIElement *CreateViewSection_Wrap(UIElement *parent, const char *title,
+                             Size section_size, const UIPalette *palette)
+{
+    // Build a reusable wrapped section for panel views.
+    UIElement *section = CreateUIContainer(
+        parent, section_size,
+        (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ui_standard_container_padding,
+        palette, UI_PALETTE_SURFACE_CONTAINER,
+        ui_standard_wrap_spacing, true, true);
+    if (!section)
+    {
+        return NULL;
+    }
+
+    // Use the dark ink used by panel controls for ViewSection edges.
+    section->colour_border = palette ? palette->button_border : ui_default_palette.button_border;
+    CreateUILabelDefault(section, title, ui_standard_button_size,
+                         ui_standard_field_padding, palette);
+    return section;
+}
+
 void InitUIFields(UIElement *parent, const UIFieldSpec *specs, size_t count,
                   Vector2d row_padding, const UIPalette *palette)
 {

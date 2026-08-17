@@ -150,7 +150,7 @@ static void InitRPanelStateWorldContainer(void)
 
     const UIFieldSpec world_fields[] = {
         {"World", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, &rpanel_world_index_tbox, NULL},
-        {"Pos.tl", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, &rpanel_world_universe_pos_tbox, NULL},
+        {"World origin", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, &rpanel_world_universe_pos_tbox, NULL},
         {"Res", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, &rpanel_world_resolution_tbox, NULL},
         {"Objects", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, &rpanel_world_objects_tbox, NULL},
         {"Next id", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, &rpanel_world_next_id_tbox, NULL},

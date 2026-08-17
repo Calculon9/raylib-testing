@@ -12,6 +12,8 @@ UNIVERSE MODULE
 #include "common/common.h"
 #include "camera/camera.h"
 
+void DrawNewtonoids(LArray *newtonoids, Matrix3x3 space_to_pixel_mtx);
+
 Universe G_Universe = {0};
 extern ColourRgba camera_marker_colour;
 
@@ -51,6 +53,97 @@ static Basis2d ResolveFrameBasis_UserInput(Vector2d requested_u, Vector2d reques
     return result;
 }
 
+void BindWorldTunnel(World2d *world, Camera2d *camera)
+{
+    world->tunnel.source_frame = &world->grid_space.space.frame;
+    world->tunnel.destination_frame = &camera->frame;
+    world->tunnel.source_to_dest_mtx = MtxTransform_GetLocalToParent(*world->tunnel.source_frame);
+    world->tunnel.dest_to_source_mtx = MatrixInvert_3x3(world->tunnel.source_to_dest_mtx);
+}
+
+// Shared by Universe_Init/Universe_CreateWorld: bind temp tunnel pointers so CreateWorld can copy
+// GridSpace2d, then rebind the tunnel to the world's persistent storage once it's copied in.
+static bool CreateAndBindWorld(Universe *u, GridSpace2d space_g, float gravity,
+                               Frame2d *initial_destination_frame, World2d *out_world)
+{
+    out_world->tunnel.source_frame = &space_g.space.frame;
+    out_world->tunnel.destination_frame = initial_destination_frame;
+
+    if (!CreateWorld(space_g, gravity, u, out_world))
+    {
+        return false;
+    }
+
+    BindWorldTunnel(out_world, &u->camera);
+    return true;
+}
+
+static void PopulateStarterObjects(World2d *world, int requested_count)
+{
+    int object_count = requested_count;
+    if (object_count < 0)
+    {
+        object_count = 0;
+    }
+    const int max_placement_attempts = 1000;
+    for (int i = 0; i < object_count; i++)
+    {
+        int grid_width = world->grid_space.space.columns;
+        int grid_height = world->grid_space.space.rows;
+        if (grid_width <= 0 || grid_height <= 0)
+        {
+            break;
+        }
+
+        bool placed = false;
+        for (int attempt = 0; attempt < max_placement_attempts && !placed; attempt++)
+        {
+            float half_width = 0.2f;
+            float half_height = 0.2f;
+            Vector2d object_coords = {
+                GetRandomFloat(half_width, (float)grid_width - half_width),
+                GetRandomFloat(half_height, (float)grid_height - half_height)};
+
+            float angle = GetRandomFloat(0.0f, 2 * PI);
+            Vector2d velocity = {2.0f * cosf(angle), 2.0f * sinf(angle)};
+            Newtonoid2d object = CreateNewtonoid2d_Symmetric(
+                6, 0.2f, (ColourRgba){155, 0, 0, 255}, 1.0f,
+                object_coords, velocity, ZERO_VECTOR_2D);
+            object.entity_flags = FLAG_TYPE_NEWTONOID;
+            object.collision_mask = FLAG_TYPE_NEWTONOID | FLAG_TYPE_WALL;
+            object.status_flags = FLAG_STATUS_ALIVE;
+            object.line_colour = (ColourRgba){155, 0, 0, 255};
+            object.fill_colour = (ColourRgba){155, 0, 0, 255};
+
+            bool overlaps_existing = false;
+            Newtonoid2d *existing_objects = (Newtonoid2d *)world->objects.items;
+            for (size_t existing_index = 0; existing_index < world->objects.count; existing_index++)
+            {
+                Newtonoid2d *existing = &existing_objects[existing_index];
+                if ((existing->entity_flags & FLAG_TYPE_EFFECT) == 0 &&
+                    CheckForCollision_AABB(object, *existing))
+                {
+                    overlaps_existing = true;
+                    break;
+                }
+            }
+
+            if (!overlaps_existing)
+            {
+                AddObjectToWorld(world, &object, world->grid_space.object.id);
+                placed = true;
+            }
+        }
+
+        if (!placed)
+        {
+            LOG_WARN("Could not place starter object %d without AABB overlap after %d attempts.\n",
+                     i, max_placement_attempts);
+            break;
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_world_resolution, float default_gravity)
 {
@@ -60,10 +153,8 @@ void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_wor
 
     for (int i = 0; i < UNIVERSE_MAX_WORLDS; i++)
     {
-        u->camera_marker_ids[i] = INVALID_ENTITY_ID;
-        u->world_bounds_valid[i] = false;
-        u->world_bounds_min[i] = ZERO_VECTOR_2D;
-        u->world_bounds_max[i] = ZERO_VECTOR_2D;
+        u->worlds[i].camera_marker_id = INVALID_ENTITY_ID;
+        u->worlds[i].bounds_valid = false;
     }
 
     u->next_spawn = default_spawn;
@@ -76,6 +167,14 @@ void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_wor
     // Default step: 15 % of the coord-space extent so successive spaces are offset but visible.
     u->spawn_step.x = (default_new_world_resolution.x > 0.0f) ? default_new_world_resolution.x * 0.15f : 5.0f;
     u->spawn_step.y = (default_new_world_resolution.y > 0.0f) ? default_new_world_resolution.y * 0.15f : 5.0f;
+
+    // Root world's local space IS universe space: identity basis, origin at zero, sized to fit the whole universe.
+    Vector2d root_resolution = (u->resolution.x > 0.0f && u->resolution.y > 0.0f) ? u->resolution : (Vector2d){60.0f, 60.0f};
+    GridSpace2d root_space = NewGridSpace2d(ZERO_VECTOR_2D, root_resolution, IDENTITY_BASIS_2D, COLOURLESS_RGBA, COLOURLESS_RGBA);
+    root_space.object.id = INVALID_ENTITY_ID;
+    CreateAndBindWorld(u, root_space, 0.0f, &u->camera.frame, &u->root_world);
+    // Pure container: not drawn as a grid, not selectable/draggable, not physics-ticked.
+    u->root_world.flags = WORLD_FLAG_ACTIVE;
 }
 
 EntityId Universe_AllocateEntityId(Universe *u)
@@ -112,30 +211,20 @@ int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_co
 
     int new_index = u->world_count;
     World2d *new_world = &u->worlds[new_index];
-    // Temporary source pointer before CreateWorld copies GridSpace2d into world-owned storage.
-    new_world->tunnel.source_frame = &space_g.space.frame;
-    new_world->tunnel.destination_frame = u->camera.tunnel.source_frame;
-
-    if (!CreateWorld(space_g, u->next_gravity, u, new_world))
+    if (!CreateAndBindWorld(u, space_g, u->next_gravity, u->camera.tunnel.source_frame, new_world))
     {
         LOG_ERROR("Cannot create world: world initialization failed.\n");
         return -1;
     }
 
-    // Rebind tunnel frames to persistent storage owned by the world and universe camera.
-    new_world->tunnel.source_frame = &new_world->grid_space.space.frame;
-    new_world->tunnel.destination_frame = &u->camera.frame;
+    // Note: CreateWorld() already sets the standard active/visible/selectable/physics/spawns/draggable
+    // flag set internally, so no reassignment is needed here.
 
     // Sync the world's frame origin to its anchored logical position in the universe
     new_world->grid_space.space.frame.origin_in_parent = world_center_in_universe;
     new_world->uni_coords_center = world_center_in_universe;
 
-    // Keep world tunnel in stable world-local <-> universe space (camera zoom must not affect it).
-    new_world->tunnel.source_to_dest_mtx = MtxTransform_GetLocalToParent(*new_world->tunnel.source_frame);
-    new_world->tunnel.dest_to_source_mtx = MatrixInvert_3x3(new_world->tunnel.source_to_dest_mtx);
-
-    Matrix2x2 world_bounds = Frame_CalcAABB_InParent(&new_world->grid_space.space.frame);
-    Universe_SetWorldBounds(u, new_index, world_bounds.col1, world_bounds.col2);
+    World_RefreshBoundsFromFrame(new_world);
 
     // Advance the default spawn so the next world is offset by default.
     u->next_spawn = VectorSum_2d(u->next_spawn, u->spawn_step);
@@ -155,71 +244,10 @@ int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_co
     cam.status_flags = FLAG_STATUS_ALIVE;
     cam.line_colour = camera_marker_colour;
     cam.fill_colour = camera_marker_colour;
-    u->camera_marker_ids[new_index] = AddObjectToWorld(new_world, &cam, new_world->grid_space.object.id);
+    new_world->camera_marker_id = AddObjectToWorld(new_world, &cam, new_world->grid_space.object.id);
 
     // Populate the new world with randomly placed starter objects.
-    int object_count = u->next_object_count;
-    if (object_count < 0)
-    {
-        object_count = 0;
-    }
-    const int max_placement_attempts = 1000;
-    for (int i = 0; i < object_count; i++)
-    {
-        int grid_width = new_world->grid_space.space.columns;
-        int grid_height = new_world->grid_space.space.rows;
-        if (grid_width <= 0 || grid_height <= 0)
-        {
-            break;
-        }
-
-        bool placed = false;
-        for (int attempt = 0; attempt < max_placement_attempts && !placed; attempt++)
-        {
-            float half_width = 0.2f;
-            float half_height = 0.2f;
-            Vector2d object_coords = {
-                GetRandomFloat(half_width, (float)grid_width - half_width),
-                GetRandomFloat(half_height, (float)grid_height - half_height)};
-
-            float angle = GetRandomFloat(0.0f, 2 * PI);
-            Vector2d velocity = {2.0f * cosf(angle), 2.0f * sinf(angle)};
-            Newtonoid2d object = CreateNewtonoid2d_Symmetric(
-                6, 0.2f, (ColourRgba){155, 0, 0, 255}, 1.0f,
-                object_coords, velocity, ZERO_VECTOR_2D);
-            object.entity_flags = FLAG_TYPE_NEWTONOID;
-            object.collision_mask = FLAG_TYPE_NEWTONOID | FLAG_TYPE_WALL;
-            object.status_flags = FLAG_STATUS_ALIVE;
-            object.line_colour = (ColourRgba){155, 0, 0, 255};
-            object.fill_colour = (ColourRgba){155, 0, 0, 255};
-
-            bool overlaps_existing = false;
-            Newtonoid2d *existing_objects = (Newtonoid2d *)new_world->objects.items;
-            for (size_t existing_index = 0; existing_index < new_world->objects.count; existing_index++)
-            {
-                Newtonoid2d *existing = &existing_objects[existing_index];
-                if ((existing->entity_flags & FLAG_TYPE_EFFECT) == 0 &&
-                    CheckForCollision_AABB(object, *existing))
-                {
-                    overlaps_existing = true;
-                    break;
-                }
-            }
-
-            if (!overlaps_existing)
-            {
-                AddObjectToWorld(new_world, &object, new_world->grid_space.object.id);
-                placed = true;
-            }
-        }
-
-        if (!placed)
-        {
-            LOG_WARN("Could not place starter object %d without AABB overlap after %d attempts.\n",
-                     i, max_placement_attempts);
-            break;
-        }
-    }
+    PopulateStarterObjects(new_world, u->next_object_count);
 
     u->world_count++;
 
@@ -260,26 +288,31 @@ bool Universe_SetWorldBasis(Universe *u, int index, Vector2d basis_u, Vector2d b
     world->grid_space.space.frame.basis = (Basis2d){basis_u, basis_v};
     RebuildSpaceCells(&world->grid_space.space);
 
-    world->tunnel.source_frame = &world->grid_space.space.frame;
-    world->tunnel.destination_frame = &u->camera.frame;
-    world->tunnel.source_to_dest_mtx = MtxTransform_GetLocalToParent(*world->tunnel.source_frame);
-    world->tunnel.dest_to_source_mtx = MatrixInvert_3x3(world->tunnel.source_to_dest_mtx);
+    BindWorldTunnel(world, &u->camera);
 
-    Matrix2x2 world_bounds = Frame_CalcAABB_InParent(&world->grid_space.space.frame);
-    Universe_SetWorldBounds(u, index, world_bounds.col1, world_bounds.col2);
+    World_RefreshBoundsFromFrame(world);
     RefreshWorldSpatialMap(world);
     return true;
 }
 
 // ---------------------------------------------------------------------------
-void Universe_SetWorldBounds(Universe *u, int index, Vector2d min_bound, Vector2d max_bound)
+void World_SetBounds(World2d *world, Vector2d min_bound, Vector2d max_bound)
 {
-    if (u == NULL || index < 0 || index >= UNIVERSE_MAX_WORLDS)
+    if (!world)
         return;
 
-    u->world_bounds_min[index] = min_bound;
-    u->world_bounds_max[index] = max_bound;
-    u->world_bounds_valid[index] = true;
+    world->bounds = (Matrix2x2){min_bound, max_bound};
+    world->bounds_valid = true;
+}
+
+// Recomputes bounds from the world's current frame; shared by create/basis-edit/drag paths.
+void World_RefreshBoundsFromFrame(World2d *world)
+{
+    if (!world)
+        return;
+
+    Matrix2x2 world_bounds = Frame_CalcAABB_InParent(&world->grid_space.space.frame);
+    World_SetBounds(world, world_bounds.col1, world_bounds.col2);
 }
 
 // ---------------------------------------------------------------------------
@@ -290,11 +323,11 @@ int Universe_FindWorldAt(const Universe *u, Vector2d universe_point)
 
     for (int i = 0; i < u->world_count; i++)
     {
-        if (!u->world_bounds_valid[i])
+        if (!u->worlds[i].bounds_valid)
             continue;
 
-        Vector2d min_bound = u->world_bounds_min[i];
-        Vector2d max_bound = u->world_bounds_max[i];
+        Vector2d min_bound = u->worlds[i].bounds.col1;
+        Vector2d max_bound = u->worlds[i].bounds.col2;
         if (universe_point.x >= min_bound.x && universe_point.y >= min_bound.y &&
             universe_point.x < max_bound.x && universe_point.y < max_bound.y)
         {
@@ -305,6 +338,43 @@ int Universe_FindWorldAt(const Universe *u, Vector2d universe_point)
     return -1;
 }
 
+static int FindObjectInWorldArrays(const World2d *world, const Newtonoid2d *object)
+{
+    const LArray *object_arrays[] = {&world->objects, &world->temp_objects};
+    for (size_t array_index = 0; array_index < 2; array_index++)
+    {
+        const LArray *object_array = object_arrays[array_index];
+        const Newtonoid2d *objects = (const Newtonoid2d *)object_array->items;
+        for (size_t object_index = 0; object_index < object_array->count; object_index++)
+        {
+            if (&objects[object_index] == object)
+            {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+// Maps a 0..world_count logical index to a world, with world_count itself meaning root.
+static World2d *Universe_GetWorldByLogicalIndex(const Universe *u, int logical_index, int *world_index_out)
+{
+    if (logical_index < u->world_count)
+    {
+        if (world_index_out)
+        {
+            *world_index_out = logical_index;
+        }
+        return (World2d *)&u->worlds[logical_index];
+    }
+
+    if (world_index_out)
+    {
+        *world_index_out = UNIVERSE_ROOT_WORLD_INDEX;
+    }
+    return (World2d *)&u->root_world;
+}
+
 int Universe_FindWorldContainingObject(const Universe *u, const Newtonoid2d *object)
 {
     if (!u || !object)
@@ -312,21 +382,13 @@ int Universe_FindWorldContainingObject(const Universe *u, const Newtonoid2d *obj
         return -1;
     }
 
-    for (int world_index = 0; world_index < u->world_count; world_index++)
+    for (int i = 0; i <= u->world_count; i++)
     {
-        const World2d *world = &u->worlds[world_index];
-        const LArray *object_arrays[] = {&world->objects, &world->temp_objects};
-        for (size_t array_index = 0; array_index < 2; array_index++)
+        int world_index;
+        World2d *world = Universe_GetWorldByLogicalIndex(u, i, &world_index);
+        if (FindObjectInWorldArrays(world, object))
         {
-            const LArray *object_array = object_arrays[array_index];
-            const Newtonoid2d *objects = (const Newtonoid2d *)object_array->items;
-            for (size_t object_index = 0; object_index < object_array->count; object_index++)
-            {
-                if (&objects[object_index] == object)
-                {
-                    return world_index;
-                }
-            }
+            return world_index;
         }
     }
 
@@ -340,9 +402,10 @@ Newtonoid2d *Universe_GetEntityByID(const Universe *u, EntityId entity_id, int *
         return NULL;
     }
 
-    for (int world_index = 0; world_index < u->world_count; world_index++)
+    for (int i = 0; i <= u->world_count; i++)
     {
-        World2d *world = (World2d *)&u->worlds[world_index];
+        int world_index;
+        World2d *world = Universe_GetWorldByLogicalIndex(u, i, &world_index);
         Newtonoid2d *entity = (Newtonoid2d *)GetEntityByID(world, entity_id);
         if (entity)
         {
@@ -360,6 +423,13 @@ Newtonoid2d *Universe_GetEntityByID(const Universe *u, EntityId entity_id, int *
 // ---------------------------------------------------------------------------
 void Universe_Draw(Universe *u)
 {
+    // Root world's local space is universe space, so the universe->pixel matrix applies directly.
+    Matrix3x3 universe_to_pixel_mtx = MatrixMultiply_3x3_3x3(
+        game_viewport.tunnel.source_to_dest_mtx,
+        u->camera.tunnel.source_to_dest_mtx);
+    DrawNewtonoids(&u->root_world.objects, universe_to_pixel_mtx);
+    DrawNewtonoids(&u->root_world.temp_objects, universe_to_pixel_mtx);
+
     for (int i = 0; i < u->world_count; i++)
     {
         World2d *w = &u->worlds[i];
@@ -420,6 +490,10 @@ World2d *Universe_GetSelectedWorld(Universe *u)
 
 World2d *Universe_GetWorld(Universe *u, int index)
 {
+    if (!u)
+        return NULL;
+    if (index == UNIVERSE_ROOT_WORLD_INDEX)
+        return &u->root_world;
     if (index < 0 || index >= u->world_count)
         return NULL;
     return &u->worlds[index];
