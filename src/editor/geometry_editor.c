@@ -18,12 +18,12 @@ typedef struct
 
 static VertexHandleTarget vertex_handle_target = {0};
 
-static bool GeometryEditor_IsEnabled(const World2d *world)
+static bool GeometryEditor_IsEnabled(const World2d *world, const Newtonoid2d *selected_object)
 {
-    Newtonoid2d *selected_object = UIState_GetSelectedObject();
+    // selected_object is already existence-validated by UIState_GetSelectedObject, so a
+    // NULL check here is equivalent to (and far cheaper than) an universe-wide entity scan.
     return world && world->mode == PAUSED &&
-           Universe_FindWorldContainingObject(&G_Universe,
-                                              selected_object) >= 0 &&
+           selected_object != NULL &&
            G_UIState.active_panel_view == LPANEL_DRAW_VIEW;
 }
 
@@ -61,10 +61,9 @@ static void RefreshObjectGeometry(World2d *world, Newtonoid2d *object,
                         &world->entity_space_map);
 }
 
-static bool GeometryEditor_TryBeginDrag(World2d *world, Vector2d pixel_coords)
+static bool GeometryEditor_TryBeginDrag(World2d *world, Vector2d pixel_coords, Newtonoid2d *object)
 {
-    Newtonoid2d *object = UIState_GetSelectedObject();
-    if (!GeometryEditor_IsEnabled(world) || !object ||
+    if (!GeometryEditor_IsEnabled(world, object) || !object ||
         object->surface.surface_vectors.count == 0)
     {
         LOG_INFO("Geometry editor hit-test skipped: world=%p object=%p mode=%d view=%d\n",
@@ -100,10 +99,10 @@ static bool GeometryEditor_TryBeginDrag(World2d *world, Vector2d pixel_coords)
     return false;
 }
 
-static bool GeometryEditor_UpdateDrag(World2d *world, Vector2d pixel_coords)
+static bool GeometryEditor_UpdateDrag(World2d *world, Vector2d pixel_coords, Newtonoid2d *selected_object)
 {
     DragInteractionState *drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
-    if (!GeometryEditor_IsEnabled(world))
+    if (!GeometryEditor_IsEnabled(world, selected_object))
     {
         DragInteraction_ClearCapture(drag_ctx);
         return false;
@@ -117,7 +116,7 @@ static bool GeometryEditor_UpdateDrag(World2d *world, Vector2d pixel_coords)
     }
 
     Newtonoid2d *object = vertex_handle_target.object;
-    if (!object || object != UIState_GetSelectedObject() ||
+    if (!object || object != selected_object ||
         vertex_handle_target.vertex_index < 0 ||
         (size_t)vertex_handle_target.vertex_index >= object->surface.surface_vectors.count)
     {
@@ -165,6 +164,8 @@ InputRouteResult UpdateGeometryEditor(World2d *world, const InputFrame *input)
         return INPUT_ROUTE_IGNORED;
     }
 
+    // Resolve the selection once per frame; every helper below reuses this instead of re-querying.
+    Newtonoid2d *selected_object = UIState_GetSelectedObject();
     DragInteractionState *drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
     Vector2d pixel_coords = input->pointer_position;
     bool log_input = (frame_counter.total_frames % 300u) == 0;
@@ -172,7 +173,7 @@ InputRouteResult UpdateGeometryEditor(World2d *world, const InputFrame *input)
     {
         LOG_INFO("Editor input begin: down=%d enabled=%d kind=%d target=%p capture=%d hold=%d mouse=(%.1f,%.1f)\n",
                  input->left_down,
-                 GeometryEditor_IsEnabled(world),
+                 GeometryEditor_IsEnabled(world, selected_object),
                  drag_ctx->target_kind,
                  drag_ctx->target,
                  drag_ctx->has_capture,
@@ -181,7 +182,7 @@ InputRouteResult UpdateGeometryEditor(World2d *world, const InputFrame *input)
                  pixel_coords.y);
     }
 
-    if (!GeometryEditor_IsEnabled(world))
+    if (!GeometryEditor_IsEnabled(world, selected_object))
     {
         if (drag_ctx->has_capture && drag_ctx->target_kind == DRAG_TARGET_VERTEX_HANDLE)
         {
@@ -201,7 +202,7 @@ InputRouteResult UpdateGeometryEditor(World2d *world, const InputFrame *input)
 
     if (drag_ctx->has_capture && drag_ctx->target_kind == DRAG_TARGET_VERTEX_HANDLE)
     {
-        if (!input->left_released && !GeometryEditor_UpdateDrag(world, pixel_coords))
+        if (!input->left_released && !GeometryEditor_UpdateDrag(world, pixel_coords, selected_object))
         {
             return INPUT_ROUTE_HANDLED;
         }
@@ -219,7 +220,7 @@ InputRouteResult UpdateGeometryEditor(World2d *world, const InputFrame *input)
     if (input->left_pressed || (input->left_down && !drag_ctx->has_capture &&
                                 drag_ctx->pointer_state.left_button_hold_ticks == 1))
     {
-        bool captured = GeometryEditor_TryBeginDrag(world, pixel_coords);
+        bool captured = GeometryEditor_TryBeginDrag(world, pixel_coords, selected_object);
         if (log_input)
         {
             LOG_INFO("Editor input end: consumed=%d reason=PRESS kind=%d target=%p capture=%d hold=%d\n",
@@ -246,7 +247,7 @@ InputRouteResult UpdateGeometryEditor(World2d *world, const InputFrame *input)
 void GeometryEditor_DrawHandles(const World2d *world, Camera2d *universe_camera)
 {
     Newtonoid2d *object = UIState_GetSelectedObject();
-    if (!GeometryEditor_IsEnabled(world) || object == NULL ||
+    if (!GeometryEditor_IsEnabled(world, object) || object == NULL ||
         object->surface.surface_vectors.count == 0)
     {
         return;

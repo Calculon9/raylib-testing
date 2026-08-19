@@ -134,7 +134,7 @@ static void InitRViewSelector(void)
     const char *labels[] = {"STATE", "CREATE"};
     rpanel_view_selector = PanelSystem_CreateViewSelector(
         rpanel, rpanel_toggle_cont, ui_standard_selector_button_size,
-        labels, sizeof(labels) / sizeof(labels[0]), PanelSystem_HandleViewSelected);
+        labels, ARRAY_COUNT(labels), PanelSystem_HandleViewSelected);
 }
 
 static void InitRPanelStateWorldContainer(void)
@@ -158,7 +158,7 @@ static void InitRPanelStateWorldContainer(void)
         {"Basis u", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &rpanel_world_basis_u_tbox, NULL},
         {"Basis v", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &rpanel_world_basis_v_tbox, NULL},
     };
-    InitUIFields(world_cont, world_fields, sizeof(world_fields) / sizeof(world_fields[0]), ui_standard_field_padding,
+    InitUIFields(world_cont, world_fields, ARRAY_COUNT(world_fields), ui_standard_field_padding,
                  rpanel->palette);
 
     if (rpanel_world_gravity_edit_tbox)
@@ -208,7 +208,7 @@ static void InitRPanelCreateWorldContainer(void)
         {"Basis v", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &rpanel_create_basis_v_tbox, NULL},
     };
     InitUIFields(create_world_cont, create_fields,
-                 sizeof(create_fields) / sizeof(create_fields[0]), ui_standard_field_padding,
+                 ARRAY_COUNT(create_fields), ui_standard_field_padding,
                  rpanel->palette);
 
     Vector2d *spawn_origin = GetNextWorldSpawnOriginPtr();
@@ -335,7 +335,7 @@ void DrawRPanel(void)
         {rpanel_create_gravity_tbox, GetNextWorldGravityPtr(), FLOAT},
         {rpanel_create_objects_tbox, GetNextWorldObjectCountPtr(), INT},
     };
-    for (size_t i = 0; i < sizeof(create_fields) / sizeof(create_fields[0]); i++)
+    for (size_t i = 0; i < ARRAY_COUNT(create_fields); i++)
     {
         RefreshRPanelField(&create_fields[i]);
     }

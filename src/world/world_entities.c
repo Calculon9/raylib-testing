@@ -195,9 +195,7 @@ EntityId MoveObjectBetweenWorlds(World2d *source_world, World2d *destination_wor
     }
 
     Vector2d local_coords = destination_coords;
-    if (local_coords.x < 0 || local_coords.y < 0 ||
-        local_coords.x >= destination_world->grid_space.space.columns ||
-        local_coords.y >= destination_world->grid_space.space.rows)
+    if (GetIndexFromCoords(&destination_world->grid_space.space, local_coords) < 0)
     {
         LOG_WARN("Cannot move entity %d: position (%0.2f,%0.2f) is outside the destination world.\n",
                  object_id, local_coords.x, local_coords.y);

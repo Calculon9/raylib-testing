@@ -162,7 +162,7 @@ static bool ResolveRequestedTransition(GameScreen screen, int finish_code, GameS
         return false;
     }
 
-    for (size_t i = 0; i < sizeof(screen_finish_transition_rules) / sizeof(screen_finish_transition_rules[0]); i++)
+    for (size_t i = 0; i < ARRAY_COUNT(screen_finish_transition_rules); i++)
     {
         const ScreenFinishTransitionRule rule = screen_finish_transition_rules[i];
         bool matched = false;

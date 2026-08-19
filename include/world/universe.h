@@ -86,9 +86,6 @@ bool ConsumeUniverseWorldClick(void);
 // Find the world index at a universe-space point, or -1 if none.
 int Universe_FindWorldAt(const Universe *u, Vector2d universe_point);
 
-// Find the world that owns an entity pointer, or -1 if it is not registered.
-int Universe_FindWorldContainingObject(const Universe *u, const Newtonoid2d *object);
-
 // Find an entity by universal ID and optionally return its owning world index.
 Newtonoid2d *Universe_GetEntityByID(const Universe *u, EntityId entity_id, int *world_index_out);
 EntityId Universe_AllocateEntityId(Universe *u);

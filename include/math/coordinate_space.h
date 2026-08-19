@@ -87,6 +87,7 @@ typedef struct Space2d {
     int columns;
     DArray cells;               // The grid data buffer (linear form)
     float unitArea;
+    Vector2d grid_origin;       // Local coord that maps to cell (0,0); lets a frame be centered on a finite grid.
 } Space2d;
 
 // THE VISUAL MANAGER LAYER

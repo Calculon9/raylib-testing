@@ -179,9 +179,8 @@ static StackedLayoutStats CollectStackedLayoutStats(const UIElement *parent, flo
     return stats;
 }
 
-static float ResolveStackedFillHeightPerChild(const UIElement *parent, float content_area_h, float spacing_y)
+static float ResolveStackedFillHeightPerChild(StackedLayoutStats stats, float content_area_h, float spacing_y)
 {
-    StackedLayoutStats stats = CollectStackedLayoutStats(parent, content_area_h);
     if (stats.child_count <= 0 || stats.fill_count <= 0)
     {
         return 0.0f;
@@ -212,7 +211,7 @@ static void DistributeChildrenStacked(UIElement *parent, Vector2d content_area_l
     if (stats.child_count == 0)
         return;
 
-    float fill_height_per_child = ResolveStackedFillHeightPerChild(parent, content_area_local.y, spacing_step_fixed.y);
+    float fill_height_per_child = ResolveStackedFillHeightPerChild(stats, content_area_local.y, spacing_step_fixed.y);
 
     // PASS 2: Position elements using a single unified cursor
     float cursor_y = 0.0f;
@@ -242,7 +241,11 @@ static void DistributeChildrenStacked(UIElement *parent, Vector2d content_area_l
         // Determine height consumed by this child
         float child_h = 0.0f;
         if (child->size.size_mode == SIZE_FILL)
+        {
             child_h = fill_height_per_child;
+            // Cache here so this child's own ResolveElementBox call doesn't rescan every sibling.
+            child->cached_stacked_fill_height = fill_height_per_child;
+        }
         else if (child->size.size_mode == SIZE_PERCENT)
             child_h = content_area_local.y * child->size.dimensions.y;
         else if (child->size.size_mode == SIZE_CONTENT_FILL)
@@ -437,6 +440,7 @@ UIElement *CreateUIElement(UIElementType type, Size size, Offset parent_offset, 
     e->text_vertical_alignment = UI_TEXT_VERTICAL_ALIGN_CENTRE;
     e->padding = padding;
     e->measured_content_size = ZERO_VECTOR_2D;
+    e->cached_stacked_fill_height = 0.0f;
     e->resolved_offset = parent_offset;
     e->authored_offset = parent_offset;
     e->type = type;
@@ -855,11 +859,9 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box)
 
         if (element->parent && element->parent->child_spacing.spacing_type == SPACING_STACKED)
         {
-            Vector2d spacing_step = ResolveSpacingStep(
-                element->parent->child_spacing,
-                (Vector2d){content_area_w, content_area_h}, OFFSET_FIXED);
-
-            float fill_height_per_child = ResolveStackedFillHeightPerChild(element->parent, content_area_h, spacing_step.y);
+            // The parent's own distribution pass already computed this for every FILL
+            // child in one scan; reuse it instead of rescanning all siblings here.
+            float fill_height_per_child = element->cached_stacked_fill_height;
             if (fill_height_per_child > 0.0f)
             {
                 box.dimensions.y = fill_height_per_child;

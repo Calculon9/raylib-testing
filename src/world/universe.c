@@ -168,9 +168,12 @@ void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_wor
     u->spawn_step.x = (default_new_world_resolution.x > 0.0f) ? default_new_world_resolution.x * 0.15f : 5.0f;
     u->spawn_step.y = (default_new_world_resolution.y > 0.0f) ? default_new_world_resolution.y * 0.15f : 5.0f;
 
-    // Root world's local space IS universe space: identity basis, origin at zero, sized to fit the whole universe.
+    // Root world's local space IS universe space: identity basis, frame origin at zero.
+    // Its grid is centered on that origin so the camera-centered view (positive and negative coords) is indexable.
     Vector2d root_resolution = (u->resolution.x > 0.0f && u->resolution.y > 0.0f) ? u->resolution : (Vector2d){60.0f, 60.0f};
     GridSpace2d root_space = NewGridSpace2d(ZERO_VECTOR_2D, root_resolution, IDENTITY_BASIS_2D, COLOURLESS_RGBA, COLOURLESS_RGBA);
+    root_space.space.grid_origin = VectorScale_2d(root_resolution, -0.5f);
+    RebuildSpaceCells(&root_space.space);
     root_space.object.id = INVALID_ENTITY_ID;
     CreateAndBindWorld(u, root_space, 0.0f, &u->camera.frame, &u->root_world);
     // Pure container: not drawn as a grid, not selectable/draggable, not physics-ticked.
@@ -338,24 +341,6 @@ int Universe_FindWorldAt(const Universe *u, Vector2d universe_point)
     return -1;
 }
 
-static int FindObjectInWorldArrays(const World2d *world, const Newtonoid2d *object)
-{
-    const LArray *object_arrays[] = {&world->objects, &world->temp_objects};
-    for (size_t array_index = 0; array_index < 2; array_index++)
-    {
-        const LArray *object_array = object_arrays[array_index];
-        const Newtonoid2d *objects = (const Newtonoid2d *)object_array->items;
-        for (size_t object_index = 0; object_index < object_array->count; object_index++)
-        {
-            if (&objects[object_index] == object)
-            {
-                return 1;
-            }
-        }
-    }
-    return 0;
-}
-
 // Maps a 0..world_count logical index to a world, with world_count itself meaning root.
 static World2d *Universe_GetWorldByLogicalIndex(const Universe *u, int logical_index, int *world_index_out)
 {
@@ -373,26 +358,6 @@ static World2d *Universe_GetWorldByLogicalIndex(const Universe *u, int logical_i
         *world_index_out = UNIVERSE_ROOT_WORLD_INDEX;
     }
     return (World2d *)&u->root_world;
-}
-
-int Universe_FindWorldContainingObject(const Universe *u, const Newtonoid2d *object)
-{
-    if (!u || !object)
-    {
-        return -1;
-    }
-
-    for (int i = 0; i <= u->world_count; i++)
-    {
-        int world_index;
-        World2d *world = Universe_GetWorldByLogicalIndex(u, i, &world_index);
-        if (FindObjectInWorldArrays(world, object))
-        {
-            return world_index;
-        }
-    }
-
-    return -1;
 }
 
 Newtonoid2d *Universe_GetEntityByID(const Universe *u, EntityId entity_id, int *world_index_out)

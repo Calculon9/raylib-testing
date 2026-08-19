@@ -282,7 +282,7 @@ static void InitPopupViewSelector(void)
     const char *labels[] = {"CREATE", "RECENT"};
     popup_view_selector = PanelSystem_CreateHoverViewSelector(
         popup_menu, popup_view_selector_cont, popup_view_selector_button_size,
-        labels, sizeof(labels) / sizeof(labels[0]), NULL);
+        labels, ARRAY_COUNT(labels), NULL);
 }
 
 void InitPopupMenu(void)

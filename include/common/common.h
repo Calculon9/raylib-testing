@@ -64,6 +64,9 @@ COMMON MODULE
 //#define NEW_CIRCLOID() AllocateBytes(sizeof(Circloid))
 //#define NEW_CIRCLOID() allocate_block(sizeof(Circloid))
 
+// Element count of a fixed-size array (unsafe on decayed pointers).
+#define ARRAY_COUNT(arr) (sizeof(arr) / sizeof((arr)[0]))
+
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------

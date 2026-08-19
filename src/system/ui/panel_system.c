@@ -103,6 +103,13 @@ bool PanelSystem_AddView(PanelSystem *panel, View *view, UIElement *container, V
     return LArray_Push(&panel->views, &view);
 }
 
+View *PanelSystem_CreateView(PanelSystem *panel, UIElement *container, ViewType type)
+{
+    View *view = AllocateBytes(sizeof(View));
+    PanelSystem_AddView(panel, view, container, type);
+    return view;
+}
+
 static void UpdatePanelViewSelectorButtons(ViewSelector *selector)
 {
     for (size_t i = 0; i < selector->count; i++)

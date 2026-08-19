@@ -79,6 +79,7 @@ Space2d NewSpace2d(Vector2d origin_in_parent, Vector2d local_resolution, Basis2d
    //space.frame.local_max = VectorSum_2d(origin_in_parent, grid_size);
    space.columns = columns;
    space.rows = rows;
+   space.grid_origin = ZERO_VECTOR_2D;
    space.unitArea = fabsf((basis.u.x * basis.v.y) - (basis.u.y * basis.v.x)); // Calculate the 'Area' of a single basis tile; this is the determinant of the basis matrix, which gives us the area of the parallelogram formed by the basis vectors, which is the area of each cell in the coordinate space. We can then divide the total area of the field by this cell area to get the total number of cells needed to fill the field.
 
    // If cellArea is 0, the basis is invalid (it's a line, not a space)
@@ -128,8 +129,8 @@ void InitUnitCells(Space2d *space)
    size_t cells_capacity = cells->capacity;
    MemorySet(cells->items, 0, cells->elem_bytes * cells_capacity);
 
-   // Cell coordinates are stored in this space's local frame; parent placement is applied by transforms.
-   Vector2d local_origin = ZERO_VECTOR_2D;
+   // Cell coordinates are stored in this space's local frame, offset by the grid origin.
+   Vector2d local_origin = space->grid_origin;
    int columns = space->columns;
    int rows = space->rows;
 
@@ -178,8 +179,8 @@ void RebuildSpaceCells(Space2d *space)
 
 int GetIndexFromCoords(Space2d *space, Vector2d local_coords)
 {
-   int i = (int)floorf(local_coords.y);
-   int j = (int)floorf(local_coords.x);
+   int i = (int)floorf(local_coords.y - space->grid_origin.y);
+   int j = (int)floorf(local_coords.x - space->grid_origin.x);
    int columns = space->columns;
    int rows = space->rows;
 

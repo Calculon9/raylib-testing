@@ -777,7 +777,7 @@ UIElement *ResolveUIRootTarget(Vector2d mouse_coords)
         GetRPanelRoot(),
         GetLPanelRoot()};
 
-    for (int i = 0; i < (int)(sizeof(roots) / sizeof(roots[0])); i++)
+    for (int i = 0; i < (int)ARRAY_COUNT(roots); i++)
     {
         if (!roots[i])
         {

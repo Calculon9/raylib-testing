@@ -86,6 +86,9 @@ void PanelSystem_InitViews(PanelSystem *panel, size_t view_count);
 // Register an existing view storage object with its container and type.
 bool PanelSystem_AddView(PanelSystem *panel, View *view, UIElement *container, ViewType type);
 
+// Allocate a View, register it with the panel/container/type, and return it in one call.
+View *PanelSystem_CreateView(PanelSystem *panel, UIElement *container, ViewType type);
+
 // Create a view switcher for the panel's registered views.
 ViewSwitcher *PanelSystem_CreateViewSwitcher(PanelSystem *panel);
 

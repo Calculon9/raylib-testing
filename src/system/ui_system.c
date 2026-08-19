@@ -17,6 +17,7 @@
 #include "system/ui/utility_panel_system.h"
 #include "system/ui/popup_menu.h"
 #include "world/world.h"
+#include "world/world_internal.h"
 #include "world/universe.h"
 #include "input/drag_interaction.h"
 #include "system/systems.h"
@@ -234,12 +235,12 @@ void UIState_SetSelectedObjectById(EntityId entity_id)
     // Resolve by stable ID at write time to avoid leaking cross-module pointer lookup details.
     if (entity_id == INVALID_ENTITY_ID)
     {
-        UIState_SetSelection(NULL, G_UIState.selected_cell, G_UIState.selected_cell_index);
+        UIState_SetSelectedObject(NULL);
         return;
     }
 
     Newtonoid2d *selected_object = Universe_GetEntityByID(&G_Universe, entity_id, NULL);
-    UIState_SetSelection(selected_object, G_UIState.selected_cell, G_UIState.selected_cell_index);
+    UIState_SetSelectedObject(selected_object);
 }
 
 void UIState_SetSelection(Newtonoid2d *object, Cell *cell, int cell_index)
@@ -277,7 +278,7 @@ void UIState_SetSelectionChangedCallback(UIStateSelectionChangedCallback callbac
 
 void UIState_ClearSelectedObject(void)
 {
-    UIState_SetSelection(NULL, G_UIState.selected_cell, G_UIState.selected_cell_index);
+    UIState_SetSelectedObject(NULL);
 }
 
 void UIState_ValidateSelection(void)
@@ -287,7 +288,7 @@ void UIState_ValidateSelection(void)
     {
         if (G_UIState.selected_object)
         {
-            UIState_SetSelection(NULL, G_UIState.selected_cell, G_UIState.selected_cell_index);
+            UIState_SetSelectedObject(NULL);
         }
         return;
     }
@@ -295,13 +296,13 @@ void UIState_ValidateSelection(void)
     Newtonoid2d *selected_object = Universe_GetEntityByID(&G_Universe, G_UIState.selected_object_id, NULL);
     if (!selected_object)
     {
-        UIState_SetSelection(NULL, G_UIState.selected_cell, G_UIState.selected_cell_index);
+        UIState_SetSelectedObject(NULL);
         return;
     }
 
     if (selected_object != G_UIState.selected_object)
     {
-        UIState_SetSelection(selected_object, G_UIState.selected_cell, G_UIState.selected_cell_index);
+        UIState_SetSelectedObject(selected_object);
     }
 }
 
@@ -325,7 +326,7 @@ void UIState_SetSelectedCell(Cell *cell, int cell_index)
 
 void UIState_ClearSelectedCell(void)
 {
-    UIState_SetSelection(G_UIState.selected_object, NULL, -1);
+    UIState_SetSelectedCell(NULL, -1);
 }
 
 Cell *UIState_GetSelectedCell(void)
@@ -379,8 +380,8 @@ InputRouteResult UpdateUISystem(const InputFrame *input)
         }
         else
         {
-            Vector2d popup_position = TransformCoordinates(
-                game_viewport.tunnel.dest_to_source_mtx,
+            Vector2d popup_position = ResolvePixelToWorldFrame(
+                &G_Universe.root_world,
                 (Vector2d){(float)mouse_x, (float)mouse_y});
             ShowPopupMenu(popup_position);
         }
@@ -448,8 +449,8 @@ void UpdateGlobalUIState()
         G_UIState.edit_accel_tbox,
         G_UIState.edit_moment_tbox,
     };
-    size_t state_box_count = sizeof(state_boxes) / sizeof(state_boxes[0]);
-    size_t edit_box_count = sizeof(edit_boxes) / sizeof(edit_boxes[0]);
+    size_t state_box_count = ARRAY_COUNT(state_boxes);
+    size_t edit_box_count = ARRAY_COUNT(edit_boxes);
 
     // UPDATE STATISTICS
     float fps = frame_counter.fps;

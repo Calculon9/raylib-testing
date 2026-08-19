@@ -70,7 +70,9 @@ EntityId AddObjectToWorld(World2d *world, Newtonoid2d *object, EntityId parent_i
 {
     // Object placement is center-based; grid occupancy still snaps that center into a cell index.
     Vector2d local_coords = object->anchor_position;
-    if (local_coords.x < 0 || local_coords.y < 0 || local_coords.x >= world->grid_space.space.columns || local_coords.y >= world->grid_space.space.rows)
+    Space2d *space = &world->grid_space.space;
+    int grid_cell_index = GetIndexFromCoords(space, local_coords);
+    if (grid_cell_index < 0)
     {
         LOG_WARN("Desired spawn point (%0.2f,%0.2f) out of bounds. Cannot add entity to the world.\n", local_coords.x, local_coords.y);
         return INVALID_ENTITY_ID; // Click is outside the structural world viewport boundaries! Avoid resolving cell.
@@ -80,7 +82,7 @@ EntityId AddObjectToWorld(World2d *world, Newtonoid2d *object, EntityId parent_i
     int cell_index = -1;
     if (!(object->entity_flags & FLAG_TYPE_EFFECT))
     {
-        cell_index = ((int)local_coords.y * world->grid_space.space.columns) + (int)local_coords.x;
+        cell_index = grid_cell_index;
         // Add the object's ID to the cell's object_ids array if there is space, and update the object's footprint based on its surface and the coordinate space's basis vectors.
         // We also need to update the occupancy of the cell and ensure that we don't exceed the maximum
         Cell *cells = world->grid_space.space.cells.items;
@@ -450,7 +452,7 @@ static void AppendLogLine(char *buffer, size_t buffer_size, int *offset,
     }
 }
 
-static Vector2d ResolvePixelToWorldFrame(const World2d *active_world, Vector2d pixel_coords)
+Vector2d ResolvePixelToWorldFrame(const World2d *active_world, Vector2d pixel_coords)
 {
     if (!active_world)
     {
@@ -481,12 +483,12 @@ static bool TryGetClickedSpaceCell(Space2d *space, Vector2d click_local_coords, 
         return false;
     }
 
-    if (click_local_coords.x < 0 || click_local_coords.y < 0 || click_local_coords.x >= space->columns || click_local_coords.y >= space->rows)
+    int cell_index = GetIndexFromCoords(space, click_local_coords);
+    if (cell_index < 0)
     {
         return false;
     }
 
-    int cell_index = ((int)click_local_coords.y * space->columns) + (int)click_local_coords.x;
     Cell *cells = space->cells.items;
     if (!cells)
     {
@@ -719,7 +721,12 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
                      DragInteraction_IsDragActive(game_drag_ctx, INPUT_DRAG_THRESHOLD_PIXELS))
             {
                 Newtonoid2d *dragged = (Newtonoid2d *)game_drag_ctx->target;
-                int source_world_index = Universe_FindWorldContainingObject(&G_Universe, dragged);
+                // Look up by stable ID (O(worlds)) instead of scanning every entity by pointer.
+                int source_world_index = -1;
+                if (dragged)
+                {
+                    Universe_GetEntityByID(&G_Universe, dragged->id, &source_world_index);
+                }
                 World2d *source_world = Universe_GetWorld(&G_Universe, source_world_index);
 
                 Vector2d viewport_coords = TransformCoordinates(game_viewport.tunnel.dest_to_source_mtx, game_drag_ctx->pointer_state.current_pos);
@@ -746,10 +753,11 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
                         Vector2d current_world_coords = ResolvePixelToWorldFrame(source_world, game_drag_ctx->pointer_state.current_pos);
                         Vector2d drag_delta_world = VectorSum_2d(current_world_coords, (Vector2d){-initial_world_coords.x, -initial_world_coords.y});
                         Vector2d new_center = VectorSum_2d(game_drag_ctx->target_anchor, drag_delta_world);
-                        float max_x = fmaxf(0.0f, (float)source_world->grid_space.space.columns - 0.001f);
-                        float max_y = fmaxf(0.0f, (float)source_world->grid_space.space.rows - 0.001f);
-                        new_center.x = fmaxf(0.0f, fminf(new_center.x, max_x));
-                        new_center.y = fmaxf(0.0f, fminf(new_center.y, max_y));
+                        Space2d *space = &source_world->grid_space.space;
+                        Vector2d min_bound = space->grid_origin;
+                        Vector2d max_bound = {min_bound.x + (float)space->columns - 0.001f, min_bound.y + (float)space->rows - 0.001f};
+                        new_center.x = fmaxf(min_bound.x, fminf(new_center.x, max_bound.x));
+                        new_center.y = fmaxf(min_bound.y, fminf(new_center.y, max_bound.y));
                         dragged->anchor_position = new_center;
                         dragged->bounds_origin = (Vector2d){
                             new_center.x - (dragged->bounds_size.x * 0.5f),

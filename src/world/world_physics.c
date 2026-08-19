@@ -387,8 +387,7 @@ void MapEntityToASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 snapped_aa
             Vector2d cell_coords = (Vector2d){snapped_t_left.x + x, snapped_t_left.y + y};
             int cell_i = GetIndexFromCoords(space, cell_coords);
             Cell *cell = GetCellFromCoords(space, cell_coords);
-            bool out_of_bounds = Frame_ContainsPoint_Local(cell_coords, &space->frame);
-            if (cell == NULL || out_of_bounds == false)
+            if (cell == NULL)
             {
                 //LOG_WARN("Cell (index %d) not found in MapEntityToASpace or its coordinates are out of bounds. Skipping this object-->cell mapping.\n", cell_i);
                 continue;
@@ -399,11 +398,9 @@ void MapEntityToASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 snapped_aa
                 cell->object_ids[cell->occupancy] = object->id;
                 cell->occupancy++;
 
-                if (O_entity_to_space_index_map != NULL && cell->occupancy >= 1)
+                if (O_entity_to_space_index_map != NULL)
                 {
-                    int cell_occu = 0;
                     FlatMapInt_InsertOrUpdate(O_entity_to_space_index_map, cell_i, cell->occupancy);
-                    FlatMapInt_GetValue(O_entity_to_space_index_map, cell_i, &cell_occu);
                 }
             }
             else
@@ -426,7 +423,7 @@ static void RemoveEntityFromASpace(Space2d *space, EntityId entity_id, Matrix2x2
             Vector2d cell_coords = {snapped_aabb_box.col1.x + x, snapped_aabb_box.col1.y + y};
             int cell_i = GetIndexFromCoords(space, cell_coords);
             Cell *cell = GetCellFromCoords(space, cell_coords);
-            if (!cell || !Frame_ContainsPoint_Local(cell_coords, &space->frame))
+            if (!cell)
                 continue;
 
             for (int index = 0; index < cell->occupancy; index++)

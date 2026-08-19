@@ -25,8 +25,6 @@ static int create_world_auto_select = 0;
 static bool camera_diagnostic_printed = false;
 static bool click_pending = false;
 ColourRgba camera_marker_colour = {86, 139, 127, 230};
-Frame2d universe_frame = {0};
-FrameTunnel universe_tunnel = {0};
 static CameraController cam_ctrl = {0};
 
 static void SyncWorldStateFromSelection(void)
@@ -115,9 +113,6 @@ void InitUniverseSystem(void)
     Vector2d universe_resolution = UniverseRenderer_GetResolution();
     G_Universe.resolution = universe_resolution;
     Universe_Init(&G_Universe, ZERO_VECTOR_2D, (Vector2d){7, 5}, gravity);
-
-    Vector2d game_viewport_local_centre = ResolveGameViewportLocalCenter();
-    universe_frame = CreateFrame2d(IDENTITY_BASIS_2D, game_viewport_local_centre, universe_resolution);
 
     Vector2d default_lens_size = {
         game_viewport.frame.local_max.x - game_viewport.frame.local_min.x,

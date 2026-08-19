@@ -201,6 +201,7 @@ typedef struct UIElement
     UIBox local_box;
     UIBox screen_box;
     Vector2d measured_content_size;
+    float cached_stacked_fill_height; // Set once per layout pass by the stacked parent; read by this element's own box resolution.
     bool is_focused, is_dirty, is_draggable, is_enabled; // For interactive elements like TextBoxes and Buttons
 
     UIElement *parent;

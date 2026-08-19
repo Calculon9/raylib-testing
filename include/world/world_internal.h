@@ -13,6 +13,7 @@ bool CreateWorld(GridSpace2d space_obj, float gravity, struct Universe *universe
 void BindWorldTunnel(World2d *world, Camera2d *camera);
 void World_SetBounds(World2d *world, Vector2d min_bound, Vector2d max_bound);
 void World_RefreshBoundsFromFrame(World2d *world);
+Vector2d ResolvePixelToWorldFrame(const World2d *active_world, Vector2d pixel_coords);
 
 // Entity registry / lookup helpers
 void UpdateEntityWorldRegistry(FlatMapInt *entity_world_index_registry, EntityId entity_id, int type_flag, int entity_arr_index);

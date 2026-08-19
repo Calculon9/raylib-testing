@@ -59,7 +59,7 @@ InputRouteResult UpdateInputSystem(const InputFrame *input)
     InputRouteResult result = INPUT_ROUTE_IGNORED;
     DragInteraction_BeginContextFrame(DRAG_CONTEXT_GAME, input);
 
-    for (size_t i = 0; i < sizeof(input_route_chain) / sizeof(input_route_chain[0]); i++)
+    for (size_t i = 0; i < ARRAY_COUNT(input_route_chain); i++)
     {
         result = input_route_chain[i](input, result);
     }

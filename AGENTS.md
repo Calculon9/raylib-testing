@@ -33,7 +33,6 @@ When solving a problem:
 1. Inspect the most likely file first.
 2. If necessary, inspect one related file.
 3. If the cause is identified, begin editing immediately.
-4. Avoid broad searches across the repository unless requested.
 
 Do not repeatedly search for the same symbol.
 
@@ -45,14 +44,6 @@ When modifying code:
 
 - Prefer small targeted edits.
 - Match existing coding style.
-- Preserve behaviour unless fixing a bug.
-- Do not rewrite unrelated code.
-
-If an edit fails because the file changed:
-
-- Re-read the file.
-- Retry once.
-- If it still fails, rewrite the affected function instead of looping.
 
 Never retry the same failed patch more than once.
 
@@ -91,10 +82,10 @@ Look in:
 
 - C11
 - Standard library unless project already uses another library
-- Keep functions small
 - Prefer descriptive names
 - Avoid unnecessary allocations
 - Clean code
+- Best performance
 - Clean architecture
 - Simplest solution
 ---

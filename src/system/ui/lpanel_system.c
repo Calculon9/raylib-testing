@@ -181,20 +181,15 @@ void InitLPanelStateView(void)
         const LPanelDebugToggle *toggles;
         size_t count;
     } debug_sections[] = {
-        {"General", lpanel_debug_general_toggles,
-         sizeof(lpanel_debug_general_toggles) / sizeof(lpanel_debug_general_toggles[0])},
-        {"Viewport", lpanel_debug_viewport_toggles,
-         sizeof(lpanel_debug_viewport_toggles) / sizeof(lpanel_debug_viewport_toggles[0])},
-        {"World", lpanel_debug_world_toggles,
-         sizeof(lpanel_debug_world_toggles) / sizeof(lpanel_debug_world_toggles[0])},
-        {"UI", lpanel_debug_ui_toggles,
-         sizeof(lpanel_debug_ui_toggles) / sizeof(lpanel_debug_ui_toggles[0])},
-        {"Objects", lpanel_debug_object_toggles,
-         sizeof(lpanel_debug_object_toggles) / sizeof(lpanel_debug_object_toggles[0])},
+        {"General", lpanel_debug_general_toggles, ARRAY_COUNT(lpanel_debug_general_toggles)},
+        {"Viewport", lpanel_debug_viewport_toggles, ARRAY_COUNT(lpanel_debug_viewport_toggles)},
+        {"World", lpanel_debug_world_toggles, ARRAY_COUNT(lpanel_debug_world_toggles)},
+        {"UI", lpanel_debug_ui_toggles, ARRAY_COUNT(lpanel_debug_ui_toggles)},
+        {"Objects", lpanel_debug_object_toggles, ARRAY_COUNT(lpanel_debug_object_toggles)},
     };
 
     for (size_t section_index = 0;
-         section_index < sizeof(debug_sections) / sizeof(debug_sections[0]);
+         section_index < ARRAY_COUNT(debug_sections);
          section_index++)
     {
         UIElement *section = CreateViewSection_Stack(
@@ -248,7 +243,7 @@ void InitLPanelEditView(void)
         {"Moment", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.edit_moment_tbox, NULL},
     };
     InitUIFields(lpanel_edit_entity_tcont, edit_specs,
-                    sizeof(edit_specs) / sizeof(edit_specs[0]), ui_standard_field_padding,
+                    ARRAY_COUNT(edit_specs), ui_standard_field_padding,
                     lpanel->palette);
 
     BindTextboxData(G_UIState.edit_vertice_count_tbox, INT, &G_UIState.newtonoid_params->vertice_count);
@@ -277,7 +272,7 @@ void InitLPanelViewSelector(void)
     const char *labels[] = {"STATE", "DRAW"};
     lpanel_view_selector = PanelSystem_CreateViewSelector(
         lpanel, lpanel_view_selector_cont, ui_standard_selector_button_size,
-        labels, sizeof(labels) / sizeof(labels[0]), PanelSystem_HandleViewSelected);
+        labels, ARRAY_COUNT(labels), PanelSystem_HandleViewSelected);
 }
 
 // void InitEntityEditorContainer(void)

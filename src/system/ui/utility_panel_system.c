@@ -23,11 +23,10 @@ static void InitUtilityStatsContainer(void)
         {"Ftime", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &G_UIState.stats_ftime_str},
     };
     InitUIFields(stats_container, stats_specs,
-                 sizeof(stats_specs) / sizeof(stats_specs[0]),
+                 ARRAY_COUNT(stats_specs),
                  ui_standard_field_padding, utility_panel->palette);
 
-    View *stats_view = AllocateBytes(sizeof(View));
-    PanelSystem_AddView(utility_panel, stats_view, stats_container, 0);
+    PanelSystem_CreateView(utility_panel, stats_container, 0);
 }
 
 void InitUtilityPanel(void)
