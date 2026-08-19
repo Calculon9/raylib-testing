@@ -59,6 +59,9 @@ void SetViewportUIScaleScalar(int ui_pixels_per_unit_override);
 // Configure left/right panel width ratios before layout initialisation.
 void SetViewportPanelRatios(float left_panel_ratio, float right_panel_ratio);
 
+// Test a screen-space point against a viewport's transformed local bounds.
+bool ViewportRegion_ContainsPixel(const ViewportRegion *region, Vector2d pixel_coords);
+
 // Runtime debug utilities to inspect and modify viewport-space basis vectors.
 bool SetViewportSpaceBasis(ViewportSpaceId space_id, Vector2d basis_u, Vector2d basis_v);
 void ResetViewportSpaceBasis(ViewportSpaceId space_id);

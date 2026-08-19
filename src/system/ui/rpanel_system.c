@@ -122,21 +122,6 @@ static void InitRPanelStateWorldContainer(void);
 // static void InitRPanelStateStatsContainer(void);
 static void InitRPanelCreateWorldContainer(void);
 
-static void InitRViewSelector(void)
-{
-    rpanel_toggle_cont = CreateUIContainer(
-        rpanel->root, ui_standard_selector_container_size,
-        (Offset){{0.0f, 0.0f}, OFFSET_FIXED}, ZERO_VECTOR_2D,
-        rpanel->palette, UI_PALETTE_SURFACE_TRANSPARENT,
-        ui_zero_inline_spacing, false, true);
-    rpanel_toggle_cont->colour_border = rpanel->palette->container_border;
-
-    const char *labels[] = {"STATE", "CREATE"};
-    rpanel_view_selector = PanelSystem_CreateViewSelector(
-        rpanel, rpanel_toggle_cont, ui_standard_selector_button_size,
-        labels, ARRAY_COUNT(labels), PanelSystem_HandleViewSelected);
-}
-
 static void InitRPanelStateWorldContainer(void)
 {
     UIElement *world_cont = CreateUIContainer(
@@ -255,32 +240,31 @@ void InitRPanel(void)
     rpanel_last_world_basis.v.x = 0.0f;
     rpanel_last_world_basis.v.y = 1.0f;
 
-    // Create panel system
-    rpanel = PanelSystem_Create(&rpanel_viewport, 1.0f, (Vector2d){0.1f, 0.1f},
-                                &ui_default_palette, ui_standard_stack_spacing);
+    const char *labels[] = {"STATE", "CREATE"};
+    rpanel = PanelSystem_CreateStandard(&rpanel_viewport, 2, labels, ARRAY_COUNT(labels),
+                                        PanelSystem_HandleViewSelected,
+                                        &ui_default_palette, ui_standard_stack_spacing);
     if (!rpanel)
     {
         return;
     }
-
-    // Initialize views array
-    PanelSystem_InitViews(rpanel, 2);
-
-    // Initialize root UI structure
-    PanelSystem_InitRoot(rpanel);
 
     // Setup view storage
     rpanel_state_view = &rpanel_state_view_storage;
     rpanel_create_view = &rpanel_create_view_storage;
 
     // Build panel-specific UI
-    InitRViewSelector();
     InitRPanelStateView();
     InitRPanelCreateView();
-    PanelSystem_SelectView(rpanel_view_selector, 0);
 
     // Initial layout update
     UpdateUISpace(rpanel->root, rpanel->seed_box);
+}
+
+static void InitRViewSelector(void)
+{
+    // The selector is now created by PanelSystem_CreateStandard; this stub remains
+    // so older call sites don't need to change during the refactor.
 }
 
 void DrawRPanel(void)

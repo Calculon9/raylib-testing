@@ -10,6 +10,7 @@
 #include "camera/camera.h"
 #include "ui/ui.h"
 #include "ui/text_region.h"
+#include "system/draw_primitives.h"
 #include "system/ui_system.h"
 #include "system/debug_overlay_system.h"
 #include "system/systems.h"
@@ -66,9 +67,9 @@ void DrawElementBox(UIElement *e)
         colour_border.a = 0;
     }
     DrawRectangleRec((Rectangle){box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y},
-                     (Color){colour_fill.r, colour_fill.g, colour_fill.b, colour_fill.a});
+                     ToRaylibColor(colour_fill));
     DrawRectangleLinesEx((Rectangle){box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y},
-                         1.0f, (Color){colour_border.r, colour_border.g, colour_border.b, colour_border.a});
+                         1.0f, ToRaylibColor(colour_border));
 }
 
 void DrawTextArea(UIElement *e)
@@ -106,9 +107,9 @@ void DrawTextArea(UIElement *e)
     Vector2d available_space = e->screen_box.dimensions;
 
     // Metrics calculation
-    int glyph_advance = (8 * font.scale) + (font.scale * (int)font.spacing);
-    int glyph_cell_width = 8 * font.scale;
-    int row_height = 8 * font.scale;
+    int glyph_advance = BitmapFont_GetGlyphAdvance(&font);
+    int glyph_cell_width = BitmapFont_GetGlyphCellWidth(&font);
+    int row_height = BitmapFont_GetRowHeight(&font);
     if (glyph_advance <= 0 || row_height <= 0)
     {
         return;
@@ -223,11 +224,9 @@ void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Matrix3x3 M_ui_t
     DrawElementBox(root_element);
 
     // Recursively draw children
-    UIElement *child = root_element->first_child;
-    while (child)
+    ForEachChild(root_element, child)
     {
         DrawUIElement(child, root_element->screen_box, M_ui_to_pixel);
-        child = child->next_sibling;
     }
 }
 
@@ -274,11 +273,9 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel)
     }
 
     // Recursively draw children elements
-    UIElement *child = e->first_child;
-    while (child)
+    ForEachChild(e, child)
     {
         DrawUIElement(child, e->screen_box, M_ui_to_pixel);
-        child = child->next_sibling;
     }
 }
 

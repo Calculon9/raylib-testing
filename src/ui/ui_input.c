@@ -164,7 +164,7 @@ bool ResolvePointerLocalCoords(UIElement *element, Vector2d mouse_pixel_coords, 
     Vector2d pixels_to_local_scale = ResolvePixelToLocalDragScale(root);
     Vector2d root_local_origin = root->data.root.space.frame.origin_in_parent;
     Vector2d root_pixel_origin = root->screen_box.coords;
-    Vector2d pixel_delta = VectorSum_2d(mouse_pixel_coords, (Vector2d){-root_pixel_origin.x, -root_pixel_origin.y});
+    Vector2d pixel_delta = VectorDiff_2d(mouse_pixel_coords, root_pixel_origin);
 
     out_local_coords->x = root_local_origin.x + (pixel_delta.x * pixels_to_local_scale.x);
     out_local_coords->y = root_local_origin.y + (pixel_delta.y * pixels_to_local_scale.y);
@@ -484,7 +484,7 @@ void HandleUIDragging(UIElement *e, Vector2d mouse_coords)
     // Calculate the raw mouse travel distance since the click frame
     DragInteractionState *drag_ctx = GetUIDragContext();
     Vector2d mouse_down_origin = drag_ctx->pointer_state.initial_pos;
-    Vector2d total_pixel_travel = VectorSum_2d(drag_ctx->pointer_state.current_pos, (Vector2d){-mouse_down_origin.x, -mouse_down_origin.y});
+    Vector2d total_pixel_travel = VectorDiff_2d(drag_ctx->pointer_state.current_pos, mouse_down_origin);
 
     // Convert total pixel travel into total virtual unit travel
     Vector2d total_local_travel = (Vector2d){total_pixel_travel.x * pixels_to_ui_local_scale.x, total_pixel_travel.y * pixels_to_ui_local_scale.y};
@@ -496,7 +496,7 @@ void HandleUIDragging(UIElement *e, Vector2d mouse_coords)
 
     // Compute real pixel offsets for accurate telemetry tracking
     Vector2d new_pixel_offset = (Vector2d){new_local_offset.x / pixels_to_ui_local_scale.x, new_local_offset.y / pixels_to_ui_local_scale.y};
-    Vector2d diff_local = VectorSum_2d(new_local_offset, (Vector2d){-e->authored_offset.offset.x, -e->authored_offset.offset.y});
+    Vector2d diff_local = VectorDiff_2d(new_local_offset, e->authored_offset.offset);
     Vector2d diff_pixel = (Vector2d){diff_local.x / pixels_to_ui_local_scale.x, diff_local.y / pixels_to_ui_local_scale.y};
 
     // Finalize properties assignment

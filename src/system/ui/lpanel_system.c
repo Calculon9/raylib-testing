@@ -102,7 +102,6 @@ Size lpanel_edit_entity_tcont_size = {{1.0f, 0.50f}, SIZE_PERCENT};
 
 void InitLPanelStateView(void);
 void InitLPanelEditView(void);
-void InitLPanelViewSelector(void);
 void InitEntityEditorContainer(void);
 
 static void InitEntityCreateDefaults(void)
@@ -131,41 +130,36 @@ static void InitEntityCreateDefaults(void)
 
 void InitLPanel()
 {
-    // Create panel system
-    lpanel = PanelSystem_Create(&lpanel_viewport, 1.0f, (Vector2d){0.1f, 0.1f},
-                                &ui_default_palette, ui_standard_stack_spacing);
+    const char *labels[] = {"STATE", "DRAW"};
+    lpanel = PanelSystem_CreateStandard(&lpanel_viewport, 2, labels, ARRAY_COUNT(labels),
+                                        PanelSystem_HandleViewSelected,
+                                        &ui_default_palette, ui_standard_stack_spacing);
     if (!lpanel)
     {
         return;
     }
-    
-    // Initialize views array
-    PanelSystem_InitViews(lpanel, 2);
-    
-    // Initialize root UI structure
-    PanelSystem_InitRoot(lpanel);
-    
+
     // Setup view storage
     lpanel_state_view = &lpanel_state_view_storage;
     lpanel_edit_entity_view = &lpanel_edit_entity_view_storage;
-    
+
     // Build panel-specific UI
-    InitLPanelViewSelector();
     InitLPanelStateView();
     InitLPanelEditView();
-    PanelSystem_SelectView(lpanel_view_selector, 0);
 
     // Initial layout update
     UpdateUISpace(lpanel->root, lpanel->seed_box);
 }
 
+static void InitLPanelViewSelector(void)
+{
+    // The selector is now created by PanelSystem_CreateStandard; this stub remains
+    // so older call sites don't need to change during the refactor.
+}
+
 void InitLPanelStateView(void)
 {
-    lpanel_state_view_cont = CreateUIContainer(lpanel->root, ui_fill_container_size,
-                                                  lpanel_state_view_cont_offset, ZERO_VECTOR_2D,
-                                                  lpanel->palette, UI_PALETTE_SURFACE_TRANSPARENT,
-                                                  ui_standard_stack_spacing, false, true);
-    PanelSystem_AddView(lpanel, lpanel_state_view, lpanel_state_view_cont, LPANEL_STATE_VIEW);
+    lpanel_state_view_cont = PanelSystem_CreateRootViewContainer(lpanel, LPANEL_STATE_VIEW, lpanel_state_view);
 
     // Match rpanel and StateManager by placing view content in a padded surface container.
     lpanel_state_debug_cont = CreateUIContainer(
@@ -215,11 +209,14 @@ void InitLPanelStateView(void)
 void InitLPanelEditView(void)
 {
     // Create View's container & register the View
-    lpanel_edit_view_cont = CreateUIContainer(lpanel->root, ui_fill_container_size,
-                                                 lpanel_edit_view_cont_offset, ZERO_VECTOR_2D,
-                                                 lpanel->palette, UI_PALETTE_SURFACE_TRANSPARENT,
-                                                 ui_standard_stack_spacing, false, false);
-    PanelSystem_AddView(lpanel, lpanel_edit_entity_view, lpanel_edit_view_cont, LPANEL_DRAW_VIEW);
+    lpanel_edit_view_cont = PanelSystem_CreateRootViewContainer(lpanel, LPANEL_DRAW_VIEW, lpanel_edit_entity_view);
+    if (!lpanel_edit_view_cont)
+    {
+        return;
+    }
+
+    // The edit view starts disabled until selected.
+    DisableElement(lpanel_edit_view_cont);
 
     // Customise the View
     lpanel_edit_entity_tcont = CreateUIContainer(
@@ -260,24 +257,9 @@ void InitLPanelEditView(void)
                              &btn_action_create_entity, NULL);
 }
 
-void InitLPanelViewSelector(void)
-{
-    lpanel_view_selector_cont = CreateUIContainer(lpanel->root, ui_standard_selector_container_size,
-                                                       (Offset){{0.0, 0.0}, OFFSET_PERCENT},
-                                                       ZERO_VECTOR_2D, lpanel->palette,
-                                                       UI_PALETTE_SURFACE_TRANSPARENT,
-                                                       ui_zero_inline_spacing,
-                                                       false, true);
-    lpanel_view_selector_cont->colour_border = lpanel->palette->container_border;
-    const char *labels[] = {"STATE", "DRAW"};
-    lpanel_view_selector = PanelSystem_CreateViewSelector(
-        lpanel, lpanel_view_selector_cont, ui_standard_selector_button_size,
-        labels, ARRAY_COUNT(labels), PanelSystem_HandleViewSelected);
-}
-
 // void InitEntityEditorContainer(void)
 // {
-    
+
 // }
 
 void DrawLPanel(void)

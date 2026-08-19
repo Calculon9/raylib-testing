@@ -7,6 +7,7 @@ UNIVERSE MODULE
 #include "world/world.h"
 #include "world/world_internal.h"
 #include "system/systems.h"
+#include "system/click_resolver.h"
 #include "math/cvectors.h"
 #include "math/affine_space_ops.h"
 #include "common/common.h"
@@ -319,23 +320,73 @@ void World_RefreshBoundsFromFrame(World2d *world)
 }
 
 // ---------------------------------------------------------------------------
+static bool Universe_WorldBoundsContainsLocal(const ClickableSpace *space, Vector2d local_point)
+{
+    const World2d *world = (const World2d *)space->ctx;
+    if (!world || !world->bounds_valid)
+    {
+        return false;
+    }
+
+    // world->bounds is stored in universe (parent) space, but the resolver hands us a
+    // world-local point. Transform it back to parent space before testing the AABB so
+    // the hit-test matches the original Universe_FindWorldAt behavior exactly.
+    Vector2d parent_point = Frame_TransformPoint_ToParent(local_point, &space->frame);
+    Vector2d min_bound = world->bounds.col1;
+    Vector2d max_bound = world->bounds.col2;
+    return parent_point.x >= min_bound.x && parent_point.y >= min_bound.y &&
+           parent_point.x < max_bound.x && parent_point.y < max_bound.y;
+}
+
+static bool Universe_RootContainsLocal(const ClickableSpace *space, Vector2d local_point)
+{
+    (void)space;
+    (void)local_point;
+    return true;
+}
+
 int Universe_FindWorldAt(const Universe *u, Vector2d universe_point)
 {
-    if (u == NULL)
+    if (u == NULL || u->world_count <= 0)
+    {
         return -1;
+    }
+
+    // Build a one-shot sibling list from the universe's world array. The last world in the
+    // array is visually top-most, so the resolver naturally prefers it over earlier worlds.
+    ClickableSpace world_spaces[UNIVERSE_MAX_WORLDS] = {0};
+    ClickableSpace *first = NULL;
+    ClickableSpace *prev = NULL;
 
     for (int i = 0; i < u->world_count; i++)
     {
-        if (!u->worlds[i].bounds_valid)
-            continue;
+        ClickableSpace *space = &world_spaces[i];
+        space->frame = u->worlds[i].grid_space.space.frame;
+        space->contains_local = Universe_WorldBoundsContainsLocal;
+        space->ctx = (void *)&u->worlds[i];
+        space->user_data = i;
 
-        Vector2d min_bound = u->worlds[i].bounds.col1;
-        Vector2d max_bound = u->worlds[i].bounds.col2;
-        if (universe_point.x >= min_bound.x && universe_point.y >= min_bound.y &&
-            universe_point.x < max_bound.x && universe_point.y < max_bound.y)
+        if (prev == NULL)
         {
-            return i;
+            first = space;
         }
+        else
+        {
+            prev->next_sibling = space;
+        }
+        prev = space;
+    }
+
+    // Use a root node that covers the entire universe so we can resolve the sibling list.
+    ClickableSpace root = {0};
+    root.frame = CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D, u->resolution);
+    root.contains_local = Universe_RootContainsLocal;
+    root.first_child = first;
+
+    const ClickableSpace *hit = Clickable_ResolvePoint(&root, universe_point, NULL);
+    if (hit != NULL && hit != &root)
+    {
+        return hit->user_data;
     }
 
     return -1;
@@ -389,9 +440,7 @@ Newtonoid2d *Universe_GetEntityByID(const Universe *u, EntityId entity_id, int *
 void Universe_Draw(Universe *u)
 {
     // Root world's local space is universe space, so the universe->pixel matrix applies directly.
-    Matrix3x3 universe_to_pixel_mtx = MatrixMultiply_3x3_3x3(
-        game_viewport.tunnel.source_to_dest_mtx,
-        u->camera.tunnel.source_to_dest_mtx);
+    Matrix3x3 universe_to_pixel_mtx = ResolveWorldToPixelMatrix(&u->root_world, &u->camera);
     DrawNewtonoids(&u->root_world.objects, universe_to_pixel_mtx);
     DrawNewtonoids(&u->root_world.temp_objects, universe_to_pixel_mtx);
 

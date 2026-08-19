@@ -7,6 +7,7 @@ UNIVERSE RENDERER MODULE
 #include "common/common.h"
 #include "math/cvectors.h"
 #include "system/debug_overlay_system.h"
+#include "system/draw_primitives.h"
 #include "ui/cfont.h"
 #include "world/universe_renderer.h"
 
@@ -39,16 +40,13 @@ static void DrawUniverseCameraMarker(const Universe *universe, Matrix3x3 camera_
         (float)(pixel_origin.x - half_size),
         (float)(pixel_origin.y - half_size)};
     Vector2 size = {(float)marker_pixel_size, (float)marker_pixel_size};
-    Color color = {camera_marker_colour.r, camera_marker_colour.g, camera_marker_colour.b, camera_marker_colour.a};
+    Color color = ToRaylibColor(camera_marker_colour);
 
     DrawRectangleV(position, size, color);
 }
 
 static void DrawUniverseGrid(const Universe *universe, CameraViewBox camera_view, Matrix3x3 camera_to_pixel_mtx)
 {
-    Color grid_colour = {COLOUR_GAME_OLIVE_RGBA.r, COLOUR_GAME_OLIVE_RGBA.g, COLOUR_GAME_OLIVE_RGBA.b, COLOUR_GAME_OLIVE_RGBA.a};
-    Color axis_x_colour = {COLOUR_GAME_AXIS_X_RGBA.r, COLOUR_GAME_AXIS_X_RGBA.g, COLOUR_GAME_AXIS_X_RGBA.b, COLOUR_GAME_AXIS_X_RGBA.a};
-    Color axis_y_colour = {COLOUR_GAME_AXIS_Y_RGBA.r, COLOUR_GAME_AXIS_Y_RGBA.g, COLOUR_GAME_AXIS_Y_RGBA.b, COLOUR_GAME_AXIS_Y_RGBA.a};
     float grid_cell_size = universe_grid_cell_size;
 
     float uni_half_w = universe->resolution.x * 0.5f;
@@ -69,31 +67,20 @@ static void DrawUniverseGrid(const Universe *universe, CameraViewBox camera_view
     {
         Vector2d line_start = {x, -uni_half_h};
         Vector2d line_end = {x, uni_half_h};
-        Vector2d p_start = TransformCoordinates(camera_to_pixel_mtx, line_start);
-        Vector2d p_end = TransformCoordinates(camera_to_pixel_mtx, line_end);
-        DrawLineEx((Vector2){(float)p_start.x, (float)p_start.y},
-                   (Vector2){(float)p_end.x, (float)p_end.y}, 1.0f, grid_colour);
+        DrawTransformedLineV(line_start, line_end, camera_to_pixel_mtx, COLOUR_GAME_OLIVE_RGBA);
     }
 
     for (float y = start_y; y <= world_max_y; y += grid_cell_size)
     {
         Vector2d line_start = {-uni_half_w, y};
         Vector2d line_end = {uni_half_w, y};
-        Vector2d p_start = TransformCoordinates(camera_to_pixel_mtx, line_start);
-        Vector2d p_end = TransformCoordinates(camera_to_pixel_mtx, line_end);
-        DrawLineEx((Vector2){(float)p_start.x, (float)p_start.y},
-                   (Vector2){(float)p_end.x, (float)p_end.y}, 1.0f, grid_colour);
+        DrawTransformedLineV(line_start, line_end, camera_to_pixel_mtx, COLOUR_GAME_OLIVE_RGBA);
     }
 
-    Vector2d x_axis_start_px = TransformCoordinates(camera_to_pixel_mtx, (Vector2d){world_min_x, 0.0f});
-    Vector2d x_axis_end_px = TransformCoordinates(camera_to_pixel_mtx, (Vector2d){world_max_x, 0.0f});
-    Vector2d y_axis_start_px = TransformCoordinates(camera_to_pixel_mtx, (Vector2d){0.0f, world_min_y});
-    Vector2d y_axis_end_px = TransformCoordinates(camera_to_pixel_mtx, (Vector2d){0.0f, world_max_y});
-
-    DrawLineEx((Vector2){(float)x_axis_start_px.x, (float)x_axis_start_px.y},
-               (Vector2){(float)x_axis_end_px.x, (float)x_axis_end_px.y}, 2.5f, axis_x_colour);
-    DrawLineEx((Vector2){(float)y_axis_start_px.x, (float)y_axis_start_px.y},
-               (Vector2){(float)y_axis_end_px.x, (float)y_axis_end_px.y}, 2.5f, axis_y_colour);
+    DrawTransformedLineEx((Vector2d){world_min_x, 0.0f}, (Vector2d){world_max_x, 0.0f},
+                          camera_to_pixel_mtx, 2.5f, COLOUR_GAME_AXIS_X_RGBA);
+    DrawTransformedLineEx((Vector2d){0.0f, world_min_y}, (Vector2d){0.0f, world_max_y},
+                          camera_to_pixel_mtx, 2.5f, COLOUR_GAME_AXIS_Y_RGBA);
 
     if (!IsDebugEnabled(DEBUG_UNIVERSE_GRID_LABELS))
     {
@@ -146,5 +133,5 @@ void UniverseRenderer_Draw(Universe *universe, CameraViewBox camera_view, Matrix
     DrawUniverseGrid(universe, camera_view, camera_to_pixel_mtx);
     Universe_Draw(universe);
     DrawUniverseCameraMarker(universe, camera_to_pixel_mtx);
-    DrawUniverseDebugOverlays(camera_to_pixel_mtx);
+    DrawUniverseDebugOverlays();
 }

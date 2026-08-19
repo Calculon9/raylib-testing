@@ -8,6 +8,7 @@
 #include "camera/camera.h"
 #include "system/ui_system.h"
 #include "world/world.h"
+#include "world/world_internal.h"
 #include "world/universe.h"
 #include "system/viewport_system.h"
 #include "system/ui/lpanel_system.h"
@@ -257,6 +258,24 @@ static void DrawDashboardLine(const char *text, int x, int y, ColourRgba color)
     DrawTextCustom(text, (Vector2d){(float)x, (float)y}, FONT_BASIC.scale, FONT_BASIC, color);
 }
 
+// Formats and draws a single dashboard row, advancing the row pointer.
+static void DrawDashboardRowf(int x, int *row_y, int row_step, ColourRgba color,
+                              char *line, size_t line_size, const char *fmt, ...)
+{
+    if (!row_y || !line || !fmt)
+    {
+        return;
+    }
+
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(line, line_size, fmt, args);
+    va_end(args);
+
+    DrawDashboardLine(line, x, *row_y, color);
+    *row_y += row_step;
+}
+
 typedef struct DashboardBasisData
 {
     Vector2d lpanel_viewport_basis_u;
@@ -307,27 +326,20 @@ static void DrawDashboardControlsSection(int col_x, int *row_y, int row_step,
     DrawDashboardLine("Controls", col_x, *row_y, accent_color);
     *row_y += row_step;
 
-    snprintf(line, line_size, "F11 Dashboard: %s", GetOnOffLabel(dashboard_overlay_enabled));
-    DrawDashboardLine(line, col_x, *row_y, body_color);
-    *row_y += row_step;
-    snprintf(line, line_size, "F5 Basis editor: %s", GetOnOffLabel(basis_editor_enabled));
-    DrawDashboardLine(line, col_x, *row_y, body_color);
-    *row_y += row_step;
-    snprintf(line, line_size, "F6 Viewport grid: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_VIEWPORT_GRID)));
-    DrawDashboardLine(line, col_x, *row_y, body_color);
-    *row_y += row_step;
-    snprintf(line, line_size, "F2 World grid labels: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_WORLD_GRID_LABELS)));
-    DrawDashboardLine(line, col_x, *row_y, body_color);
-    *row_y += row_step;
-    snprintf(line, line_size, "F3 UI borders: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_UI_BORDERS)));
-    DrawDashboardLine(line, col_x, *row_y, body_color);
-    *row_y += row_step;
-    snprintf(line, line_size, "F4 Universe grid labels: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_UNIVERSE_GRID_LABELS)));
-    DrawDashboardLine(line, col_x, *row_y, body_color);
-    *row_y += row_step;
-    snprintf(line, line_size, "F1 Object axes: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_OBJECT_AXES)));
-    DrawDashboardLine(line, col_x, *row_y, body_color);
-    *row_y += row_step;
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "F11 Dashboard: %s", GetOnOffLabel(dashboard_overlay_enabled));
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "F5 Basis editor: %s", GetOnOffLabel(basis_editor_enabled));
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "F6 Viewport grid: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_VIEWPORT_GRID)));
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "F2 World grid labels: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_WORLD_GRID_LABELS)));
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "F3 UI borders: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_UI_BORDERS)));
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "F4 Universe grid labels: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_UNIVERSE_GRID_LABELS)));
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "F1 Object axes: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_OBJECT_AXES)));
     DrawDashboardLine("F7/F8 Logical height   F9/F10 UI scale", col_x, *row_y, body_color);
     *row_y += row_step;
     DrawDashboardLine("TAB Space   U/V Vector   I/J/K/L Nudge", col_x, *row_y, body_color);
@@ -348,52 +360,44 @@ static void DrawDashboardUniverseSection(int col_x, int *row_y, int row_step,
     DrawDashboardLine("Universe", col_x, *row_y, accent_color);
     *row_y += row_step;
 
-    if (debug_snapshot.valid)
+    if (!debug_snapshot.valid)
     {
-        snprintf(line, line_size, "Cursor px: (%.1f, %.1f) [%s]", debug_snapshot.pixel.x, debug_snapshot.pixel.y,
-                 debug_snapshot.cursor_in_game_viewport ? "in viewport" : "outside viewport");
-        DrawDashboardLine(line, col_x, *row_y, body_color);
-        *row_y += row_step;
+        DrawDashboardLine("Universe diagnostics unavailable for current frame.", col_x, *row_y, body_color);
+        return;
+    }
 
-        snprintf(line, line_size, "Universe coords: (%.3f, %.3f)", debug_snapshot.parent_local.x, debug_snapshot.parent_local.y);
-        DrawDashboardLine(line, col_x, *row_y, body_color);
-        *row_y += row_step;
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "Cursor px: (%.1f, %.1f) [%s]", debug_snapshot.pixel.x, debug_snapshot.pixel.y,
+                      debug_snapshot.cursor_in_game_viewport ? "in viewport" : "outside viewport");
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "Universe coords: (%.3f, %.3f)",
+                      debug_snapshot.parent_local.x, debug_snapshot.parent_local.y);
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "Selected world: %d   Hovered world: %d",
+                      debug_snapshot.selected_index, debug_snapshot.hovered_world_index);
 
-        snprintf(line, line_size, "Selected world: %d   Hovered world: %d", debug_snapshot.selected_index, debug_snapshot.hovered_world_index);
-        DrawDashboardLine(line, col_x, *row_y, body_color);
-        *row_y += row_step;
-
-        if (debug_snapshot.has_child_local)
-        {
-            snprintf(line, line_size, "Child local[%d]: (%.3f, %.3f)", debug_snapshot.target_world_index,
-                     debug_snapshot.child_local.x, debug_snapshot.child_local.y);
-            DrawDashboardLine(line, col_x, *row_y, body_color);
-            *row_y += row_step;
-
-            snprintf(line, line_size, "Child origin: (%.3f, %.3f)", debug_snapshot.child_origin_in_parent.x,
-                     debug_snapshot.child_origin_in_parent.y);
-            DrawDashboardLine(line, col_x, *row_y, body_color);
-            *row_y += row_step;
-
-            snprintf(line, line_size, "Child cell index: %d", debug_snapshot.world_cell_index);
-            DrawDashboardLine(line, col_x, *row_y, body_color);
-            *row_y += row_step;
-        }
-        else
-        {
-            DrawDashboardLine("Child local: n/a", col_x, *row_y, body_color);
-            *row_y += row_step;
-        }
-
-        snprintf(line, line_size, "Camera focus(%.2f, %.2f) zoom=%.3f rot=%.3f",
-                 debug_snapshot.camera_focus.x, debug_snapshot.camera_focus.y,
-                 debug_snapshot.camera_zoom, debug_snapshot.camera_rotation);
-        DrawDashboardLine(line, col_x, *row_y, body_color);
+    if (debug_snapshot.has_child_local)
+    {
+        DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                          "Child local[%d]: (%.3f, %.3f)", debug_snapshot.target_world_index,
+                          debug_snapshot.child_local.x, debug_snapshot.child_local.y);
+        DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                          "Child origin: (%.3f, %.3f)",
+                          debug_snapshot.child_origin_in_parent.x,
+                          debug_snapshot.child_origin_in_parent.y);
+        DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                          "Child cell index: %d", debug_snapshot.world_cell_index);
     }
     else
     {
-        DrawDashboardLine("Universe diagnostics unavailable for current frame.", col_x, *row_y, body_color);
+        DrawDashboardLine("Child local: n/a", col_x, *row_y, body_color);
+        *row_y += row_step;
     }
+
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "Camera focus(%.2f, %.2f) zoom=%.3f rot=%.3f",
+                      debug_snapshot.camera_focus.x, debug_snapshot.camera_focus.y,
+                      debug_snapshot.camera_zoom, debug_snapshot.camera_rotation);
 }
 
 static void DrawDashboardViewportBasisSection(int col_x, int *row_y, int row_step,
@@ -436,34 +440,41 @@ static void DrawDashboardViewportBasisSection(int col_x, int *row_y, int row_ste
     DrawDashboardLine("Basis", col_x, *row_y, accent_color);
     *row_y += row_step;
 
-    snprintf(line, line_size, "Editor target: %s.%s", GetDebugBasisTargetName(basis_editor_target), basis_editor_editing_u ? "U" : "V");
-    DrawDashboardLine(line, col_x, *row_y, body_color);
-    *row_y += row_step;
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "Editor target: %s.%s",
+                      GetDebugBasisTargetName(basis_editor_target),
+                      basis_editor_editing_u ? "U" : "V");
     DrawDashboardLine("Viewport Spaces", col_x, *row_y, accent_color);
     *row_y += row_step;
-    snprintf(line, line_size, "LPANEL_VIEWPORT U(%.2f, %.2f) V(%.2f, %.2f)", basis->lpanel_viewport_basis_u.x, basis->lpanel_viewport_basis_u.y, basis->lpanel_viewport_basis_v.x, basis->lpanel_viewport_basis_v.y);
-    DrawDashboardLine(line, col_x, *row_y, body_color);
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "LPANEL_VIEWPORT U(%.2f, %.2f) V(%.2f, %.2f)",
+                      basis->lpanel_viewport_basis_u.x, basis->lpanel_viewport_basis_u.y,
+                      basis->lpanel_viewport_basis_v.x, basis->lpanel_viewport_basis_v.y);
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "GAME_VIEWPORT   U(%.2f, %.2f) V(%.2f, %.2f)",
+                      basis->game_viewport_basis_u.x, basis->game_viewport_basis_u.y,
+                      basis->game_viewport_basis_v.x, basis->game_viewport_basis_v.y);
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "RPANEL_VIEWPORT U(%.2f, %.2f) V(%.2f, %.2f)",
+                      basis->rpanel_viewport_basis_u.x, basis->rpanel_viewport_basis_u.y,
+                      basis->rpanel_viewport_basis_v.x, basis->rpanel_viewport_basis_v.y);
     *row_y += row_step;
-    snprintf(line, line_size, "GAME_VIEWPORT   U(%.2f, %.2f) V(%.2f, %.2f)", basis->game_viewport_basis_u.x, basis->game_viewport_basis_u.y, basis->game_viewport_basis_v.x, basis->game_viewport_basis_v.y);
-    DrawDashboardLine(line, col_x, *row_y, body_color);
-    *row_y += row_step;
-    snprintf(line, line_size, "RPANEL_VIEWPORT U(%.2f, %.2f) V(%.2f, %.2f)", basis->rpanel_viewport_basis_u.x, basis->rpanel_viewport_basis_u.y, basis->rpanel_viewport_basis_v.x, basis->rpanel_viewport_basis_v.y);
-    DrawDashboardLine(line, col_x, *row_y, body_color);
-    *row_y += row_step * 2;
     DrawDashboardLine("Universe Space", col_x, *row_y, accent_color);
     *row_y += row_step;
-    snprintf(line, line_size, "UNIVERSE_SPACE  U(%.2f, %.2f) V(%.2f, %.2f)",
-             G_Universe.camera.frame.basis.u.x, G_Universe.camera.frame.basis.u.y,
-             G_Universe.camera.frame.basis.v.x, G_Universe.camera.frame.basis.v.y);
-    DrawDashboardLine(line, col_x, *row_y, body_color);
-    *row_y += row_step;
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "UNIVERSE_SPACE  U(%.2f, %.2f) V(%.2f, %.2f)",
+                      G_Universe.camera.frame.basis.u.x, G_Universe.camera.frame.basis.u.y,
+                      G_Universe.camera.frame.basis.v.x, G_Universe.camera.frame.basis.v.y);
     DrawDashboardLine("Panel Local Spaces", col_x, *row_y, accent_color);
     *row_y += row_step;
-    snprintf(line, line_size, "LPANEL_SPACE U(%.2f, %.2f) V(%.2f, %.2f)", basis->lpanel_space_basis_u.x, basis->lpanel_space_basis_u.y, basis->lpanel_space_basis_v.x, basis->lpanel_space_basis_v.y);
-    DrawDashboardLine(line, col_x, *row_y, body_color);
-    *row_y += row_step;
-    snprintf(line, line_size, "RPANEL_SPACE U(%.2f, %.2f) V(%.2f, %.2f)", basis->rpanel_space_basis_u.x, basis->rpanel_space_basis_u.y, basis->rpanel_space_basis_v.x, basis->rpanel_space_basis_v.y);
-    DrawDashboardLine(line, col_x, *row_y, body_color);
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "LPANEL_SPACE U(%.2f, %.2f) V(%.2f, %.2f)",
+                      basis->lpanel_space_basis_u.x, basis->lpanel_space_basis_u.y,
+                      basis->lpanel_space_basis_v.x, basis->lpanel_space_basis_v.y);
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "RPANEL_SPACE U(%.2f, %.2f) V(%.2f, %.2f)",
+                      basis->rpanel_space_basis_u.x, basis->rpanel_space_basis_u.y,
+                      basis->rpanel_space_basis_v.x, basis->rpanel_space_basis_v.y);
 }
 
 static void DrawDebugDashboard(void)
@@ -824,7 +835,7 @@ void DrawGlobalDebugOverlays(void)
     }
 }
 
-void DrawUniverseDebugOverlays(Matrix3x3 root_world_to_pixel_mtx)
+void DrawUniverseDebugOverlays(void)
 {
     debug_snapshot.valid = false;
 
@@ -837,11 +848,9 @@ void DrawUniverseDebugOverlays(Matrix3x3 root_world_to_pixel_mtx)
     int mouse_y = GetMouseY();
     Vector2d pixel = {(float)mouse_x, (float)mouse_y};
 
-    bool cursor_in_game_viewport = mouse_x >= game_viewport.pixel_origin.x && mouse_x <= game_viewport.pixel_end.x &&
-                                   mouse_y >= game_viewport.pixel_origin.y && mouse_y <= game_viewport.pixel_end.y;
+    bool cursor_in_game_viewport = ViewportRegion_ContainsPixel(&game_viewport, pixel);
 
-    Matrix3x3 pixel_to_world_mtx = MatrixInvert_3x3(root_world_to_pixel_mtx);
-    Vector2d parent_local = TransformCoordinates(pixel_to_world_mtx, pixel);
+    Vector2d parent_local = ResolvePixelToWorldFrame(&G_Universe.root_world, pixel);
 
     int selected_index = G_Universe.selected_world_index;
     int hovered_world_index = Universe_FindWorldAt(&G_Universe, parent_local);

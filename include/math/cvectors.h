@@ -98,6 +98,10 @@ typedef struct Matrix2x2
 
 Vector2d VectorSumArray_2d(Vector2d *array, size_t count);
 Vector2d VectorSum_2d(Vector2d a, Vector2d b);
+static inline Vector2d VectorDiff_2d(Vector2d a, Vector2d b)
+{
+    return (Vector2d){a.x - b.x, a.y - b.y};
+}
 Vector2d VectorScale_2d(Vector2d vector, float scalar);
 Polar2d PolarForm_2d(Vector2d vector);
 float VectorMagnitude_2d(Vector2d vector);

@@ -27,24 +27,6 @@ static bool GeometryEditor_IsEnabled(const World2d *world, const Newtonoid2d *se
            G_UIState.active_panel_view == LPANEL_DRAW_VIEW;
 }
 
-static Matrix3x3 GetWorldToPixelMatrix(const World2d *world, const Camera2d *universe_camera)
-{
-    Matrix3x3 world_to_universe = universe_camera->tunnel.source_to_dest_mtx;
-    Matrix3x3 world_to_viewport = MatrixMultiply_3x3_3x3(
-        world_to_universe, world->tunnel.source_to_dest_mtx);
-    return MatrixMultiply_3x3_3x3(
-        game_viewport.tunnel.source_to_dest_mtx, world_to_viewport);
-}
-
-static Vector2d PixelToWorld(const World2d *world, Vector2d pixel_coords)
-{
-    Vector2d viewport_coords = TransformCoordinates(
-        game_viewport.tunnel.dest_to_source_mtx, pixel_coords);
-    Vector2d universe_coords = TransformCoordinates(
-        G_Universe.camera.tunnel.dest_to_source_mtx, viewport_coords);
-    return TransformCoordinates(world->tunnel.dest_to_source_mtx, universe_coords);
-}
-
 static bool IsNear(Vector2d a, Vector2d b, float radius)
 {
     float dx = a.x - b.x;
@@ -72,7 +54,7 @@ static bool GeometryEditor_TryBeginDrag(World2d *world, Vector2d pixel_coords, N
         return false;
     }
 
-    Matrix3x3 world_to_pixel = GetWorldToPixelMatrix(world, &G_Universe.camera);
+    Matrix3x3 world_to_pixel = ResolveWorldToPixelMatrix(world, &G_Universe.camera);
     Vector2d *vertices = object->surface.surface_vectors.items;
     const float handle_radius = 10.0f;
 
@@ -133,9 +115,9 @@ static bool GeometryEditor_UpdateDrag(World2d *world, Vector2d pixel_coords, New
     Matrix2x2 previous_box = CalcAABBCoords_Tight(previous_vertices, 4, ZERO_VECTOR_2D);
 
     Vector2d previous_geometry_center = object->local_geometry_center;
-    Vector2d local_coords = PixelToWorld(world, pixel_coords);
+    Vector2d local_coords = ResolvePixelToWorldFrame(world, pixel_coords);
     Vector2d *vertex = &((Vector2d *)object->surface.surface_vectors.items)[vertex_handle_target.vertex_index];
-    *vertex = VectorSum_2d(local_coords, (Vector2d){-object->anchor_position.x, -object->anchor_position.y});
+    *vertex = VectorDiff_2d(local_coords, object->anchor_position);
 
     // Keep the local geometry centered on the anchor while preserving world-space vertex positions.
     RebuildNewtonoidGeometry(object);
@@ -253,7 +235,7 @@ void GeometryEditor_DrawHandles(const World2d *world, Camera2d *universe_camera)
         return;
     }
 
-    Matrix3x3 world_to_pixel = GetWorldToPixelMatrix(world, universe_camera);
+    Matrix3x3 world_to_pixel = ResolveWorldToPixelMatrix(world, universe_camera);
     Vector2d *vertices = object->surface.surface_vectors.items;
     for (size_t index = 0; index < object->surface.surface_vectors.count; index++)
     {

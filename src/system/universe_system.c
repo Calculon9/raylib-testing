@@ -52,13 +52,6 @@ static bool Universe_ResolveClickHit(Vector2d click_universe_coords, bool *world
     return world_hit || root_entity_hit;
 }
 
-static Matrix3x3 BuildCameraToScreenMatrix(void)
-{
-    return MatrixMultiply_3x3_3x3(
-        game_viewport.tunnel.source_to_dest_mtx,
-        G_Universe.camera.tunnel.source_to_dest_mtx);
-}
-
 static void ApplyWorldDragTransform(World2d *world, Vector2d new_universe_origin)
 {
     if (!world)
@@ -139,14 +132,8 @@ InputRouteResult UpdateUniverseSystem(const InputFrame *input, InputRouteResult 
         return prior_result;
     }
 
-    int mouse_x = (int)input->pointer_position.x;
-    int mouse_y = (int)input->pointer_position.y;
-
-    Matrix3x3 root_world_to_pixel = BuildCameraToScreenMatrix();
-    bool cursor_in_game_viewport = mouse_x >= game_viewport.pixel_origin.x &&
-                                   mouse_x <= (game_viewport.pixel_origin.x + (game_viewport.pixel_u.x * game_viewport.resolution.x)) &&
-                                   mouse_y >= game_viewport.pixel_origin.y &&
-                                   mouse_y <= (game_viewport.pixel_origin.y + (game_viewport.pixel_v.y * game_viewport.resolution.y));
+    Matrix3x3 root_world_to_pixel = ResolveWorldToPixelMatrix(&G_Universe.root_world, &G_Universe.camera);
+    bool cursor_in_game_viewport = ViewportRegion_ContainsPixel(&game_viewport, input->pointer_position);
 
     if (!camera_diagnostic_printed)
     {
@@ -183,7 +170,7 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
         return;
     }
 
-    Matrix3x3 pixel_to_world = MatrixInvert_3x3(BuildCameraToScreenMatrix());
+    Matrix3x3 pixel_to_universe = ResolvePixelToWorldMatrix(&G_Universe.root_world, &G_Universe.camera);
     DragInteractionState *game_drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
     Vector2d mouse_pixel_coords = input->pointer_position;
 
@@ -229,7 +216,7 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
         // Check if drag threshold has been exceeded and apply updates if so
         if (!game_drag_ctx->has_capture)
         {
-            Vector2d click_universe_coords = TransformCoordinates(pixel_to_world, mouse_pixel_coords);
+            Vector2d click_universe_coords = TransformCoordinates(pixel_to_universe, mouse_pixel_coords);
             int world_index = Universe_FindWorldAt(&G_Universe, click_universe_coords);
             if (world_index >= 0)
             {
@@ -251,9 +238,9 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
                 return;
             }
 
-            Vector2d initial = TransformCoordinates(pixel_to_world, game_drag_ctx->pointer_state.initial_pos);
-            Vector2d current = TransformCoordinates(pixel_to_world, game_drag_ctx->pointer_state.current_pos);
-            Vector2d delta = VectorSum_2d(current, (Vector2d){-initial.x, -initial.y});
+            Vector2d initial = TransformCoordinates(pixel_to_universe, game_drag_ctx->pointer_state.initial_pos);
+            Vector2d current = TransformCoordinates(pixel_to_universe, game_drag_ctx->pointer_state.current_pos);
+        Vector2d delta = VectorDiff_2d(current, initial);
             ApplyWorldDragTransform(world, VectorSum_2d(game_drag_ctx->target_anchor, delta));
         }
     }
@@ -263,7 +250,7 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
                                                  INPUT_DRAG_THRESHOLD_PIXELS);
         if (was_click && cursor_in_game_viewport)
         {
-            Vector2d click_universe_coords = TransformCoordinates(pixel_to_world, mouse_pixel_coords);
+            Vector2d click_universe_coords = TransformCoordinates(pixel_to_universe, mouse_pixel_coords);
             bool world_hit = false;
             if (!Universe_ResolveClickHit(click_universe_coords, &world_hit))
             {
@@ -278,7 +265,7 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
     }
     else if (G_Universe.selected_world_index >= 0 && input->left_pressed && cursor_in_game_viewport)
     {
-        Vector2d click_universe_coords = TransformCoordinates(pixel_to_world, mouse_pixel_coords);
+        Vector2d click_universe_coords = TransformCoordinates(pixel_to_universe, mouse_pixel_coords);
         if (!Universe_ResolveClickHit(click_universe_coords, NULL))
         {
             G_Universe.selected_world_index = -1;
@@ -291,7 +278,7 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
 
 void DrawUniverse(void)
 {
-    Matrix3x3 camera_to_pixel = BuildCameraToScreenMatrix();
+    Matrix3x3 camera_to_pixel = ResolveWorldToPixelMatrix(&G_Universe.root_world, &G_Universe.camera);
     CameraViewBox camera_view = GetCameraView(&G_Universe.camera, game_viewport, camera_to_pixel);
     UniverseRenderer_Draw(&G_Universe, camera_view, camera_to_pixel);
 }

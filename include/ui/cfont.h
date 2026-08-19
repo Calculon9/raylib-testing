@@ -56,4 +56,23 @@ extern uint8_t bitmap_cross[8];
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 
+// Pixel width of a single glyph cell at the font's current scale.
+static inline int BitmapFont_GetGlyphCellWidth(const Bitmap_Font *font)
+{
+    return font ? 8 * font->scale : 0;
+}
+
+// Horizontal advance from one glyph origin to the next, including spacing.
+static inline int BitmapFont_GetGlyphAdvance(const Bitmap_Font *font)
+{
+    if (!font) return 0;
+    return (8 * font->scale) + (font->scale * (int)font->spacing);
+}
+
+// Pixel height of one text row for this font.
+static inline int BitmapFont_GetRowHeight(const Bitmap_Font *font)
+{
+    return font ? 8 * font->scale : 0;
+}
+
 #endif

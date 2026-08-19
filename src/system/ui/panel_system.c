@@ -376,6 +376,69 @@ void PanelSystem_ResetSpaceBasis(PanelSystem *panel)
     panel->basis_override_v = ZERO_VECTOR_2D;
 }
 
+PanelSystem *PanelSystem_CreateStandard(ViewportRegion *viewport, size_t view_count,
+                                        const char *selector_labels[], size_t selector_label_count,
+                                        ViewSelectionCallback selector_callback,
+                                        const UIPalette *palette, Spacing root_child_spacing)
+{
+    PanelSystem *panel = PanelSystem_Create(viewport, 1.0f, (Vector2d){0.1f, 0.1f},
+                                            palette, root_child_spacing);
+    if (!panel)
+    {
+        return NULL;
+    }
+
+    PanelSystem_InitViews(panel, view_count);
+    PanelSystem_InitRoot(panel);
+
+    if (selector_labels && selector_label_count > 0)
+    {
+        ViewSelector *selector = PanelSystem_CreateStandardViewSelector(
+            panel, selector_labels, selector_label_count, selector_callback);
+        PanelSystem_SelectView(selector, 0);
+    }
+
+    return panel;
+}
+
+UIElement *PanelSystem_CreateRootViewContainer(PanelSystem *panel, ViewType view_type, View *view_storage)
+{
+    if (!panel || !view_storage)
+    {
+        return NULL;
+    }
+
+    UIElement *container = CreateUIContainer(
+        panel->root, ui_fill_container_size,
+        (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ZERO_VECTOR_2D,
+        panel->palette, UI_PALETTE_SURFACE_TRANSPARENT,
+        ui_standard_stack_spacing, false, true);
+
+    PanelSystem_AddView(panel, view_storage, container, view_type);
+    return container;
+}
+
+ViewSelector *PanelSystem_CreateStandardViewSelector(PanelSystem *panel,
+                                                     const char *labels[], size_t count,
+                                                     ViewSelectionCallback callback)
+{
+    if (!panel || !labels || count == 0)
+    {
+        return NULL;
+    }
+
+    UIElement *toggle_cont = CreateUIContainer(
+        panel->root, ui_standard_selector_container_size,
+        (Offset){{0.0f, 0.0f}, OFFSET_FIXED}, ZERO_VECTOR_2D,
+        panel->palette, UI_PALETTE_SURFACE_TRANSPARENT,
+        ui_zero_inline_spacing, false, true);
+    toggle_cont->colour_border = panel->palette->container_border;
+
+    return PanelSystem_CreateViewSelector(
+        panel, toggle_cont, ui_standard_selector_button_size,
+        labels, count, callback);
+}
+
 void PanelSystem_Destroy(PanelSystem *panel)
 {
     if (!panel)

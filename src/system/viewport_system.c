@@ -177,6 +177,21 @@ void SetViewportPanelRatios(float left_panel_ratio, float right_panel_ratio)
     right_panel_ratio = right;
 }
 
+bool ViewportRegion_ContainsPixel(const ViewportRegion *region, Vector2d pixel_coords)
+{
+    if (!region)
+    {
+        return false;
+    }
+
+    // Resolve through the region tunnel so containment follows the active basis.
+    Vector2d local_coords = TransformCoordinates(region->tunnel.dest_to_source_mtx, pixel_coords);
+    return local_coords.x >= region->frame.local_min.x &&
+           local_coords.x <= region->frame.local_max.x &&
+           local_coords.y >= region->frame.local_min.y &&
+           local_coords.y <= region->frame.local_max.y;
+}
+
 bool SetViewportSpaceBasis(ViewportSpaceId space_id, Vector2d basis_u, Vector2d basis_v)
 {
     if (VectorMagnitude_2d(basis_u) < basis_min_magnitude ||

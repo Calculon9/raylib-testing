@@ -14,6 +14,22 @@ static Vector2d GetContentArea(Vector2d dimensions, Vector2d padding)
     return (Vector2d){content_w, content_h};
 }
 
+// Advance through the sibling list while ignoring disabled layout children.
+static UIElement *GetNextEnabledChild(UIElement *child)
+{
+    while (child && !child->is_enabled)
+    {
+        child = child->next_sibling;
+    }
+
+    return child;
+}
+
+#define ForEachEnabledChild(parent, child) \
+    for (UIElement *(child) = GetNextEnabledChild((parent) ? (parent)->first_child : NULL); \
+         (child) != NULL; \
+         (child) = GetNextEnabledChild((child)->next_sibling))
+
 static Vector2d MeasureElementContent(UIElement *element)
 {
     if (!element)
@@ -26,13 +42,8 @@ static Vector2d MeasureElementContent(UIElement *element)
     float spacing_y = element->child_spacing.spacing.y;
     int child_count = 0;
 
-    for (UIElement *child = element->first_child; child; child = child->next_sibling)
+    ForEachEnabledChild(element, child)
     {
-        if (!child->is_enabled)
-        {
-            continue;
-        }
-
         child->measured_content_size = MeasureElementContent(child);
 
         Vector2d child_size = child->size.dimensions;
@@ -108,6 +119,32 @@ static Vector2d ResolveSpacingStep(Spacing spacing, Vector2d content_area_local,
     return result; // If modes match, no conversion needed, just return the raw spacing
 }
 
+// Resolve the vertical size used while distributing a child within a parent.
+static float ResolveChildHeight(const UIElement *child, float content_area_h, float fill_height)
+{
+    if (!child)
+    {
+        return 0.0f;
+    }
+
+    if (child->size.size_mode == SIZE_FILL)
+    {
+        return fmaxf(0.0f, fill_height);
+    }
+
+    if (child->size.size_mode == SIZE_PERCENT)
+    {
+        return content_area_h * child->size.dimensions.y;
+    }
+
+    if (child->size.size_mode == SIZE_CONTENT_FILL)
+    {
+        return child->measured_content_size.y;
+    }
+
+    return child->size.dimensions.y;
+}
+
 static Vector2d ResolveChildSizeFixed(const UIElement *child, Vector2d content_area_local, float consumed_fixed_y)
 {
     if (!child)
@@ -132,7 +169,8 @@ static Vector2d ResolveChildSizeFixed(const UIElement *child, Vector2d content_a
         return (Vector2d){content_area_local.x, child->measured_content_size.y};
     }
 
-    return child->size.dimensions;
+    return (Vector2d){child->size.dimensions.x,
+                      ResolveChildHeight(child,content_area_local.y,content_area_local.y - consumed_fixed_y)};
 }
 
 typedef struct StackedLayoutStats
@@ -150,29 +188,16 @@ static StackedLayoutStats CollectStackedLayoutStats(const UIElement *parent, flo
         return stats;
     }
 
-    for (UIElement *child = parent->first_child; child; child = child->next_sibling)
+    ForEachEnabledChild(parent, child)
     {
-        if (!child->is_enabled)
-        {
-            continue;
-        }
-
         stats.child_count++;
         if (child->size.size_mode == SIZE_FILL)
         {
             stats.fill_count++;
         }
-        else if (child->size.size_mode == SIZE_PERCENT)
-        {
-            stats.occupied_height += content_area_h * child->size.dimensions.y;
-        }
-        else if (child->size.size_mode == SIZE_CONTENT_FILL)
-        {
-            stats.occupied_height += child->measured_content_size.y;
-        }
         else
         {
-            stats.occupied_height += child->size.dimensions.y;
+            stats.occupied_height += ResolveChildHeight(child, content_area_h, 0.0f);
         }
     }
 
@@ -194,7 +219,7 @@ static float ResolveStackedFillHeightPerChild(StackedLayoutStats stats, float co
 static void DistributeChildrenNormal(UIElement *parent, Vector2d spacing_step_fixed, Vector2d spacing_step_percent)
 {
     int child_count = 0;
-    for (UIElement *child = parent->first_child; child; child = child->next_sibling)
+    ForEachChild(parent, child)
     {
         Vector2d step = child->resolved_offset.offset_mode == OFFSET_PERCENT ? spacing_step_percent : spacing_step_fixed;
         Vector2d distributed = (Vector2d){step.x * child_count, step.y * child_count};
@@ -216,13 +241,8 @@ static void DistributeChildrenStacked(UIElement *parent, Vector2d content_area_l
     // PASS 2: Position elements using a single unified cursor
     float cursor_y = 0.0f;
 
-    for (UIElement *child = parent->first_child; child; child = child->next_sibling)
+    ForEachEnabledChild(parent, child)
     {
-        if (!child->is_enabled)
-        {
-            continue;
-        }
-
         // Preserve authored offset units per child when applying stacked cursor placement.
         if (child->resolved_offset.offset_mode == OFFSET_PERCENT)
         {
@@ -238,20 +258,13 @@ static void DistributeChildrenStacked(UIElement *parent, Vector2d content_area_l
                 child->authored_offset.offset.y + cursor_y};
         }
 
-        // Determine height consumed by this child
-        float child_h = 0.0f;
+        // Determine height consumed by this child.
+        float child_h = ResolveChildHeight(child, content_area_local.y, fill_height_per_child);
         if (child->size.size_mode == SIZE_FILL)
         {
-            child_h = fill_height_per_child;
             // Cache here so this child's own ResolveElementBox call doesn't rescan every sibling.
             child->cached_stacked_fill_height = fill_height_per_child;
         }
-        else if (child->size.size_mode == SIZE_PERCENT)
-            child_h = content_area_local.y * child->size.dimensions.y;
-        else if (child->size.size_mode == SIZE_CONTENT_FILL)
-            child_h = child->measured_content_size.y;
-        else
-            child_h = child->size.dimensions.y;
 
         // Advance single unified cursor
         cursor_y += child_h + spacing_step_fixed.y;
@@ -262,7 +275,7 @@ static void DistributeChildrenInline(UIElement *parent, Vector2d content_area_lo
 {
     float cursor_x = 0.0f;
 
-    for (UIElement *child = parent->first_child; child; child = child->next_sibling)
+    ForEachChild(parent, child)
     {
         if (child->resolved_offset.offset_mode == OFFSET_PERCENT)
         {
@@ -291,7 +304,7 @@ static void DistributeChildrenInlineWrap(UIElement *parent, Vector2d content_are
     float cursor_y = 0.0f;
     float row_height = 0.0f;
 
-    for (UIElement *child = parent->first_child; child; child = child->next_sibling)
+    ForEachChild(parent, child)
     {
         Vector2d child_size = ResolveChildSizeFixed(child, content_area_local, 0.0f);
         bool needs_wrap = cursor_x > 0.0f &&
@@ -330,13 +343,8 @@ static void DistributeChildrenStackedWrap(UIElement *parent, Vector2d content_ar
     float cursor_y = 0.0f;
     float column_width = 0.0f;
 
-    for (UIElement *child = parent->first_child; child; child = child->next_sibling)
+    ForEachEnabledChild(parent, child)
     {
-        if (!child->is_enabled)
-        {
-            continue;
-        }
-
         Vector2d child_size = ResolveChildSizeFixed(child, content_area_local, 0.0f);
         bool needs_wrap = cursor_y > 0.0f &&
                           cursor_y + spacing_step_fixed.y + child_size.y > content_area_local.y;
@@ -616,7 +624,7 @@ void UI_LayoutSubtree(UIElement *e, UIBox parent_box)
     }
 
     // 3. Recurse down into children
-    for (UIElement *child = e->first_child; child; child = child->next_sibling)
+    ForEachChild(e, child)
     {
         UI_LayoutSubtree(child, e->local_box);
     }
@@ -656,15 +664,13 @@ UIElement *GetElementAt(UIElement *e, Vector2d pixel_coords)
     // 2. Check children in REVERSE order (last sibling is usually drawn on top)
     // For simplicity here, we'll go first-to-last, but the top-most child wins
     UIElement *found = NULL;
-    UIElement *child = e->first_child;
-    while (child)
+    ForEachChild(e, child)
     {
         UIElement *clicked = GetElementAt(child, pixel_coords);
         if (clicked)
         {
             found = clicked; // Keep track of the most recent (top-most) match
         }
-        child = child->next_sibling;
     }
 
     // 3. If a child was clicked, return that. Otherwise, it's this element.

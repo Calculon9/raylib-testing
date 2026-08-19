@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include "math/cvectors.h"
 #include "common/common.h"
+#include "system/draw_primitives.h"
 #include "ui/text_region.h"
 #include "system/ui_system.h"
 #include "raylib.h"
@@ -115,10 +116,10 @@ int GetTextWidth(char *text, char font_spacing, char scale)
     {
         char_count--;
     }
-    // 8 pixels for the char + 1 pixel for spacing = 9 total per char
-    // Note: We subtract the very last spacing pixel for a perfect fit
-    // (8 pixels per char + x pixel spacing) * scale
-    int width = char_count * ((8 * scale) + (scale * font_spacing));
+    Bitmap_Font temp_font = {0};
+    temp_font.scale = scale;
+    temp_font.spacing = font_spacing;
+    int width = char_count * BitmapFont_GetGlyphAdvance(&temp_font);
     // int width = char_count * ((8 + font_spacing) * scale); (8 * scale) + (scale * font.spacing);
     //  int width = (char_count * (8 * scale));// + ((char_count - 1) * scale);
 
@@ -150,9 +151,8 @@ float DrawTextCustom(const char *text, Vector2d origin_coords, int scale, Bitmap
     {
         DrawChar(*text, char_coords, scale, font, colour);
 
-        // Move to the next character slot
-        // 8 pixels wide * scale + 1 pixel of "letter spacing"
-        char_coords.x += (8 * scale) + (scale * font.spacing); // - (scale * scale) + 1; // Subtracting "scale" removes embedded white-space in each character
+        // Move to the next character slot using the font's glyph advance.
+        char_coords.x += BitmapFont_GetGlyphAdvance(&font);
         text++;
     }
     return char_coords.x - (scale * font.spacing);
@@ -175,7 +175,7 @@ void DrawChar(char c, Vector2d origin_coords, int scale, Bitmap_Font font, Colou
             if (row_data & (0x80 >> cell_col))
             {
                 // If the bit is 1, draw a "pixel" scaled up
-                DrawRectangle(origin_coords.x + (cell_col * scale), origin_coords.y + (row * scale), scale, scale, (Color){colour.r, colour.g, colour.b, colour.a});
+                DrawRectangle(origin_coords.x + (cell_col * scale), origin_coords.y + (row * scale), scale, scale, ToRaylibColor(colour));
             }
         }
     }

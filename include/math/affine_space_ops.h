@@ -26,6 +26,7 @@ Vector2d Frame_GetBasisScaling(Basis2d source, Basis2d destination);
 void Frame_CentreBounds(Frame2d *frame, Vector2d local_point);
 Matrix3x3 MtxTransform_BuildLocalToParent(Vector2d origin_in_parent, float rotation_radians, Vector2d scale);
 Matrix3x3 MtxTransform_GetLocalToParent(Frame2d frame);
+Basis2d Basis_BuildFromRotationScale(float rotation_radians, Vector2d scale);
 Basis2d Basis_BuildLocalToParent(Vector2d origin_in_parent, float rotation_radians, Vector2d scale);
 Basis2d BasisTransform_CalcChainToAncestor_Basis(Basis2d source, Basis2d middle);
 // bool VectorIsInFrame_2d(Vector2d vector, const Frame2d *frame);

@@ -13,6 +13,7 @@
 #include "editor/geometry_editor.h"
 #include "system/command_queue.h"
 #include "system/ui_system.h"
+#include "system/viewport_system.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -23,6 +24,25 @@ static int initObjectCount = 4;
 //----------------------------------------------------------------------------------
 // Functions Definition
 //----------------------------------------------------------------------------------
+
+Matrix3x3 ResolveWorldToPixelMatrix(const World2d *world, const Camera2d *universe_camera)
+{
+    if (!world || !universe_camera)
+    {
+        return IDENTITY_MATRIX_3x3;
+    }
+
+    // Compose the viewport, camera, and supplied world-local transform.
+    Matrix3x3 camera_to_pixel = MatrixMultiply_3x3_3x3(
+        game_viewport.tunnel.source_to_dest_mtx,
+        universe_camera->tunnel.source_to_dest_mtx);
+    return MatrixMultiply_3x3_3x3(camera_to_pixel, world->tunnel.source_to_dest_mtx);
+}
+
+Matrix3x3 ResolvePixelToWorldMatrix(const World2d *world, const Camera2d *universe_camera)
+{
+    return MatrixInvert_3x3(ResolveWorldToPixelMatrix(world, universe_camera));
+}
 
 bool CreateWorld(GridSpace2d space_obj, float gravity, struct Universe *universe, World2d *out_world)
 {
@@ -459,15 +479,7 @@ Vector2d ResolvePixelToWorldFrame(const World2d *active_world, Vector2d pixel_co
         return ZERO_VECTOR_2D;
     }
 
-    Matrix3x3 game_viewport_inv_transform = game_viewport.tunnel.dest_to_source_mtx; // pixel to viewport
-    Matrix3x3 parent_inv_transform = G_Universe.camera.tunnel.dest_to_source_mtx;    // viewport to universe
-    Matrix3x3 child_inv_transform = active_world->tunnel.dest_to_source_mtx;         // universe to world-local
-
-    Vector2d viewport_coords = TransformCoordinates(game_viewport_inv_transform, pixel_coords);
-    Vector2d parent_coords = TransformCoordinates(parent_inv_transform, viewport_coords);
-    Vector2d child_coords = TransformCoordinates(child_inv_transform, parent_coords);
-
-    return child_coords;
+    return TransformCoordinates(ResolvePixelToWorldMatrix(active_world, &G_Universe.camera), pixel_coords);
     // LOG_INFO("ResolvePixelToWorldFrame: pixel_coords=(%.2f, %.2f) -> viewport_coords=(%.2f, %.2f) -> parent_coords=(%.2f, %.2f) -> child_coords=(%.2f, %.2f)\n",
     //          pixel_coords.x, pixel_coords.y,
     //          viewport_coords.x, viewport_coords.y,
@@ -639,10 +651,7 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
 
     UpdateWorldSimulation();
 
-    int mouse_x = (int)input->pointer_position.x;
-    int mouse_y = (int)input->pointer_position.y;
-
-    bool cursor_in_game_viewport = mouse_x >= game_viewport.pixel_origin.x && mouse_x <= (game_viewport.pixel_origin.x + (game_viewport.pixel_u.x * game_viewport.resolution.x)) && mouse_y >= game_viewport.pixel_origin.y && mouse_y <= (game_viewport.pixel_origin.y + (game_viewport.pixel_v.y * game_viewport.resolution.y));
+    bool cursor_in_game_viewport = ViewportRegion_ContainsPixel(&game_viewport, input->pointer_position);
 
     // Fall back to the universe's own root world so unworlded entities remain selectable/draggable.
     World2d *active_world = Universe_GetSelectedWorld(&G_Universe);
@@ -650,7 +659,7 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
     {
         active_world = &G_Universe.root_world;
     }
-    Vector2d click_pixel_coords = {mouse_x, mouse_y};
+    Vector2d click_pixel_coords = input->pointer_position;
     Vector2d click_world_coords = ResolvePixelToWorldFrame(active_world, click_pixel_coords);
     DragInteractionState *game_drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
 
@@ -713,7 +722,7 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
                     AppendLogLine(log, sizeof(log), &offset, " --> SELECTED ENTITY: NULL");
                 }
 
-                LOG_INFO("CLICKED (%d,%d) | %s\n", mouse_x, mouse_y, log);
+                LOG_INFO("CLICKED (%d,%d) | %s\n",(int)input->pointer_position.x,(int)input->pointer_position.y, log);
                 prior_result = p_closest ? INPUT_ROUTE_CAPTURED : INPUT_ROUTE_HANDLED;
             }
 
@@ -729,8 +738,8 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
                 }
                 World2d *source_world = Universe_GetWorld(&G_Universe, source_world_index);
 
-                Vector2d viewport_coords = TransformCoordinates(game_viewport.tunnel.dest_to_source_mtx, game_drag_ctx->pointer_state.current_pos);
-                Vector2d uni_coords = TransformCoordinates(G_Universe.camera.tunnel.dest_to_source_mtx, viewport_coords);
+                Matrix3x3 pixel_to_universe = ResolvePixelToWorldMatrix(&G_Universe.root_world, &G_Universe.camera);
+                Vector2d uni_coords = TransformCoordinates(pixel_to_universe, game_drag_ctx->pointer_state.current_pos);
 
                 int destination_world_index = Universe_FindWorldAt(&G_Universe, uni_coords);
                 if (destination_world_index < 0)
@@ -751,7 +760,7 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
                         Matrix2x2 previous_snapped_aabb_box = CalcAABBCoords_Tight(previous_snapped_aabb_verts, 4, ZERO_VECTOR_2D);
                         Vector2d initial_world_coords = ResolvePixelToWorldFrame(source_world, game_drag_ctx->pointer_state.initial_pos);
                         Vector2d current_world_coords = ResolvePixelToWorldFrame(source_world, game_drag_ctx->pointer_state.current_pos);
-                        Vector2d drag_delta_world = VectorSum_2d(current_world_coords, (Vector2d){-initial_world_coords.x, -initial_world_coords.y});
+                        Vector2d drag_delta_world = VectorDiff_2d(current_world_coords, initial_world_coords);
                         Vector2d new_center = VectorSum_2d(game_drag_ctx->target_anchor, drag_delta_world);
                         Space2d *space = &source_world->grid_space.space;
                         Vector2d min_bound = space->grid_origin;

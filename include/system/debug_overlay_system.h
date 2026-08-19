@@ -29,7 +29,7 @@ void UpdateDebugOverlayHotkeys(int screen_width,int screen_height, int screen_re
                                float *viewport_target_game_logical_height, int *viewport_ui_pixels_per_unit_override);
 
 // Draw overlays that depend on the universe/world transform chain.
-void DrawUniverseDebugOverlays(Matrix3x3 root_world_to_pixel_mtx);
+void DrawUniverseDebugOverlays(void);
 
 // Draw overlays that are global screen/viewport overlays.
 void DrawGlobalDebugOverlays(void);

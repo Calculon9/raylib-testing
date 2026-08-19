@@ -8,7 +8,7 @@ DRAW PRIMITIVES MODULE
 #include "raylib.h"
 #include "camera/camera.h"
 
-static Color ToRaylibColor(ColourRgba colour)
+Color ToRaylibColor(ColourRgba colour)
 {
     return (Color){colour.r, colour.g, colour.b, colour.a};
 }
@@ -27,15 +27,20 @@ static void TransformLineEndpoints(Vector2d start, Vector2d end, Matrix3x3 tfrm_
     }
 }
 
-void DrawTransformedLineV(Vector2d start, Vector2d end, Matrix3x3 tfrm_mtx, ColourRgba line_colour)
+void DrawTransformedLineEx(Vector2d start, Vector2d end, Matrix3x3 tfrm_mtx, float line_width, ColourRgba line_colour)
 {
     Vector2d line_pixel_origin = {0};
     Vector2d line_pixel_end = {0};
     TransformLineEndpoints(start, end, tfrm_mtx, &line_pixel_origin, &line_pixel_end);
 
-    DrawLineV((Vector2){line_pixel_origin.x, line_pixel_origin.y},
-              (Vector2){line_pixel_end.x, line_pixel_end.y},
-              ToRaylibColor(line_colour));
+    DrawLineEx((Vector2){line_pixel_origin.x, line_pixel_origin.y},
+               (Vector2){line_pixel_end.x, line_pixel_end.y},line_width,
+               ToRaylibColor(line_colour));
+}
+
+void DrawTransformedLineV(Vector2d start, Vector2d end, Matrix3x3 tfrm_mtx, ColourRgba line_colour)
+{
+    DrawTransformedLineEx(start, end, tfrm_mtx, 1.0f, line_colour);
 }
 
 void DrawTransformedArrowV(Vector2d start, Vector2d end, Matrix3x3 tfrm_mtx, ColourRgba line_colour)
@@ -45,7 +50,7 @@ void DrawTransformedArrowV(Vector2d start, Vector2d end, Matrix3x3 tfrm_mtx, Col
     TransformLineEndpoints(start, end, tfrm_mtx, &line_pixel_origin, &line_pixel_end);
 
     // Build the arrow geometry in screen space so it stays visible at any zoom.
-    Vector2d delta = VectorSum_2d(line_pixel_end, (Vector2d){-line_pixel_origin.x, -line_pixel_origin.y});
+    Vector2d delta = VectorDiff_2d(line_pixel_end, line_pixel_origin);
     float delta_length = VectorMagnitude_2d(delta);
     if (delta_length < 0.0001f)
     {

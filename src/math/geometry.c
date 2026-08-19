@@ -94,50 +94,60 @@ void CalcBoxVertices(Vector2d dimensions, Vector2d anchor_position, Vector2d *ou
     out_vertices[3] = (Vector2d){anchor_position.x - hx, anchor_position.y + hy}; // Bottom-Left
 }
 
-// Returns the boxed coords from a collection of vertice vectors with an offset applied to the vertices (e.g. to account for the position of the shape in world space, rather than just the local vertices)
-Matrix2x2 CalcAABBCoords_Tight(Vector2d *vertices, int vertice_count, Vector2d vertice_offset)
+// Computes the tight axis-aligned bounding box of a set of points.
+// Returns a zero box when there are fewer than 2 points.
+Matrix2x2 AABB2d_FromPoints(const Vector2d *points, int point_count)
 {
     Matrix2x2 box_coords = {0};
-    if (vertice_count < 2)
+    if (point_count < 2 || !points)
     {
         return box_coords;
     }
 
-    // Must initialise with one of the provided vertices rather than all 0s because 0 could be the largest or smallest value compared to the provided vertices
-    box_coords.col1 = VectorSum_2d(vertice_offset, vertices[0]);
-    box_coords.col2 = VectorSum_2d(vertice_offset, vertices[0]);
-    Vector2d vertice = {0};
-    for (size_t i = 1; i < vertice_count; i++)
+    // Initialise with the first point so the bounds are data-driven rather than
+    // defaulting to zero (which could be an unintentional extreme).
+    box_coords.col1 = points[0];
+    box_coords.col2 = points[0];
+    for (int i = 1; i < point_count; i++)
     {
-        vertice = VectorSum_2d(vertice_offset, vertices[i]);
+        Vector2d p = points[i];
 
-        box_coords.col1.x = fminf(box_coords.col1.x, vertice.x);
-        box_coords.col2.x = fmaxf(box_coords.col2.x, vertice.x);
+        if (p.x < box_coords.col1.x)
+            box_coords.col1.x = p.x;
+        if (p.x > box_coords.col2.x)
+            box_coords.col2.x = p.x;
 
-        box_coords.col1.y = fminf(box_coords.col1.y, vertice.y);
-        box_coords.col2.y = fmaxf(box_coords.col2.y, vertice.y);
+        if (p.y < box_coords.col1.y)
+            box_coords.col1.y = p.y;
+        if (p.y > box_coords.col2.y)
+            box_coords.col2.y = p.y;
     }
-    // if (vertices->count < 2)
-    // {
-    //     return box_coords;
-    // }
-    // Vector2d *pts = vertices->items;
-
-    // // Must initialise with one of the provided vertices rather than all 0s because 0 could be the largest or smallest value compared to the provided vertices
-    // box_coords.col1 = VectorSum_2d(vertice_offset, pts[0]);
-    // box_coords.col2 = VectorSum_2d(vertice_offset, pts[0]);
-    // Vector2d vertice = {0};
-    // for (size_t i = 1; i < vertices->count; i++)
-    // {
-    //     vertice = VectorSum_2d(vertice_offset, pts[i]);
-
-    //     box_coords.col1.x = fminf(box_coords.col1.x, vertice.x);
-    //     box_coords.col2.x = fmaxf(box_coords.col2.x, vertice.x);
-
-    //     box_coords.col1.y = fminf(box_coords.col1.y, vertice.y);
-    //     box_coords.col2.y = fmaxf(box_coords.col2.y, vertice.y);
-    // }
     return box_coords;
+}
+
+// Returns the boxed coords from a collection of vertice vectors with an offset applied to the vertices (e.g. to account for the position of the shape in world space, rather than just the local vertices)
+Matrix2x2 CalcAABBCoords_Tight(Vector2d *vertices, int vertice_count, Vector2d vertice_offset)
+{
+    if (vertice_count < 2 || !vertices)
+    {
+        return (Matrix2x2){0};
+    }
+
+    // Apply the per-vertex offset once, then use the shared point-set AABB helper.
+    Vector2d *offset_points = AllocateBytes((size_t)vertice_count * sizeof(Vector2d));
+    if (!offset_points)
+    {
+        return (Matrix2x2){0};
+    }
+
+    for (int i = 0; i < vertice_count; i++)
+    {
+        offset_points[i] = VectorSum_2d(vertice_offset, vertices[i]);
+    }
+
+    Matrix2x2 result = AABB2d_FromPoints(offset_points, vertice_count);
+    Deallocate((void **)&offset_points, (size_t)vertice_count * sizeof(Vector2d));
+    return result;
 }
 
 Vector2d CalcAABBDimensions(Vector2d *vertices, int vertice_count)

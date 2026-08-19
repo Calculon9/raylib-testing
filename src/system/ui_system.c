@@ -201,19 +201,6 @@ void UIPalette_GetSurfaceColours(const UIPalette *palette, UIPaletteSurface surf
 
 void UpdateGlobalUIState();
 
-static bool IsPointInViewportRegion(const ViewportRegion *region, int mouse_x, int mouse_y)
-{
-    if (!region)
-    {
-        return false;
-    }
-
-    return mouse_x >= region->pixel_origin.x &&
-           mouse_x <= (region->pixel_origin.x + (region->pixel_u.x * region->resolution.x)) &&
-           mouse_y >= region->pixel_origin.y &&
-           mouse_y <= (region->pixel_origin.y + (region->pixel_v.y * region->resolution.y));
-}
-
 static void ClearString64(String64 *value)
 {
     if (!value)
@@ -364,13 +351,13 @@ InputRouteResult UpdateUISystem(const InputFrame *input)
     int mouse_x = (int)input->pointer_position.x;
     int mouse_y = (int)input->pointer_position.y;
     UIElement *popup_root = GetPopupMenuRoot();
-    bool cursor_in_ui = IsPointInViewportRegion(&lpanel_viewport, mouse_x, mouse_y) ||
-                        IsPointInViewportRegion(&rpanel_viewport, mouse_x, mouse_y) ||
-                        IsPointInViewportRegion(&entity_panel_viewport, mouse_x, mouse_y) ||
-                        IsPointInViewportRegion(&utility_panel_viewport, mouse_x, mouse_y) ||
+    bool cursor_in_ui = ViewportRegion_ContainsPixel(&lpanel_viewport, input->pointer_position) ||
+                        ViewportRegion_ContainsPixel(&rpanel_viewport, input->pointer_position) ||
+                        ViewportRegion_ContainsPixel(&entity_panel_viewport, input->pointer_position) ||
+                        ViewportRegion_ContainsPixel(&utility_panel_viewport, input->pointer_position) ||
                         (IsPopupMenuVisible() && popup_root &&
                          IsMouseOverElement(popup_root, (Vector2d){(float)mouse_x, (float)mouse_y}));
-    bool cursor_in_game_viewport = IsPointInViewportRegion(&game_viewport, mouse_x, mouse_y);
+    bool cursor_in_game_viewport = ViewportRegion_ContainsPixel(&game_viewport, input->pointer_position);
 
     if (cursor_in_game_viewport && input->right_pressed)
     {

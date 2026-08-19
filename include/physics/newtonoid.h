@@ -191,6 +191,7 @@ void RebuildNewtonoidGeometry(Newtonoid2d *object);
 void SyncNewtonoidRotation(Newtonoid2d *object);
 void CalcVectors(Newtonoid2d *object, float deltaTime);
 Vector2d RotateVertex(Vector2d local_vertex, Vector2d local_axis);
+void Newtonoid_TransformVertices(const Newtonoid2d *object, Vector2d *out_world_vertices, int max_vertices);
 // Matrix2x2 FindBoxedCoords(DArray vertices);
 // Vector2d GetObjectCentre(Surface2d object_surface);
 

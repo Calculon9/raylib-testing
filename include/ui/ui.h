@@ -209,6 +209,24 @@ typedef struct UIElement
     UIElement *next_sibling;
 } UIElement;
 
+// Traverse a UI element's children in sibling order.
+#define ForEachChild(parent, child) \
+    for (UIElement *(child) = (parent) ? (parent)->first_child : NULL; \
+         (child) != NULL; \
+         (child) = (child)->next_sibling)
+
+// Returns true if the element is non-null and enabled.
+static inline bool UIElement_IsEnabled(const UIElement *e)
+{
+    return e != NULL && e->is_enabled;
+}
+
+// Returns true if the element is non-null, enabled, and has at least one child.
+static inline bool UIElement_HasEnabledChildren(const UIElement *e)
+{
+    return e != NULL && e->is_enabled && e->first_child != NULL;
+}
+
 typedef struct View
 {
     UIElement *container;

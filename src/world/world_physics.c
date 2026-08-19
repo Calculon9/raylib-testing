@@ -155,16 +155,8 @@ CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b)
         return result;
 
     // Transform vertices to world space once (cache for multiple axis tests)
-    for (size_t i = 0; i < a_count; i++)
-    {
-        a_world[i].x = (a_local[i].x * a->local_axis_x.x) + (a_local[i].y * a->local_axis_y.x) + a->anchor_position.x;
-        a_world[i].y = (a_local[i].x * a->local_axis_x.y) + (a_local[i].y * a->local_axis_y.y) + a->anchor_position.y;
-    }
-    for (size_t i = 0; i < b_count; i++)
-    {
-        b_world[i].x = (b_local[i].x * b->local_axis_x.x) + (b_local[i].y * b->local_axis_y.x) + b->anchor_position.x;
-        b_world[i].y = (b_local[i].x * b->local_axis_x.y) + (b_local[i].y * b->local_axis_y.y) + b->anchor_position.y;
-    }
+    Newtonoid_TransformVertices(a, a_world, MAX_SHAPE_VERTICES);
+    Newtonoid_TransformVertices(b, b_world, MAX_SHAPE_VERTICES);
 
     float min_overlap_u = INFINITY;
     Vector2d final_u_axis = {0};

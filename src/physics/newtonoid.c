@@ -7,6 +7,7 @@
 #include "common/common.h"
 #include "physics/newtonoid.h"
 #include "math/cvectors.h"
+#include "math/affine_space_ops.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -48,10 +49,9 @@ void SyncNewtonoidRotation(Newtonoid2d *object)
    }
 
    // Rebuild the local basis immediately after rotation changes, including while paused.
-   object->local_axis_x.x = cosf(object->rotation);
-   object->local_axis_x.y = sinf(object->rotation);
-   object->local_axis_y.x = -object->local_axis_x.y;
-   object->local_axis_y.y = object->local_axis_x.x;
+   Basis2d basis = Basis_BuildFromRotationScale(object->rotation, (Vector2d){1.0f, 1.0f});
+   object->local_axis_x = basis.u;
+   object->local_axis_y = basis.v;
 }
 
 static bool InitializeNewtonoid2d(Newtonoid2d *newtonoid, float mass,
@@ -137,47 +137,46 @@ void CreateNewtonoid2d_Out(float mass, Vector2d anchor_position, Vector2d veloci
    InitializeNewtonoid2d(out_newtonoid, mass, anchor_position, velocity, acceleration, surface);
 }
 
-// Creates an immobile, massless NewtonObject at the assigned world_position
-Newtonoid2d CreateNewtonoid2d_Static(Vector2d anchor_position, Surface2d surface)
+// Builds surface vertices from shape parameters and creates a coloured Newtonoid.
+static Newtonoid2d CreateNewtonoid2d_FromShape(ShapeBuildType build_type, int vertice_count,
+                                                float min_radius, float max_radius,
+                                                ColourRgba colour, float mass,
+                                                Vector2d anchor_position, Vector2d velocity,
+                                                Vector2d acceleration)
 {
-   Newtonoid2d newtOb = {0};
-   if (!ValidateNewtonoidSurface(surface) ||
-       !InitializeNewtonoid2d(&newtOb, 0.0f, anchor_position, ZERO_VECTOR_2D, ZERO_VECTOR_2D, surface))
+   Surface2d surface = {0};
+   if (build_type == SHAPE_BUILD_IRREGULAR)
    {
-      return newtOb;
+      surface.surface_vectors = CreateVertices_Irregular(vertice_count, min_radius, max_radius);
+   }
+   else
+   {
+      surface.surface_vectors = CreateVertices_Symmetric(vertice_count, max_radius, max_radius);
    }
 
+   Newtonoid2d newtOb = CreateNewtonoid2d(mass, anchor_position, velocity, acceleration, surface);
+   newtOb.line_colour = colour;
+   newtOb.fill_colour = colour;
+   newtOb.radius = max_radius;
    return newtOb;
+}
+
+// Static bodies are simply Newtonoids with zero mass and no motion.
+Newtonoid2d CreateNewtonoid2d_Static(Vector2d anchor_position, Surface2d surface)
+{
+   return CreateNewtonoid2d(0.0f, anchor_position, ZERO_VECTOR_2D, ZERO_VECTOR_2D, surface);
 }
 
 Newtonoid2d CreateNewtonoid2d_Symmetric(int vertice_count, float radius, ColourRgba colour, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration)
 {
-   Surface2d surface = {0};
-   LArray surface_vectors = CreateVertices_Symmetric(vertice_count, radius, radius);
-   surface.surface_vectors = surface_vectors;
-   Newtonoid2d newtOb = CreateNewtonoid2d(mass, anchor_position, velocity, acceleration, surface);
-
-   // Initialize the NewtonObject2d properties here (e.g., set position, velocity, etc.)
-   newtOb.radius = radius;
-   newtOb.line_colour = colour;
-   newtOb.fill_colour = colour;
-
-   return newtOb;
+   return CreateNewtonoid2d_FromShape(SHAPE_BUILD_REGULAR, vertice_count, radius, radius,
+                                       colour, mass, anchor_position, velocity, acceleration);
 }
 
 Newtonoid2d CreateNewtonoid2d_Irregular(int vertice_count, float min_radius, float max_radius, ColourRgba colour, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration)
 {
-   Surface2d surface = {0};
-   LArray surface_vectors = CreateVertices_Irregular(vertice_count, min_radius, max_radius);
-   surface.surface_vectors = surface_vectors;
-   Newtonoid2d newtOb = CreateNewtonoid2d(mass, anchor_position, velocity, acceleration, surface);
-
-   // Initialize the NewtonObject2d properties here (e.g., set position, velocity, etc.)
-   newtOb.line_colour = colour;
-   newtOb.fill_colour = colour;
-   newtOb.radius = max_radius;
-
-   return newtOb;
+   return CreateNewtonoid2d_FromShape(SHAPE_BUILD_IRREGULAR, vertice_count, min_radius, max_radius,
+                                       colour, mass, anchor_position, velocity, acceleration);
 }
 
 void CalcVectors(Newtonoid2d *object, float deltaTime)
@@ -282,6 +281,31 @@ Vector2d RotateVertex(Vector2d local_vertex, Vector2d local_axis)
    rotated.x = local_vertex.x * local_axis.x - local_vertex.y * local_axis.y;
    rotated.y = local_vertex.x * local_axis.y + local_vertex.y * local_axis.x;
    return rotated;
+}
+
+// Transforms the object's local surface vertices into its local space using its
+// cached rotation basis and anchor position. Writes at most max_vertices entries.
+void Newtonoid_TransformVertices(const Newtonoid2d *object, Vector2d *out_world_vertices, int max_vertices)
+{
+   if (!object || !out_world_vertices || max_vertices <= 0)
+   {
+      return;
+   }
+
+   Vector2d *local = (Vector2d *)object->surface.surface_vectors.items;
+   int count = (int)object->surface.surface_vectors.count;
+   if (count > max_vertices)
+   {
+      count = max_vertices;
+   }
+
+   for (int i = 0; i < count; i++)
+   {
+      Vector2d rotated_x = VectorScale_2d(object->local_axis_x, local[i].x);
+      Vector2d rotated_y = VectorScale_2d(object->local_axis_y, local[i].y);
+      Vector2d rotated = VectorSum_2d(rotated_x, rotated_y);
+      out_world_vertices[i] = VectorSum_2d(object->anchor_position, rotated);
+   }
 }
 
 // Vector2d CalculateCenterRelativeToOrigin_Fast(NewtonObject2d *object)

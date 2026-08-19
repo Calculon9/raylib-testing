@@ -9,31 +9,19 @@
 
 //----------------------------------------------------------------------------------
 // Global Variables Definition (local to this module)
-bool GrowLinearArray(LArray *da);
+//----------------------------------------------------------------------------------
 
 // Create a new linear array with specified element size and count, returns a LArray pointer (you must dispose BOTH the array struct AND the internal buffer holding the elements)
 LArray *AllocLArray(int elem_count, size_t elem_bytes)
 {
-    // Allocate memory for the DynamicArray struct itself
     LArray *a = AllocateBytes(sizeof(LArray));
-
     if (a == NULL)
     {
         fprintf(stderr, "Failed to allocate memory for Linear Array!\n");
         return NULL;
     }
 
-    a->elem_bytes = elem_bytes;
-    a->capacity = elem_count;
-    a->count = 0;
-    // a->enumeratorIndex = 0;
-    // a->enumerationCount = 0;
-    a->items = Collection_AllocItemsBuffer(elem_count, elem_bytes, "Linear Array");
-
-    if (a->items == NULL)
-    {
-        a->capacity = 0;
-    }
+    *a = MakeLArray(elem_count, elem_bytes);
     return a;
 }
 
@@ -44,19 +32,16 @@ LArray MakeLArray(int elem_count, size_t elem_bytes)
     a.elem_bytes = elem_bytes;
     a.capacity = elem_count;
     a.count = 0;
-    // a.enumeratorIndex = 0;
-    // a.enumerationCount = 0;
     a.items = Collection_AllocItemsBuffer(elem_count, elem_bytes, "Linear Array");
 
-    // Simple safety check
     if (a.items == NULL)
     {
-        a.capacity = 0; // Ensure nothing can be pushed
+        a.capacity = 0;
     }
     return a;
 }
 
-// Provide the address of the DynamicArray and the address of the item to push.
+// Provide the address of the LinearArray and the address of the item to push.
 bool LArray_Push(LArray *a, void *item)
 {
     if (a == NULL || item == NULL)
@@ -65,17 +50,15 @@ bool LArray_Push(LArray *a, void *item)
         return false;
     }
 
-    // Check for growth FIRST
     if (a->count >= a->capacity)
     {
-        if (!GrowLinearArray(a))
+        if (!Collection_GrowBuffer(&a->items, &a->capacity, a->elem_bytes))
         {
             fprintf(stderr, "Failed to grow array!\n");
             return false;
         }
     }
 
-    // Calcuate the target address using the ACTUAL live data
     void *target = (char *)a->items + (a->count * a->elem_bytes);
     MemoryCopy(target, item, a->elem_bytes);
     a->count++;
@@ -88,10 +71,8 @@ void *LArray_Pop(LArray *a, void *out_item)
     if (a == NULL || a->count == 0)
         return NULL;
 
-    // Calcuate the address using the current FRONT index
     void *source = (char *)a->items + ((a->count - 1) * a->elem_bytes);
 
-    // Copy the data out for the user
     if (out_item != NULL)
     {
         MemoryCopy(out_item, source, a->elem_bytes);
@@ -101,7 +82,7 @@ void *LArray_Pop(LArray *a, void *out_item)
     return source;
 }
 
-// Increase the capacity of the array by a specified factor (e.g., double the capacity)
+// Increase the capacity of the array by the shared growth factor.
 bool GrowLinearArray(LArray *a)
 {
     if (a == NULL)
@@ -111,27 +92,14 @@ bool GrowLinearArray(LArray *a)
         fprintf(stderr, "Invalid element size %zu in GrowLinearArray! Must be greater than 0.\n", a->elem_bytes);
         return false;
     }
-    int new_capacity = Collection_CalcGrowthCapacity(a->capacity);
-    size_t old_bytes = (size_t)a->capacity * a->elem_bytes;
-    size_t new_bytes = (size_t)new_capacity * a->elem_bytes;
 
-    void *new_items = ReallocateBytes(a->items, old_bytes, new_bytes);
-    if (new_items == NULL)
+    if (!Collection_GrowBuffer(&a->items, &a->capacity, a->elem_bytes))
     {
-        fprintf(stderr, "Failed to grow array to new capacity %d!\n", new_capacity);
         return false;
     }
 
-    if (new_capacity > a->capacity)
-    {
-        MemorySet((char *)new_items + old_bytes, 0, new_bytes - old_bytes);
-    }
-
-    a->items = new_items;
-    a->capacity = new_capacity;
-
+    LOG_INFO("Linear Array grown to new capacity %d\n", a->capacity);
     return true;
-    LOG_INFO("Linear Array grown to new capacity %d\n", new_capacity);
 }
 
 void *LArray_Get(LArray *a, int index)
@@ -147,20 +115,14 @@ void *LArray_Get(LArray *a, int index)
         return NULL;
     }
 
-    // Calcuate the address using the current FRONT index and the requested index
-    void *source = (char *)a->items + (index * a->elem_bytes);
-
-    return source;
+    return (char *)a->items + (index * a->elem_bytes);
 }
 
 void *LArray_GetCircular(LArray *a, int *index_tracker)
 {
     if (a == NULL || a->count == 0 || index_tracker == NULL) return NULL;
 
-    // Get the current item using the tracker passed in
     void *item = (char *)a->items + ((*index_tracker) * a->elem_bytes);
-
-    // Advance and wrap the external tracker safely
     *index_tracker = (*index_tracker + 1) % a->count;
 
     return item;
@@ -179,10 +141,8 @@ bool LArray_RemoveAt(LArray *a, int index)
         return false;
     }
 
-    // Calcuate the address of the item to remove
     void *target = (char *)a->items + (index * a->elem_bytes);
 
-    // If it's not the last element, compact the array forward to fill the void gap
     if (index < a->count - 1)
     {
         void *next_element = (char *)target + a->elem_bytes;
@@ -207,10 +167,8 @@ bool LArray_SwapPopAt(LArray *a, int index)
         return false;
     }
 
-    // Calcuate the address of the item to remove
     void *target = (char *)a->items + (index * a->elem_bytes);
 
-    // If it's not the last element, move the last element to where the removed element was
     if (index < a->count - 1)
     {
         void *last_element = (char *)a->items + (a->count - 1) * a->elem_bytes;
@@ -228,14 +186,9 @@ void *LArray_CircularEnumerate(LArray *a)
         return NULL;
     }
 
-    // Calculate the address of the CURRENT item first
     void *item = (char *)a->items + (a->enumerator_index * a->elem_bytes);
-
-    // Advance the index, wrapping smoothly back to 0 if we hit the end
-    // Formula: (current_index + 1) % total_count
     a->enumerator_index = (a->enumerator_index + 1) % a->count;
 
-    // eturn the item (this will never be NULL if the array has items)
     return item;
 }
 
@@ -245,13 +198,7 @@ void DisposeLArray(LArray *a)
     if (a == NULL)
         return;
 
-    if (a->items != NULL)
-    {
-        Deallocate(&a->items, a->capacity * a->elem_bytes);
-        a->items = NULL;
-    }
-    a->count = 0;
-    a->capacity = 0;
+    Collection_ClearItems(&a->items, &a->count, &a->capacity, a->elem_bytes);
 
     Deallocate((void **)&a, sizeof(LArray));
 }
@@ -262,13 +209,7 @@ void ClearLArray(LArray *a)
     if (a == NULL)
         return;
 
-    if (a->items != NULL)
-    {
-        Deallocate(&a->items, a->capacity * a->elem_bytes);
-        a->items = NULL;
-    }
-    a->count = 0;
-    a->capacity = 0;
+    Collection_ClearItems(&a->items, &a->count, &a->capacity, a->elem_bytes);
 }
 
 bool LArray_ResizeAndReset(LArray *a, int new_capacity)
@@ -280,9 +221,8 @@ bool LArray_ResizeAndReset(LArray *a, int new_capacity)
     }
 
     size_t new_bytes = (size_t)new_capacity * a->elem_bytes;
-
-    // Reallocate safely using a temporary pointer
     size_t old_bytes = (size_t)a->capacity * a->elem_bytes;
+
     void *temp_items = ReallocateBytes(a->items, old_bytes, new_bytes);
     if (temp_items == NULL && new_bytes > 0)
     {
@@ -290,32 +230,15 @@ bool LArray_ResizeAndReset(LArray *a, int new_capacity)
         return false;
     }
 
-    // Assign the newly allocated/resized block
     a->items = temp_items;
 
-    // Reset the resized storage without passing a null pointer to memset.
     if (new_bytes > 0)
     {
         MemorySet(a->items, 0, new_bytes);
     }
-    // if (new_capacity > a->capacity)
-    // {
-    //     // Get a pointer to where the old data ends and the new memory begins
-    //     unsigned char *new_memory_start = (unsigned char *)a->items + old_bytes;
-    //     size_t extra_bytes = new_bytes - old_bytes;
 
-    //     // Zero out just the brand-new segment
-    //     memset(new_memory_start, 0, extra_bytes);
-    // }
-
-    // Update the capacity tracking
     a->capacity = new_capacity;
     a->count = 0;
-    // If we SHRUNK the array, clamp the item count so it doesn't overflow bounds
-    // if (a->count > new_capacity)
-    // {
-    //     a->count = new_capacity;
-    // }
 
     return true;
 }
@@ -332,13 +255,11 @@ bool LArray_Reset(LArray *a)
 
     if (bytes == 0)
     {
-        fprintf(stderr, "The provided Linear Array has a capacity of %d and element size of %d. Cannot reset.\n", a->capacity, a->elem_bytes);
+        fprintf(stderr, "The provided Linear Array has a capacity of %d and element size of %zu. Cannot reset.\n", a->capacity, a->elem_bytes);
         return false;
     }
 
     MemorySet(a->items, 0, bytes);
-
-    // Update the capacity tracking
     a->count = 0;
 
     return true;

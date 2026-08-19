@@ -5,6 +5,7 @@
  **********************************************************************************************/
 #include "common/common.h"
 #include "camera/camera.h"
+#include "math/affine_space_ops.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -171,11 +172,9 @@ void Controller_Pan(CameraController *cam_ctrl, Vector2d delta, float frame_time
         return;
 
     // Rotate the screen-space pan_delta into world-space movement
-    float cos_c = cosf(cam_ctrl->camera->rotation);
-    float sin_c = sinf(cam_ctrl->camera->rotation);
-
-    float world_dx = delta.x * cos_c - delta.y * sin_c;
-    float world_dy = delta.x * sin_c + delta.y * cos_c;
+    Basis2d basis = Basis_BuildFromRotationScale(cam_ctrl->camera->rotation, (Vector2d){1.0f, 1.0f});
+    float world_dx = delta.x * basis.u.x - delta.y * basis.u.y;
+    float world_dy = delta.x * basis.v.x - delta.y * basis.v.y;
 
     // Apply the rotated delta
     cam_ctrl->target_source_focus_coords.x += world_dx * frame_time;
@@ -253,32 +252,23 @@ void UpdateCameraFull(Camera2d *cam)
         return;
 
     // Establish frame metrics cleanly. Keep zoom proportional.
-    float cos_r = cosf(cam->rotation);
-    float sin_r = sinf(cam->rotation);
-    float scale = cam->zoom;
+    Basis2d basis = Basis_BuildFromRotationScale(cam->rotation, (Vector2d){cam->zoom, cam->zoom});
 
     // Sync the gameplay tracking variables straight into the source frame struct
     cam->tunnel.source_frame->origin_in_parent = cam->source_focus_coords;
-    cam->tunnel.source_frame->basis.u = (Vector2d){cos_r * scale, sin_r * scale};
-    cam->tunnel.source_frame->basis.v = (Vector2d){-sin_r * scale, cos_r * scale};
+    cam->tunnel.source_frame->basis = basis;
 
     // Build the Camera View Space Transform Matrix manually
     // This shifts world points so that target_focus coordinates land exactly at (0,0)
     Matrix3x3 M_cam_view;
 
-    // X Basis Column (Rotation + Scale)
-    M_cam_view.col1.x = cos_r * scale;
-    M_cam_view.col1.y = sin_r * scale;
-    M_cam_view.col1.z = 0.0f;
+    // X/Y Basis Columns (Rotation + Scale)
+    M_cam_view.col1 = (Vector3d){basis.u.x, basis.u.y, 0.0f};
+    M_cam_view.col2 = (Vector3d){basis.v.x, basis.v.y, 0.0f};
 
-    // Y Basis Column (Rotation + Scale)
-    M_cam_view.col2.x = -sin_r * scale;
-    M_cam_view.col2.y = cos_r * scale;
-    M_cam_view.col2.z = 0.0f;
-
-    // Translation Column (Inverse translation to focus point, scaled)
-    M_cam_view.col3.x = (-cam->source_focus_coords.x * cos_r + cam->source_focus_coords.y * sin_r) * scale;
-    M_cam_view.col3.y = (-cam->source_focus_coords.x * sin_r - cam->source_focus_coords.y * cos_r) * scale;
+    // Translation Column (inverse focus translation projected onto the basis)
+    M_cam_view.col3.x = -cam->source_focus_coords.x * basis.u.x - cam->source_focus_coords.y * basis.v.x;
+    M_cam_view.col3.y = -cam->source_focus_coords.x * basis.u.y - cam->source_focus_coords.y * basis.v.y;
     M_cam_view.col3.z = 1.0f;
 
     // Build Viewport Center Matrix

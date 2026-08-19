@@ -131,4 +131,20 @@ void PanelSystem_ResetSpaceBasis(PanelSystem *panel);
 // Destroy panel system and free resources
 void PanelSystem_Destroy(PanelSystem *panel);
 
+// Standard panel initialisation: create, init views array, init root, and
+// optionally create + select a view-selector with the supplied labels.
+PanelSystem *PanelSystem_CreateStandard(ViewportRegion *viewport, size_t view_count,
+                                        const char *selector_labels[], size_t selector_label_count,
+                                        ViewSelectionCallback selector_callback,
+                                        const UIPalette *palette, Spacing root_child_spacing);
+
+// Create the panel's top-level view container (transparent fill, zero offset,
+// standard stack spacing, not draggable, enabled).
+UIElement *PanelSystem_CreateRootViewContainer(PanelSystem *panel, ViewType view_type, View *view_storage);
+
+// Create a toggle bar container at the top of the panel and a view selector.
+ViewSelector *PanelSystem_CreateStandardViewSelector(PanelSystem *panel,
+                                                     const char *labels[], size_t count,
+                                                     ViewSelectionCallback callback);
+
 #endif // PANEL_SYSTEM_H

@@ -80,16 +80,6 @@ Matrix3x3 MtxTransform_GetLocalToParent(Frame2d frame)
     };
 }
 
-Matrix3x3 BasisTransform_GetLocalToParent(Frame2d frame)
-{
-    // The child's basis vectors and origin are in the parent's (destination) space. We just pack them directly.
-    return (Matrix3x3){
-        .col1 = {frame.basis.u.x, frame.basis.u.y, 0.0f},
-        .col2 = {frame.basis.v.x, frame.basis.v.y, 0.0f},
-        .col3 = {frame.origin_in_parent.x, frame.origin_in_parent.y, 1.0f},
-    };
-}
-
 // Every object in your hierarchy needs a matrix that describes its position, rotation, and scale relative to its immediate parent.
 Matrix3x3 MtxTransform_BuildLocalToParent(Vector2d origin_in_parent, float rotation_radians, Vector2d scale)
 {
@@ -104,16 +94,24 @@ Matrix3x3 MtxTransform_BuildLocalToParent(Vector2d origin_in_parent, float rotat
     return MtxTransform_GetLocalToParent(object_frame);
 }
 
-// Every object in your hierarchy needs a matrix that describes its position, rotation, and scale relative to its immediate parent.
-Basis2d Basis_BuildLocalToParent(Vector2d origin_in_parent, float rotation_radians, Vector2d scale)
+// Shared basis construction: builds the local u/v axes from a rotation angle and
+// non-uniform scale. All rotation-derived basis code routes through this helper.
+Basis2d Basis_BuildFromRotationScale(float rotation_radians, Vector2d scale)
 {
-    // Compute local basis vectors using rotation and scale
     float cos_r = cosf(rotation_radians);
     float sin_r = sinf(rotation_radians);
 
     return (Basis2d){
         .u = {cos_r * scale.x, sin_r * scale.x},
         .v = {-sin_r * scale.y, cos_r * scale.y}};
+}
+
+// Every object in your hierarchy needs a matrix that describes its position, rotation, and scale relative to its immediate parent.
+Basis2d Basis_BuildLocalToParent(Vector2d origin_in_parent, float rotation_radians, Vector2d scale)
+{
+    // Origin belongs to the frame, not the basis; reuse the shared rotation/scale builder.
+    (void)origin_in_parent;
+    return Basis_BuildFromRotationScale(rotation_radians, scale);
 }
 
 // Assumes both frames are in the same parent space. This is a common case for sibling objects in a hierarchy.
@@ -217,15 +215,8 @@ Matrix2x2 Frame_CalcAABB_Local(const Frame2d *frame)
     if (!frame)
         return INFINITY_MATRIX_2x2;
 
-    Vector2d extent = Frame_CalcExtent_Local(frame);
-    Matrix2x2 aabb_box = {0};
-    aabb_box.col1.x = fminf(frame->local_min.x, frame->local_max.x);
-    aabb_box.col2.x = fmaxf(frame->local_min.x, frame->local_max.x);
-
-    aabb_box.col1.y = fminf(frame->local_min.y, frame->local_max.y);
-    aabb_box.col2.y = fmaxf(frame->local_min.y, frame->local_max.y);
-
-    return aabb_box;
+    Vector2d corners[2] = {frame->local_min, frame->local_max};
+    return AABB2d_FromPoints(corners, 2);
 }
 
 Vector2d Frame_CalcTopLeft_InParent(const Frame2d *frame)
@@ -272,33 +263,15 @@ Matrix2x2 Frame_CalcAABB_InParent(const Frame2d *frame)
         {frame->local_max.x, frame->local_max.y}  // Top-Right
     };
 
-    // Transform the first corner to parent space to initialize our min/max bounds
-    Vector2d p0 = Frame_TransformPoint_ToParent(local_corners[0], frame);
-    Vector2d p_min = p0;
-    Vector2d p_max = p0;
-
-    // Transform the remaining 3 corners and expand the bounds
-    for (int i = 1; i < 4; i++)
+    // Transform all corners to parent space, then let the shared AABB helper
+    // compute the tight bounds instead of duplicating the min/max expansion loop.
+    Vector2d transformed_corners[4];
+    for (int i = 0; i < 4; i++)
     {
-        Vector2d p = Frame_TransformPoint_ToParent(local_corners[i], frame);
-
-        if (p.x < p_min.x)
-            p_min.x = p.x;
-        if (p.y < p_min.y)
-            p_min.y = p.y;
-
-        if (p.x > p_max.x)
-            p_max.x = p.x;
-        if (p.y > p_max.y)
-            p_max.y = p.y;
+        transformed_corners[i] = Frame_TransformPoint_ToParent(local_corners[i], frame);
     }
 
-    // Pack the absolute min and max coordinates into your Matrix2x2
-    Matrix2x2 aabb;
-    aabb.col1 = p_min; // Column 1 holds the absolute Bottom-Left point (min)
-    aabb.col2 = p_max; // Column 2 holds the absolute Top-Right point (max)
-
-    return aabb;
+    return AABB2d_FromPoints(transformed_corners, 4);
 }
 
 bool Frame_ContainsPoint_InParent(Vector2d parent_point, const Frame2d *frame)

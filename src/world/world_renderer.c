@@ -12,6 +12,7 @@
 #include "system/debug_overlay_system.h"
 #include "system/systems.h"
 #include "world/world.h"
+#include "world/world_internal.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -26,11 +27,6 @@ void DrawRotatedObjectVertices(Vector2d *local_vertices, int vertices_count, Vec
                                Matrix3x3 space_to_pixel_mtx, ColourRgba line_colour,
                                ColourRgba fill_colour);
 void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 space_to_pixel_mtx);
-
-static Color ToRaylibColor(ColourRgba colour)
-{
-    return (Color){colour.r, colour.g, colour.b, colour.a};
-}
 
 static void DrawNewtonoidAxes(const Newtonoid2d *newtonoid, Matrix3x3 space_to_pixel_mtx)
 {
@@ -53,10 +49,7 @@ static void DrawNewtonoidAxes(const Newtonoid2d *newtonoid, Matrix3x3 space_to_p
 
 void DrawWorldRegion(World2d *world, Camera2d *universe_camera)
 {
-    Matrix3x3 world_to_game_viewport_mtx = MatrixMultiply_3x3_3x3(universe_camera->tunnel.source_to_dest_mtx,
-                                                                  world->tunnel.source_to_dest_mtx);
-    Matrix3x3 world_to_pixel_mtx = MatrixMultiply_3x3_3x3(game_viewport.tunnel.source_to_dest_mtx,
-                                                          world_to_game_viewport_mtx);
+    Matrix3x3 world_to_pixel_mtx = ResolveWorldToPixelMatrix(world, universe_camera);
 
     DrawGridSpace(&world->grid_space, world_to_pixel_mtx);
     DrawNewtonoids(&world->objects, world_to_pixel_mtx);
@@ -88,7 +81,7 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
 
     ColourRgba colour_fill = grid_space->colour_fill;
     ColourRgba colour_line = grid_space->colour_line;
-    Color fill = (Color){colour_fill.r, colour_fill.g, colour_fill.b, colour_fill.a};
+    Color fill = ToRaylibColor(colour_fill);
     DrawTriangle((Vector2){corner_pixel_2.x, corner_pixel_2.y},
                  (Vector2){corner_pixel_1.x, corner_pixel_1.y},
                  (Vector2){corner_pixel_0.x, corner_pixel_0.y},
