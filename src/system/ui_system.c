@@ -400,10 +400,6 @@ void DrawUI()
     DrawPopupMenu();
 }
 
-void UpdateUILogicalSpace()
-{
-}
-
 void UpdateUISpace(UIElement *root_element, UIBox seed_box)
 {
     if (!root_element)
@@ -416,29 +412,6 @@ void UpdateUISpace(UIElement *root_element, UIBox seed_box)
 
 void UpdateGlobalUIState()
 {
-    UIElement *state_boxes[] = {
-        G_UIState.state_id_tbox,
-        G_UIState.state_mass_tbox,
-        G_UIState.state_pos_tl_tbox,
-        G_UIState.state_pos_c_tbox,
-        G_UIState.state_vel_tbox,
-        G_UIState.state_accel_tbox,
-        G_UIState.state_moment_tbox,
-    };
-
-    UIElement *edit_boxes[] = {
-        G_UIState.edit_vertice_count_tbox,
-        G_UIState.edit_width_tbox,
-        G_UIState.edit_height_tbox,
-        G_UIState.edit_mass_tbox,
-        G_UIState.edit_pos_c_tbox,
-        G_UIState.edit_vel_tbox,
-        G_UIState.edit_accel_tbox,
-        G_UIState.edit_moment_tbox,
-    };
-    size_t state_box_count = ARRAY_COUNT(state_boxes);
-    size_t edit_box_count = ARRAY_COUNT(edit_boxes);
-
     // UPDATE STATISTICS
     float fps = frame_counter.fps;
     float ftime = frame_counter.delta_time * 1000;
@@ -468,31 +441,29 @@ void UpdateGlobalUIState()
     Newtonoid2d *obj = UIState_GetSelectedObject();
     if (obj)
     {
-        // Bind selected_object data to the Object Properties TextBoxes
-        void *state_bindings[] = {
-            &obj->id,
-            &obj->mass,
-            &obj->bounds_origin,
-            &obj->anchor_position,
-            &obj->velocity,
-            &obj->acceleration,
-            &obj->momentum,
+        TextboxField state_fields[] = {
+            {G_UIState.state_id_tbox, INT, &obj->id, 0, NULL},
+            {G_UIState.state_mass_tbox, FLOAT, &obj->mass, 2, NULL},
+            {G_UIState.state_pos_tl_tbox, VECTOR2D, &obj->bounds_origin, 0, NULL},
+            {G_UIState.state_pos_c_tbox, VECTOR2D, &obj->anchor_position, 0, NULL},
+            {G_UIState.state_vel_tbox, VECTOR2D, &obj->velocity, 0, NULL},
+            {G_UIState.state_accel_tbox, VECTOR2D, &obj->acceleration, 0, NULL},
+            {G_UIState.state_moment_tbox, VECTOR2D, &obj->momentum, 0, NULL},
         };
-        BindTextboxGroup(state_boxes, state_bindings, state_box_count);
-
-        // PIPELINE data to text only when the element is NOT focused
-        // so that editing of the text by the user doesn't keep getting overwritten with the value stored in the object
-        WriteTextboxNumberIfUnfocused(G_UIState.state_id_tbox, (float)obj->id, 0);
-        WriteTextboxNumberIfUnfocused(G_UIState.state_mass_tbox, obj->mass, 2);
-        WriteTextboxVectorIfUnfocused(G_UIState.state_pos_tl_tbox, obj->bounds_origin);
-        WriteTextboxVectorIfUnfocused(G_UIState.state_pos_c_tbox, obj->anchor_position);
-        WriteTextboxVectorIfUnfocused(G_UIState.state_vel_tbox, obj->velocity);
-        WriteTextboxVectorIfUnfocused(G_UIState.state_accel_tbox, obj->acceleration);
-        WriteTextboxVectorIfUnfocused(G_UIState.state_moment_tbox, obj->momentum);
+        RefreshTextboxFields(state_fields, ARRAY_COUNT(state_fields));
     }
     else // Reset the bounded textbox output buffers AND unbind
     {
-        ClearAndUnbindTextboxGroup(state_boxes, state_box_count);
+        TextboxField state_fields[] = {
+            {G_UIState.state_id_tbox, INT, NULL, 0, NULL},
+            {G_UIState.state_mass_tbox, FLOAT, NULL, 0, NULL},
+            {G_UIState.state_pos_tl_tbox, VECTOR2D, NULL, 0, NULL},
+            {G_UIState.state_pos_c_tbox, VECTOR2D, NULL, 0, NULL},
+            {G_UIState.state_vel_tbox, VECTOR2D, NULL, 0, NULL},
+            {G_UIState.state_accel_tbox, VECTOR2D, NULL, 0, NULL},
+            {G_UIState.state_moment_tbox, VECTOR2D, NULL, 0, NULL},
+        };
+        RefreshTextboxFields(state_fields, ARRAY_COUNT(state_fields));
     }
 
     // COLLECT & UPDATE SELECTED CELL PROPERTIES
@@ -522,33 +493,31 @@ void UpdateGlobalUIState()
     Newtonoid2dParams *params = G_UIState.newtonoid_params;
     if (G_UIState.active_panel_view == LPANEL_DRAW_VIEW && params)
     {
-        // Bind selected_object data to the Object Properties TextBoxes
-        void *edit_bindings[] = {
-            &params->vertice_count,
-            &params->width,
-            &params->height,
-            &params->mass,
-            &params->anchor_position,
-            &params->velocity,
-            &params->acceleration,
-            &params->momentum,
+        TextboxField edit_fields[] = {
+            {G_UIState.edit_vertice_count_tbox, INT, &params->vertice_count, 0, NULL},
+            {G_UIState.edit_width_tbox, FLOAT, &params->width, 2, NULL},
+            {G_UIState.edit_height_tbox, FLOAT, &params->height, 2, NULL},
+            {G_UIState.edit_mass_tbox, FLOAT, &params->mass, 2, NULL},
+            {G_UIState.edit_pos_c_tbox, VECTOR2D, &params->anchor_position, 0, NULL},
+            {G_UIState.edit_vel_tbox, VECTOR2D, &params->velocity, 0, NULL},
+            {G_UIState.edit_accel_tbox, VECTOR2D, &params->acceleration, 0, NULL},
+            {G_UIState.edit_moment_tbox, VECTOR2D, &params->momentum, 0, NULL},
         };
-        BindTextboxGroup(edit_boxes, edit_bindings, edit_box_count);
-
-        // PIPELINE data to text only when the element is NOT focused
-        // so that editing of the text by the user doesn't keep getting overwritten with the value stored in the object
-        WriteTextboxNumberIfUnfocused(G_UIState.edit_vertice_count_tbox, params->vertice_count, 0);
-        WriteTextboxNumberIfUnfocused(G_UIState.edit_width_tbox, params->width, 2);
-        WriteTextboxNumberIfUnfocused(G_UIState.edit_height_tbox, params->height, 2);
-        WriteTextboxNumberIfUnfocused(G_UIState.edit_mass_tbox, params->mass, 2);
-        WriteTextboxVectorIfUnfocused(G_UIState.edit_pos_c_tbox, params->anchor_position);
-        WriteTextboxVectorIfUnfocused(G_UIState.edit_vel_tbox, params->velocity);
-        WriteTextboxVectorIfUnfocused(G_UIState.edit_accel_tbox, params->acceleration);
-        WriteTextboxVectorIfUnfocused(G_UIState.edit_moment_tbox, params->momentum);
+        RefreshTextboxFields(edit_fields, ARRAY_COUNT(edit_fields));
     }
     else
     {
-        ClearAndUnbindTextboxGroup(edit_boxes, edit_box_count);
+        TextboxField edit_fields[] = {
+            {G_UIState.edit_vertice_count_tbox, INT, NULL, 0, NULL},
+            {G_UIState.edit_width_tbox, FLOAT, NULL, 0, NULL},
+            {G_UIState.edit_height_tbox, FLOAT, NULL, 0, NULL},
+            {G_UIState.edit_mass_tbox, FLOAT, NULL, 0, NULL},
+            {G_UIState.edit_pos_c_tbox, VECTOR2D, NULL, 0, NULL},
+            {G_UIState.edit_vel_tbox, VECTOR2D, NULL, 0, NULL},
+            {G_UIState.edit_accel_tbox, VECTOR2D, NULL, 0, NULL},
+            {G_UIState.edit_moment_tbox, VECTOR2D, NULL, 0, NULL},
+        };
+        RefreshTextboxFields(edit_fields, ARRAY_COUNT(edit_fields));
     }
 }
 

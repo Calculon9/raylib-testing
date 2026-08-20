@@ -13,12 +13,8 @@
 static PanelSystem *state_manager_panel = NULL;
 static int btn_action_delete_entity = BUTTON_ACTION_DELETE_ENTITY;
 
-static Offset state_manager_entity_offset = {{0.0f, 0.15f}, OFFSET_PERCENT};
-static Size state_manager_view_size = {{1.0f, 0.85f}, SIZE_PERCENT};
-static Size state_manager_toggle_size = {{1.0f, 0.15f}, SIZE_PERCENT};
 static Size phys_section_size = {{0.375f, 1.0f}, SIZE_PERCENT};
 static Size attr_section_size = {{0.25f, 1.0f}, SIZE_PERCENT};
-static ViewSelector *state_manager_view_selector = NULL;
 static bool state_manager_refresh_dirty = true;
 
 // Which flag namespace a toggle belongs to.
@@ -54,17 +50,27 @@ typedef struct
     const Cell *cell;
 } StateManagerFlagSource;
 
+typedef uint32_t *(*StateManagerFlagTargetFn)(StateManagerFlagSource source);
+
+typedef struct
+{
+    StateManagerFlagSourceKind source_kind;
+    StateManagerFlagTargetFn get_target;
+} StateManagerFlagCategorySpec;
+
+typedef struct
+{
+    StateManagerFlagCategory category;
+    size_t first_spec;
+    size_t first_button;
+    size_t count;
+} StateManagerFlagGroup;
+
 // PHYS view geometry readouts.
 static UIElement *state_rotation_tbox = NULL;
 static UIElement *state_basis_u_tbox = NULL;
 static UIElement *state_basis_v_tbox = NULL;
 static UIElement *state_geometry_center_tbox = NULL;
-
-typedef enum
-{
-    STATE_MANAGER_GEOMETRY_NUMBER,
-    STATE_MANAGER_GEOMETRY_VECTOR,
-} StateManagerGeometryFormat;
 
 // One table drives every flag toggle in the state manager.
 static const StateManagerFlagSpec state_manager_flag_specs[] = {
@@ -99,6 +105,9 @@ static const StateManagerFlagSpec state_manager_flag_specs[] = {
 };
 
 static UIElement *state_manager_flag_buttons[ARRAY_COUNT(state_manager_flag_specs)] = {0};
+static StateManagerFlagGroup state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_CELL + 1] = {0};
+// Keep every flag button in one contiguous array so refresh groups use stable offsets.
+static size_t state_manager_button_count = 0;
 
 void MarkStateManagerRefreshDirty(void)
 {
@@ -142,40 +151,66 @@ static int GetStateManagerObjectWorld(const Newtonoid2d *object)
 static const uint32_t state_manager_type_flags = FLAG_TYPE_WALL | FLAG_TYPE_NEWTONOID |
                                                  FLAG_TYPE_PROJECTILE | FLAG_TYPE_EFFECT | FLAG_TYPE_CAMERA;
 
+static uint32_t *GetStateManagerEntityTypeTarget(StateManagerFlagSource source)
+{
+    return source.entity ? (uint32_t *)&source.entity->entity_flags : NULL;
+}
+
+static uint32_t *GetStateManagerEntityStatusTarget(StateManagerFlagSource source)
+{
+    return source.entity ? (uint32_t *)&source.entity->status_flags : NULL;
+}
+
+static uint32_t *GetStateManagerCollisionMaskTarget(StateManagerFlagSource source)
+{
+    return source.entity ? (uint32_t *)&source.entity->collision_mask : NULL;
+}
+
+static uint32_t *GetStateManagerWorldTarget(StateManagerFlagSource source)
+{
+    return source.world ? (uint32_t *)&source.world->flags : NULL;
+}
+
+static uint32_t *GetStateManagerCellTarget(StateManagerFlagSource source)
+{
+    return source.cell ? (uint32_t *)&source.cell->flags : NULL;
+}
+
+static const StateManagerFlagCategorySpec state_manager_category_specs[] = {
+    [STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE] = {
+        STATE_MANAGER_FLAG_SOURCE_ENTITY, GetStateManagerEntityTypeTarget},
+    [STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS] = {
+        STATE_MANAGER_FLAG_SOURCE_ENTITY, GetStateManagerEntityStatusTarget},
+    [STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK] = {
+        STATE_MANAGER_FLAG_SOURCE_ENTITY, GetStateManagerCollisionMaskTarget},
+    [STATE_MANAGER_FLAG_CATEGORY_WORLD] = {
+        STATE_MANAGER_FLAG_SOURCE_WORLD, GetStateManagerWorldTarget},
+    [STATE_MANAGER_FLAG_CATEGORY_CELL] = {
+        STATE_MANAGER_FLAG_SOURCE_CELL, GetStateManagerCellTarget},
+};
+
+static const StateManagerFlagCategorySpec *GetStateManagerCategorySpec(StateManagerFlagCategory category)
+{
+    if (category < STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE ||
+        category > STATE_MANAGER_FLAG_CATEGORY_CELL)
+    {
+        return NULL;
+    }
+
+    return &state_manager_category_specs[category];
+}
+
 static bool StateManagerFlag_IsApplicable(StateManagerFlagCategory category, StateManagerFlagSource source)
 {
-    switch (category)
-    {
-    case STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE:
-    case STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS:
-    case STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK:
-        return source.kind == STATE_MANAGER_FLAG_SOURCE_ENTITY && source.entity != NULL;
-    case STATE_MANAGER_FLAG_CATEGORY_WORLD:
-        return source.kind == STATE_MANAGER_FLAG_SOURCE_WORLD && source.world != NULL;
-    case STATE_MANAGER_FLAG_CATEGORY_CELL:
-        return source.kind == STATE_MANAGER_FLAG_SOURCE_CELL && source.cell != NULL;
-    default:
-        return false;
-    }
+    const StateManagerFlagCategorySpec *category_spec = GetStateManagerCategorySpec(category);
+    return category_spec && source.kind == category_spec->source_kind &&
+           category_spec->get_target(source) != NULL;
 }
 
 static uint32_t *StateManagerFlag_GetTarget(StateManagerFlagCategory category, StateManagerFlagSource source)
 {
-    switch (category)
-    {
-    case STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE:
-        return (uint32_t *)&source.entity->entity_flags;
-    case STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS:
-        return (uint32_t *)&source.entity->status_flags;
-    case STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK:
-        return (uint32_t *)&source.entity->collision_mask;
-    case STATE_MANAGER_FLAG_CATEGORY_WORLD:
-        return (uint32_t *)&source.world->flags;
-    case STATE_MANAGER_FLAG_CATEGORY_CELL:
-        return (uint32_t *)&source.cell->flags;
-    default:
-        return NULL;
-    }
+    const StateManagerFlagCategorySpec *category_spec = GetStateManagerCategorySpec(category);
+    return category_spec ? category_spec->get_target(source) : NULL;
 }
 
 static void HandleStateManagerFlagClick(UIElement *button)
@@ -244,22 +279,55 @@ static UIElement *CreateStateManagerBoundButton(UIElement *parent, const StateMa
                                  palette, HandleStateManagerFlagClick, (void *)spec, NULL);
 }
 
-static void CreateStateManagerSectionButtons(UIElement *section, const StateManagerFlagSpec *specs, size_t count,
+static void InitStateManagerFlagGroups(void)
+{
+    state_manager_button_count = 0;
+    for (size_t i = 0; i < ARRAY_COUNT(state_manager_flag_buttons); i++)
+    {
+        state_manager_flag_buttons[i] = NULL;
+    }
+
+    for (size_t i = 0; i < ARRAY_COUNT(state_manager_flag_groups); i++)
+    {
+        state_manager_flag_groups[i] = (StateManagerFlagGroup){
+            .category = (StateManagerFlagCategory)i,
+            .first_spec = ARRAY_COUNT(state_manager_flag_specs),
+            .first_button = 0,
+            .count = 0,
+        };
+    }
+
+    for (size_t i = 0; i < ARRAY_COUNT(state_manager_flag_specs); i++)
+    {
+        StateManagerFlagGroup *group = &state_manager_flag_groups[state_manager_flag_specs[i].category];
+        if (group->count == 0)
+        {
+            group->first_spec = i;
+        }
+        group->count++;
+    }
+}
+
+static void CreateStateManagerSectionButtons(UIElement *section, StateManagerFlagGroup *group,
                                              size_t *button_index)
 {
-    if (!section || !specs || !button_index)
+    if (!section || !group || !button_index)
     {
         return;
     }
 
-    for (size_t i = 0; i < count; i++)
+    group->first_button = *button_index;
+    const StateManagerFlagSpec *specs = state_manager_flag_specs + group->first_spec;
+    for (size_t i = 0; i < group->count; i++)
     {
-        UIElement *button = CreateStateManagerBoundButton(section, &specs[i], state_manager_panel->palette);
-        if (button && *button_index < ARRAY_COUNT(state_manager_flag_buttons))
+        if (*button_index >= ARRAY_COUNT(state_manager_flag_buttons))
         {
-            state_manager_flag_buttons[*button_index] = button;
-            (*button_index)++;
+            return;
         }
+
+        state_manager_flag_buttons[*button_index] = CreateStateManagerBoundButton(
+            section, &specs[i], state_manager_panel->palette);
+        (*button_index)++;
     }
 }
 
@@ -295,7 +363,7 @@ static void InitPhysStateView(void)
     UIElement *newtonian_section = CreateViewSection_Wrap(entity_container, "Newtonian", phys_section_size,
                                                      state_manager_panel->palette);
     const UIFieldSpec state_specs[] = {
-        {"Id", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, &G_UIState.state_id_tbox, NULL},
+        {"Id", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &G_UIState.state_id_tbox, NULL},
         {"Mass", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.state_mass_tbox, NULL},
         {"Bounds.min", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, VECTOR2D, &G_UIState.state_pos_tl_tbox, NULL},
         {"Anchor", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.state_pos_c_tbox, NULL},
@@ -340,11 +408,15 @@ static void InitAttributeStateView(void)
     UIElement *collision_section = CreateViewSection_Wrap(attributes_container, "Collision", attr_section_size,
                                                      state_manager_panel->palette);
 
-    size_t button_index = 0;
-
-    CreateStateManagerSectionButtons(identity_section, &state_manager_flag_specs[0], 5, &button_index);
-    CreateStateManagerSectionButtons(behaviour_section, &state_manager_flag_specs[5], 3, &button_index);
-    CreateStateManagerSectionButtons(collision_section, &state_manager_flag_specs[8], 5, &button_index);
+    CreateStateManagerSectionButtons(identity_section,
+                                     &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE],
+                                     &state_manager_button_count);
+    CreateStateManagerSectionButtons(behaviour_section,
+                                     &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS],
+                                     &state_manager_button_count);
+    CreateStateManagerSectionButtons(collision_section,
+                                     &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK],
+                                     &state_manager_button_count);
 }
 
 static void InitWorldStateView(void)
@@ -355,9 +427,9 @@ static void InitWorldStateView(void)
     UIElement *world_section = CreateViewSection_Wrap(world_container, "World", attr_section_size,
                                                  state_manager_panel->palette);
 
-    size_t button_index = 13;
-
-    CreateStateManagerSectionButtons(world_section, &state_manager_flag_specs[13], 7, &button_index);
+    CreateStateManagerSectionButtons(world_section,
+                                     &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_WORLD],
+                                     &state_manager_button_count);
 }
 
 static void InitCellStateView(void)
@@ -381,9 +453,9 @@ static void InitCellStateView(void)
     UIElement *cell_flags_section = CreateViewSection_Wrap(cell_container, "Flags", attr_section_size,
                                                       state_manager_panel->palette);
 
-    size_t button_index = 20;
-
-    CreateStateManagerSectionButtons(cell_flags_section, &state_manager_flag_specs[20], 4, &button_index);
+    CreateStateManagerSectionButtons(cell_flags_section,
+                                     &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_CELL],
+                                     &state_manager_button_count);
 }
 
 void InitStateManagerSystem(void)
@@ -397,11 +469,11 @@ void InitStateManagerSystem(void)
     if (!state_manager_panel)
         return;
 
+    InitStateManagerFlagGroups();
     InitPhysStateView();
     InitAttributeStateView();
     InitWorldStateView();
     InitCellStateView();
-    PanelSystem_SelectView(state_manager_view_selector, 0);
 
     // Subscribe once so selection transitions can proactively refresh this panel.
     UIState_SetSelectionChangedCallback(HandleSelectionChanged, NULL);
@@ -432,47 +504,16 @@ UIElement *GetStateManagerRoot(void)
 
 static uint32_t GetStateManagerSourceFlags(const StateManagerFlagSpec *spec, StateManagerFlagSource source)
 {
-    switch (spec->category)
-    {
-    case STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE:
-        if (!source.entity)
-        {
-            return 0;
-        }
-        return source.entity->entity_flags;
-    case STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS:
-        if (!source.entity)
-        {
-            return 0;
-        }
-        return source.entity->status_flags;
-    case STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK:
-        if (!source.entity)
-        {
-            return 0;
-        }
-        return source.entity->collision_mask;
-    case STATE_MANAGER_FLAG_CATEGORY_WORLD:
-        if (!source.world)
-        {
-            return 0;
-        }
-        return source.world->flags;
-    case STATE_MANAGER_FLAG_CATEGORY_CELL:
-        if (!source.cell)
-        {
-            return 0;
-        }
-        return source.cell->flags;
-    default:
-        return 0;
-    }
+    uint32_t *target = StateManagerFlag_GetTarget(spec->category, source);
+    return target ? *target : 0;
 }
 
-static void UpdateStateManagerButtonGroup(const StateManagerFlagSpec *specs, size_t count,
-                                          UIElement **buttons, StateManagerFlagSource source)
+static void UpdateStateManagerButtonGroup(const StateManagerFlagGroup *group,
+                                          StateManagerFlagSource source)
 {
-    for (size_t i = 0; i < count; i++)
+    const StateManagerFlagSpec *specs = state_manager_flag_specs + group->first_spec;
+    UIElement **buttons = state_manager_flag_buttons + group->first_button;
+    for (size_t i = 0; i < group->count; i++)
     {
         UIElement *button = buttons[i];
         if (!button)
@@ -512,45 +553,23 @@ void UpdateStateManagerSelectedObject(void)
     {
         // Pipe the object's current frame values into the Geometry readouts.
         SyncNewtonoidRotation(object);
-        const DataType geometry_types[] = {FLOAT, VECTOR2D, VECTOR2D, VECTOR2D};
-        const StateManagerGeometryFormat geometry_formats[] = {
-            STATE_MANAGER_GEOMETRY_NUMBER, STATE_MANAGER_GEOMETRY_VECTOR,
-            STATE_MANAGER_GEOMETRY_VECTOR, STATE_MANAGER_GEOMETRY_VECTOR};
-        const float *number_values[] = {&object->rotation, NULL, NULL, NULL};
-        const Vector2d *vector_values[] = {
-            NULL, &object->local_axis_x, &object->local_axis_y, &object->local_geometry_center};
-
-        for (size_t i = 0; i < ARRAY_COUNT(geometry_textboxes); i++)
-        {
-            if (!geometry_textboxes[i])
-            {
-                continue;
-            }
-
-            BindTextboxData(geometry_textboxes[i], geometry_types[i],
-                            (void *)(geometry_formats[i] == STATE_MANAGER_GEOMETRY_NUMBER
-                                         ? (const void *)number_values[i]
-                                         : (const void *)vector_values[i]));
-            if (geometry_formats[i] == STATE_MANAGER_GEOMETRY_NUMBER)
-            {
-                WriteTextboxNumberIfUnfocused(geometry_textboxes[i], *number_values[i], 3);
-            }
-            else
-            {
-                WriteTextboxVectorIfUnfocused(geometry_textboxes[i], *vector_values[i]);
-            }
-        }
+        TextboxField geometry_fields[] = {
+            {geometry_textboxes[0], FLOAT, &object->rotation, 3, "N/A"},
+            {geometry_textboxes[1], VECTOR2D, &object->local_axis_x, 0, "N/A"},
+            {geometry_textboxes[2], VECTOR2D, &object->local_axis_y, 0, "N/A"},
+            {geometry_textboxes[3], VECTOR2D, &object->local_geometry_center, 0, "N/A"},
+        };
+        RefreshTextboxFields(geometry_fields, ARRAY_COUNT(geometry_fields));
     }
     else
     {
-        for (size_t i = 0; i < ARRAY_COUNT(geometry_textboxes); i++)
-        {
-            if (geometry_textboxes[i])
-            {
-                WriteTextboxText(geometry_textboxes[i], "N/A");
-                geometry_textboxes[i]->data.textbox.data_bind = NULL;
-            }
-        }
+        TextboxField geometry_fields[] = {
+            {geometry_textboxes[0], FLOAT, NULL, 0, "N/A"},
+            {geometry_textboxes[1], VECTOR2D, NULL, 0, "N/A"},
+            {geometry_textboxes[2], VECTOR2D, NULL, 0, "N/A"},
+            {geometry_textboxes[3], VECTOR2D, NULL, 0, "N/A"},
+        };
+        RefreshTextboxFields(geometry_fields, ARRAY_COUNT(geometry_fields));
     }
 
     StateManagerFlagSource entity_source = {
@@ -559,12 +578,12 @@ void UpdateStateManagerSelectedObject(void)
         .world = NULL,
         .cell = NULL,
     };
-    UpdateStateManagerButtonGroup(state_manager_flag_specs + 0, 5,
-                                  state_manager_flag_buttons + 0, entity_source);
-    UpdateStateManagerButtonGroup(state_manager_flag_specs + 5, 3,
-                                  state_manager_flag_buttons + 5, entity_source);
-    UpdateStateManagerButtonGroup(state_manager_flag_specs + 8, 5,
-                                  state_manager_flag_buttons + 8, entity_source);
+    UpdateStateManagerButtonGroup(
+        &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE], entity_source);
+    UpdateStateManagerButtonGroup(
+        &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS], entity_source);
+    UpdateStateManagerButtonGroup(
+        &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK], entity_source);
 
     StateManagerFlagSource world_source = {
         .kind = world ? STATE_MANAGER_FLAG_SOURCE_WORLD : STATE_MANAGER_FLAG_SOURCE_NONE,
@@ -572,8 +591,8 @@ void UpdateStateManagerSelectedObject(void)
         .world = world,
         .cell = NULL,
     };
-    UpdateStateManagerButtonGroup(state_manager_flag_specs + 13, 7,
-                                  state_manager_flag_buttons + 13, world_source);
+    UpdateStateManagerButtonGroup(
+        &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_WORLD], world_source);
 
     StateManagerFlagSource cell_source = {
         .kind = UIState_GetSelectedCell() ? STATE_MANAGER_FLAG_SOURCE_CELL : STATE_MANAGER_FLAG_SOURCE_NONE,
@@ -581,6 +600,6 @@ void UpdateStateManagerSelectedObject(void)
         .world = NULL,
         .cell = UIState_GetSelectedCell(),
     };
-    UpdateStateManagerButtonGroup(state_manager_flag_specs + 20, 4,
-                                  state_manager_flag_buttons + 20, cell_source);
+    UpdateStateManagerButtonGroup(
+        &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_CELL], cell_source);
 }

@@ -156,6 +156,37 @@ static void HandlePanelViewSelectorHover(UIElement *item)
     PanelSystem_SelectView(selector, (size_t)*((int *)item->data.hover_item.user_data));
 }
 
+static ViewSelector *AllocatePanelViewSelector(PanelSystem *panel, const char *labels[], size_t count,
+                                                ViewSelectionCallback on_view_selected)
+{
+    ViewSelector *selector = AllocateBytes(sizeof(ViewSelector));
+    if (!selector)
+    {
+        return NULL;
+    }
+
+    selector->panel = panel;
+    selector->buttons = AllocateBytes(sizeof(UIElement *) * count);
+    selector->view_indices = AllocateBytes(sizeof(int) * count);
+    if (!selector->buttons || !selector->view_indices)
+    {
+        free(selector->buttons);
+        free(selector->view_indices);
+        free(selector);
+        return NULL;
+    }
+
+    selector->count = count;
+    selector->active_index = count;
+    selector->on_view_selected = on_view_selected;
+    for (size_t i = 0; i < count; i++)
+    {
+        selector->view_indices[i] = (int)i;
+    }
+
+    return selector;
+}
+
 static bool SetPanelActiveView(PanelSystem *panel, size_t view_index)
 {
     if (!panel || view_index >= panel->views.count)
@@ -182,50 +213,6 @@ static bool SetPanelActiveView(PanelSystem *panel, size_t view_index)
     return true;
 }
 
-ViewSwitcher *PanelSystem_CreateViewSwitcher(PanelSystem *panel)
-{
-    if (!panel)
-    {
-        return NULL;
-    }
-
-    ViewSwitcher *switcher = AllocateBytes(sizeof(ViewSwitcher));
-    if (!switcher)
-    {
-        return NULL;
-    }
-
-    switcher->panel = panel;
-    switcher->active_index = panel->views.count;
-    return switcher;
-}
-
-bool PanelSystem_SwitchView(ViewSwitcher *switcher, size_t view_index)
-{
-    if (!switcher || !SetPanelActiveView(switcher->panel, view_index))
-    {
-        return false;
-    }
-
-    switcher->active_index = view_index;
-    return true;
-}
-
-View *PanelSystem_GetActiveView(ViewSwitcher *switcher)
-{
-    if (!switcher || switcher->active_index >= switcher->panel->views.count)
-    {
-        return NULL;
-    }
-
-    return *((View **)LArray_Get(&switcher->panel->views, switcher->active_index));
-}
-
-void PanelSystem_DestroyViewSwitcher(ViewSwitcher *switcher)
-{
-    free(switcher);
-}
-
 ViewSelector *PanelSystem_CreateViewSelector(PanelSystem *panel, UIElement *parent, Size button_size, const char *labels[],
                                              size_t count, ViewSelectionCallback on_view_selected)
 {
@@ -234,17 +221,14 @@ ViewSelector *PanelSystem_CreateViewSelector(PanelSystem *panel, UIElement *pare
         return NULL;
     }
 
-    ViewSelector *selector = AllocateBytes(sizeof(ViewSelector));
-    selector->panel = panel;
-    selector->buttons = AllocateBytes(sizeof(UIElement *) * count);
-    selector->view_indices = AllocateBytes(sizeof(int) * count);
-    selector->count = count;
-    selector->active_index = count;
-    selector->on_view_selected = on_view_selected;
+    ViewSelector *selector = AllocatePanelViewSelector(panel, labels, count, on_view_selected);
+    if (!selector)
+    {
+        return NULL;
+    }
 
     for (size_t i = 0; i < count; i++)
     {
-        selector->view_indices[i] = (int)i;
         selector->buttons[i] = CreateUIButtonDefault(
             parent, UI_ELEMENT_BUTTON_ENUMERATE, labels[i], button_size,
             ui_standard_button_padding, panel->palette, HandlePanelViewSelectorClick,
@@ -265,22 +249,14 @@ ViewSelector *PanelSystem_CreateHoverViewSelector(PanelSystem *panel, UIElement 
         return NULL;
     }
 
-    ViewSelector *selector = AllocateBytes(sizeof(ViewSelector));
+    ViewSelector *selector = AllocatePanelViewSelector(panel, labels, count, on_view_selected);
     if (!selector)
     {
         return NULL;
     }
 
-    selector->panel = panel;
-    selector->buttons = AllocateBytes(sizeof(UIElement *) * count);
-    selector->view_indices = AllocateBytes(sizeof(int) * count);
-    selector->count = count;
-    selector->active_index = count;
-    selector->on_view_selected = on_view_selected;
-
     for (size_t i = 0; i < count; i++)
     {
-        selector->view_indices[i] = (int)i;
         selector->buttons[i] = CreateUIHoverItemDefault(
             parent, labels[i], item_size, ui_standard_button_padding,
             panel->palette, HandlePanelViewSelectorHover,
@@ -437,18 +413,4 @@ ViewSelector *PanelSystem_CreateStandardViewSelector(PanelSystem *panel,
     return PanelSystem_CreateViewSelector(
         panel, toggle_cont, ui_standard_selector_button_size,
         labels, count, callback);
-}
-
-void PanelSystem_Destroy(PanelSystem *panel)
-{
-    if (!panel)
-    {
-        return;
-    }
-
-    // Note: UI elements are owned by the UI system, not freed here
-    // Views array memory is managed by the array itself
-    // No cleanup needed for LArray - it's stack-allocated
-
-    free(panel);
 }

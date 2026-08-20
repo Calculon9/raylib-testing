@@ -151,12 +151,6 @@ void InitLPanel()
     UpdateUISpace(lpanel->root, lpanel->seed_box);
 }
 
-static void InitLPanelViewSelector(void)
-{
-    // The selector is now created by PanelSystem_CreateStandard; this stub remains
-    // so older call sites don't need to change during the refactor.
-}
-
 void InitLPanelStateView(void)
 {
     lpanel_state_view_cont = PanelSystem_CreateRootViewContainer(lpanel, LPANEL_STATE_VIEW, lpanel_state_view);

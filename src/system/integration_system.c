@@ -144,6 +144,58 @@ void WriteTextboxVectorIfUnfocused(UIElement *textbox, Vector2d value)
     WriteTextboxVector(value, textbox);
 }
 
+void RefreshTextboxFields(const TextboxField *fields, size_t count)
+{
+    if (!fields)
+    {
+        return;
+    }
+
+    for (size_t i = 0; i < count; i++)
+    {
+        const TextboxField *field = &fields[i];
+        if (!field->textbox)
+        {
+            continue;
+        }
+
+        if (!field->data_bind)
+        {
+            if (field->empty_text)
+            {
+                WriteTextboxText(field->textbox, field->empty_text);
+                BindTextbox(field->textbox, NULL);
+            }
+            else
+            {
+                ClearAndUnbindTextbox(field->textbox);
+            }
+            continue;
+        }
+
+        BindTextboxData(field->textbox, field->data_type, field->data_bind);
+        if (field->textbox->is_focused)
+        {
+            continue;
+        }
+
+        switch (field->data_type)
+        {
+        case FLOAT:
+            WriteTextboxFloat(field->textbox, *(float *)field->data_bind, field->precision);
+            break;
+        case INT:
+            WriteTextboxInt(field->textbox, *(int *)field->data_bind);
+            break;
+        case VECTOR2D:
+            WriteTextboxVector(*(Vector2d *)field->data_bind, field->textbox);
+            break;
+        default:
+            break;
+        }
+    }
+}
+
 // Text must be in the following format: "x,y", "(x,y)", "(magnitude)(x,y)".
 bool PipelineTextToVector(char *input_buffer, Vector2d *target_vector)
 {

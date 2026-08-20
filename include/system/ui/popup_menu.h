@@ -15,8 +15,6 @@ void HidePopupMenu(void);
 bool IsPopupMenuVisible(void);
 void DrawPopupMenu(void);
 
-Frame2d *GetPopupMenuSpaceFrame(void);
 UIElement *GetPopupMenuRoot(void);
-UIElement *GetPopupMenuContainer(void);
 
 #endif

@@ -267,10 +267,6 @@ void InitGameplayScreen(void) {
 ```
 
 **Issues**:
-- Order not enforced
-- No state tracking
-- Can't mock systems
-- Asymmetric shutdown
 
 #### After (Explicit Manager)
 ```c
@@ -283,13 +279,9 @@ InitAllSystems();  // Enforces order
 ```
 
 **Benefits**:
-- Explicit ordering
-- State queries: `IsSystemInitialized(SYSTEM_UI)`
-- Symmetric shutdown (reverse order)
-- Testability (mock individual systems)
-- Hot reload support (future)
 
 ---
+### 4.1 Ownership Documentation
 
 ### 4.2 Ownership Documentation
 

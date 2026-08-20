@@ -76,46 +76,6 @@ static Size rpanel_state_world_cont_size = {{1.0f, 0.36f}, SIZE_PERCENT};
 static Offset rpanel_create_world_cont_offset = {{0.0f, 0.0f}, OFFSET_PERCENT};
 static Size rpanel_create_world_cont_size = {{1.0f, 0.32f}, SIZE_PERCENT};
 
-typedef struct
-{
-    UIElement *textbox;
-    void *value;
-    DataType type;
-} RPanelRefreshField;
-
-static void RefreshRPanelField(const RPanelRefreshField *field)
-{
-    if (!field || !field->textbox || !field->value || field->textbox->is_focused)
-    {
-        return;
-    }
-
-    if (field->type == VECTOR2D)
-    {
-        WriteTextboxVectorIfUnfocused(field->textbox, *(Vector2d *)field->value);
-    }
-    else if (field->type == FLOAT)
-    {
-        WriteTextboxNumberIfUnfocused(field->textbox, *(float *)field->value, 2);
-    }
-    else if (field->type == INT)
-    {
-        WriteTextboxInt(field->textbox, *(int *)field->value);
-    }
-}
-
-static void ResetWorldBoundField(UIElement *textbox)
-{
-    if (!textbox)
-    {
-        return;
-    }
-
-    WriteTextboxText(textbox, "N/A");
-    textbox->data.textbox.data_bind = NULL;
-}
-
-static void InitRViewSelector(void);
 static void InitRPanelStateView(void);
 static void InitRPanelCreateView(void);
 static void InitRPanelStateWorldContainer(void);
@@ -261,12 +221,6 @@ void InitRPanel(void)
     UpdateUISpace(rpanel->root, rpanel->seed_box);
 }
 
-static void InitRViewSelector(void)
-{
-    // The selector is now created by PanelSystem_CreateStandard; this stub remains
-    // so older call sites don't need to change during the refactor.
-}
-
 void DrawRPanel(void)
 {
     if (!rpanel || !rpanel->root)
@@ -311,18 +265,15 @@ void DrawRPanel(void)
         }
     }
 
-    RPanelRefreshField create_fields[] = {
-        {rpanel_create_spawn_tbox, GetNextWorldSpawnOriginPtr(), VECTOR2D},
-        {rpanel_create_resolution_tbox, GetNextWorldResolutionPtr(), VECTOR2D},
-        {rpanel_create_basis_u_tbox, GetNextWorldBasisUPtr(), VECTOR2D},
-        {rpanel_create_basis_v_tbox, GetNextWorldBasisVPtr(), VECTOR2D},
-        {rpanel_create_gravity_tbox, GetNextWorldGravityPtr(), FLOAT},
-        {rpanel_create_objects_tbox, GetNextWorldObjectCountPtr(), INT},
+    TextboxField create_fields[] = {
+        {rpanel_create_spawn_tbox, VECTOR2D, GetNextWorldSpawnOriginPtr(), 0, NULL},
+        {rpanel_create_resolution_tbox, VECTOR2D, GetNextWorldResolutionPtr(), 0, NULL},
+        {rpanel_create_basis_u_tbox, VECTOR2D, GetNextWorldBasisUPtr(), 0, NULL},
+        {rpanel_create_basis_v_tbox, VECTOR2D, GetNextWorldBasisVPtr(), 0, NULL},
+        {rpanel_create_gravity_tbox, FLOAT, GetNextWorldGravityPtr(), 2, NULL},
+        {rpanel_create_objects_tbox, INT, GetNextWorldObjectCountPtr(), 0, NULL},
     };
-    for (size_t i = 0; i < ARRAY_COUNT(create_fields); i++)
-    {
-        RefreshRPanelField(&create_fields[i]);
-    }
+    RefreshTextboxFields(create_fields, ARRAY_COUNT(create_fields));
 
     if (selected_world)
     {
@@ -331,11 +282,6 @@ void DrawRPanel(void)
             rpanel_basis_world_index = selected_world_idx;
             rpanel_last_world_basis = selected_world->grid_space.space.frame.basis;
         }
-
-        BindTextboxData(rpanel_world_basis_u_tbox, VECTOR2D,
-                        &selected_world->grid_space.space.frame.basis.u);
-        BindTextboxData(rpanel_world_basis_v_tbox, VECTOR2D,
-                        &selected_world->grid_space.space.frame.basis.v);
 
         Basis2d edited_basis = selected_world->grid_space.space.frame.basis;
         if (edited_basis.u.x != rpanel_last_world_basis.u.x ||
@@ -354,16 +300,15 @@ void DrawRPanel(void)
             }
         }
 
-        WriteTextboxVectorIfUnfocused(rpanel_world_basis_u_tbox,
-                                      selected_world->grid_space.space.frame.basis.u);
-        WriteTextboxVectorIfUnfocused(rpanel_world_basis_v_tbox,
-                                      selected_world->grid_space.space.frame.basis.v);
-
-        if (rpanel_world_gravity_edit_tbox)
-        {
-            rpanel_world_gravity_edit_tbox->data.textbox.data_bind = &selected_world->gravity;
-            WriteTextboxNumberIfUnfocused(rpanel_world_gravity_edit_tbox, selected_world->gravity, 2);
-        }
+        TextboxField world_fields[] = {
+            {rpanel_world_gravity_edit_tbox, FLOAT,
+             &selected_world->gravity, 2, "N/A"},
+            {rpanel_world_basis_u_tbox, VECTOR2D,
+             &selected_world->grid_space.space.frame.basis.u, 0, "N/A"},
+            {rpanel_world_basis_v_tbox, VECTOR2D,
+             &selected_world->grid_space.space.frame.basis.v, 0, "N/A"},
+        };
+        RefreshTextboxFields(world_fields, ARRAY_COUNT(world_fields));
         if (rpanel_world_resolution_tbox)
         {
             Vector2d world_size = {(float)selected_world->grid_space.space.columns,
@@ -381,9 +326,12 @@ void DrawRPanel(void)
     }
     else
     {
-        ResetWorldBoundField(rpanel_world_gravity_edit_tbox);
-        ResetWorldBoundField(rpanel_world_basis_u_tbox);
-        ResetWorldBoundField(rpanel_world_basis_v_tbox);
+        TextboxField world_fields[] = {
+            {rpanel_world_gravity_edit_tbox, FLOAT, NULL, 0, "N/A"},
+            {rpanel_world_basis_u_tbox, VECTOR2D, NULL, 0, "N/A"},
+            {rpanel_world_basis_v_tbox, VECTOR2D, NULL, 0, "N/A"},
+        };
+        RefreshTextboxFields(world_fields, ARRAY_COUNT(world_fields));
         rpanel_basis_world_index = -1;
         if (rpanel_world_resolution_tbox)
             WriteTextboxText(rpanel_world_resolution_tbox, "N/A");

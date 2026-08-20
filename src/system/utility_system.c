@@ -35,14 +35,6 @@ void UpdateFrameCounter(FrameCounter *fc) {
     fc->total_frames++;
 }
 
-// Utilities (FPS) Initialization logic
-void InitUtilities()
-{
-    InitFrameCounter();
-    // framesCounter = 0;
-    // finishScreen = 0;
-}
-
 FrameCounter InitFrameCounter()
 {
     // TODO: Initialize GAMEPLAY screen variables here!
@@ -51,14 +43,6 @@ FrameCounter InitFrameCounter()
     fc.last_time = GetPreciseTime();
 
     return fc;
-}
-
-// Utilities Update logic
-void UpdateUtilities()
-{
-    UpdateFrameCounter(&frame_counter);
-    GetCurrentMemoryAllocated();
-    //UpdateFps();
 }
 
 double GetPreciseTime()

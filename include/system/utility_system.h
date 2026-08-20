@@ -78,8 +78,6 @@ static inline int UpdateString64(char *dest, const char *fmt, ...)
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-// void InitUtilities();
-// void UpdateUtilities();
 // void UpdateFps();
 // void InitFps();
 // //void CalculateFps();

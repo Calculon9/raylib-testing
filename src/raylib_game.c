@@ -93,13 +93,13 @@ static void InitGameplayDirectScreen(void)
     InitViewportLayout(screenWidth, screenHeight, screen_resolution_scalar);
 }
 
-static const ScreenHandler screen_handlers[ENDING + 1] = {
+static const ScreenHandler screen_handlers[GAMEPLAY + 1] = {
     [LOGO] = {
         .init_direct_fn = InitLogoScreen,
         .init_transition_fn = InitLogoScreen,
         .update_fn = UpdateLogoScreen,
         .draw_fn = DrawLogoScreen,
-        .unload_fn = UnloadLogoScreen,
+        .unload_fn = NULL,
         .finish_fn = FinishLogoScreen,
     },
     [TITLE] = {
@@ -107,16 +107,8 @@ static const ScreenHandler screen_handlers[ENDING + 1] = {
         .init_transition_fn = InitTitleScreen,
         .update_fn = UpdateTitleScreen,
         .draw_fn = DrawTitleScreen,
-        .unload_fn = UnloadTitleScreen,
+        .unload_fn = NULL,
         .finish_fn = FinishTitleScreen,
-    },
-    [OPTIONS] = {
-        .init_direct_fn = InitOptionsScreen,
-        .init_transition_fn = InitOptionsScreen,
-        .update_fn = UpdateOptionsScreen,
-        .draw_fn = DrawOptionsScreen,
-        .unload_fn = UnloadOptionsScreen,
-        .finish_fn = FinishOptionsScreen,
     },
     [GAMEPLAY] = {
         .init_direct_fn = InitGameplayDirectScreen,
@@ -124,28 +116,18 @@ static const ScreenHandler screen_handlers[ENDING + 1] = {
         .update_fn = UpdateGameplayScreen,
         .draw_fn = DrawGameplayScreen,
         .unload_fn = UnloadGameplayScreen,
-        .finish_fn = FinishGameplayScreen,
-    },
-    [ENDING] = {
-        .init_direct_fn = InitEndingScreen,
-        .init_transition_fn = InitEndingScreen,
-        .update_fn = UpdateEndingScreen,
-        .draw_fn = DrawEndingScreen,
-        .unload_fn = UnloadEndingScreen,
-        .finish_fn = FinishEndingScreen,
+        .finish_fn = NULL,
     },
 };
 
 static const ScreenFinishTransitionRule screen_finish_transition_rules[] = {
     {LOGO, TITLE, 0, true},
     {TITLE, GAMEPLAY, 2, false},
-    // {GAMEPLAY, ENDING, 1, false},
-    // {GAMEPLAY, TITLE, 2, false},
 };
 
 static const ScreenHandler *GetScreenHandler(GameScreen screen)
 {
-    if (screen < LOGO || screen > ENDING)
+    if (screen < LOGO || screen > GAMEPLAY)
     {
         return NULL;
     }
@@ -243,7 +225,6 @@ static void UpdateCurrentScreenAndTransition(void)
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-static void ChangeToScreen(int screen);     // Change to screen, no transition effect
 static void TransitionToScreen(int screen); // Request transition to next screen
 static void UpdateTransition(void);         // Update transition effect
 static void DrawTransition(void);           // Draw transition effect (full-screen rectangle)
@@ -321,18 +302,6 @@ int main(void)
 //----------------------------------------------------------------------------------
 // Module Functions Definition
 //----------------------------------------------------------------------------------
-// Change to next screen, no transition
-static void ChangeToScreen(int screen)
-{
-    GameScreen next_screen = (GameScreen)screen;
-
-    // Unload current screen
-    UnloadScreenData(currentScreen);
-
-    // Init next screen
-    InitScreenForMode(next_screen, false);
-}
-
 // Request transition to next screen
 static void TransitionToScreen(int screen)
 {

@@ -20,7 +20,6 @@ typedef struct UIPalette UIPalette;
 // Forward declarations
 typedef struct ViewportRegion ViewportRegion;
 typedef struct ViewSelector ViewSelector;
-typedef struct ViewSwitcher ViewSwitcher;
 
 typedef void (*ViewSelectionCallback)(View *view);
 
@@ -64,11 +63,6 @@ struct ViewSelector {
     ViewSelectionCallback on_view_selected;
 };
 
-struct ViewSwitcher {
-    PanelSystem *panel;
-    size_t active_index;
-};
-
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
@@ -88,18 +82,6 @@ bool PanelSystem_AddView(PanelSystem *panel, View *view, UIElement *container, V
 
 // Allocate a View, register it with the panel/container/type, and return it in one call.
 View *PanelSystem_CreateView(PanelSystem *panel, UIElement *container, ViewType type);
-
-// Create a view switcher for the panel's registered views.
-ViewSwitcher *PanelSystem_CreateViewSwitcher(PanelSystem *panel);
-
-// Select a view and update the enabled state of all registered view containers.
-bool PanelSystem_SwitchView(ViewSwitcher *switcher, size_t view_index);
-
-// Get the switcher's currently active view, or NULL if no view is active.
-View *PanelSystem_GetActiveView(ViewSwitcher *switcher);
-
-// Destroy a button-free view switcher.
-void PanelSystem_DestroyViewSwitcher(ViewSwitcher *switcher);
 
 // Create buttons that select views in the panel's view array.
 ViewSelector *PanelSystem_CreateViewSelector(PanelSystem *panel, UIElement *parent,
@@ -127,9 +109,6 @@ bool PanelSystem_SetSpaceBasis(PanelSystem *panel, Vector2d u, Vector2d v);
 
 // Reset basis to default
 void PanelSystem_ResetSpaceBasis(PanelSystem *panel);
-
-// Destroy panel system and free resources
-void PanelSystem_Destroy(PanelSystem *panel);
 
 // Standard panel initialisation: create, init views array, init root, and
 // optionally create + select a view-selector with the supplied labels.

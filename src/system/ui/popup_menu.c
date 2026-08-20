@@ -374,17 +374,7 @@ void DrawPopupMenu(void)
     }
 }
 
-Frame2d *GetPopupMenuSpaceFrame(void)
-{
-    return PanelSystem_GetSpaceFrame(popup_menu);
-}
-
 UIElement *GetPopupMenuRoot(void)
 {
     return popup_menu ? popup_menu->root : NULL;
-}
-
-UIElement *GetPopupMenuContainer(void)
-{
-    return popup_menu_create_cont;
 }

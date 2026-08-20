@@ -29,7 +29,6 @@
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
-static int framesCounter = 0;
 static int finishScreen = 0;
 
 //----------------------------------------------------------------------------------
@@ -40,7 +39,6 @@ static int finishScreen = 0;
 void InitTitleScreen(void)
 {
     // TODO: Initialize TITLE screen variables here!
-    framesCounter = 0;
     finishScreen = 0;
 }
 
@@ -66,12 +64,6 @@ void DrawTitleScreen(void)
     Vector2 pos = { 20, 10 };
     DrawTextEx(font, "TITLE SCREEN", pos, font.baseSize*3.0f, 4, DARKGREEN);
     DrawText("PRESS ENTER or TAP to JUMP to GAMEPLAY SCREEN", 120, 220, 20, DARKGREEN);
-}
-
-// Title Screen Unload logic
-void UnloadTitleScreen(void)
-{
-    // TODO: Unload TITLE screen variables here!
 }
 
 // Title Screen should finish?

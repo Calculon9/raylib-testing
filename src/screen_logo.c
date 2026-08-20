@@ -160,12 +160,6 @@ void DrawLogoScreen(void)
     }
 }
 
-// Logo Screen Unload logic
-void UnloadLogoScreen(void)
-{
-    // Unload LOGO screen variables here!
-}
-
 // Logo Screen should finish?
 int FinishLogoScreen(void)
 {

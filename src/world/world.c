@@ -375,8 +375,6 @@ void UpdateWorld(World2d *world, float delta_time)
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
-// ----------WORLD SCREEN----------
-static int finishScreen = 0;
 bool world_grid_debug_labels_enabled = false;
 // Game-region placement in logical screen units.
 // Vector2d game_viewport_local_origin, game_viewport_local_end = {0};
@@ -959,14 +957,6 @@ void UnloadGameplayScreen(void)
 {
     ShutdownJobSystem();
 }
-
-// Gameplay Screen should finish?
-int FinishGameplayScreen(void)
-{
-    return finishScreen;
-}
-
-
 
         // DEBUGGING - Rapid firing of polygonoids
         // keyDown = IsKeyDown(KEY_ONE);

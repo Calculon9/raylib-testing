@@ -58,7 +58,7 @@
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
-typedef enum GameScreen { UNKNOWN = -1, LOGO = 0, TITLE, OPTIONS, GAMEPLAY, ENDING } GameScreen;
+typedef enum GameScreen { UNKNOWN = -1, LOGO = 0, TITLE, GAMEPLAY } GameScreen;
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
@@ -78,7 +78,6 @@ extern "C" {            // Prevents name mangling of functions
 void InitLogoScreen(void);
 void UpdateLogoScreen(void);
 void DrawLogoScreen(void);
-void UnloadLogoScreen(void);
 int FinishLogoScreen(void);
 
 //----------------------------------------------------------------------------------
@@ -87,17 +86,7 @@ int FinishLogoScreen(void);
 void InitTitleScreen(void);
 void UpdateTitleScreen(void);
 void DrawTitleScreen(void);
-void UnloadTitleScreen(void);
 int FinishTitleScreen(void);
-
-//----------------------------------------------------------------------------------
-// Options Screen Functions Declaration
-//----------------------------------------------------------------------------------
-void InitOptionsScreen(void);
-void UpdateOptionsScreen(void);
-void DrawOptionsScreen(void);
-void UnloadOptionsScreen(void);
-int FinishOptionsScreen(void);
 
 //----------------------------------------------------------------------------------
 // Gameplay Screen Functions Declaration
@@ -106,21 +95,6 @@ void InitGameplayScreen(void);
 void UpdateGameplayScreen(void);
 void DrawGameplayScreen(void);
 void UnloadGameplayScreen(void);
-int FinishGameplayScreen(void);
-void DrawGameplayScreenPanel(int startX, int startY, int width, int height, Color color);
-void DrawGameplayScreenStage(int startX, int startY, int width, int height, Color color);
-void UpdateGameplayScreenPanel(void);
-void UpdateGameplayScreenStage(void);
-void UpdateUtilities(void);
-
-//----------------------------------------------------------------------------------
-// Ending Screen Functions Declaration
-//----------------------------------------------------------------------------------
-void InitEndingScreen(void);
-void UpdateEndingScreen(void);
-void DrawEndingScreen(void);
-void UnloadEndingScreen(void);
-int FinishEndingScreen(void);
 
 #ifdef __cplusplus
 }

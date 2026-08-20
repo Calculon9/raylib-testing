@@ -35,6 +35,15 @@ typedef enum
     STRING256
 } DataType;
 
+typedef struct TextboxField
+{
+    UIElement *textbox;
+    DataType data_type;
+    void *data_bind;
+    int precision;
+    const char *empty_text;
+} TextboxField;
+
 typedef enum
 {
     PAUSED,
@@ -60,9 +69,7 @@ extern const int screenHeight; // = 1080;
 //----------------------------------------------------------------------------------
 // Utility Functions Declaration
 //----------------------------------------------------------------------------------
-void InitUtilities();
 FrameCounter InitFrameCounter();
-void UpdateUtilities();
 void UpdateFrameCounter(FrameCounter *fc);
 size_t GetCurrentMemoryAllocated();
 void *GetEntityByID(World2d *world, EntityId entity_id);
@@ -114,6 +121,7 @@ void WriteTextboxVector(Vector2d value, UIElement *textbox);
 void WriteTextboxVectorPair(UIElement *textbox, Vector2d value);
 void WriteTextboxNumberIfUnfocused(UIElement *textbox, float value, int precision);
 void WriteTextboxVectorIfUnfocused(UIElement *textbox, Vector2d value);
+void RefreshTextboxFields(const TextboxField *fields, size_t count);
 
 //----------------------------------------------------------------------------------
 // Viewport Functions Declaration
