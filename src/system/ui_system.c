@@ -11,9 +11,12 @@
 #include "ui/ui.h"
 #include "ui/text_region.h"
 #include "ui/ui_renderer.h"
+#include "ui/ui_input.h"
 #include "system/ui_system.h"
 #include "system/ui/lpanel_system.h"
+#include "system/ui/rpanel_system.h"
 #include "system/ui/state_manager_system.h"
+#include "system/panel_system.h"
 #include "system/ui/utility_panel_system.h"
 #include "system/ui/popup_menu.h"
 #include "world/world.h"
@@ -24,6 +27,7 @@
 #include "system/utility_system.h"
 #include "system/viewport_system.h"
 #include "system/debug_overlay_system.h"
+#include "memory/cmemory.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -48,13 +52,15 @@ const Size ui_small_horizontal_button_size = {{1.91f, 0.5f}, SIZE_FIXED};
 const Size ui_fill_button_size = {{1.0f, 1.0f}, SIZE_FILL};
 const Size ui_standard_container_size = {{1, 0.5}, SIZE_PERCENT};
 const Size ui_fill_container_size = {{1.0f, 1.0f}, SIZE_FILL};
-const Size ui_standard_selector_container_size = {{1.0f, 0.03f}, SIZE_PERCENT};
-const Size ui_standard_selector_button_size = {{0.5f, 1.0f}, SIZE_PERCENT};
+const Size ui_standard_selector_container_size = UI_SIZE_CONTENT;
+const Size ui_standard_selector_button_size = {{1.75f, 0.5f}, SIZE_FIXED};
 const Spacing ui_standard_stack_spacing = {{0.0f, 0.06f}, SIZE_FIXED, SPACING_STACKED};
 const Spacing ui_compact_stack_spacing = {{0.0f, 0.025f}, SIZE_FIXED, SPACING_STACKED};
-const Spacing ui_standard_wrap_spacing = {{0.06f, 0.06f}, SIZE_FIXED, SPACING_STACKED_WRAP};
-const Spacing ui_compact_wrap_spacing = {{0.025f, 0.025f}, SIZE_FIXED, SPACING_STACKED_WRAP};
-const Spacing ui_zero_horizontal_wrap_spacing = {{0.0f, 0.06f}, SIZE_FIXED, SPACING_STACKED_WRAP};
+const Spacing ui_standard_stack_wrap_spacing = {{0.06f, 0.06f}, SIZE_FIXED, SPACING_STACKED_WRAP};
+const Spacing ui_compact_stack_wrap_spacing = {{0.025f, 0.025f}, SIZE_FIXED, SPACING_STACKED_WRAP};
+const Spacing ui_zero_x_stack_wrap_spacing = {{0.0f, 0.06f}, SIZE_FIXED, SPACING_STACKED_WRAP};
+const Spacing ui_standard_inline_wrap_spacing = {{0.06f, 0.06f}, SIZE_FIXED, SPACING_INLINE_WRAP};
+const Spacing ui_zero_x_inline_wrap_spacing = {{0.0f, 0.06f}, SIZE_FIXED, SPACING_INLINE_WRAP};
 const Spacing ui_standard_inline_spacing = {{0.06f, 0.0f}, SIZE_FIXED, SPACING_INLINE};
 const Spacing ui_zero_inline_spacing = {{0.0f, 0.0f}, NONE, SPACING_INLINE};
 
@@ -341,6 +347,59 @@ void InitUI(void)
     G_UIState.active_panel_view = LPANEL_STATE_VIEW;
 }
 
+// Tears down every UI tree, panel, transient input state and drag capture.
+void DestroyUI(void)
+{
+    // Remove text/focus state before any elements are freed to avoid stale pointers.
+    ResetUIInputState();
+
+    // Drop any in-flight drag capture so freed elements are not referenced.
+    DragInteraction_ResetContext(DRAG_CONTEXT_UI);
+    DragInteraction_ResetContext(DRAG_CONTEXT_GAME);
+
+    // Clear popup visibility and submenu state while its elements are still valid.
+    HidePopupMenu();
+
+    // Each panel owns and disposes its root, views, selectors, and cached pointers.
+    DestroyLPanel();
+    DestroyRPanel();
+    DestroyUtilityPanel();
+    DestroyPopupMenu();
+    DestroyStateManagerSystem();
+
+    // Destroy the global element pool so the next allocation creates a clean pool.
+    Pool *ui_element_pool = GetUIElementPool();
+    if (ui_element_pool)
+    {
+        PoolDestroy(ui_element_pool);
+        SetUIElementPool(NULL);
+    }
+
+}
+
+// Rebuilds the complete UI from the same initialisation path used at startup.
+void ResetUI(void)
+{
+    // Capture memory snapshots around each phase so reset-time growth can be attributed precisely.
+    size_t bytes_before = GetCurrentMemoryAllocated();
+
+    DestroyUI();
+
+    size_t bytes_after_destroy = GetCurrentMemoryAllocated();
+    printf("[UI] Reset destroy phase: %.2f kB -> %.2f kB (delta %+0.2f kB)\n",
+           (double)bytes_before / 1024.0,
+           (double)bytes_after_destroy / 1024.0,
+           ((double)bytes_after_destroy - (double)bytes_before) / 1024.0);
+
+    InitUI();
+
+    size_t bytes_after_init = GetCurrentMemoryAllocated();
+    printf("[UI] Reset init phase: %.2f kB -> %.2f kB (delta %+0.2f kB)\n",
+           (double)bytes_after_destroy / 1024.0,
+           (double)bytes_after_init / 1024.0,
+           ((double)bytes_after_init - (double)bytes_after_destroy) / 1024.0);
+}
+
 InputRouteResult UpdateUISystem(const InputFrame *input)
 {
     if (!input)
@@ -358,6 +417,12 @@ InputRouteResult UpdateUISystem(const InputFrame *input)
                         (IsPopupMenuVisible() && popup_root &&
                          IsMouseOverElement(popup_root, (Vector2d){(float)mouse_x, (float)mouse_y}));
     bool cursor_in_game_viewport = ViewportRegion_ContainsPixel(&game_viewport, input->pointer_position);
+
+    // Any click outside the UI should drop UI keyboard focus so world/game actions can proceed.
+    if (!cursor_in_ui && (input->left_pressed || input->right_pressed))
+    {
+        ClearUIFocus();
+    }
 
     if (cursor_in_game_viewport && input->right_pressed)
     {
@@ -449,6 +514,11 @@ void UpdateGlobalUIState()
             {G_UIState.state_vel_tbox, VECTOR2D, &obj->velocity, 0, NULL},
             {G_UIState.state_accel_tbox, VECTOR2D, &obj->acceleration, 0, NULL},
             {G_UIState.state_moment_tbox, VECTOR2D, &obj->momentum, 0, NULL},
+            {G_UIState.state_angular_velocity_tbox, FLOAT, &obj->angular_velocity, 2, NULL},
+            {G_UIState.state_angular_acceleration_tbox, FLOAT, &obj->angular_acceleration, 2, NULL},
+            {G_UIState.state_health_tbox, FLOAT, &obj->health, 2, NULL},
+            {G_UIState.state_max_health_tbox, FLOAT, &obj->max_health, 2, NULL},
+            {G_UIState.state_damage_tbox, FLOAT, &obj->damage, 2, NULL},
         };
         RefreshTextboxFields(state_fields, ARRAY_COUNT(state_fields));
     }
@@ -462,6 +532,11 @@ void UpdateGlobalUIState()
             {G_UIState.state_vel_tbox, VECTOR2D, NULL, 0, NULL},
             {G_UIState.state_accel_tbox, VECTOR2D, NULL, 0, NULL},
             {G_UIState.state_moment_tbox, VECTOR2D, NULL, 0, NULL},
+            {G_UIState.state_angular_velocity_tbox, FLOAT, NULL, 0, NULL},
+            {G_UIState.state_angular_acceleration_tbox, FLOAT, NULL, 0, NULL},
+            {G_UIState.state_health_tbox, FLOAT, NULL, 0, NULL},
+            {G_UIState.state_max_health_tbox, FLOAT, NULL, 0, NULL},
+            {G_UIState.state_damage_tbox, FLOAT, NULL, 0, NULL},
         };
         RefreshTextboxFields(state_fields, ARRAY_COUNT(state_fields));
     }

@@ -63,6 +63,7 @@ void PrintCurrentBytesAlloc();
 // Simple fixed-size pool allocator
 typedef struct Pool Pool;
 Pool *PoolCreate(size_t element_size, int capacity);
+void PoolDestroy(Pool *p);
 void *PoolAlloc(Pool *p);
 void PoolFree(Pool *p, void *element);
 bool PoolOwns(Pool *p, void *element);

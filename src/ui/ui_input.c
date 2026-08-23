@@ -67,6 +67,12 @@ static DragInteractionState *GetUIDragContext(void)
     return DragInteraction_GetContext(DRAG_CONTEXT_UI);
 }
 
+// Return true only when a UI element is a valid enabled button target.
+static bool IsDispatchableButton(UIElement *button)
+{
+    return UIElement_IsEnabled(button) && IsBtn(button);
+}
+
 static void ResetTextBuffers(Text_64_IOState *tbox_buffers)
 {
     if (!tbox_buffers)
@@ -336,18 +342,14 @@ void HandleLeftMouseUp(UIElement *target, Vector2d mouse_coords)
 
 void HandleBtnClick(UIElement *target)
 {
-    if (target && !target->is_enabled)
+    if (!IsDispatchableButton(target))
     {
-        target = NULL;
+        return;
     }
 
-    // -----CHECK IF IT WAS A CLICK (e.g. MOUSE DOWN FOR <20 frames)-----
-    if (target && IsBtn(target))
+    if (target->data.button.on_click != NULL)
     {
-        if (target->data.button.on_click != NULL)
-        {
-            target->data.button.on_click(target);
-        }
+        target->data.button.on_click(target);
     }
 }
 
@@ -373,10 +375,6 @@ void HandleHoverItem(UIElement *target)
 
 void HandleBtnSwitchClick(UIElement *btn)
 {
-    if (btn && !btn->is_enabled)
-    {
-        return;
-    }
     ToggleElementEnabled(btn->data.button.data_bind); // Toggle the slave's enabled state
     LOG_INFO("SWITCH CLICK\n");
 }
@@ -384,9 +382,6 @@ void HandleBtnSwitchClick(UIElement *btn)
 // A LArray of UIElements needs
 void HandleBtnEnumerateClick(UIElement *btn)
 {
-    if (!btn || !btn->is_enabled)
-        return;
-
     LArray *a = btn->data.button.data_bind;
 
     // Safely extract our custom integer tracker from the void*
@@ -416,22 +411,8 @@ void HandleBtnEnumerateClick(UIElement *btn)
     LOG_INFO("ENUMERATE VIEW CLICK\n");
 }
 
-void HandleBtnSimpleClick(UIElement *btn)
-{
-    if (btn && !btn->is_enabled)
-    {
-        return;
-    }
-
-    // ToggleElementEnabled(btn->data.button.slave); // Toggle the slave's enabled state
-    // LOG_INFO("SWITCH CLICK\n");
-}
-
 void HandleBtnSubmitClick(UIElement *btn)
 {
-    if (!btn || !btn->is_enabled)
-        return;
-
     int action = BUTTON_ACTION_NONE;
     if (btn->data.button.user_data)
         action = *(int *)(btn->data.button.user_data);
@@ -499,7 +480,7 @@ void HandleUIDragging(UIElement *e, Vector2d mouse_coords)
     Vector2d diff_local = VectorDiff_2d(new_local_offset, e->authored_offset.offset);
     Vector2d diff_pixel = (Vector2d){diff_local.x / pixels_to_ui_local_scale.x, diff_local.y / pixels_to_ui_local_scale.y};
 
-    // Finalize properties assignment
+    // Finalise properties assignment
     if (e->parent && e->resolved_offset.offset_mode == OFFSET_PERCENT)
     {
         e->resolved_offset.offset_mode = OFFSET_FIXED;
@@ -699,6 +680,14 @@ void ClearUIFocus()
         G_UIState.focused_element->is_focused = false;
         G_UIState.focused_element = NULL;
     }
+}
+
+// Reset transient input state such as text buffers and keyboard focus.
+// Call this before tearing down and rebuilding the UI to avoid stale references.
+void ResetUIInputState(void)
+{
+    ResetTextBuffers(&tbox_io_buffers);
+    ClearUIFocus();
 }
 
 void UpdateUIFocus(UIElement *element)

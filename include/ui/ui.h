@@ -67,7 +67,8 @@ typedef enum
     SIZE_PERCENT, // Use a percentage of the parent's content area (0.0 to 1.0)
     SIZE_FILL,    // Take up all remaining space
     SIZE_CONTENT, // Size to fit enabled children and padding
-    SIZE_CONTENT_FILL // Fit content height while filling the parent's width
+    SIZE_CONTENT_FILL, // Fit content height while filling the parent's width
+    SIZE_CONTENT_MAX // Fit content, capped by the authored dimensions
 } SizeMode;
 
 typedef enum
@@ -110,6 +111,10 @@ typedef struct
     SizeMode size_mode;
 } Size;
 
+#define UI_SIZE_CONTENT ((Size){{0.0f, 0.0f}, SIZE_CONTENT})
+#define UI_SIZE_CONTENT_FILL ((Size){{0.0f, 0.0f}, SIZE_CONTENT_FILL})
+#define UI_SIZE_CONTENT_MAX(max_width, max_height) ((Size){{(max_width), (max_height)}, SIZE_CONTENT_MAX})
+
 typedef struct
 {
     Vector2d spacing;
@@ -117,9 +122,11 @@ typedef struct
     SpacingType spacing_type;
 } Spacing;
 
+#define UI_SPACING_NONE ((Spacing){{0.0f, 0.0f}, NONE, SPACING_NONE})
+
 typedef struct
 {
-    Space2d space;
+    UISpace2d space;
 } RootData;
 
 typedef struct
@@ -233,6 +240,8 @@ typedef struct View
     ViewType type;
 } View;
 
+typedef struct Pool Pool;
+
 // typedef struct {
 //     Texture *texture;
 // } UIImageData;
@@ -260,8 +269,11 @@ void RemoveElementFromTree(UIElement *element);
 UIElement *GetPreviousSibling(UIElement *element);
 bool ElementHasSibling(UIElement *e);
 UIElement *GetElementAt(UIElement *e, Vector2d pixel_coords);
+void DisposeUIElement(UIElement *e);
 void EnableElement(UIElement *element);
 void DisableElement(UIElement *element);
+Pool *GetUIElementPool(void);
+void SetUIElementPool(Pool *pool);
 void SetUIElementTextHorizontalAlignment(UIElement *element, UITextHorizontalAlignment alignment);
 void SetUIElementTextVerticalAlignment(UIElement *element, UITextVerticalAlignment alignment);
 bool IsTextbox(UIElement *e);

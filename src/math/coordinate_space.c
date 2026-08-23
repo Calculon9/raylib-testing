@@ -65,6 +65,16 @@ Frame2d CreateFrame2d(Basis2d basis, Vector2d origin_in_parent, Vector2d local_r
     };
 }
 
+// Create UI coordinate-space geometry without allocating simulation cell data.
+UISpace2d NewUISpace2d(Vector2d origin_in_parent, Vector2d local_resolution, Basis2d basis)
+{
+   UISpace2d space = {0};
+   space.frame = CreateFrame2d(basis, origin_in_parent, local_resolution);
+   space.columns = (int)fmaxf(1.0f, ceilf(local_resolution.x));
+   space.rows = (int)fmaxf(1.0f, ceilf(local_resolution.y));
+   return space;
+}
+
 // Creates a local coordinate space. Basis vectors in most cases (orthogonal dimensions) should be u = {1,0}, v = {0,1}.
 // The origin is in local coordinates of this space, not a parent-space mapped coordinate.
 Space2d NewSpace2d(Vector2d origin_in_parent, Vector2d local_resolution, Basis2d basis)
@@ -158,6 +168,22 @@ void InitUnitCells(Space2d *space)
    }
    cells->count = columns * rows;
    LOG_INFO("Initialised %d cells\n", count);
+}
+
+// Clear transient entity occupancy while preserving each cell's geometry and metadata.
+void ResetSpaceCells(Space2d *space)
+{
+   if (!space || !space->cells.items)
+   {
+      return;
+   }
+
+   Cell *cells = (Cell *)space->cells.items;
+   for (size_t cell_index = 0; cell_index < space->cells.count; cell_index++)
+   {
+      cells[cell_index].occupancy = 0;
+      MemorySet(cells[cell_index].object_ids, 0, sizeof(cells[cell_index].object_ids));
+   }
 }
 
 GridSpace2d NewGridSpace2d_FromPreset(Vector2d origin_in_parent, CoordinateSpacePreset preset, ColourRgba colour_fill, ColourRgba colour_line)

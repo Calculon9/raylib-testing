@@ -1,7 +1,5 @@
 #include "editor/geometry_editor.h"
 
-#include <math.h>
-
 #include "input/drag_interaction.h"
 #include "raylib.h"
 #include "system/systems.h"
@@ -25,13 +23,6 @@ static bool GeometryEditor_IsEnabled(const World2d *world, const Newtonoid2d *se
     return world && world->mode == PAUSED &&
            selected_object != NULL &&
            G_UIState.active_panel_view == LPANEL_DRAW_VIEW;
-}
-
-static bool IsNear(Vector2d a, Vector2d b, float radius)
-{
-    float dx = a.x - b.x;
-    float dy = a.y - b.y;
-    return (dx * dx) + (dy * dy) <= radius * radius;
 }
 
 static void RefreshObjectGeometry(World2d *world, Newtonoid2d *object,
@@ -64,7 +55,7 @@ static bool GeometryEditor_TryBeginDrag(World2d *world, Vector2d pixel_coords, N
         Vector2d pixel_vertex = TransformCoordinates(world_to_pixel, world_vertex);
         LOG_INFO("Geometry editor vertex %zu: mouse=(%.1f,%.1f) handle=(%.1f,%.1f)\n",
                  index, pixel_coords.x, pixel_coords.y, pixel_vertex.x, pixel_vertex.y);
-        if (IsNear(pixel_vertex, pixel_coords, handle_radius))
+        if (VectorWithinDistance_2d(pixel_vertex, pixel_coords, handle_radius))
         {
             vertex_handle_target.object = object;
             vertex_handle_target.vertex_index = (int)index;

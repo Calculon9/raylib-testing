@@ -72,6 +72,9 @@ int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_co
 // Select a world by index.
 bool Universe_SelectWorld(Universe *u, int index);
 
+// Delete a world by index and return whether the deletion succeeded.
+bool Universe_DeleteWorld(Universe *u, int index);
+
 // Update a world's basis and dependent transforms; returns false for invalid bases.
 bool Universe_SetWorldBasis(Universe *u, int index, Vector2d basis_u, Vector2d basis_v);
 

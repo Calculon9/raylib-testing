@@ -56,5 +56,7 @@ typedef struct
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 // void UpdateUISystem(int mouse_x, int mouse_y);
+void ClearUIFocus(void);
+void ResetUIInputState(void);
 
 #endif

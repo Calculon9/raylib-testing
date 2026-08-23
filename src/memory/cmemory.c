@@ -261,6 +261,17 @@ Pool *PoolCreate(size_t element_size, int capacity)
     return p;
 }
 
+void PoolDestroy(Pool *p)
+{
+    if (!p)
+    {
+        return;
+    }
+
+    Deallocate(&p->mem, p->element_size * (size_t)p->capacity);
+    Deallocate((void **)&p, sizeof(Pool));
+}
+
 void *PoolAlloc(Pool *p)
 {
     if (!p || !p->free_list)

@@ -22,19 +22,11 @@ static int btn_action_select_world_prev = BUTTON_ACTION_SELECT_WORLD_PREV;
 static int btn_action_select_world_next = BUTTON_ACTION_SELECT_WORLD_NEXT;
 
 // ============================================================================
-// View Storage
-// ============================================================================
-static View rpanel_state_view_storage = {0};
-static View rpanel_create_view_storage = {0};
-
-// ============================================================================
 // Visual Style Properties
 // ============================================================================
 // ============================================================================
 // UI Element Pointers
 // ============================================================================
-static View *rpanel_state_view = NULL;
-static View *rpanel_create_view = NULL;
 static UIElement *rpanel_toggle_cont = NULL;
 static UIElement *rpanel_state_view_cont = NULL;
 static UIElement *rpanel_create_view_cont = NULL;
@@ -59,21 +51,13 @@ static UIElement *rpanel_create_gravity_tbox = NULL;
 static UIElement *rpanel_create_objects_tbox = NULL;
 
 // ============================================================================
-// Root Layout
-// ============================================================================
-static Offset rpanel_state_view_cont_offset = {{0.0f, 0.0f}, OFFSET_PERCENT};
-static Offset rpanel_create_view_cont_offset = {{0.0f, 0.0f}, OFFSET_PERCENT};
-
-// ============================================================================
 // State View Layout
 // ============================================================================
-static Offset rpanel_state_world_cont_offset = {{0.0f, 0.0f}, OFFSET_FIXED};
 static Size rpanel_state_world_cont_size = {{1.0f, 0.36f}, SIZE_PERCENT};
 
 // ============================================================================
 // Create View Layout
 // ============================================================================
-static Offset rpanel_create_world_cont_offset = {{0.0f, 0.0f}, OFFSET_PERCENT};
 static Size rpanel_create_world_cont_size = {{1.0f, 0.32f}, SIZE_PERCENT};
 
 static void InitRPanelStateView(void);
@@ -84,14 +68,9 @@ static void InitRPanelCreateWorldContainer(void);
 
 static void InitRPanelStateWorldContainer(void)
 {
-    UIElement *world_cont = CreateUIContainer(
-        rpanel_state_view_cont, rpanel_state_world_cont_size,
-        rpanel_state_world_cont_offset, ui_standard_container_padding,
-        rpanel->palette, UI_PALETTE_SURFACE_CONTAINER,
-        ui_standard_stack_spacing, true, true);
-
-    CreateUILabelTitleDefault(world_cont, "World Manager", ui_standard_control_size,
-                              ui_standard_field_padding, rpanel->palette);
+    UIElement *world_cont = CreateViewSection_Stack(
+        rpanel_state_view_cont, "World Manager", rpanel_state_world_cont_size,
+        rpanel->palette);
 
     const UIFieldSpec world_fields[] = {
         {"World", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, &rpanel_world_index_tbox, NULL},
@@ -122,13 +101,12 @@ static void InitRPanelStateWorldContainer(void)
 
 static void InitRPanelStateView(void)
 {
-    rpanel_state_view_cont = CreateUIContainer(
-        rpanel->root, ui_fill_container_size,
-        rpanel_state_view_cont_offset, ZERO_VECTOR_2D,
-        rpanel->palette, UI_PALETTE_SURFACE_TRANSPARENT,
-        ui_standard_stack_spacing, false, true);
-
-    PanelSystem_AddView(rpanel, rpanel_state_view, rpanel_state_view_cont, RPANEL_STATE_VIEW);
+    View *view = PanelSystem_CreateView(rpanel, RPANEL_STATE_VIEW);
+    rpanel_state_view_cont = view ? view->container : NULL;
+    if (!rpanel_state_view_cont)
+    {
+        return;
+    }
 
     InitRPanelStateWorldContainer();
     // InitRPanelStateStatsContainer();
@@ -136,14 +114,10 @@ static void InitRPanelStateView(void)
 
 static void InitRPanelCreateWorldContainer(void)
 {
-    UIElement *create_world_cont = CreateUIContainer(
-        rpanel_create_view_cont, rpanel_create_world_cont_size,
-        rpanel_create_world_cont_offset, ui_standard_container_padding,
-        rpanel->palette, UI_PALETTE_SURFACE_CONTAINER,
-        ui_standard_stack_spacing, true, true);
+    UIElement *create_world_cont = CreateViewSection_Stack(
+        rpanel_create_view_cont, "World Create", rpanel_create_world_cont_size,
+        rpanel->palette);
 
-    CreateUILabelTitleDefault(create_world_cont, "World Create", ui_standard_control_size,
-                              ui_standard_field_padding, rpanel->palette);
     const UIFieldSpec create_fields[] = {
         {"Spawn", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &rpanel_create_spawn_tbox, NULL},
         {"Resolution", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &rpanel_create_resolution_tbox, NULL},
@@ -182,13 +156,14 @@ static void InitRPanelCreateWorldContainer(void)
 
 static void InitRPanelCreateView(void)
 {
-    rpanel_create_view_cont = CreateUIContainer(
-        rpanel->root, ui_fill_container_size,
-        rpanel_create_view_cont_offset, ZERO_VECTOR_2D,
-        rpanel->palette, UI_PALETTE_SURFACE_TRANSPARENT,
-        ui_standard_stack_spacing, false, false);
+    View *view = PanelSystem_CreateView(rpanel, RPANEL_WORLD_CREATE_VIEW);
+    rpanel_create_view_cont = view ? view->container : NULL;
+    if (!rpanel_create_view_cont)
+    {
+        return;
+    }
 
-    PanelSystem_AddView(rpanel, rpanel_create_view, rpanel_create_view_cont, RPANEL_WORLD_CREATE_VIEW);
+    DisableElement(rpanel_create_view_cont);
 
     InitRPanelCreateWorldContainer();
 }
@@ -209,13 +184,16 @@ void InitRPanel(void)
         return;
     }
 
-    // Setup view storage
-    rpanel_state_view = &rpanel_state_view_storage;
-    rpanel_create_view = &rpanel_create_view_storage;
-
     // Build panel-specific UI
     InitRPanelStateView();
     InitRPanelCreateView();
+
+    // Select the initial view after both panel views have been registered.
+    if (rpanel->selectors.count > 0)
+    {
+        rpanel_view_selector = *((ViewSelector **)LArray_Get(&rpanel->selectors, 0));
+        PanelSystem_SelectView(rpanel_view_selector, 0);
+    }
 
     // Initial layout update
     UpdateUISpace(rpanel->root, rpanel->seed_box);
@@ -292,7 +270,7 @@ void DrawRPanel(void)
             if (Universe_SetWorldBasis(&G_Universe, selected_world_idx,
                                        edited_basis.u, edited_basis.v))
             {
-                rpanel_last_world_basis = edited_basis;
+                rpanel_last_world_basis = selected_world->grid_space.space.frame.basis;
             }
             else
             {
@@ -362,4 +340,39 @@ void ResetRPanelSpaceBasis(void)
 UIElement *GetRPanelRoot(void)
 {
     return rpanel ? rpanel->root : NULL;
+}
+
+PanelSystem *GetRPanelSystem(void)
+{
+    return rpanel;
+}
+
+// Destroy the right panel and clear its cached UI references.
+void DestroyRPanel(void)
+{
+    PanelSystem *panel = rpanel;
+    rpanel = NULL;
+    PanelSystem_Destroy(panel);
+
+    rpanel_toggle_cont = NULL;
+    rpanel_state_view_cont = NULL;
+    rpanel_create_view_cont = NULL;
+    rpanel_view_selector = NULL;
+    rpanel_stats_entities_tbox = NULL;
+    rpanel_world_index_tbox = NULL;
+    rpanel_world_universe_pos_tbox = NULL;
+    rpanel_world_gravity_edit_tbox = NULL;
+    rpanel_world_resolution_tbox = NULL;
+    rpanel_world_basis_u_tbox = NULL;
+    rpanel_world_basis_v_tbox = NULL;
+    rpanel_world_objects_tbox = NULL;
+    rpanel_world_next_id_tbox = NULL;
+    rpanel_create_spawn_tbox = NULL;
+    rpanel_create_resolution_tbox = NULL;
+    rpanel_create_basis_u_tbox = NULL;
+    rpanel_create_basis_v_tbox = NULL;
+    rpanel_create_gravity_tbox = NULL;
+    rpanel_create_objects_tbox = NULL;
+    rpanel_basis_world_index = -1;
+    rpanel_last_world_basis = (Basis2d){0};
 }

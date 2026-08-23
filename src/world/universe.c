@@ -20,37 +20,12 @@ extern ColourRgba camera_marker_colour;
 
 static Basis2d ResolveFrameBasis_UserInput(Vector2d requested_u, Vector2d requested_v)
 {
-    const float eps = 0.0001f;
     Basis2d result = IDENTITY_BASIS_2D;
-
-    float u_mag = VectorMagnitude_2d(requested_u);
-    float v_mag = VectorMagnitude_2d(requested_v);
-    if (u_mag < eps || v_mag < eps)
+    if (!Basis2d_NormaliseAndValidate((Basis2d){requested_u, requested_v}, &result))
     {
         LOG_WARN("Invalid coord-space basis magnitude. Falling back to identity basis. u=(%.3f,%.3f), v=(%.3f,%.3f)\n",
                  requested_u.x, requested_u.y, requested_v.x, requested_v.y);
-        return result;
     }
-
-    // Preserve authored basis magnitudes so the basis editor affects scale as well as direction.
-    result.u = requested_u;
-    result.v = requested_v;
-
-    float det = (result.u.x * result.v.y) - (result.u.y * result.v.x);
-    if (fabsf(det) < eps)
-    {
-        // If vectors are nearly collinear, rebuild v perpendicular to u while preserving v magnitude.
-        Vector2d u_unit = VectorNormalize_2d(result.u);
-        result.v = (Vector2d){-u_unit.y * v_mag, u_unit.x * v_mag};
-        det = (result.u.x * result.v.y) - (result.u.y * result.v.x);
-    }
-
-    if (det < 0.0f)
-    {
-        // Keep a consistent handedness for camera/grid transforms.
-        result.v = VectorScale_2d(result.v, -1.0f);
-    }
-
     return result;
 }
 
@@ -110,11 +85,13 @@ static void PopulateStarterObjects(World2d *world, int requested_count)
             Newtonoid2d object = CreateNewtonoid2d_Symmetric(
                 6, 0.2f, (ColourRgba){155, 0, 0, 255}, 1.0f,
                 object_coords, velocity, ZERO_VECTOR_2D);
-            object.entity_flags = FLAG_TYPE_NEWTONOID;
-            object.collision_mask = FLAG_TYPE_NEWTONOID | FLAG_TYPE_WALL;
-            object.status_flags = FLAG_STATUS_ALIVE;
-            object.line_colour = (ColourRgba){155, 0, 0, 255};
-            object.fill_colour = (ColourRgba){155, 0, 0, 255};
+            Newtonoid_ConfigureMetadata(&object, FLAG_TYPE_NEWTONOID,
+                                         FLAG_TYPE_NEWTONOID | FLAG_TYPE_WALL | FLAG_TYPE_PROJECTILE,
+                                         FLAG_ATTR_RIGID | FLAG_ATTR_DAMAGEABLE,
+                                         FLAG_STATUS_ALIVE,
+                                         (ColourRgba){155, 0, 0, 255},
+                                         (ColourRgba){155, 0, 0, 255});
+            Newtonoid_ConfigureHealth(&object, 3.0f);
 
             bool overlaps_existing = false;
             Newtonoid2d *existing_objects = (Newtonoid2d *)world->objects.items;
@@ -176,6 +153,7 @@ void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_wor
     root_space.space.grid_origin = VectorScale_2d(root_resolution, -0.5f);
     RebuildSpaceCells(&root_space.space);
     root_space.object.id = INVALID_ENTITY_ID;
+    root_space.object.attribute_flags = FLAG_ATTR_RIGID;
     CreateAndBindWorld(u, root_space, 0.0f, &u->camera.frame, &u->root_world);
     // Pure container: not drawn as a grid, not selectable/draggable, not physics-ticked.
     u->root_world.flags = WORLD_FLAG_ACTIVE;
@@ -209,7 +187,8 @@ int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_co
 
     GridSpace2d space_g = NewGridSpace2d(world_center_in_universe, requested_res, world_basis, fill_colour, line_colour);
     space_g.object.id = INVALID_ENTITY_ID;
-    space_g.object.status_flags = FLAG_ATTR_RIGID | FLAG_STATUS_ALIVE;
+    space_g.object.attribute_flags = FLAG_ATTR_RIGID;
+    space_g.object.status_flags = FLAG_STATUS_ALIVE;
     space_g.object.collision_mask = FLAG_TYPE_NEWTONOID | FLAG_TYPE_PROJECTILE | FLAG_TYPE_WALL;
     space_g.object.entity_flags = FLAG_TYPE_WALL;
 
@@ -220,9 +199,6 @@ int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_co
         LOG_ERROR("Cannot create world: world initialization failed.\n");
         return -1;
     }
-
-    // Note: CreateWorld() already sets the standard active/visible/selectable/physics/spawns/draggable
-    // flag set internally, so no reassignment is needed here.
 
     // Sync the world's frame origin to its anchored logical position in the universe
     new_world->grid_space.space.frame.origin_in_parent = world_center_in_universe;
@@ -243,11 +219,11 @@ int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_co
     Newtonoid2d cam = CreateNewtonoid2d_Symmetric(24, 0.45f, camera_marker_colour, 1.0f,
                                                   cam_local_coords, ZERO_VECTOR_2D, ZERO_VECTOR_2D);
 
-    cam.entity_flags = FLAG_TYPE_CAMERA | FLAG_TYPE_EFFECT; // Effect makes it immune to physics (currently)
-    cam.collision_mask = 0;
-    cam.status_flags = FLAG_STATUS_ALIVE;
-    cam.line_colour = camera_marker_colour;
-    cam.fill_colour = camera_marker_colour;
+    // Camera markers are visual-only entities and therefore do not participate in collisions.
+    Newtonoid_ConfigureMetadata(&cam, FLAG_TYPE_CAMERA | FLAG_TYPE_EFFECT, 0,
+                                ENTITY_ATTR_FLAG_NONE,
+                                FLAG_STATUS_ALIVE, camera_marker_colour,
+                                camera_marker_colour);
     new_world->camera_marker_id = AddObjectToWorld(new_world, &cam, new_world->grid_space.object.id);
 
     // Populate the new world with randomly placed starter objects.
@@ -273,6 +249,45 @@ bool Universe_SelectWorld(Universe *u, int index)
     return true;
 }
 
+// Delete a world, compact the world array, and repair selection and frame references.
+bool Universe_DeleteWorld(Universe *u, int index)
+{
+    if (!u || index < 0 || index >= u->world_count)
+    {
+        return false;
+    }
+
+    DestroyWorld(&u->worlds[index]);
+
+    int last_world_index = u->world_count - 1;
+    for (int world_index = index; world_index < last_world_index; world_index++)
+    {
+        u->worlds[world_index] = u->worlds[world_index + 1];
+    }
+    MemorySet(&u->worlds[last_world_index], 0, sizeof(u->worlds[last_world_index]));
+    u->world_count--;
+
+    if (u->selected_world_index == index)
+    {
+        u->selected_world_index = u->world_count > 0
+                                      ? (index < u->world_count ? index : u->world_count - 1)
+                                      : -1;
+    }
+    else if (u->selected_world_index > index)
+    {
+        u->selected_world_index--;
+    }
+
+    // Compaction copies tunnel pointers, so rebind every surviving world to its new array slot.
+    for (int world_index = 0; world_index < u->world_count; world_index++)
+    {
+        BindWorldTunnel(&u->worlds[world_index], &u->camera);
+    }
+
+    LOG_INFO("Universe_DeleteWorld -> index=%d remaining=%d\n", index, u->world_count);
+    return true;
+}
+
 bool Universe_SetWorldBasis(Universe *u, int index, Vector2d basis_u, Vector2d basis_v)
 {
     if (!u || index < 0 || index >= u->world_count)
@@ -280,16 +295,14 @@ bool Universe_SetWorldBasis(Universe *u, int index, Vector2d basis_u, Vector2d b
         return false;
     }
 
-    float determinant = (basis_u.x * basis_v.y) - (basis_u.y * basis_v.x);
-    if (VectorMagnitude_2d(basis_u) < 0.0001f ||
-        VectorMagnitude_2d(basis_v) < 0.0001f ||
-        fabsf(determinant) < 0.0001f)
+    Basis2d normalised_basis;
+    if (!Basis2d_NormaliseAndValidate((Basis2d){basis_u, basis_v}, &normalised_basis))
     {
         return false;
     }
 
     World2d *world = &u->worlds[index];
-    world->grid_space.space.frame.basis = (Basis2d){basis_u, basis_v};
+    world->grid_space.space.frame.basis = normalised_basis;
     RebuildSpaceCells(&world->grid_space.space);
 
     BindWorldTunnel(world, &u->camera);

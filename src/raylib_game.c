@@ -263,7 +263,7 @@ int main(void)
     InitGameplayScreen();
 
     frame_counter = InitFrameCounter();
-    
+
     // Seed the random number generator using the current time
     srand(time(NULL));
 
@@ -274,7 +274,7 @@ int main(void)
 #if defined(PLATFORM_WEB)
     emscripten_set_main_loop(UpdateDrawFrame, 60, 1);
 #else
-    SetTargetFPS(60); // Set our game to run at 60 frames-per-second
+    SetTargetFPS(60);            // Set our game to run at 60 frames-per-second
     while (!WindowShouldClose()) // Detect window close button or ESC key
     {
         UpdateDrawFrame();
@@ -420,7 +420,7 @@ void UpdateGameplayScreen(void)
 
     int mouse_x = GetMouseX();
     int mouse_y = GetMouseY();
-     InputFrame input = {
+    InputFrame input = {
         .pointer_position = {(float)mouse_x, (float)mouse_y},
         .left_pressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT),
         .left_down = IsMouseButtonDown(MOUSE_BUTTON_LEFT),
@@ -428,8 +428,8 @@ void UpdateGameplayScreen(void)
         .right_pressed = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT),
         .right_down = IsMouseButtonDown(MOUSE_BUTTON_RIGHT),
         .right_released = IsMouseButtonReleased(MOUSE_BUTTON_RIGHT),
+        .delete_pressed = IsKeyPressed(KEY_DELETE),
         .wheel_delta = GetMouseWheelMove()};
 
     UpdateInputSystem(&input);
 }
-

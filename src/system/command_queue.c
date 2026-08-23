@@ -82,6 +82,17 @@ bool EnqueueCreateWorld(void)
     return EnqueueCommandWithQueueLog(CMD_CREATE_WORLD, NULL, 0, "CMD_CREATE_WORLD");
 }
 
+bool EnqueueDeleteWorld(int world_index)
+{
+    if (world_index < 0)
+    {
+        return false;
+    }
+
+    return EnqueueCommandWithQueueLog(CMD_DELETE_WORLD, &world_index,
+                                      sizeof(world_index), "CMD_DELETE_WORLD");
+}
+
 bool EnqueueSelectWorld(int delta)
 {
     if (!EnqueueCommandWithQueueLog(CMD_SELECT_WORLD, &delta, sizeof(delta), NULL))
@@ -173,6 +184,18 @@ void ProcessCommandQueue(void)
             if (world_index >= 0)
             {
                 LOG_INFO("Processed CMD_CREATE_WORLD -> world_index=%d\n", world_index);
+            }
+        }
+
+        if (c->type == CMD_DELETE_WORLD)
+        {
+            int world_index = c->data.world_delete_index;
+            if (Universe_DeleteWorld(&G_Universe, world_index))
+            {
+                // World compaction can invalidate selected entity and cell pointers.
+                UIState_SetSelection(NULL, NULL, -1);
+                DragInteraction_ClearCapture(DragInteraction_GetContext(DRAG_CONTEXT_GAME));
+                LOG_INFO("Processed CMD_DELETE_WORLD -> world_index=%d\n", world_index);
             }
         }
 

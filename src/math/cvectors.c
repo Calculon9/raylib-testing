@@ -33,6 +33,17 @@ Vector2d VectorScale_2d(Vector2d vector, float scalar)
     return result;
 }
 
+float VectorDistanceSquared_2d(Vector2d a, Vector2d b)
+{
+    Vector2d difference = VectorDiff_2d(a, b);
+    return (difference.x * difference.x) + (difference.y * difference.y);
+}
+
+bool VectorWithinDistance_2d(Vector2d a, Vector2d b, float max_distance)
+{
+    return VectorDistanceSquared_2d(a, b) <= max_distance * max_distance;
+}
+
 float VectorMagnitude_2d(Vector2d vector)
 {
     return sqrtf((vector.x * vector.x) + (vector.y * vector.y));

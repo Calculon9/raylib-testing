@@ -36,7 +36,7 @@ typedef struct PanelSystem {
     UIBox seed_box;
     
     // Coordinate Space
-    Space2d space;
+    UISpace2d space;
     ViewportRegion *viewport;
     
     // Configuration
@@ -52,6 +52,7 @@ typedef struct PanelSystem {
     
     // Views
     LArray views;  // Array of View*
+    LArray selectors; // Array of ViewSelector*
 } PanelSystem;
 
 struct ViewSelector {
@@ -71,17 +72,17 @@ struct ViewSelector {
 PanelSystem* PanelSystem_Create(ViewportRegion *viewport, float scale, Vector2d padding,
                                 const UIPalette *palette, Spacing root_child_spacing);
 
+// Destroy a panel system instance and everything it owns.
+void PanelSystem_Destroy(PanelSystem *panel);
+
 // Initialize the panel's root UI element and coordinate space
 void PanelSystem_InitRoot(PanelSystem *panel);
 
 // Initialize the views array
 void PanelSystem_InitViews(PanelSystem *panel, size_t view_count);
 
-// Register an existing view storage object with its container and type.
-bool PanelSystem_AddView(PanelSystem *panel, View *view, UIElement *container, ViewType type);
-
-// Allocate a View, register it with the panel/container/type, and return it in one call.
-View *PanelSystem_CreateView(PanelSystem *panel, UIElement *container, ViewType type);
+// Create a standard view container, allocate its View, register it, and return the panel-owned View.
+View *PanelSystem_CreateView(PanelSystem *panel, ViewType view_type);
 
 // Create buttons that select views in the panel's view array.
 ViewSelector *PanelSystem_CreateViewSelector(PanelSystem *panel, UIElement *parent,
@@ -116,10 +117,6 @@ PanelSystem *PanelSystem_CreateStandard(ViewportRegion *viewport, size_t view_co
                                         const char *selector_labels[], size_t selector_label_count,
                                         ViewSelectionCallback selector_callback,
                                         const UIPalette *palette, Spacing root_child_spacing);
-
-// Create the panel's top-level view container (transparent fill, zero offset,
-// standard stack spacing, not draggable, enabled).
-UIElement *PanelSystem_CreateRootViewContainer(PanelSystem *panel, ViewType view_type, View *view_storage);
 
 // Create a toggle bar container at the top of the panel and a view selector.
 ViewSelector *PanelSystem_CreateStandardViewSelector(PanelSystem *panel,

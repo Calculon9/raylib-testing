@@ -28,6 +28,8 @@ Matrix3x3 MtxTransform_BuildLocalToParent(Vector2d origin_in_parent, float rotat
 Matrix3x3 MtxTransform_GetLocalToParent(Frame2d frame);
 Basis2d Basis_BuildFromRotationScale(float rotation_radians, Vector2d scale);
 Basis2d Basis_BuildLocalToParent(Vector2d origin_in_parent, float rotation_radians, Vector2d scale);
+// Validate a basis and normalise its orientation while preserving axis magnitudes.
+bool Basis2d_NormaliseAndValidate(Basis2d requested, Basis2d *out_basis);
 Basis2d BasisTransform_CalcChainToAncestor_Basis(Basis2d source, Basis2d middle);
 // bool VectorIsInFrame_2d(Vector2d vector, const Frame2d *frame);
 // Vector2d CalcSpaceHalfExtent(const Space2d *space);

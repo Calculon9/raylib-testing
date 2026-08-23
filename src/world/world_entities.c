@@ -24,14 +24,38 @@ static void FreeEntitySurfaceVectors(Newtonoid2d *entity)
         return;
     }
 
-    LArray *vectors = &entity->surface.surface_vectors;
-    if (vectors->items && vectors->capacity > 0 && vectors->elem_bytes > 0)
+    // Entity surfaces are nested allocations, so release them before clearing the entity array.
+    ClearLArray(&entity->surface.surface_vectors);
+}
+
+// Free every entity surface and the backing allocation of an entity array.
+static void FreeWorldEntityArray(LArray *entities)
+{
+    if (!entities)
     {
-        size_t bytes = (size_t)vectors->capacity * vectors->elem_bytes;
-        Deallocate(&vectors->items, bytes);
+        return;
     }
 
-    MemorySet(vectors, 0, sizeof(*vectors));
+    for (int entity_index = 0; entity_index < entities->count; entity_index++)
+    {
+        Newtonoid2d *entity = (Newtonoid2d *)LArray_Get(entities, entity_index);
+        FreeEntitySurfaceVectors(entity);
+    }
+
+    ClearLArray(entities);
+}
+
+// Release entity-owned nested surface data and the two entity arrays for a world.
+void DestroyWorldEntityStorage(World2d *world)
+{
+    if (!world)
+    {
+        return;
+    }
+
+    FreeEntitySurfaceVectors(&world->grid_space.object);
+    FreeWorldEntityArray(&world->objects);
+    FreeWorldEntityArray(&world->temp_objects);
 }
 
 static void EnqueueWorldCommand(LArray *scheduled_events, WorldCmdType type, EntityId object_id, int payload_value,

@@ -3,6 +3,7 @@
 #include "raylib.h"
 #include "camera/camera.h"
 #include "common/common.h"
+#include "math/helpers.h"
 
 // ============================================================================
 // Configuration & Constants
@@ -17,7 +18,6 @@ static const float min_panel_ratio = 0.05f;
 static const float max_panel_ratio = 0.45f;
 static const float max_combined_panel_ratio = 0.90f;
 static int debug_grid_enabled = 0;
-static const float basis_min_magnitude = 0.0001f;
 
 #ifndef VIEWPORT_VERBOSE_LOGGING
 #define VIEWPORT_VERBOSE_LOGGING 0
@@ -66,7 +66,7 @@ static void FinalizeViewportRegion(ViewportRegion *region, Vector2d basis_u, Vec
         return;
     }
 
-    region->resolution = VectorSum_2d(VectorScale_2d(region->local_origin, -1.0f), region->local_end);
+    region->resolution = VectorDiff_2d(region->local_end, region->local_origin);
     region->pixel_u = VectorScale_2d(basis_u, pixels_per_unit);
     region->pixel_v = VectorScale_2d(basis_v, pixels_per_unit);
     region->pixel_origin.x = region->local_origin.x * region->pixel_u.x + region->local_origin.y * region->pixel_v.x;
@@ -136,20 +136,6 @@ static void DrawViewportRegionGrid(Vector2d origin, Vector2d basis_u, Vector2d b
     DrawLineEx((Vector2){(float)p01.x, (float)p01.y}, (Vector2){(float)p00.x, (float)p00.y}, 2.0f, border_color);
 }
 
-static float ClampFloat(float value, float min_value, float max_value)
-{
-    if (value < min_value)
-    {
-        return min_value;
-    }
-    if (value > max_value)
-    {
-        return max_value;
-    }
-
-    return value;
-}
-
 void SetViewportTargetLogicalHeight(float logical_height)
 {
     target_game_logical_height = ClampFloat(logical_height, min_target_logical_height, max_target_logical_height);
@@ -194,8 +180,8 @@ bool ViewportRegion_ContainsPixel(const ViewportRegion *region, Vector2d pixel_c
 
 bool SetViewportSpaceBasis(ViewportSpaceId space_id, Vector2d basis_u, Vector2d basis_v)
 {
-    if (VectorMagnitude_2d(basis_u) < basis_min_magnitude ||
-        VectorMagnitude_2d(basis_v) < basis_min_magnitude)
+    Basis2d normalised_basis;
+    if (!Basis2d_NormaliseAndValidate((Basis2d){basis_u, basis_v}, &normalised_basis))
     {
         return false;
     }
@@ -203,8 +189,8 @@ bool SetViewportSpaceBasis(ViewportSpaceId space_id, Vector2d basis_u, Vector2d 
     if (space_id == VIEWPORT_SPACE_GAME)
     {
         game_viewport_basis_override_enabled = true;
-        game_viewport_basis_override_u = basis_u;
-        game_viewport_basis_override_v = basis_v;
+        game_viewport_basis_override_u = normalised_basis.u;
+        game_viewport_basis_override_v = normalised_basis.v;
         return true;
     }
 
@@ -219,8 +205,8 @@ bool SetViewportSpaceBasis(ViewportSpaceId space_id, Vector2d basis_u, Vector2d 
         return false;
     }
 
-    *pair.u = basis_u;
-    *pair.v = basis_v;
+    *pair.u = normalised_basis.u;
+    *pair.v = normalised_basis.v;
 
     return true;
 }

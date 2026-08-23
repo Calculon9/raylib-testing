@@ -58,7 +58,7 @@ Vector2d Frame_TransformPoint_FromParent(Vector2d parent_point, const Frame2d *f
         return parent_point;
 
     // Shift the vector relative to our local origin position
-    Vector2d relative_pos = VectorSum_2d(parent_point, VectorScale_2d(frame->origin_in_parent, -1.0f));
+    Vector2d relative_pos = VectorDiff_2d(parent_point, frame->origin_in_parent);
 
     // Project onto our basis vectors via a 2D Dot Product operation
     // (Assumes basis vectors are orthonormal: unit length and perpendicular)
@@ -112,6 +112,44 @@ Basis2d Basis_BuildLocalToParent(Vector2d origin_in_parent, float rotation_radia
     // Origin belongs to the frame, not the basis; reuse the shared rotation/scale builder.
     (void)origin_in_parent;
     return Basis_BuildFromRotationScale(rotation_radians, scale);
+}
+
+// Validate a basis and normalize its orientation while preserving axis magnitudes.
+bool Basis2d_NormaliseAndValidate(Basis2d requested, Basis2d *out_basis)
+{
+    const float epsilon = 0.0001f;
+    if (!out_basis)
+    {
+        return false;
+    }
+
+    *out_basis = IDENTITY_BASIS_2D;
+
+    float u_magnitude = VectorMagnitude_2d(requested.u);
+    float v_magnitude = VectorMagnitude_2d(requested.v);
+    if (u_magnitude < epsilon || v_magnitude < epsilon)
+    {
+        return false;
+    }
+
+    Basis2d normalised = requested;
+    float determinant = (normalised.u.x * normalised.v.y) -
+                       (normalised.u.y * normalised.v.x);
+    if (fabsf(determinant) < epsilon)
+    {
+        Vector2d u_unit = VectorScale_2d(normalised.u, 1.0f / u_magnitude);
+        normalised.v = (Vector2d){-u_unit.y * v_magnitude, u_unit.x * v_magnitude};
+        determinant = (normalised.u.x * normalised.v.y) -
+                      (normalised.u.y * normalised.v.x);
+    }
+
+    if (determinant < 0.0f)
+    {
+        normalised.v = VectorScale_2d(normalised.v, -1.0f);
+    }
+
+    *out_basis = normalised;
+    return true;
 }
 
 // Assumes both frames are in the same parent space. This is a common case for sibling objects in a hierarchy.

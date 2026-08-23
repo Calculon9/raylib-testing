@@ -12,6 +12,7 @@ typedef enum
     CMD_CREATE_WORLD = 3,
     CMD_SELECT_WORLD = 4,
     CMD_MOVE_ENTITY = 5,
+    CMD_DELETE_WORLD = 6,
 } CommandType;
 
 typedef struct
@@ -32,6 +33,7 @@ typedef struct
         Newtonoid2dParams create_entity;
         EntityId delete_entity;
         int world_select_delta;
+        int world_delete_index;
         MoveEntityCommand move_entity;
     } data;
 } Command;
@@ -41,6 +43,7 @@ bool EnqueueCreateEntity(const Newtonoid2dParams *params);
 bool EnqueueDeleteEntity(EntityId entity_id);
 bool EnqueueCreateWorld(void);
 bool EnqueueSelectWorld(int delta);
+bool EnqueueDeleteWorld(int world_index);
 bool EnqueueMoveEntity(EntityId entity_id, int source_world_index,
                        int destination_world_index, EntityId destination_parent_id,
                        Vector2d destination_coords, uint32_t original_collision_mask);

@@ -72,8 +72,11 @@ UIElement *CreateUIContainer(UIElement *parent, Size size, Offset offset,
 UIElement *CreateViewSection_Stack(UIElement *parent, const char *title,
                                    Size section_size, const UIPalette *palette);
 
-UIElement *CreateViewSection_Wrap(UIElement *parent, const char *title,
-                                   Size section_size, const UIPalette *palette);
+UIElement *CreateViewSection_StackWrap(UIElement *parent, const char *title,
+                                       Size section_size, const UIPalette *palette);
+
+UIElement *CreateViewSection_InlineWrap(UIElement *parent, const char *title,
+                                       Size section_size, const UIPalette *palette);
 
 void InitUIFields(UIElement *parent, const UIFieldSpec *specs, size_t count,
                   Vector2d row_padding, const UIPalette *palette);

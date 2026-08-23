@@ -9,13 +9,20 @@
 static PanelSystem *utility_panel = NULL;
 static Size utility_view_size = {{1.0f, 1.0f}, SIZE_PERCENT};
 
-static void InitUtilityStatsContainer(void)
+static void InitUtilityStatsView(void)
 {
-    UIElement *stats_container = CreateUIContainer(
-        utility_panel->root, utility_view_size,
-        (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ui_standard_container_padding,
-        utility_panel->palette, UI_PALETTE_SURFACE_CONTAINER,
-        ui_standard_stack_spacing, true, true);
+    View *view = PanelSystem_CreateView(utility_panel, 0);
+    UIElement *stats_container = view ? view->container : NULL;
+    if (!stats_container)
+    {
+        return;
+    }
+
+    // Customise the standard view container for the utility statistics layout.
+    stats_container->size = utility_view_size;
+    stats_container->colour_border = utility_panel->palette->container_border;
+    stats_container->colour_fill = utility_panel->palette->container_fill;
+    stats_container->is_draggable = true;
 
     const UIFieldSpec stats_specs[] = {
         {"Mem", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &G_UIState.stats_mem_str},
@@ -26,7 +33,6 @@ static void InitUtilityStatsContainer(void)
                  ARRAY_COUNT(stats_specs),
                  ui_standard_field_padding, utility_panel->palette);
 
-    PanelSystem_CreateView(utility_panel, stats_container, 0);
 }
 
 void InitUtilityPanel(void)
@@ -42,8 +48,21 @@ void InitUtilityPanel(void)
     // Utility now contains telemetry only; debug controls live in lpanel STATE.
     PanelSystem_InitViews(utility_panel, 1);
     PanelSystem_InitRoot(utility_panel);
-    InitUtilityStatsContainer();
+    InitUtilityStatsView();
     UpdateUISpace(utility_panel->root, utility_panel->seed_box);
+}
+
+// Destroy the utility panel and clear its cached UI references.
+void DestroyUtilityPanel(void)
+{
+    PanelSystem *panel = utility_panel;
+    utility_panel = NULL;
+    PanelSystem_Destroy(panel);
+
+    G_UIState.stats_polygs_str = NULL;
+    G_UIState.stats_fps_str = NULL;
+    G_UIState.stats_ftime_str = NULL;
+    G_UIState.stats_mem_str = NULL;
 }
 
 void DrawUtilityPanel(void)
@@ -57,4 +76,9 @@ void DrawUtilityPanel(void)
 UIElement *GetUtilityPanelRoot(void)
 {
     return utility_panel ? utility_panel->root : NULL;
+}
+
+PanelSystem *GetUtilityPanelSystem(void)
+{
+    return utility_panel;
 }

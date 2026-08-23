@@ -19,6 +19,7 @@ UNIVERSE SYSTEM MODULE
 #include "system/ui_system.h"
 #include "system/ui/state_manager_system.h"
 #include "system/ui/popup_menu.h"
+#include "system/command_queue.h"
 #include "world/world_internal.h"
 
 static int create_world_auto_select = 0;
@@ -79,14 +80,14 @@ void SyncUniverseCameraToViewport(void)
 
 bool SetUniverseCameraBasis(Basis2d basis)
 {
-    float u_mag = VectorMagnitude_2d(basis.u);
-    float v_mag = VectorMagnitude_2d(basis.v);
-    if (u_mag < 0.0001f || v_mag < 0.0001f)
+    Basis2d normalised_basis;
+    if (!Basis2d_NormaliseAndValidate(basis, &normalised_basis))
     {
         return false;
     }
 
-    G_Universe.camera.rotation = VectorRadians_2d(basis.u);
+    float u_mag = VectorMagnitude_2d(normalised_basis.u);
+    G_Universe.camera.rotation = VectorRadians_2d(normalised_basis.u);
     G_Universe.camera.zoom = u_mag;
 
     if (cam_ctrl.camera == &G_Universe.camera)
@@ -147,6 +148,14 @@ InputRouteResult UpdateUniverseSystem(const InputFrame *input, InputRouteResult 
         camera_diagnostic_printed = true;
     }
 
+    if (input->delete_pressed && !G_UIState.focused_element && G_Universe.selected_world_index >= 0)
+    {
+        if (EnqueueDeleteWorld(G_Universe.selected_world_index))
+        {
+            return INPUT_ROUTE_HANDLED;
+        }
+    }
+
     UpdateUniverseInput(input, cursor_in_game_viewport);
     DragInteractionState *game_drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
     if (game_drag_ctx->has_capture &&
@@ -173,6 +182,7 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
     Matrix3x3 pixel_to_universe = ResolvePixelToWorldMatrix(&G_Universe.root_world, &G_Universe.camera);
     DragInteractionState *game_drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
     Vector2d mouse_pixel_coords = input->pointer_position;
+    Vector2d mouse_universe_coords = TransformCoordinates(pixel_to_universe, mouse_pixel_coords);
 
     if (cursor_in_game_viewport)
     {
@@ -216,8 +226,7 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
         // Check if drag threshold has been exceeded and apply updates if so
         if (!game_drag_ctx->has_capture)
         {
-            Vector2d click_universe_coords = TransformCoordinates(pixel_to_universe, mouse_pixel_coords);
-            int world_index = Universe_FindWorldAt(&G_Universe, click_universe_coords);
+            int world_index = Universe_FindWorldAt(&G_Universe, mouse_universe_coords);
             if (world_index >= 0)
             {
                 World2d *world = &G_Universe.worlds[world_index];
@@ -250,9 +259,8 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
                                                  INPUT_DRAG_THRESHOLD_PIXELS);
         if (was_click && cursor_in_game_viewport)
         {
-            Vector2d click_universe_coords = TransformCoordinates(pixel_to_universe, mouse_pixel_coords);
             bool world_hit = false;
-            if (!Universe_ResolveClickHit(click_universe_coords, &world_hit))
+            if (!Universe_ResolveClickHit(mouse_universe_coords, &world_hit))
             {
                 G_Universe.selected_world_index = -1;
                 SyncWorldStateFromSelection();
@@ -265,8 +273,7 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
     }
     else if (G_Universe.selected_world_index >= 0 && input->left_pressed && cursor_in_game_viewport)
     {
-        Vector2d click_universe_coords = TransformCoordinates(pixel_to_universe, mouse_pixel_coords);
-        if (!Universe_ResolveClickHit(click_universe_coords, NULL))
+        if (!Universe_ResolveClickHit(mouse_universe_coords, NULL))
         {
             G_Universe.selected_world_index = -1;
             SyncWorldStateFromSelection();

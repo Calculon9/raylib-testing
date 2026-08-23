@@ -25,4 +25,5 @@ MEMORY MANAGEMENT MODULE
 
 float GetRandomFloat(float min, float max);
 unsigned long CalcHashFromInts(int a, int b);
+float ClampFloat(float value, float min_value, float max_value);
 #endif

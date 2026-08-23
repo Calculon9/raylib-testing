@@ -36,6 +36,7 @@ typedef struct
     bool right_pressed;
     bool right_down;
     bool right_released;
+    bool delete_pressed;
     float wheel_delta;
 } InputFrame;
 

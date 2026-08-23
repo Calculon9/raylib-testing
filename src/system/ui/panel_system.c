@@ -1,6 +1,5 @@
 #include "system/panel_system.h"
 #include "system/ui_system.h"
-#include <stdlib.h>
 #include "math/affine_space_ops.h"
 #include "ui/ui_renderer.h"
 #include "ui/ui_constructors.h"
@@ -25,7 +24,7 @@ PanelSystem *PanelSystem_Create(ViewportRegion *viewport, float scale, Vector2d 
 
     panel->root = NULL;
     panel->seed_box = (UIBox){0};
-    panel->space = (Space2d){0};
+    panel->space = (UISpace2d){0};
     panel->viewport = viewport;
     panel->space_to_viewport_scale = scale;
     panel->default_padding = padding;
@@ -35,8 +34,57 @@ PanelSystem *PanelSystem_Create(ViewportRegion *viewport, float scale, Vector2d 
     panel->basis_override_u = ZERO_VECTOR_2D;
     panel->basis_override_v = ZERO_VECTOR_2D;
     panel->views = (LArray){0};
+    panel->views.elem_bytes = sizeof(View *);
+    panel->selectors = (LArray){0};
+    panel->selectors.elem_bytes = sizeof(ViewSelector *);
 
     return panel;
+}
+
+// Release a selector and the auxiliary arrays it owns.
+static void DestroyPanelViewSelector(ViewSelector *selector)
+{
+    if (!selector)
+    {
+        return;
+    }
+
+    Deallocate((void **)&selector->buttons,
+               sizeof(UIElement *) * selector->count);
+    Deallocate((void **)&selector->view_indices,
+               sizeof(int) * selector->count);
+    Deallocate((void **)&selector, sizeof(ViewSelector));
+}
+
+void PanelSystem_Destroy(PanelSystem *panel)
+{
+    if (!panel)
+    {
+        return;
+    }
+
+    // The panel owns its root tree, so dispose it before releasing panel metadata.
+    DisposeUIElement(panel->root);
+    panel->root = NULL;
+
+    // Every registered view is allocated by PanelSystem_CreateView.
+    for (int view_index = 0; view_index < panel->views.count; view_index++)
+    {
+        View *view = *((View **)LArray_Get(&panel->views, view_index));
+        Deallocate((void **)&view, sizeof(View));
+    }
+
+    // Every selector and its backing arrays are owned by this panel.
+    for (int selector_index = 0; selector_index < panel->selectors.count; selector_index++)
+    {
+        ViewSelector *selector = *((ViewSelector **)LArray_Get(&panel->selectors, selector_index));
+        DestroyPanelViewSelector(selector);
+    }
+
+    // Both arrays are embedded in PanelSystem, so release only their buffers.
+    ClearLArray(&panel->views);
+    ClearLArray(&panel->selectors);
+    Deallocate((void **)&panel, sizeof(PanelSystem));
 }
 
 void PanelSystem_InitRoot(PanelSystem *panel)
@@ -60,8 +108,8 @@ void PanelSystem_InitRoot(PanelSystem *panel)
         viewport_basis.v = panel->basis_override_v;
     }
 
-    // Initialize coordinate space
-    panel->space = NewSpace2d(panel->viewport->local_origin, resolution, viewport_basis);
+    // Initialise UI coordinate-space geometry.
+    panel->space = NewUISpace2d(panel->viewport->local_origin, resolution, viewport_basis);
 
     // Create root UI element
     Size root_size = {{(float)panel->space.columns, (float)panel->space.rows}, SIZE_FILL};
@@ -91,22 +139,39 @@ void PanelSystem_InitViews(PanelSystem *panel, size_t view_count)
     panel->views = MakeLArray(view_count, sizeof(View *));
 }
 
-bool PanelSystem_AddView(PanelSystem *panel, View *view, UIElement *container, ViewType type)
+// Create a visible standard View surface and register it with the panel.
+View *PanelSystem_CreateView(PanelSystem *panel, ViewType view_type)
 {
-    if (!panel || !view || !container)
+    if (!panel || !panel->root)
     {
-        return false;
+        return NULL;
+    }
+
+    View *view = AllocateBytes(sizeof(View));
+    if (!view)
+    {
+        return NULL;
+    }
+
+    UIElement *container = CreateUIContainer(
+        panel->root, ui_fill_container_size,
+        (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ui_standard_container_padding,
+        panel->palette, UI_PALETTE_SURFACE_CONTAINER,
+        ui_standard_stack_spacing, false, true);
+    if (!container)
+    {
+        Deallocate((void **)&view, sizeof(View));
+        return NULL;
     }
 
     view->container = container;
-    view->type = type;
-    return LArray_Push(&panel->views, &view);
-}
+    view->type = view_type;
+    if (!LArray_Push(&panel->views, &view))
+    {
+        Deallocate((void **)&view, sizeof(View));
+        return NULL;
+    }
 
-View *PanelSystem_CreateView(PanelSystem *panel, UIElement *container, ViewType type)
-{
-    View *view = AllocateBytes(sizeof(View));
-    PanelSystem_AddView(panel, view, container, type);
     return view;
 }
 
@@ -170,9 +235,11 @@ static ViewSelector *AllocatePanelViewSelector(PanelSystem *panel, const char *l
     selector->view_indices = AllocateBytes(sizeof(int) * count);
     if (!selector->buttons || !selector->view_indices)
     {
-        free(selector->buttons);
-        free(selector->view_indices);
-        free(selector);
+        Deallocate((void **)&selector->buttons,
+                   sizeof(UIElement *) * count);
+        Deallocate((void **)&selector->view_indices,
+                   sizeof(int) * count);
+        Deallocate((void **)&selector, sizeof(ViewSelector));
         return NULL;
     }
 
@@ -227,12 +294,22 @@ ViewSelector *PanelSystem_CreateViewSelector(PanelSystem *panel, UIElement *pare
         return NULL;
     }
 
+    if (!LArray_Push(&panel->selectors, &selector))
+    {
+        DestroyPanelViewSelector(selector);
+        return NULL;
+    }
+
     for (size_t i = 0; i < count; i++)
     {
         selector->buttons[i] = CreateUIButtonDefault(
             parent, UI_ELEMENT_BUTTON_ENUMERATE, labels[i], button_size,
             ui_standard_button_padding, panel->palette, HandlePanelViewSelectorClick,
             &selector->view_indices[i], selector);
+        if (!selector->buttons[i])
+        {
+            return NULL;
+        }
     }
 
     UpdatePanelViewSelectorButtons(selector);
@@ -252,6 +329,12 @@ ViewSelector *PanelSystem_CreateHoverViewSelector(PanelSystem *panel, UIElement 
     ViewSelector *selector = AllocatePanelViewSelector(panel, labels, count, on_view_selected);
     if (!selector)
     {
+        return NULL;
+    }
+
+    if (!LArray_Push(&panel->selectors, &selector))
+    {
+        DestroyPanelViewSelector(selector);
         return NULL;
     }
 
@@ -369,29 +452,11 @@ PanelSystem *PanelSystem_CreateStandard(ViewportRegion *viewport, size_t view_co
 
     if (selector_labels && selector_label_count > 0)
     {
-        ViewSelector *selector = PanelSystem_CreateStandardViewSelector(
+        PanelSystem_CreateStandardViewSelector(
             panel, selector_labels, selector_label_count, selector_callback);
-        PanelSystem_SelectView(selector, 0);
     }
 
     return panel;
-}
-
-UIElement *PanelSystem_CreateRootViewContainer(PanelSystem *panel, ViewType view_type, View *view_storage)
-{
-    if (!panel || !view_storage)
-    {
-        return NULL;
-    }
-
-    UIElement *container = CreateUIContainer(
-        panel->root, ui_fill_container_size,
-        (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ZERO_VECTOR_2D,
-        panel->palette, UI_PALETTE_SURFACE_TRANSPARENT,
-        ui_standard_stack_spacing, false, true);
-
-    PanelSystem_AddView(panel, view_storage, container, view_type);
-    return container;
 }
 
 ViewSelector *PanelSystem_CreateStandardViewSelector(PanelSystem *panel,

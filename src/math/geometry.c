@@ -125,6 +125,29 @@ Matrix2x2 AABB2d_FromPoints(const Vector2d *points, int point_count)
     return box_coords;
 }
 
+// Builds the min/max representation used by the AABB helpers from an origin and size.
+Matrix2x2 AABB2d_FromOriginDimensions(Vector2d origin, Vector2d dimensions)
+{
+    return (Matrix2x2){
+        .col1 = origin,
+        .col2 = VectorSum_2d(origin, dimensions)};
+}
+
+// Tests inclusive AABB overlap so boxes that only touch at an edge retain the
+// broad-phase behavior used by the physics system.
+bool AABB2d_Overlaps(Matrix2x2 box1, Matrix2x2 box2)
+{
+    return box1.col1.x <= box2.col2.x && box1.col2.x >= box2.col1.x &&
+           box1.col1.y <= box2.col2.y && box1.col2.y >= box2.col1.y;
+}
+
+// Tests whether the candidate box is fully contained by the container box.
+bool AABB2d_Contains(Matrix2x2 container, Matrix2x2 box)
+{
+    return box.col1.x >= container.col1.x && box.col2.x <= container.col2.x &&
+           box.col1.y >= container.col1.y && box.col2.y <= container.col2.y;
+}
+
 // Returns the boxed coords from a collection of vertice vectors with an offset applied to the vertices (e.g. to account for the position of the shape in world space, rather than just the local vertices)
 Matrix2x2 CalcAABBCoords_Tight(Vector2d *vertices, int vertice_count, Vector2d vertice_offset)
 {
@@ -159,40 +182,6 @@ Vector2d CalcAABBDimensions(Vector2d *vertices, int vertice_count)
     return box_dims;
 }
 
-// Returns true if box1 fits within box2
-bool BoxFitsWithinBox(Matrix2x2 box1, Matrix2x2 box2)
-{
-    // Check if box1 is completely contained within box2
-    if (box1.col1.x >= box2.col1.x && box1.col2.x <= box2.col2.x &&
-        box1.col1.y >= box2.col1.y && box1.col2.y <= box2.col2.y)
-    {
-        return true;
-    }
-    return false;
-}
-
-// Returns the coordinates of the intersection box between box1 and box2, or an empty box if there is no intersection
-Matrix2x2 CalcBoxOverlapWithBox(Matrix2x2 box1, Matrix2x2 box2)
-{
-    // Calculate the coordinates of the intersection box
-    Matrix2x2 intersection;
-    intersection.col1.x = fmaxf(box1.col1.x, box2.col1.x);
-    intersection.col1.y = fmaxf(box1.col1.y, box2.col1.y);
-    intersection.col2.x = fminf(box1.col2.x, box2.col2.x);
-    intersection.col2.y = fminf(box1.col2.y, box2.col2.y);
-
-    // Check if there is an intersection
-    if (intersection.col1.x < intersection.col2.x && intersection.col1.y < intersection.col2.y)
-    {
-        return intersection; // Return the coordinates of the intersection box
-    }
-    else
-    {
-        // No intersection, return an empty box (could also return a boolean or use a different approach to indicate no intersection)
-        return (Matrix2x2){0};
-    }
-}
-
 // Returns true if shape1 fits within shape2
 bool ShapeFitsWithinShape(LArray *shape1_vertices, LArray *shape2_vertices, Vector2d shape1_vertice_offset, Vector2d shape2_vertice_offset)
 {
@@ -207,12 +196,7 @@ bool ShapeFitsWithinShape(LArray *shape1_vertices, LArray *shape2_vertices, Vect
     Matrix2x2 box1_coords = CalcAABBCoords_Tight(shape1_vertices->items, shape1_vertices->count, shape1_vertice_offset);
     Matrix2x2 box2_coords = CalcAABBCoords_Tight(shape2_vertices->items, shape2_vertices->count, shape2_vertice_offset);
 
-    // Check if box1 is completely contained within box2
-    if (BoxFitsWithinBox(box1_coords, box2_coords))
-    {
-        return true;
-    }
-    return false;
+    return AABB2d_Contains(box2_coords, box1_coords);
 }
 
 // Returns the adjusted offset for Box B so it is perfectly centered inside Box A

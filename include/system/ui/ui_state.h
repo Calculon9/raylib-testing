@@ -52,6 +52,16 @@ typedef struct
     String64 *state_accel_str;
     UIElement *state_moment_tbox;
     String64 *state_moment_str;
+    UIElement *state_angular_velocity_tbox;
+    String64 *state_angular_velocity_str;
+    UIElement *state_angular_acceleration_tbox;
+    String64 *state_angular_acceleration_str;
+    UIElement *state_health_tbox;
+    String64 *state_health_str;
+    UIElement *state_max_health_tbox;
+    String64 *state_max_health_str;
+    UIElement *state_damage_tbox;
+    String64 *state_damage_str;
     String64 *state_world_str;
 
     // STATS UI

@@ -79,9 +79,11 @@ extern const Size ui_standard_selector_container_size;
 extern const Size ui_standard_selector_button_size;
 extern const Spacing ui_standard_stack_spacing;
 extern const Spacing ui_compact_stack_spacing;
-extern const Spacing ui_standard_wrap_spacing;
-extern const Spacing ui_compact_wrap_spacing;
-extern const Spacing ui_zero_horizontal_wrap_spacing;
+extern const Spacing ui_standard_stack_wrap_spacing;
+extern const Spacing ui_compact_stack_wrap_spacing;
+extern const Spacing ui_zero_x_stack_wrap_spacing;
+extern const Spacing ui_standard_inline_wrap_spacing;
+extern const Spacing ui_zero_x_inline_wrap_spacing;
 extern const Spacing ui_standard_inline_spacing;
 extern const Spacing ui_zero_inline_spacing;
 
@@ -113,5 +115,7 @@ int UIState_GetSelectedCellIndex(void);
 //----------------------------------------------------------------------------------
 // void UpdateUISystem(int mouse_x, int mouse_y);
 void UpdateUISpace(UIElement *root_element, UIBox seed_box);
+void DestroyUI(void);
+void ResetUI(void);
 
 #endif

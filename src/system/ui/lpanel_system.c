@@ -19,24 +19,14 @@ static PanelSystem *lpanel = NULL;
 static int btn_action_create_entity = BUTTON_ACTION_CREATE_ENTITY;
 
 // ============================================================================
-// View Storage
-// ============================================================================
-static View lpanel_state_view_storage = {0};
-static View lpanel_edit_entity_view_storage = {0};
-
-// ============================================================================
 // Visual Style Properties
 // ============================================================================
-static Size lpanel_title_tfield_size = {{6.0f, 0.5f}, SIZE_FIXED};
-static Size lpanel_debug_section_size = {{0.0f, 0.0f}, SIZE_CONTENT_FILL};
+static Size debug_section_size = UI_SIZE_CONTENT_FILL;
 
 // ============================================================================
 // UI Element Pointers
 // ============================================================================
-View *lpanel_state_view = {0};
-View *lpanel_edit_entity_view = {0};
 UIElement *lpanel_state_view_cont = {0};
-static UIElement *lpanel_state_debug_cont = NULL;
 UIElement *lpanel_edit_view_cont = {0};
 UIElement *lpanel_view_selector_cont = {0};
 UIElement *lpanel_edit_entity_tcont = {0};
@@ -83,6 +73,17 @@ static void HandleLPanelDebugToggleClick(UIElement *button)
                    IsDebugEnabled(toggle->id) ? "ON" : "OFF");
 }
 
+// Recalculate the left-panel UI tree immediately for layout debugging.
+static void HandleLPanelUIRefreshClick(UIElement *button)
+{
+    (void)button;
+
+    if (lpanel && lpanel->root)
+    {
+        UpdateUISpace(lpanel->root, lpanel->seed_box);
+    }
+}
+
 // ============================================================================
 // Root Layout
 // ============================================================================
@@ -91,18 +92,14 @@ static void HandleLPanelDebugToggleClick(UIElement *button)
 // ============================================================================
 // ============================================================================
 // State View Layout
-// ============================================================================
-Offset lpanel_state_view_cont_offset = {{0, 0.0f}, OFFSET_PERCENT};
+// ============================================================================s
 // ============================================================================
 // Edit View Layout
 // ============================================================================
-Offset lpanel_edit_view_cont_offset = {{0, 0.0f}, OFFSET_PERCENT};
-Offset lpanel_edit_entity_tcont_offset = {{0, 0.0}, OFFSET_PERCENT};
-Size lpanel_edit_entity_tcont_size = {{1.0f, 0.50f}, SIZE_PERCENT};
+Size create_entity_section_size = UI_SIZE_CONTENT_FILL;
 
 void InitLPanelStateView(void);
 void InitLPanelEditView(void);
-void InitEntityEditorContainer(void);
 
 static void InitEntityCreateDefaults(void)
 {
@@ -139,28 +136,34 @@ void InitLPanel()
         return;
     }
 
-    // Setup view storage
-    lpanel_state_view = &lpanel_state_view_storage;
-    lpanel_edit_entity_view = &lpanel_edit_entity_view_storage;
-
     // Build panel-specific UI
     InitLPanelStateView();
     InitLPanelEditView();
 
+    // Select the initial view after both panel views have been registered.
+    if (lpanel->selectors.count > 0)
+    {
+        lpanel_view_selector = *((ViewSelector **)LArray_Get(&lpanel->selectors, 0));
+        PanelSystem_SelectView(lpanel_view_selector, 0);
+    }
+
     // Initial layout update
-    UpdateUISpace(lpanel->root, lpanel->seed_box);
+    // UpdateUISpace(lpanel->root, lpanel->seed_box);
 }
 
 void InitLPanelStateView(void)
 {
-    lpanel_state_view_cont = PanelSystem_CreateRootViewContainer(lpanel, LPANEL_STATE_VIEW, lpanel_state_view);
+    View *view = PanelSystem_CreateView(lpanel, LPANEL_STATE_VIEW);
+    lpanel_state_view_cont = view ? view->container : NULL;
 
-    // Match rpanel and StateManager by placing view content in a padded surface container.
-    lpanel_state_debug_cont = CreateUIContainer(
-        lpanel_state_view_cont, ui_fill_container_size,
-        (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ui_standard_container_padding,
-        lpanel->palette, UI_PALETTE_SURFACE_CONTAINER,
-        ui_standard_stack_spacing, true, true);
+    if (!lpanel_state_view_cont)
+    {
+        return;
+    }
+
+    lpanel_state_view_cont->colour_border = lpanel->palette->container_border;
+    lpanel_state_view_cont->colour_fill = lpanel->palette->container_fill;
+    lpanel_state_view_cont->is_draggable = true;
 
     // Keep every debug feature in STATE, grouped by the system it visualises.
     const struct
@@ -176,26 +179,20 @@ void InitLPanelStateView(void)
         {"Objects", lpanel_debug_object_toggles, ARRAY_COUNT(lpanel_debug_object_toggles)},
     };
 
-    for (size_t section_index = 0;
-         section_index < ARRAY_COUNT(debug_sections);
-         section_index++)
+    for (size_t section_index = 0; section_index < ARRAY_COUNT(debug_sections); section_index++)
     {
         UIElement *section = CreateViewSection_Stack(
-            lpanel_state_debug_cont, debug_sections[section_index].title,
-            lpanel_debug_section_size, lpanel->palette);
+            lpanel_state_view_cont, debug_sections[section_index].title,
+            debug_section_size, lpanel->palette);
 
-        for (size_t toggle_index = 0;
-             toggle_index < debug_sections[section_index].count;
-             toggle_index++)
+        for (size_t toggle_index = 0; toggle_index < debug_sections[section_index].count; toggle_index++)
         {
             const LPanelDebugToggle *toggle = &debug_sections[section_index].toggles[toggle_index];
             String64 label = {0};
-            UpdateString64(label.string, "%s: %s", toggle->label,
-                           IsDebugEnabled(toggle->id) ? "ON" : "OFF");
+            UpdateString64(label.string, "%s: %s", toggle->label, IsDebugEnabled(toggle->id) ? "ON" : "OFF");
             CreateUIButtonDefault(section, UI_ELEMENT_BUTTON_SIMPLE, label.string,
                                   ui_wide_button_size, ui_standard_button_padding,
-                                  lpanel->palette, HandleLPanelDebugToggleClick,
-                                  (void *)toggle, NULL);
+                                  lpanel->palette, HandleLPanelDebugToggleClick, (void *)toggle, NULL);
         }
     }
 }
@@ -203,7 +200,8 @@ void InitLPanelStateView(void)
 void InitLPanelEditView(void)
 {
     // Create View's container & register the View
-    lpanel_edit_view_cont = PanelSystem_CreateRootViewContainer(lpanel, LPANEL_DRAW_VIEW, lpanel_edit_entity_view);
+    View *view = PanelSystem_CreateView(lpanel, LPANEL_DRAW_VIEW);
+    lpanel_edit_view_cont = view ? view->container : NULL;
     if (!lpanel_edit_view_cont)
     {
         return;
@@ -212,16 +210,10 @@ void InitLPanelEditView(void)
     // The edit view starts disabled until selected.
     DisableElement(lpanel_edit_view_cont);
 
-    // Customise the View
-    lpanel_edit_entity_tcont = CreateUIContainer(
-        lpanel_edit_view_cont, lpanel_edit_entity_tcont_size,
-        lpanel_edit_entity_tcont_offset, ui_standard_container_padding,
-        lpanel->palette, UI_PALETTE_SURFACE_CONTAINER,
-        ui_standard_stack_spacing, true, true);
-
-    CreateUILabelTitleDefault(lpanel_edit_entity_tcont, "Object Create",
-                         lpanel_title_tfield_size, ui_standard_field_padding,
-                         lpanel->palette);
+    // Build the editable object controls as a standard stacked ViewSection.
+    lpanel_edit_entity_tcont = CreateViewSection_Stack(
+        lpanel_edit_view_cont, "Object Create", create_entity_section_size,
+        lpanel->palette);
 
     const UIFieldSpec edit_specs[] = {
         {"Vertices", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, INT, &G_UIState.edit_vertice_count_tbox, NULL},
@@ -234,8 +226,8 @@ void InitLPanelEditView(void)
         {"Moment", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.edit_moment_tbox, NULL},
     };
     InitUIFields(lpanel_edit_entity_tcont, edit_specs,
-                    ARRAY_COUNT(edit_specs), ui_standard_field_padding,
-                    lpanel->palette);
+                 ARRAY_COUNT(edit_specs), ui_standard_field_padding,
+                 lpanel->palette);
 
     BindTextboxData(G_UIState.edit_vertice_count_tbox, INT, &G_UIState.newtonoid_params->vertice_count);
     BindTextboxData(G_UIState.edit_width_tbox, FLOAT, &G_UIState.newtonoid_params->width);
@@ -246,9 +238,9 @@ void InitLPanelEditView(void)
     InitEntityCreateDefaults();
 
     CreateUIButtonDefault(lpanel_edit_entity_tcont, UI_ELEMENT_BUTTON_SUBMIT,
-                             "CREATE", ui_standard_button_size, ui_standard_button_padding,
-                             lpanel->palette, HandleBtnSubmitClick,
-                             &btn_action_create_entity, NULL);
+                          "CREATE", ui_standard_button_size, ui_standard_button_padding,
+                          lpanel->palette, HandleBtnSubmitClick,
+                          &btn_action_create_entity, NULL);
 }
 
 // void InitEntityEditorContainer(void)
@@ -271,7 +263,6 @@ Frame2d *GetLPanelSpaceFrame(void)
     return PanelSystem_GetSpaceFrame(lpanel);
 }
 
-
 bool SetLPanelSpaceBasis(Vector2d basis_u, Vector2d basis_v)
 {
     return PanelSystem_SetSpaceBasis(lpanel, basis_u, basis_v);
@@ -282,7 +273,46 @@ void ResetLPanelSpaceBasis(void)
     PanelSystem_ResetSpaceBasis(lpanel);
 }
 
-UIElement* GetLPanelRoot(void)
+UIElement *GetLPanelRoot(void)
 {
     return lpanel ? lpanel->root : NULL;
+}
+
+PanelSystem *GetLPanelSystem(void)
+{
+    return lpanel;
+}
+
+// Destroy the left panel and clear its cached UI references.
+void DestroyLPanel(void)
+{
+    PanelSystem *panel = lpanel;
+    lpanel = NULL;
+    PanelSystem_Destroy(panel);
+
+    lpanel_state_view_cont = NULL;
+    lpanel_edit_view_cont = NULL;
+    lpanel_edit_entity_tcont = NULL;
+    lpanel_view_selector_cont = NULL;
+    lpanel_view_selector = NULL;
+    G_UIState.lpanel_views = NULL;
+
+    G_UIState.edit_edge_count_tbox = NULL;
+    G_UIState.edit_vertice_count_tbox = NULL;
+    G_UIState.edit_width_tbox = NULL;
+    G_UIState.edit_height_tbox = NULL;
+    G_UIState.edit_mass_tbox = NULL;
+    G_UIState.edit_pos_c_tbox = NULL;
+    G_UIState.edit_vel_tbox = NULL;
+    G_UIState.edit_accel_tbox = NULL;
+    G_UIState.edit_moment_tbox = NULL;
+    G_UIState.edit_edge_count_str = NULL;
+    G_UIState.edit_vertice_count_str = NULL;
+    G_UIState.edit_width_str = NULL;
+    G_UIState.edit_height_str = NULL;
+    G_UIState.edit_mass_str = NULL;
+    G_UIState.edit_pos_c_str = NULL;
+    G_UIState.edit_vel_str = NULL;
+    G_UIState.edit_accel_str = NULL;
+    G_UIState.edit_moment_str = NULL;
 }

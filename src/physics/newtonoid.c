@@ -18,6 +18,76 @@
 //----------------------------------------------------------------------------------
 float CalculateInertia_Polygon(float mass, LArray *surface_vectors);
 
+// Configure the metadata shared by all Newtonoid creation paths.
+void Newtonoid_ConfigureMetadata(Newtonoid2d *object, EntityFlags entity_flags,
+                                 EntityFlags collision_mask, EntityAttributeFlags attribute_flags,
+                                 EntityStatusFlags status_flags,
+                                 ColourRgba line_colour, ColourRgba fill_colour)
+{
+   if (!object)
+   {
+      return;
+   }
+
+   object->entity_flags = entity_flags;
+   object->collision_mask = collision_mask;
+   object->attribute_flags = attribute_flags;
+   object->status_flags = status_flags;
+   object->line_colour = line_colour;
+   object->fill_colour = fill_colour;
+}
+
+// Set an entity's maximum and current health.
+void Newtonoid_ConfigureHealth(Newtonoid2d *object, float max_health)
+{
+   if (!object)
+   {
+      return;
+   }
+
+   object->max_health = max_health > 0.0f ? max_health : 0.0f;
+   object->health = object->max_health;
+}
+
+// Return whether an entity is alive and configured to receive damage.
+bool IsDamageable(const Newtonoid2d *entity)
+{
+   return entity && (entity->attribute_flags & FLAG_ATTR_DAMAGEABLE) != 0 &&
+          entity->max_health > 0.0f && (entity->status_flags & FLAG_STATUS_ALIVE) != 0;
+}
+
+// Apply damage and clear the alive status when health reaches zero.
+bool ApplyEntityDamage(Newtonoid2d *entity, float damage)
+{
+   if (!IsDamageable(entity) || damage <= 0.0f)
+   {
+      return false;
+   }
+
+   entity->health -= damage;
+   if (entity->health > 0.0f)
+   {
+      return false;
+   }
+
+   entity->health = 0.0f;
+   entity->status_flags &= ~FLAG_STATUS_ALIVE;
+   return true;
+}
+
+// Align an opted-in entity's rendered geometry with its current velocity vector.
+void Newtonoid_SyncOrientationToVelocity(Newtonoid2d *object)
+{
+   if (!object || !(object->attribute_flags & FLAG_ATTR_VELOCITY_ALIGNED) ||
+       VectorMagnitude_2d(object->velocity) <= 0.0001f)
+   {
+      return;
+   }
+
+   object->rotation = VectorRadians_2d(object->velocity);
+   SyncNewtonoidRotation(object);
+}
+
 void RebuildNewtonoidGeometry(Newtonoid2d *object)
 {
    if (!object || object->surface.surface_vectors.count == 0)
@@ -69,16 +139,20 @@ static bool InitializeNewtonoid2d(Newtonoid2d *newtonoid, float mass,
    newtonoid->inverse_mass = (mass != 0.0f) ? 1.0f / mass : 0.0f;
    newtonoid->velocity = velocity;
    newtonoid->acceleration = acceleration;
+   newtonoid->angular_acceleration = 0.0f;
+   newtonoid->attribute_flags = ENTITY_ATTR_FLAG_NONE;
+   newtonoid->health = 0.0f;
+   newtonoid->max_health = 0.0f;
    newtonoid->surface = surface;
    RebuildNewtonoidGeometry(newtonoid);
-   newtonoid->line_colour = COLOUR_LINE_DEFAULT;
-   newtonoid->fill_colour = COLOUR_FILL_DEFAULT;
    newtonoid->momentum.x = newtonoid->mass * newtonoid->velocity.x;
    newtonoid->momentum.y = newtonoid->mass * newtonoid->velocity.y;
    SyncNewtonoidRotation(newtonoid);
-   newtonoid->entity_flags = FLAG_TYPE_NEWTONOID;
-   newtonoid->collision_mask = FLAG_TYPE_WALL | FLAG_TYPE_NEWTONOID;
-   newtonoid->status_flags = FLAG_ATTR_RIGID | FLAG_STATUS_ALIVE;
+   Newtonoid_ConfigureMetadata(newtonoid, FLAG_TYPE_NEWTONOID,
+                               FLAG_TYPE_WALL | FLAG_TYPE_NEWTONOID | FLAG_TYPE_PROJECTILE,
+                               FLAG_ATTR_RIGID,
+                               FLAG_STATUS_ALIVE,
+                               COLOUR_LINE_DEFAULT, COLOUR_FILL_DEFAULT);
    return true;
 }
 
@@ -92,6 +166,99 @@ static bool ValidateNewtonoidSurface(Surface2d surface)
    LOG_ERROR("Entity creation failed: vertex count %d exceeds MAX_SHAPE_VERTICES (%d)\n",
              surface.surface_vectors.count, MAX_SHAPE_VERTICES);
    return false;
+}
+
+// Create a centred isosceles triangle with its point facing along the local positive X axis.
+static Surface2d CreateIsoscelesTriangleSurface(Vector2d dimensions)
+{
+   Surface2d surface = {0};
+   float length = dimensions.x;
+   float width = dimensions.y;
+   if (length <= 0.0f || width <= 0.0f)
+   {
+      return surface;
+   }
+
+   surface.surface_vectors = MakeLArray(3, sizeof(Vector2d));
+   Vector2d vertices[3] = {
+      {length * 0.5f, 0.0f},
+      {-length * 0.5f, -width * 0.5f},
+      {-length * 0.5f, width * 0.5f}};
+   for (int vertex_index = 0; vertex_index < 3; vertex_index++)
+   {
+      LArray_Push(&surface.surface_vectors, &vertices[vertex_index]);
+   }
+   return surface;
+}
+
+// Create a centred arrow polygon with its point facing along the local positive X axis.
+static Surface2d CreateArrowSurface(Vector2d dimensions, float requested_head_length)
+{
+   Surface2d surface = {0};
+   float length = dimensions.x;
+   float width = dimensions.y;
+   if (length <= 0.0f || width <= 0.0f)
+   {
+      return surface;
+   }
+
+   float head_length = requested_head_length > 0.0f ? requested_head_length : length * 0.35f;
+   if (head_length >= length)
+   {
+      head_length = length * 0.5f;
+   }
+
+   float half_length = length * 0.5f;
+   float half_width = width * 0.5f;
+   float body_half_width = half_width * 0.4f;
+   float body_end = half_length - head_length;
+   Vector2d vertices[7] = {
+      {-half_length, -body_half_width},
+      {body_end, -body_half_width},
+      {body_end, -half_width},
+      {half_length, 0.0f},
+      {body_end, half_width},
+      {body_end, body_half_width},
+      {-half_length, body_half_width}};
+
+   surface.surface_vectors = MakeLArray(7, sizeof(Vector2d));
+   for (int vertex_index = 0; vertex_index < 7; vertex_index++)
+   {
+      LArray_Push(&surface.surface_vectors, &vertices[vertex_index]);
+   }
+   return surface;
+}
+
+// Build the local surface for a primitive without applying entity metadata or physics state.
+static Surface2d CreatePrimitiveSurface(ShapeType shape_type,
+                                        NewtonoidPrimitiveParams primitive_params)
+{
+   Surface2d surface = {0};
+   switch (shape_type)
+   {
+   case SHAPE_TRIANGLE_EQUILATERAL:
+      if (primitive_params.radius > 0.0f)
+      {
+         surface.surface_vectors = CreateVertices_Symmetric(3, primitive_params.radius,
+                                                              primitive_params.radius);
+      }
+      break;
+   case SHAPE_TRIANGLE_ISOSCELES:
+      surface = CreateIsoscelesTriangleSurface(primitive_params.dimensions);
+      break;
+   case SHAPE_RECTANGLE:
+      if (primitive_params.dimensions.x > 0.0f && primitive_params.dimensions.y > 0.0f)
+      {
+         surface = CreateSurface_Rectangular(primitive_params.dimensions, ZERO_VECTOR_2D);
+      }
+      break;
+   case SHAPE_ARROW:
+      surface = CreateArrowSurface(primitive_params.dimensions, primitive_params.head_length);
+      break;
+   default:
+      break;
+   }
+   return surface;
 }
 
 Newtonoid2d CreateNewtonoid2d(float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration, Surface2d surface)
@@ -179,6 +346,28 @@ Newtonoid2d CreateNewtonoid2d_Irregular(int vertice_count, float min_radius, flo
                                        colour, mass, anchor_position, velocity, acceleration);
 }
 
+// Create a fully initialised Newtonoid from a reusable primitive shape specification.
+Newtonoid2d CreateNewtonoid2d_Primitive(ShapeType shape_type,
+                                         NewtonoidPrimitiveParams primitive_params,
+                                         float mass, Vector2d anchor_position,
+                                         Vector2d velocity, Vector2d acceleration)
+{
+   Newtonoid2d empty_newtonoid = {0};
+   Surface2d surface = CreatePrimitiveSurface(shape_type, primitive_params);
+   if (shape_type == SHAPE_AUTO || surface.surface_vectors.count < 3)
+   {
+      ClearLArray(&surface.surface_vectors);
+      return empty_newtonoid;
+   }
+
+   Newtonoid2d newtonoid = CreateNewtonoid2d(mass, anchor_position, velocity,
+                                              acceleration, surface);
+   newtonoid.shape_type = shape_type;
+   newtonoid.line_colour = primitive_params.colour;
+   newtonoid.fill_colour = primitive_params.colour;
+   return newtonoid;
+}
+
 void CalcVectors(Newtonoid2d *object, float deltaTime)
 {
    // Dynamic Mass/Inertia Safety Pass
@@ -216,11 +405,12 @@ void CalcVectors(Newtonoid2d *object, float deltaTime)
    object->momentum.y = object->mass * object->velocity.y;
 
    // Angular Kinematics (Rotational Integration)
-   float angular_acceleration = object->torque * object->inverse_inertia;
+   object->angular_acceleration = object->torque * object->inverse_inertia;
 
    // Update raw rotation angle scalar and spin speed
-   object->rotation += (object->angular_velocity * deltaTime) + (0.5f * angular_acceleration * deltaTime * deltaTime);
-   object->angular_velocity += angular_acceleration * deltaTime;
+   object->rotation += (object->angular_velocity * deltaTime) +
+                       (0.5f * object->angular_acceleration * deltaTime * deltaTime);
+   object->angular_velocity += object->angular_acceleration * deltaTime;
 
    // Matrix Sync Pass: Re-bake local coordinate framework
    SyncNewtonoidRotation(object);

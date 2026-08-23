@@ -10,15 +10,16 @@ Your job is to complete the requested task autonomously while preserving existin
 
 ## General Rules
 
-- Be proactive.
-- Always add comments in the code to describe the logic and type of operation being done when making any changes to this repository.
-- Prefer action over questions.
+- ALWAYS add comments in the code to describe the logic and type of operation being done.
+- Always add a description for functions.
 - Read code before making changes.
+- Use UK English
 - Make reasonable assumptions based on the repository.
 - Do not repeatedly search the same files.
 - Do not repeat failed actions.
-- Do not run build/compile/link checks/validation for basic code changes.
+- Do not run build/compile/link/CMake for basic code changes.
 - Only run build/compile/link checks/validation unless specifically troubleshooting build/compile/link issues.
+- Only run the produced executable if instructed/prompted.
 
 Only ask the user if:
 - information is genuinely unavailable from the repository, or

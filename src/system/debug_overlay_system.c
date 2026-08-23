@@ -47,8 +47,7 @@ static bool ApplyGameViewportBasis(Basis2d basis) { return SetViewportSpaceBasis
 static bool ApplyRPanelViewportBasis(Basis2d basis) { return SetViewportSpaceBasis(VIEWPORT_SPACE_RPANEL, basis.u, basis.v); }
 static bool ApplyUniverseSpaceBasis(Basis2d basis)
 {
-    SetUniverseCameraBasis(basis);
-    return true;
+    return SetUniverseCameraBasis(basis);
 }
 static bool ApplyLPanelSpaceBasis(Basis2d basis) { return SetLPanelSpaceBasis(basis.u, basis.v); }
 static bool ApplyRPanelSpaceBasis(Basis2d basis) { return SetRPanelSpaceBasis(basis.u, basis.v); }
@@ -209,7 +208,8 @@ static void RefreshViewportForBasisEdit(int screen_width, int screen_height, int
     RefreshViewportBase(screen_width, screen_height, screen_resolution_scalar,
                         viewport_target_game_logical_height,
                         viewport_ui_pixels_per_unit_override);
-    InitUI();
+    // Rebuild through the teardown path so the previous UI tree is not orphaned.
+    ResetUI();
 }
 
 static void RefreshViewportAndDependentSystems(int screen_width, int screen_height, int screen_resolution_scalar,
@@ -223,7 +223,8 @@ static void RefreshViewportAndDependentSystems(int screen_width, int screen_heig
     if (viewport_scale_changed)
     {
         InitWorldSystem();
-        InitUI();
+        // Rebuild through the teardown path so the previous UI tree is not orphaned.
+        ResetUI();
         printf("[Viewport] Target game logical height set to %.1f. UI px-per-unit override: %d\n",
                viewport_target_game_logical_height, viewport_ui_pixels_per_unit_override);
         return;
@@ -231,7 +232,8 @@ static void RefreshViewportAndDependentSystems(int screen_width, int screen_heig
 
     if (ui_scale_changed)
     {
-        InitUI();
+        // Rebuild through the teardown path so the previous UI tree is not orphaned.
+        ResetUI();
         printf("[Viewport] UI px-per-unit override set to %d (0 = follow game viewport scale).\n",
                viewport_ui_pixels_per_unit_override);
     }
@@ -564,6 +566,8 @@ int IsDebugEnabled(DebugOverlayId overlay_id)
 
 static void HandleDebugToggleHotkeys(void)
 {
+    bool ctrl_down = IsKeyDown(KEY_LEFT_CONTROL);
+
     if (IsKeyPressed(KEY_F2))
     {
         ToggleDebug(DEBUG_WORLD_GRID_LABELS);
@@ -596,8 +600,21 @@ static void HandleDebugToggleHotkeys(void)
 
     if (IsKeyPressed(KEY_F1))
     {
-        ToggleDebug(DEBUG_OBJECT_AXES);
-        printf("[World] Object axes: %s\n", IsDebugEnabled(DEBUG_OBJECT_AXES) ? "ON" : "OFF");
+        if (ctrl_down)
+        {
+            size_t bytes_before = GetCurrentMemoryAllocated();
+            ResetUI();
+            size_t bytes_after = GetCurrentMemoryAllocated();
+            printf("[UI] UI state reset: %.2f kB -> %.2f kB (delta %+0.2f kB)\n",
+                   (double)bytes_before / 1024.0,
+                   (double)bytes_after / 1024.0,
+                   ((double)bytes_after - (double)bytes_before) / 1024.0);
+        }
+        else
+        {
+            ToggleDebug(DEBUG_OBJECT_AXES);
+            printf("[World] Object axes: %s\n", IsDebugEnabled(DEBUG_OBJECT_AXES) ? "ON" : "OFF");
+        }
     }
 }
 
@@ -866,9 +883,8 @@ void DrawUniverseDebugOverlays(void)
         World2d *world = &G_Universe.worlds[target_world_index];
         Vector2d world_resolution = {(float)world->grid_space.space.columns, (float)world->grid_space.space.rows};
 
-        Matrix3x3 universe_to_world_mtx = world->tunnel.dest_to_source_mtx;
         has_child_local = true;
-        child_local = TransformCoordinates(universe_to_world_mtx, parent_local);
+        child_local = ResolvePixelToWorldFrame(world, pixel);
 
         child_origin_in_parent.x = world->grid_space.space.frame.origin_in_parent.x;// + (world_resolution.x * 0.5f);
         child_origin_in_parent.y = world->grid_space.space.frame.origin_in_parent.y;// + (world_resolution.y * 0.5f);

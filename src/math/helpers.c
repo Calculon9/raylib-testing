@@ -1,4 +1,4 @@
-#include "math/cvectors.h"
+#include "math/helpers.h"
 #include <time.h>
 
 float GetRandomFloat(float min, float max)
@@ -21,4 +21,18 @@ unsigned long CalcHashFromInts(int a, int b)
     unsigned long hash = (unsigned long)a * 2654435761UL;
     return hash % b;
 
+}
+
+float ClampFloat(float value, float min_value, float max_value)
+{
+    if (value < min_value)
+    {
+        return min_value;
+    }
+    if (value > max_value)
+    {
+        return max_value;
+    }
+
+    return value;
 }

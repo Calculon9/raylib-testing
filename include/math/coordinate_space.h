@@ -76,6 +76,14 @@ typedef struct Cell
     float value;         // Scalar field value for generic cell data.
 } Cell;
 
+// Lightweight coordinate-space geometry used by UI panels without a cell grid.
+typedef struct UISpace2d
+{
+    Frame2d frame;
+    int rows;
+    int columns;
+} UISpace2d;
+
 // A bare-bones coordinate space with no associated object or physicality. Use for describing a logical child grid space.
 // bounds_origin is this child space origin in its own local frame. Parent-space placement is stored externally
 // (for example, a world center in universe space) and mapped via transform helpers.
@@ -113,7 +121,11 @@ extern const CoordinateSpacePreset COORDINATE_SPACE_PRESET_RADIAL;
 //----------------------------------------------------------------------------------
 GridSpace2d NewGridSpace2d_FromPreset(Vector2d origin_in_parent, CoordinateSpacePreset preset, ColourRgba colour_fill, ColourRgba colour_line);
 GridSpace2d NewGridSpace2d(Vector2d origin_in_parent, Vector2d local_resolution, Basis2d basis, ColourRgba colour_fill, ColourRgba colour_line);
+// Create UI coordinate-space geometry without allocating grid cells.
+UISpace2d NewUISpace2d(Vector2d origin_in_parent, Vector2d local_resolution, Basis2d basis);
 Space2d NewSpace2d(Vector2d origin_in_parent, Vector2d local_resolution, Basis2d basis);
+// Clear transient entity occupancy while preserving each cell's geometry and metadata.
+void ResetSpaceCells(Space2d *space);
 void RebuildSpaceCells(Space2d *space);
 Cell *GetCellFromCoords(Space2d *space, Vector2d local_coords);
 int GetIndexFromCoords(Space2d *space, Vector2d local_coords);

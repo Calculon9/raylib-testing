@@ -2,6 +2,7 @@
 
  **********************************************************************************************/
 #include <stdio.h>
+#include <float.h>
 #include "math/cvectors.h"
 #include "common/common.h"
 #include "ui/ui.h"
@@ -30,13 +31,179 @@ static UIElement *GetNextEnabledChild(UIElement *child)
          (child) != NULL; \
          (child) = GetNextEnabledChild((child)->next_sibling))
 
-static Vector2d MeasureElementContent(UIElement *element)
+// Resolve the width available to an element during the measurement pass.
+static float ResolveMeasurementWidth(const UIElement *element, float parent_content_width)
+{
+    if (!element)
+    {
+        return 0.0f;
+    }
+
+    switch (element->size.size_mode)
+    {
+        case SIZE_PERCENT:
+            return fmaxf(0.0f, parent_content_width * element->size.dimensions.x);
+        case SIZE_FILL:
+        case SIZE_CONTENT_FILL:
+        case SIZE_CONTENT:
+            return fmaxf(0.0f, parent_content_width);
+        case SIZE_CONTENT_MAX:
+            if (element->size.dimensions.x <= 0.0f)
+            {
+                return fmaxf(0.0f, parent_content_width);
+            }
+            return fminf(fmaxf(0.0f, parent_content_width), element->size.dimensions.x);
+        case SIZE_FIXED:
+        default:
+            return fmaxf(0.0f, element->size.dimensions.x);
+    }
+}
+
+// Resolve the measured size used when arranging a child in its parent's layout.
+static Vector2d ResolveMeasuredChildSize(const UIElement *child, float parent_content_width)
+{
+    if (!child)
+    {
+        return ZERO_VECTOR_2D;
+    }
+
+    switch (child->size.size_mode)
+    {
+        case SIZE_PERCENT:
+            return (Vector2d){
+                parent_content_width * child->size.dimensions.x,
+                child->size.dimensions.y};
+        case SIZE_FILL:
+        case SIZE_CONTENT_FILL:
+            return (Vector2d){parent_content_width, child->measured_content_size.y};
+        case SIZE_CONTENT:
+        case SIZE_CONTENT_MAX:
+            return child->measured_content_size;
+        case SIZE_FIXED:
+        default:
+            return child->size.dimensions;
+    }
+}
+
+// Measure inline children as rows constrained by the available content width.
+static Vector2d MeasureInlineWrapContent(UIElement *element, float content_width)
 {
     if (!element)
     {
         return ZERO_VECTOR_2D;
     }
 
+    float spacing_x = element->child_spacing.spacing.x;
+    float spacing_y = element->child_spacing.spacing.y;
+    float measured_width = 0.0f;
+    float measured_height = 0.0f;
+    float row_width = 0.0f;
+    float row_height = 0.0f;
+    int completed_rows = 0;
+    float wrap_width = content_width > 0.0f ? content_width : FLT_MAX;
+
+    ForEachEnabledChild(element, child)
+    {
+        Vector2d child_size = ResolveMeasuredChildSize(child, content_width);
+        bool needs_wrap = row_width > 0.0f &&
+                          row_width + spacing_x + child_size.x > wrap_width;
+        if (needs_wrap)
+        {
+            measured_width = fmaxf(measured_width, row_width);
+            measured_height += row_height;
+            if (completed_rows > 0)
+            {
+                measured_height += spacing_y;
+            }
+            completed_rows++;
+            row_width = 0.0f;
+            row_height = 0.0f;
+        }
+
+        float child_x = row_width > 0.0f ? row_width + spacing_x : row_width;
+        row_width = child_x + child_size.x;
+        row_height = fmaxf(row_height, child_size.y);
+    }
+
+    if (row_width > 0.0f || row_height > 0.0f)
+    {
+        measured_width = fmaxf(measured_width, row_width);
+        measured_height += row_height;
+        if (completed_rows > 0)
+        {
+            measured_height += spacing_y;
+        }
+    }
+
+    return (Vector2d){measured_width, measured_height};
+}
+
+// Measure stacked children into vertical columns constrained by the content height.
+static Vector2d MeasureStackedWrapContent(UIElement *element, float content_width)
+{
+    if (!element)
+    {
+        return ZERO_VECTOR_2D;
+    }
+
+    float spacing_x = element->child_spacing.spacing.x;
+    float spacing_y = element->child_spacing.spacing.y;
+    float column_height_limit = FLT_MAX;
+    if (element->size.size_mode == SIZE_CONTENT_MAX &&
+        element->size.dimensions.y > 0.0f)
+    {
+        column_height_limit = fmaxf(0.0f, element->size.dimensions.y -
+                                             (2.0f * element->padding.y));
+    }
+
+    float measured_width = 0.0f;
+    float measured_height = 0.0f;
+    float column_width = 0.0f;
+    float column_height = 0.0f;
+    int column_count = 0;
+
+    ForEachEnabledChild(element, child)
+    {
+        Vector2d child_size = ResolveMeasuredChildSize(child, content_width);
+        bool needs_wrap = column_height > 0.0f &&
+                          column_height + spacing_y + child_size.y > column_height_limit;
+        if (needs_wrap)
+        {
+            measured_width += column_width;
+            if (column_count > 0)
+            {
+                measured_width += spacing_x;
+            }
+            measured_height = fmaxf(measured_height, column_height);
+            column_count++;
+            column_width = 0.0f;
+            column_height = 0.0f;
+        }
+
+        float child_y = column_height > 0.0f ? column_height + spacing_y : column_height;
+        column_height = child_y + child_size.y;
+        column_width = fmaxf(column_width, child_size.x);
+    }
+
+    if (column_count > 0 || column_height > 0.0f || column_width > 0.0f)
+    {
+        measured_width += column_width;
+        measured_height = fmaxf(measured_height, column_height);
+    }
+
+    return (Vector2d){measured_width, measured_height};
+}
+
+// Measure a subtree using the width available from its parent.
+static Vector2d MeasureElementContent(UIElement *element, float parent_content_width)
+{
+    if (!element)
+    {
+        return ZERO_VECTOR_2D;
+    }
+
+    float element_width = ResolveMeasurementWidth(element, parent_content_width);
+    float content_width = fmaxf(0.0f, element_width - (2.0f * element->padding.x));
     Vector2d measured = ZERO_VECTOR_2D;
     float spacing_x = element->child_spacing.spacing.x;
     float spacing_y = element->child_spacing.spacing.y;
@@ -44,23 +211,29 @@ static Vector2d MeasureElementContent(UIElement *element)
 
     ForEachEnabledChild(element, child)
     {
-        child->measured_content_size = MeasureElementContent(child);
-
-        Vector2d child_size = child->size.dimensions;
-        if (child->size.size_mode == SIZE_CONTENT || child->size.size_mode == SIZE_CONTENT_FILL)
-        {
-            child_size = child->measured_content_size;
-        }
+        float child_width = ResolveMeasurementWidth(child, content_width);
+        child->measured_content_size = MeasureElementContent(child, child_width);
+        Vector2d child_size = ResolveMeasuredChildSize(child, content_width);
 
         if (element->child_spacing.spacing_type == SPACING_INLINE)
         {
             measured.x += child_size.x;
             measured.y = fmaxf(measured.y, child_size.y);
         }
+        else if (element->child_spacing.spacing_type == SPACING_INLINE_WRAP)
+        {
+            // Inline-wrap measurement is repeated below with row boundaries.
+            measured = ZERO_VECTOR_2D;
+        }
         else if (element->child_spacing.spacing_type == SPACING_STACKED)
         {
             measured.x = fmaxf(measured.x, child_size.x);
             measured.y += child_size.y;
+        }
+        else if (element->child_spacing.spacing_type == SPACING_STACKED_WRAP)
+        {
+            // Stacked-wrap measurement is repeated below with column boundaries.
+            measured = ZERO_VECTOR_2D;
         }
         else
         {
@@ -71,7 +244,15 @@ static Vector2d MeasureElementContent(UIElement *element)
         child_count++;
     }
 
-    if (child_count > 1 && element->child_spacing.spacing_type == SPACING_INLINE)
+    if (element->child_spacing.spacing_type == SPACING_INLINE_WRAP)
+    {
+        measured = MeasureInlineWrapContent(element, content_width);
+    }
+    else if (element->child_spacing.spacing_type == SPACING_STACKED_WRAP)
+    {
+        measured = MeasureStackedWrapContent(element, content_width);
+    }
+    else if (child_count > 1 && element->child_spacing.spacing_type == SPACING_INLINE)
     {
         measured.x += spacing_x * (child_count - 1);
     }
@@ -82,6 +263,19 @@ static Vector2d MeasureElementContent(UIElement *element)
 
     measured.x += element->padding.x * 2.0f;
     measured.y += element->padding.y * 2.0f;
+
+    if (element->size.size_mode == SIZE_CONTENT_MAX)
+    {
+        if (element->size.dimensions.x > 0.0f)
+        {
+            measured.x = fminf(measured.x, element->size.dimensions.x);
+        }
+        if (element->size.dimensions.y > 0.0f)
+        {
+            measured.y = fminf(measured.y, element->size.dimensions.y);
+        }
+    }
+
     return measured;
 }
 
@@ -137,7 +331,9 @@ static float ResolveChildHeight(const UIElement *child, float content_area_h, fl
         return content_area_h * child->size.dimensions.y;
     }
 
-    if (child->size.size_mode == SIZE_CONTENT_FILL)
+    if (child->size.size_mode == SIZE_CONTENT ||
+        child->size.size_mode == SIZE_CONTENT_FILL ||
+        child->size.size_mode == SIZE_CONTENT_MAX)
     {
         return child->measured_content_size.y;
     }
@@ -167,6 +363,12 @@ static Vector2d ResolveChildSizeFixed(const UIElement *child, Vector2d content_a
     if (child->size.size_mode == SIZE_CONTENT_FILL)
     {
         return (Vector2d){content_area_local.x, child->measured_content_size.y};
+    }
+
+    if (child->size.size_mode == SIZE_CONTENT ||
+        child->size.size_mode == SIZE_CONTENT_MAX)
+    {
+        return child->measured_content_size;
     }
 
     return (Vector2d){child->size.dimensions.x,
@@ -219,7 +421,7 @@ static float ResolveStackedFillHeightPerChild(StackedLayoutStats stats, float co
 static void DistributeChildrenNormal(UIElement *parent, Vector2d spacing_step_fixed, Vector2d spacing_step_percent)
 {
     int child_count = 0;
-    ForEachChild(parent, child)
+    ForEachEnabledChild(parent, child)
     {
         Vector2d step = child->resolved_offset.offset_mode == OFFSET_PERCENT ? spacing_step_percent : spacing_step_fixed;
         Vector2d distributed = (Vector2d){step.x * child_count, step.y * child_count};
@@ -275,7 +477,7 @@ static void DistributeChildrenInline(UIElement *parent, Vector2d content_area_lo
 {
     float cursor_x = 0.0f;
 
-    ForEachChild(parent, child)
+    ForEachEnabledChild(parent, child)
     {
         if (child->resolved_offset.offset_mode == OFFSET_PERCENT)
         {
@@ -291,9 +493,27 @@ static void DistributeChildrenInline(UIElement *parent, Vector2d content_area_lo
                 child->authored_offset.offset.y};
         }
 
-        float child_width = child->size.size_mode == SIZE_PERCENT
-                                ? content_area_local.x * child->size.dimensions.x
-                                : child->size.dimensions.x;
+        float child_width;
+        if (child->size.size_mode == SIZE_PERCENT)
+        {
+            child_width = content_area_local.x * child->size.dimensions.x;
+        }
+        else if (child->size.size_mode == SIZE_CONTENT)
+        {
+            child_width = child->measured_content_size.x;
+        }
+        else if (child->size.size_mode == SIZE_CONTENT_FILL)
+        {
+            child_width = content_area_local.x;
+        }
+        else if (child->size.size_mode == SIZE_CONTENT_MAX)
+        {
+            child_width = child->measured_content_size.x;
+        }
+        else
+        {
+            child_width = child->size.dimensions.x;
+        }
         cursor_x += child_width + spacing_step_fixed.x;
     }
 }
@@ -304,7 +524,7 @@ static void DistributeChildrenInlineWrap(UIElement *parent, Vector2d content_are
     float cursor_y = 0.0f;
     float row_height = 0.0f;
 
-    ForEachChild(parent, child)
+    ForEachEnabledChild(parent, child)
     {
         Vector2d child_size = ResolveChildSizeFixed(child, content_area_local, 0.0f);
         bool needs_wrap = cursor_x > 0.0f &&
@@ -423,6 +643,18 @@ static void DistributeChildrenWithContentArea(UIElement *e, Vector2d content_are
 #include "memory/cmemory.h"
 static Pool *ui_element_pool = NULL;
 
+// Returns the global UI element pool so external systems (e.g. total UI reset) can destroy it.
+Pool *GetUIElementPool(void)
+{
+    return ui_element_pool;
+}
+
+// Sets the global UI element pool; used after destroying the old pool during a total UI reset.
+void SetUIElementPool(Pool *pool)
+{
+    ui_element_pool = pool;
+}
+
 //----------------------------------------------------------------------------------
 // Functions Definition
 //----------------------------------------------------------------------------------
@@ -461,7 +693,7 @@ UIElement *CreateUIElement(UIElementType type, Size size, Offset parent_offset, 
     e->is_focused = false;
     e->is_dirty = true;
     e->is_draggable = false;
-    e->child_spacing = (Spacing){{0, 0}, PERCENT, SPACING_NONE};
+    e->child_spacing = UI_SPACING_NONE;
 
     return e;
 }
@@ -601,19 +833,17 @@ bool ElementHasSibling(UIElement *e)
     return (e->next_sibling != NULL) || (e->parent->first_child != e);
 }
 
+// Resolve boxes and distribute children after the subtree has been measured.
 // This needs to be called BEFORE the child's box is resolved, so that the child can use the parent's child_spacing to determine its position
 // Purpose: Distribute the children of a parent container according to its configured spacing rules. This function modifies the parent_offset of each child based on the parent's child_spacing settings.
-void UI_LayoutSubtree(UIElement *e, UIBox parent_box)
+static void LayoutSubtree(UIElement *e, UIBox parent_box)
 {
     if (!e)
         return;
 
+    // Resolve THIS element's box based on parent context
     // ResolveElementBox looks UP at parent_box to figure out e's own dimensions.
     // UI_DistributeChildren looks DOWN at its children using e's own resolved content area to position them.
-
-    e->measured_content_size = MeasureElementContent(e);
-
-    // Resolve THIS element's box based on parent context
     e->local_box = ResolveElementBox(e, parent_box);
 
     // Now that e's box is resolved we can distribute immediate children inside its resovled content area
@@ -623,11 +853,21 @@ void UI_LayoutSubtree(UIElement *e, UIBox parent_box)
         DistributeChildrenWithContentArea(e, content_area);
     }
 
-    // 3. Recurse down into children
+    // Recurse down into children
     ForEachChild(e, child)
     {
-        UI_LayoutSubtree(child, e->local_box);
+        LayoutSubtree(child, e->local_box);
     }
+}
+
+// Measure the subtree once, then resolve every element using the cached measurements.
+void UI_LayoutSubtree(UIElement *e, UIBox parent_box)
+{
+    if (!e)
+        return;
+
+    e->measured_content_size = MeasureElementContent(e, parent_box.dimensions.x);
+    LayoutSubtree(e, parent_box);
 }
 
 // looks DOWN at its children using e's own resolved content area to position them.
@@ -846,6 +1086,10 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box)
     {
         box.dimensions.x = fmaxf(0.0f, content_area_w - adj_offset_x);
         box.dimensions.y = element->measured_content_size.y;
+    }
+    else if (element->size.size_mode == SIZE_CONTENT_MAX)
+    {
+        box.dimensions = element->measured_content_size;
     }
     else
     {

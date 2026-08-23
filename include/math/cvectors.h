@@ -103,6 +103,8 @@ static inline Vector2d VectorDiff_2d(Vector2d a, Vector2d b)
     return (Vector2d){a.x - b.x, a.y - b.y};
 }
 Vector2d VectorScale_2d(Vector2d vector, float scalar);
+float VectorDistanceSquared_2d(Vector2d a, Vector2d b);
+bool VectorWithinDistance_2d(Vector2d a, Vector2d b, float max_distance);
 Polar2d PolarForm_2d(Vector2d vector);
 float VectorMagnitude_2d(Vector2d vector);
 

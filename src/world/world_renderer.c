@@ -132,8 +132,8 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
     Vector2d p00 = TransformCoordinates(world_to_pixel_mtx, origin);
     Vector2d p10 = TransformCoordinates(world_to_pixel_mtx, (Vector2d){1.0f, 0.0f});
     Vector2d p01 = TransformCoordinates(world_to_pixel_mtx, (Vector2d){0.0f, 1.0f});
-    float cell_px_w = VectorMagnitude_2d(VectorSum_2d(p10, VectorScale_2d(p00, -1.0f)));
-    float cell_px_h = VectorMagnitude_2d(VectorSum_2d(p01, VectorScale_2d(p00, -1.0f)));
+    float cell_px_w = VectorMagnitude_2d(VectorDiff_2d(p10, p00));
+    float cell_px_h = VectorMagnitude_2d(VectorDiff_2d(p01, p00));
 
     if (cell_px_w < 40.0f)
     {
