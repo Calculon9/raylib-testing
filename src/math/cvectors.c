@@ -46,16 +46,22 @@ bool VectorWithinDistance_2d(Vector2d a, Vector2d b, float max_distance)
 
 float VectorMagnitude_2d(Vector2d vector)
 {
+    // Euclidean length: |v| = sqrt(v.x^2 + v.y^2). This is used to turn a
+    // velocity or basis vector into a scalar speed/scale.
     return sqrtf((vector.x * vector.x) + (vector.y * vector.y));
 }
 
 float VectorRadians_2d(Vector2d vector)
 {
+    // atan2 preserves the vector's quadrant, producing the heading angle from
+    // the positive X axis rather than losing sign information through atan(y/x).
     return atan2f(vector.y, vector.x);
 }
 
 Vector2d VectorComponents_2d(float magnitude, float radians)
 {
+    // Convert polar coordinates back to Cartesian components:
+    // x = r * cos(theta), y = r * sin(theta).
     Vector2d result = {0.0f, 0.0f};
     result.x = magnitude * cosf(radians);
     result.y = magnitude * sinf(radians);
@@ -75,6 +81,9 @@ Polar2d PolarForm_2d(Vector2d vector)
 // Result < 0: The vectors are pointing away from each other (angle > pi/2).
 float VectorDot_2d(Vector2d a, Vector2d b)
 {
+    // The dot product is |a| * |b| * cos(theta); with a unit b it gives the
+    // signed component of a along b, which is why collision code uses it for
+    // projection and approach-speed tests.
     return (a.x * b.x) + (a.y * b.y);
 }
 

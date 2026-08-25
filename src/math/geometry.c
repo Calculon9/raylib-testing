@@ -12,6 +12,8 @@ LArray CreateVertices_Symmetric(int vertice_count, float radius_x, float radius_
         return MakeLArray(0, sizeof(Vector2d));
     }
     LArray points = MakeLArray(vertice_count, sizeof(Vector2d));
+    // Equal angular spacing closes a regular polygon after one full turn:
+    // angle_step = 2 * pi / vertex_count.
     float angle_step = (2.0f * PI) / vertice_count;
 
     for (int i = 0; i < vertice_count; i++)
@@ -36,6 +38,8 @@ LArray CreateVertices_Irregular(int vertice_count, float min_radius, float max_r
         return MakeLArray(0, sizeof(Vector2d));
     }
     LArray points = MakeLArray(vertice_count, sizeof(Vector2d));
+    // Use the same angular scaffold as a regular polygon, then vary each
+    // radius to create an irregular but ordered, star-shaped outline.
     float angle_step = (2.0f * PI) / vertice_count;
     float radius_rand;
     for (int i = 0; i < vertice_count; i++)
@@ -59,7 +63,8 @@ Surface2d CreateSurface_Rectangular(Vector2d dimensions, Vector2d vertice_offset
     Surface2d surf = {0};
     surf.surface_vectors = MakeLArray(4, sizeof(Vector2d));
 
-    // Calculate the half-extents
+    // Half-extents convert centre-based dimensions into corner offsets:
+    // half_width = width / 2 and half_height = height / 2.
     float hx = dimensions.x / 2.0f;
     float hy = dimensions.y / 2.0f;
 
@@ -83,7 +88,7 @@ Surface2d CreateSurface_Rectangular(Vector2d dimensions, Vector2d vertice_offset
 
 void CalcBoxVertices(Vector2d dimensions, Vector2d anchor_position, Vector2d *out_vertices)
 {
-    // Calculate the half-extents
+    // A centred box has corners at centre +/- half of each dimension.
     float hx = dimensions.x / 2.0f;
     float hy = dimensions.y / 2.0f;
 
@@ -128,6 +133,8 @@ Matrix2x2 AABB2d_FromPoints(const Vector2d *points, int point_count)
 // Builds the min/max representation used by the AABB helpers from an origin and size.
 Matrix2x2 AABB2d_FromOriginDimensions(Vector2d origin, Vector2d dimensions)
 {
+    // The maximum corner is min corner + extent; this representation avoids
+    // storing a separate centre or half-size for broad-phase comparisons.
     return (Matrix2x2){
         .col1 = origin,
         .col2 = VectorSum_2d(origin, dimensions)};
@@ -137,6 +144,8 @@ Matrix2x2 AABB2d_FromOriginDimensions(Vector2d origin, Vector2d dimensions)
 // broad-phase behavior used by the physics system.
 bool AABB2d_Overlaps(Matrix2x2 box1, Matrix2x2 box2)
 {
+    // Two axis-aligned boxes overlap exactly when their intervals overlap on
+    // both axes. The inclusive comparisons keep edge contact as a candidate.
     return box1.col1.x <= box2.col2.x && box1.col2.x >= box2.col1.x &&
            box1.col1.y <= box2.col2.y && box1.col2.y >= box2.col1.y;
 }
@@ -156,7 +165,8 @@ Matrix2x2 CalcAABBCoords_Tight(Vector2d *vertices, int vertice_count, Vector2d v
         return (Matrix2x2){0};
     }
 
-    // Apply the per-vertex offset once, then use the shared point-set AABB helper.
+    // Translate each local point by the same offset, then take component-wise
+    // minima and maxima. This is the tight AABB for that point set in world space.
     Vector2d *offset_points = AllocateBytes((size_t)vertice_count * sizeof(Vector2d));
     if (!offset_points)
     {
@@ -293,7 +303,10 @@ bool IsPointInPolygon(Vector2d point, Vector2d *polygon_vertices, Vector2d verti
 
     bool inside = false;
 
-    // Perform PIP test using local coordinates
+    // Cast a horizontal ray from the point. Each edge that crosses the ray
+    // toggles the inside flag; an odd crossing count means inside, while an
+    // even count means outside. The x expression below is the edge's linear
+    // interpolation at the test point's y coordinate.
     for (int i = 0, j = vertice_count - 1; i < vertice_count; j = i++)
     {
         if (((polygon_vertices[i].y > local_point.y) != (polygon_vertices[j].y > local_point.y)) &&

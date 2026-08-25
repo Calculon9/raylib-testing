@@ -251,7 +251,9 @@ Cell *GetCellFromCoords(Space2d *space, Vector2d local_coords)
 // The object offset parameter allows you to specify the world coordinates of the object's center, which is necessary to correctly position the footprint in the coordinate space. Provide a zero vector if the object's surface vertices are already in world coordinates.
 void CalcSnappedAABB_Vertices(Vector2d *object_surface_vertices, int object_surface_vertices_count, Vector2d object_offset, Basis2d space_basis, Vector2d out_vertices[4])
 {
-   // Correctly extract the physical grid cell size from the basis
+   // A basis vector's Euclidean length is the physical size of one grid step:
+   // cell_width = |u| and cell_height = |v|. This supports rotated bases while
+   // keeping the cell lookup in integer local grid coordinates.
    float cell_w = sqrtf(space_basis.u.x * space_basis.u.x +
                         space_basis.u.y * space_basis.u.y);
    float cell_h = sqrtf(space_basis.v.x * space_basis.v.x +
@@ -279,7 +281,10 @@ void CalcSnappedAABB_Vertices(Vector2d *object_surface_vertices, int object_surf
       box_coords.col2.y = fmaxf(box_coords.col2.y, vertice.y);
    }
 
-   // Convert the spatial bounding extremes directly to integer cell index spans
+   // Convert the world-space AABB into an inclusive cell span. floor selects the
+   // cell containing the minimum edge; ceil selects the first boundary after the
+   // maximum edge. Rounding outward ensures partially covered cells are retained
+   // as broad-phase candidates instead of being missed at an edge.
    float start_cell_x = floorf(box_coords.col1.x / cell_w);
    float end_cell_x = ceilf(box_coords.col2.x  / cell_w);
    float start_cell_y = floorf(box_coords.col1.y / cell_h);

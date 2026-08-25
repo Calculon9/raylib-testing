@@ -58,6 +58,54 @@ void DestroyWorldEntityStorage(World2d *world)
     FreeWorldEntityArray(&world->temp_objects);
 }
 
+// Add an entity after validating its world position and initial spatial cell.
+// Registration happens only after those checks so failed additions leave no
+// entity or cell state behind.
+EntityId AddObjectToWorld(World2d *world, Newtonoid2d *object, EntityId parent_id)
+{
+    // Object placement is centre-based; grid occupancy still snaps that centre into a cell index.
+    Vector2d local_coords = object->anchor_position;
+    Space2d *space = &world->grid_space.space;
+    int grid_cell_index = GetIndexFromCoords(space, local_coords);
+    if (grid_cell_index < 0)
+    {
+        LOG_WARN("Desired spawn point (%0.2f,%0.2f) out of bounds. Cannot add entity to the world.\n", local_coords.x, local_coords.y);
+        return INVALID_ENTITY_ID;
+    }
+
+    // Solid objects are collision-enabled and must have room in their initial cell.
+    int cell_index = -1;
+    if (!(object->entity_flags & FLAG_TYPE_EFFECT))
+    {
+        cell_index = grid_cell_index;
+        Cell *cells = world->grid_space.space.cells.items;
+        Cell *target_cell = &cells[cell_index];
+        if (target_cell->occupancy >= MAX_CELL_OCCUPANCY)
+        {
+            LOG_WARN("Cell %d full. ID %d not tracked spatially.\n", cell_index, object->id);
+            return INVALID_ENTITY_ID;
+        }
+    }
+
+    object->parent_id = parent_id;
+
+    EntityId assigned_id = RegisterEntity(world, object);
+    if (assigned_id == INVALID_ENTITY_ID)
+    {
+        return INVALID_ENTITY_ID;
+    }
+
+    if (cell_index >= 0)
+    {
+        Cell *target_cell = &((Cell *)world->grid_space.space.cells.items)[cell_index];
+        target_cell->object_ids[target_cell->occupancy] = object->id;
+        target_cell->occupancy++;
+    }
+
+    LOG_INFO("CREATED OBJECT (ID %d): Cell %d : Centre(%.1f, %.1f)\n", object->id, cell_index, local_coords.x, local_coords.y);
+    return assigned_id;
+}
+
 static void EnqueueWorldCommand(LArray *scheduled_events, WorldCmdType type, EntityId object_id, int payload_value,
                                 int initial_frame_delay, int interval_frames, int run_limit)
 {

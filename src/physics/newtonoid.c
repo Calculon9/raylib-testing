@@ -96,6 +96,8 @@ void RebuildNewtonoidGeometry(Newtonoid2d *object)
    }
 
    // Rebuild all cached geometry values after the local vertex data changes.
+   // The tight AABB is formed from the local minimum and maximum coordinates;
+   // adding the anchor afterwards places that local envelope in world space.
    Matrix2x2 local_bounds = CalcAABBCoords_Tight(
       object->surface.surface_vectors.items,
       (int)object->surface.surface_vectors.count,
@@ -105,6 +107,8 @@ void RebuildNewtonoidGeometry(Newtonoid2d *object)
       local_bounds.col2.y - local_bounds.col1.y};
    object->local_geometry_center = CalcGeometricCentre_FromBox(local_bounds);
    object->bounds_origin = VectorSum_2d(object->anchor_position, local_bounds.col1);
+   // The largest AABB dimension is a cheap conservative extent for callers
+   // that need a radius-like broad-phase value rather than exact geometry.
    object->radius = fmaxf(object->bounds_size.x, object->bounds_size.y);
    object->edge_count = (int)object->surface.surface_vectors.count;
    object->inertia = CalculateInertia_Polygon(object->mass, &object->surface.surface_vectors);
@@ -135,7 +139,9 @@ static bool InitializeNewtonoid2d(Newtonoid2d *newtonoid, float mass,
 
    newtonoid->anchor_position = anchor_position;
    newtonoid->mass = mass;
-   // Zero mass means infinite/immovable (e.g. static geometry), not divide-by-zero infinity.
+   // Inverse mass is used by collision response to distribute movement and
+   // impulses. Zero mass represents an immovable body, so its inverse is zero
+   // rather than an IEEE infinity that could contaminate later calculations.
    newtonoid->inverse_mass = (mass != 0.0f) ? 1.0f / mass : 0.0f;
    newtonoid->velocity = velocity;
    newtonoid->acceleration = acceleration;
@@ -376,8 +382,11 @@ void CalcVectors(Newtonoid2d *object, float deltaTime)
    {
       object->inverse_mass = 1.0f / object->mass;
 
-      // If mass changed, re-evaluate box inertia baseline
-      // I = (1/12) * m * (w^2 + h^2)
+      // If mass changed, re-evaluate the rectangular inertia baseline.
+      // For a thin, uniform rectangle about its centre:
+      // I = (1/12) * m * (width^2 + height^2).
+      // This is a stable approximation for runtime updates, while creation
+      // also computes an area-weighted polygon inertia from the actual surface.
       object->inertia = (1.0f / 12.0f) * object->mass * (object->bounds_size.x * object->bounds_size.x + object->bounds_size.y * object->bounds_size.y);
       object->inverse_inertia = 1.0f / object->inertia;
    }
@@ -388,7 +397,9 @@ void CalcVectors(Newtonoid2d *object, float deltaTime)
       object->inverse_inertia = 0.0f; // Infinite resistance to rotation
    }
 
-   // Linear Kinematics (Linear Integration)
+   // Linear kinematics under constant acceleration. The displacement equation
+   // s = v * dt + 0.5 * a * dt^2 advances the position using the velocity at
+   // the start of the frame plus the acceleration contribution over the frame.
    Vector2d displacement;
    displacement.x = (object->velocity.x * deltaTime) + (0.5f * object->acceleration.x * deltaTime * deltaTime);
    displacement.y = (object->velocity.y * deltaTime) + (0.5f * object->acceleration.y * deltaTime * deltaTime);
@@ -397,17 +408,22 @@ void CalcVectors(Newtonoid2d *object, float deltaTime)
    object->bounds_origin = VectorSum_2d(object->bounds_origin, displacement);
    object->anchor_position = VectorSum_2d(object->anchor_position, displacement);
 
-   // Update linear velocity and state vectors for next frame
+   // Then update velocity with v_new = v_old + a * dt. Keeping this separate
+   // from the displacement calculation makes the time-step convention explicit.
    object->velocity.x += object->acceleration.x * deltaTime;
    object->velocity.y += object->acceleration.y * deltaTime;
 
+   // Linear momentum is p = m * v. Store it as a derived value so systems that
+   // inspect momentum do not need to reconstruct it from mass and velocity.
    object->momentum.x = object->mass * object->velocity.x;
    object->momentum.y = object->mass * object->velocity.y;
 
-   // Angular Kinematics (Rotational Integration)
+   // Rotational Newton's second law is alpha = torque / inertia. Multiplying
+   // by inverse inertia avoids a division in the hot update path.
    object->angular_acceleration = object->torque * object->inverse_inertia;
 
-   // Update raw rotation angle scalar and spin speed
+   // Apply the constant-angular-acceleration equivalents of the linear formulas:
+   // angle += omega * dt + 0.5 * alpha * dt^2, then omega += alpha * dt.
    object->rotation += (object->angular_velocity * deltaTime) +
                        (0.5f * object->angular_acceleration * deltaTime * deltaTime);
    object->angular_velocity += object->angular_acceleration * deltaTime;
@@ -435,17 +451,24 @@ float CalculateInertia_Polygon(float mass, LArray *surface_vectors)
       Vector2d p1 = verts[i];
       Vector2d p2 = verts[(i + 1) % num_vertices];
 
-      // 2D Cross Product acts as the area scalar component (parallelogram area)
+      // Fan the polygon into triangles from the local origin. The magnitude of
+      // the 2D cross product is twice each triangle's area, so it supplies the
+      // area weight without requiring a separate triangulation structure.
       float cross_product_area = fabsf(p1.x * p2.y - p2.x * p1.y);
 
-      // Calculate the geometry distribution factor for this triangle wedge
+      // For one triangle wedge, the polar second-moment term is
+      // |cross(p1,p2)| * (|p1|^2 + p1 dot p2 + |p2|^2) / 6.
+      // Dividing the accumulated term by the total cross-product area gives
+      // the area-weighted inertia per unit mass about the local origin.
       float geometry_factor = (VectorDot_2d(p1, p1) + VectorDot_2d(p1, p2) + VectorDot_2d(p2, p2));
 
       total_accumulated_numerator += cross_product_area * geometry_factor;
       total_accumulated_denominator += cross_product_area;
    }
 
-   // Combine components to yield the final absolute structural mass moment scalar
+   // Combine the wedges to obtain the structural inertia per unit mass, then
+   // scale by the body's actual mass. The local vertices are expected to be
+   // centred around the body's anchor for this origin-based result to apply.
    float structural_inertia = total_accumulated_numerator / (6.0f * total_accumulated_denominator);
 
    // Scale it uniformly by the actual physical mass of the object

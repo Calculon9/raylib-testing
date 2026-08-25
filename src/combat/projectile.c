@@ -85,6 +85,8 @@ EntityId SpawnProjectile(World2d *world, const ProjectileSpawnParams *params)
         return INVALID_ENTITY_ID;
     }
 
+    // Normalise first so the configured speed is independent of the caller's
+    // input length: velocity = unit_direction * projectile_speed.
     Vector2d direction = VectorNormalize_2d(params->direction);
     if (VectorMagnitude_2d(direction) <= 0.0001f)
     {
@@ -147,6 +149,8 @@ EntityId FireProjectile(World2d *world, const Newtonoid2d *shooter,
         return INVALID_ENTITY_ID;
     }
 
+    // Use half the largest AABB dimension as a conservative radius, then move
+    // past the muzzle by radius + gap so the projectile starts outside the shooter.
     float shooter_radius = fmaxf(shooter->bounds_size.x, shooter->bounds_size.y) * 0.5f;
     Vector2d muzzle_offset = VectorScale_2d(direction, shooter_radius + PROJECTILE_MUZZLE_GAP);
     ProjectileSpawnParams params = {
