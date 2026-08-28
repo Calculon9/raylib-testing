@@ -118,6 +118,7 @@ static inline Vector2d VectorNormalize_2d(Vector2d v)
 
 float VectorBox_2d(Vector2d vector);
 float VectorDot_2d(Vector2d a, Vector2d b);
+float VectorCross_2d(Vector2d a, Vector2d b);
 float VectorRadians_2d(Vector2d vector);
 Vector2d VectorComponents_2d(float magnitude, float radians);
 Vector3d VectorSumArray_3d(Vector3d *array, size_t count);

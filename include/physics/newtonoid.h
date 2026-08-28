@@ -225,6 +225,7 @@ Newtonoid2d CreateNewtonoid2d_Primitive(ShapeType shape_type, NewtonoidPrimitive
                                          float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration);
 void RebuildNewtonoidGeometry(Newtonoid2d *object);
 void SyncNewtonoidRotation(Newtonoid2d *object);
+Vector2d CalcVelocityAtPoint(const Newtonoid2d *body, Vector2d radius);
 void CalcVectors(Newtonoid2d *object, float deltaTime);
 Vector2d RotateVertex(Vector2d local_vertex, Vector2d local_axis);
 void Newtonoid_TransformVertices(const Newtonoid2d *object, Vector2d *out_world_vertices, int max_vertices);

@@ -87,10 +87,15 @@ float VectorDot_2d(Vector2d a, Vector2d b)
     return (a.x * b.x) + (a.y * b.y);
 }
 
-// float VectorDot_2d(Polar2d a, Polar2d b)
-// {
-//     return (a.x * b.x) + (a.y * b.y);
-// }
+// Result > 0: b is counter-clockwise from a (positive signed area).
+// Result = 0: the vectors are parallel, or at least one vector is zero.
+// Result < 0: b is clockwise from a (negative signed area).
+float VectorCross_2d(Vector2d a, Vector2d b)
+{
+    // The 2D cross product is the signed Z component of a x b; its magnitude
+    // is the area of the parallelogram formed by the two vectors.
+    return (a.x * b.y) - (a.y * b.x);
+}
 
 // Matrix2x2 MatrixRotate90_2x2(Matrix2x2 M)
 // {

@@ -99,12 +99,12 @@ void RebuildNewtonoidGeometry(Newtonoid2d *object)
    // The tight AABB is formed from the local minimum and maximum coordinates;
    // adding the anchor afterwards places that local envelope in world space.
    Matrix2x2 local_bounds = CalcAABBCoords_Tight(
-      object->surface.surface_vectors.items,
-      (int)object->surface.surface_vectors.count,
-      ZERO_VECTOR_2D);
+       object->surface.surface_vectors.items,
+       (int)object->surface.surface_vectors.count,
+       ZERO_VECTOR_2D);
    object->bounds_size = (Vector2d){
-      local_bounds.col2.x - local_bounds.col1.x,
-      local_bounds.col2.y - local_bounds.col1.y};
+       local_bounds.col2.x - local_bounds.col1.x,
+       local_bounds.col2.y - local_bounds.col1.y};
    object->local_geometry_center = CalcGeometricCentre_FromBox(local_bounds);
    object->bounds_origin = VectorSum_2d(object->anchor_position, local_bounds.col1);
    // The largest AABB dimension is a cheap conservative extent for callers
@@ -187,9 +187,9 @@ static Surface2d CreateIsoscelesTriangleSurface(Vector2d dimensions)
 
    surface.surface_vectors = MakeLArray(3, sizeof(Vector2d));
    Vector2d vertices[3] = {
-      {length * 0.5f, 0.0f},
-      {-length * 0.5f, -width * 0.5f},
-      {-length * 0.5f, width * 0.5f}};
+       {length * 0.5f, 0.0f},
+       {-length * 0.5f, -width * 0.5f},
+       {-length * 0.5f, width * 0.5f}};
    for (int vertex_index = 0; vertex_index < 3; vertex_index++)
    {
       LArray_Push(&surface.surface_vectors, &vertices[vertex_index]);
@@ -219,13 +219,13 @@ static Surface2d CreateArrowSurface(Vector2d dimensions, float requested_head_le
    float body_half_width = half_width * 0.4f;
    float body_end = half_length - head_length;
    Vector2d vertices[7] = {
-      {-half_length, -body_half_width},
-      {body_end, -body_half_width},
-      {body_end, -half_width},
-      {half_length, 0.0f},
-      {body_end, half_width},
-      {body_end, body_half_width},
-      {-half_length, body_half_width}};
+       {-half_length, -body_half_width},
+       {body_end, -body_half_width},
+       {body_end, -half_width},
+       {half_length, 0.0f},
+       {body_end, half_width},
+       {body_end, body_half_width},
+       {-half_length, body_half_width}};
 
    surface.surface_vectors = MakeLArray(7, sizeof(Vector2d));
    for (int vertex_index = 0; vertex_index < 7; vertex_index++)
@@ -246,7 +246,7 @@ static Surface2d CreatePrimitiveSurface(ShapeType shape_type,
       if (primitive_params.radius > 0.0f)
       {
          surface.surface_vectors = CreateVertices_Symmetric(3, primitive_params.radius,
-                                                              primitive_params.radius);
+                                                            primitive_params.radius);
       }
       break;
    case SHAPE_TRIANGLE_ISOSCELES:
@@ -312,10 +312,10 @@ void CreateNewtonoid2d_Out(float mass, Vector2d anchor_position, Vector2d veloci
 
 // Builds surface vertices from shape parameters and creates a coloured Newtonoid.
 static Newtonoid2d CreateNewtonoid2d_FromShape(ShapeBuildType build_type, int vertice_count,
-                                                float min_radius, float max_radius,
-                                                ColourRgba colour, float mass,
-                                                Vector2d anchor_position, Vector2d velocity,
-                                                Vector2d acceleration)
+                                               float min_radius, float max_radius,
+                                               ColourRgba colour, float mass,
+                                               Vector2d anchor_position, Vector2d velocity,
+                                               Vector2d acceleration)
 {
    Surface2d surface = {0};
    if (build_type == SHAPE_BUILD_IRREGULAR)
@@ -343,20 +343,20 @@ Newtonoid2d CreateNewtonoid2d_Static(Vector2d anchor_position, Surface2d surface
 Newtonoid2d CreateNewtonoid2d_Symmetric(int vertice_count, float radius, ColourRgba colour, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration)
 {
    return CreateNewtonoid2d_FromShape(SHAPE_BUILD_REGULAR, vertice_count, radius, radius,
-                                       colour, mass, anchor_position, velocity, acceleration);
+                                      colour, mass, anchor_position, velocity, acceleration);
 }
 
 Newtonoid2d CreateNewtonoid2d_Irregular(int vertice_count, float min_radius, float max_radius, ColourRgba colour, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration)
 {
    return CreateNewtonoid2d_FromShape(SHAPE_BUILD_IRREGULAR, vertice_count, min_radius, max_radius,
-                                       colour, mass, anchor_position, velocity, acceleration);
+                                      colour, mass, anchor_position, velocity, acceleration);
 }
 
 // Create a fully initialised Newtonoid from a reusable primitive shape specification.
 Newtonoid2d CreateNewtonoid2d_Primitive(ShapeType shape_type,
-                                         NewtonoidPrimitiveParams primitive_params,
-                                         float mass, Vector2d anchor_position,
-                                         Vector2d velocity, Vector2d acceleration)
+                                        NewtonoidPrimitiveParams primitive_params,
+                                        float mass, Vector2d anchor_position,
+                                        Vector2d velocity, Vector2d acceleration)
 {
    Newtonoid2d empty_newtonoid = {0};
    Surface2d surface = CreatePrimitiveSurface(shape_type, primitive_params);
@@ -367,7 +367,7 @@ Newtonoid2d CreateNewtonoid2d_Primitive(ShapeType shape_type,
    }
 
    Newtonoid2d newtonoid = CreateNewtonoid2d(mass, anchor_position, velocity,
-                                              acceleration, surface);
+                                             acceleration, surface);
    newtonoid.shape_type = shape_type;
    newtonoid.line_colour = primitive_params.colour;
    newtonoid.fill_colour = primitive_params.colour;
@@ -475,6 +475,16 @@ float CalculateInertia_Polygon(float mass, LArray *surface_vectors)
    return mass * structural_inertia;
 }
 
+// A rotating body does not have the same velocity at every point. The velocity at a certain point (or radius) is calculated.
+Vector2d CalcVelocityAtPoint(const Newtonoid2d *body, Vector2d radius)
+{
+   Vector2d rotational_velocity = {
+       -body->angular_velocity * radius.y,
+       body->angular_velocity * radius.x};
+
+   return VectorSum_2d(body->velocity, rotational_velocity);
+}
+
 // void RotateEntity(Newtonoid2d *entity, float radians)
 // {
 //    // Update the entity's rotation angle
@@ -484,7 +494,6 @@ float CalculateInertia_Polygon(float mass, LArray *surface_vectors)
 //    rotated.y = local_vertex.x * local_axis.y + local_vertex.y * local_axis.x;
 //    return rotated;
 // }
-
 
 Vector2d RotateVertex(Vector2d local_vertex, Vector2d local_axis)
 {
@@ -573,4 +582,3 @@ void Newtonoid_TransformVertices(const Newtonoid2d *object, Vector2d *out_world_
 //    }
 //    return box_coords;
 // }
-

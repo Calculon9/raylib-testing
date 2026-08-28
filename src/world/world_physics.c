@@ -439,6 +439,75 @@ void ResolveCollision(Newtonoid2d *a, Newtonoid2d *b)
     }
 }
 
+void ResolveCollision_WithRotation(Newtonoid2d *a, Newtonoid2d *b)
+{
+    // This response uses the cached AABBs, giving a stable axis-aligned contact
+    // correction after SAT has confirmed that the actual polygons overlap.
+    float total_inv_mass = a->inverse_mass + b->inverse_mass;
+    if (total_inv_mass <= 0.0f)
+        return;
+
+    float a_half_w = a->bounds_size.x * 0.5f;
+    float a_half_h = a->bounds_size.y * 0.5f;
+    float b_half_w = b->bounds_size.x * 0.5f;
+    float b_half_h = b->bounds_size.y * 0.5f;
+
+    Vector2d distance_vec = VectorDiff_2d(b->anchor_position, a->anchor_position);
+
+    float x_overlap = (a_half_w + b_half_w) - fabsf(distance_vec.x);
+    float y_overlap = (a_half_h + b_half_h) - fabsf(distance_vec.y);
+
+    if (x_overlap <= 0.0f || y_overlap <= 0.0f)
+        return;
+
+    Vector2d normal = {0.0f, 0.0f};
+    float penetration_depth = 0.0f;
+
+    // Resolve along the axis of least overlap. Moving along that axis is the
+    // minimum translation needed to separate two overlapping AABBs.
+    if (x_overlap < y_overlap)
+    {
+        penetration_depth = x_overlap;
+        normal = (distance_vec.x > 0.0f) ? (Vector2d){1.0f, 0.0f} : (Vector2d){-1.0f, 0.0f};
+    }
+    else
+    {
+        penetration_depth = y_overlap;
+        normal = (distance_vec.y > 0.0f) ? (Vector2d){0.0f, 1.0f} : (Vector2d){0.0f, -1.0f};
+    }
+
+    // Positional correction conserves the static body's position and shares the
+    // correction between dynamic bodies according to inverse mass.
+    float a_move_fraction = a->inverse_mass / total_inv_mass;
+    float b_move_fraction = b->inverse_mass / total_inv_mass;
+    Vector2d separation_vector = CalcSeparationVector(normal, penetration_depth);
+
+    ApplyPositionSeparation(a, separation_vector, -a_move_fraction);
+    ApplyPositionSeparation(b, separation_vector, b_move_fraction);
+
+    // Relative normal speed determines whether the bodies are approaching. With
+    // normal directed from A to B, a positive (v_a - v_b) dot normal means A is
+    // moving into B and therefore needs an impulse.
+    Vector2d a_b_vel_diff = VectorDiff_2d(a->velocity, b->velocity);
+    float a_b_vel_dot = VectorDot_2d(a_b_vel_diff, normal);
+
+    // Object may have angular momentum
+    if(a->angular_velocity != 0 || b->angular_velocity != 0)
+    {
+        // Using the geometric centre as the pivot, calculate angular momentum
+    }
+
+    if (a_b_vel_dot > 0.0f)
+    {
+        float j = CalcElasticImpulseMagnitude(a_b_vel_dot, total_inv_mass);
+        Vector2d impulse_vector = VectorScale_2d(normal, j);
+        a->velocity = VectorSum_2d(a->velocity, VectorScale_2d(impulse_vector, a->inverse_mass));
+        b->velocity = VectorSum_2d(b->velocity, VectorScale_2d(impulse_vector, -b->inverse_mass));
+        Newtonoid_SyncOrientationToVelocity(a);
+        Newtonoid_SyncOrientationToVelocity(b);
+    }
+}
+
 void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container)
 {
     if (!entity || !container || entity->parent_id != container->id)
