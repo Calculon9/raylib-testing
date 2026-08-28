@@ -27,6 +27,4 @@ typedef enum
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 
-float GetRandomFloat(float min, float max);
-unsigned long CalcHashFromInts(int a, int b);
 #endif

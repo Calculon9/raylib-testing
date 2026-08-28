@@ -290,6 +290,283 @@ static void UpdateWorldSimulation(void)
     UIState_ValidateSelection();
 }
 
+// Apply debug keyboard actions that directly manipulate the selected world.
+static void HandleWorldDebugHotkeys(World2d *active_world, Vector2d click_world_coords)
+{
+    if (!active_world)
+    {
+        return;
+    }
+
+    // Default debug spawn values used by the keyboard test controls.
+    float radius = GetRandomFloat(0.1, polygonoid_radius_default * 0.8f);
+    float mass = radius * polygonoid_mass_default;
+    int vertice_count = 7;
+    Vector2d velocity = {
+        .x = GetRandomFloat(polygonoid_velocity_default.x * -8, polygonoid_velocity_default.x * 8),
+        .y = GetRandomFloat(polygonoid_velocity_default.y * 8, polygonoid_velocity_default.y * -8)};
+    Vector2d acceleration = polygonoid_acceleration_default;
+    ColourRgba colour = polygonoid_line_colour;
+
+    if (IsKeyPressed(KEY_SPACE))
+    {
+        TogglePause(active_world);
+    }
+
+    // Advance one frame while paused for physics debugging.
+    if (IsKeyPressed(KEY_LEFT_SHIFT) && active_world->mode == PAUSED)
+    {
+        UpdateWorld(active_world, frame_counter.delta_time);
+    }
+
+    if (IsKeyPressed(KEY_ONE))
+    {
+        CreateAddNewtonoid(vertice_count, radius, SHAPE_BUILD_IRREGULAR,
+                           mass, colour, click_world_coords,
+                           velocity, acceleration);
+        UpdateWorld(active_world, frame_counter.delta_time);
+    }
+}
+
+// Fire from the selected entity when input routing has not already been claimed.
+static InputRouteResult TryHandleFireProjectile(World2d *active_world,
+                                                InputRouteResult prior_result)
+{
+    if (!active_world || prior_result != INPUT_ROUTE_IGNORED || !IsKeyPressed(KEY_F))
+    {
+        return prior_result;
+    }
+
+    Newtonoid2d *shooter = UIState_GetSelectedObject();
+    int shooter_world_index = -1;
+    Universe_GetEntityByID(&G_Universe,
+                           shooter ? shooter->id : INVALID_ENTITY_ID,
+                           &shooter_world_index);
+
+    World2d *shooter_world = Universe_GetWorld(&G_Universe, shooter_world_index);
+    if (shooter && shooter_world == active_world && shooter_world_index >= 0 &&
+        !IsProjectile(shooter))
+    {
+        if (FireProjectile(shooter_world, shooter, PROJECTILE_TYPE_BOLT) != INVALID_ENTITY_ID)
+        {
+            return INPUT_ROUTE_HANDLED;
+        }
+    }
+
+    return prior_result;
+}
+
+// Resolve and capture the closest selectable entity for drag operations.
+static InputRouteResult TrySelectAndCaptureEntity(World2d *active_world,
+                                                  const InputFrame *input,
+                                                  Vector2d click_world_coords,
+                                                  DragInteractionState *game_drag_ctx,
+                                                  InputRouteResult prior_result)
+{
+    if (!active_world || !input || !game_drag_ctx ||
+        prior_result != INPUT_ROUTE_IGNORED || !input->left_down ||
+        game_drag_ctx->has_capture)
+    {
+        return prior_result;
+    }
+
+    char log[256] = "";
+    int offset = 0;
+    AppendLogLine(log, sizeof(log), &offset,
+                  "WORLD (%.1f,%.1f) --> ",
+                  game_viewport.local_origin.x,
+                  game_viewport.local_origin.y);
+
+    Cell *selected_cell = NULL;
+    int selected_cell_index = -1;
+    Newtonoid2d *closest = ResolveClosestEntityAt(active_world,
+                                                  click_world_coords,
+                                                  &selected_cell,
+                                                  &selected_cell_index,
+                                                  log,
+                                                  sizeof(log),
+                                                  &offset);
+
+    UIState_SetSelection(closest, selected_cell, selected_cell_index);
+
+    if (closest)
+    {
+        SnapshotDraggedEntityMotion(closest);
+        DragInteraction_BeginCapture(game_drag_ctx,
+                                     DRAG_TARGET_WORLD_ENTITY,
+                                     closest,
+                                     closest->anchor_position);
+        AppendLogLine(log, sizeof(log), &offset,
+                      "--> SELECTED ENTITY: ID:%d", closest->id);
+    }
+    else
+    {
+        g_drag_motion_snapshot.entity = NULL;
+        g_drag_motion_snapshot.has_snapshot = false;
+        DragInteraction_ClearCapture(game_drag_ctx);
+        AppendLogLine(log, sizeof(log), &offset,
+                      " --> SELECTED ENTITY: NULL");
+    }
+
+    LOG_INFO("CLICKED (%d,%d) | %s\n",
+             (int)input->pointer_position.x,
+             (int)input->pointer_position.y,
+             log);
+
+    return closest ? INPUT_ROUTE_CAPTURED : INPUT_ROUTE_HANDLED;
+}
+
+// Move a dragged entity inside its current world and keep its space map in sync.
+static void HandleIntraWorldEntityDrag(Newtonoid2d *dragged,
+                                       World2d *source_world,
+                                       DragInteractionState *game_drag_ctx)
+{
+    Vector2d previous_snapped_aabb_verts[4] = {0};
+    CalcSnappedAABB_Vertices(dragged->surface.surface_vectors.items,
+                             dragged->surface.surface_vectors.count,
+                             dragged->anchor_position,
+                             source_world->grid_space.space.frame.basis,
+                             previous_snapped_aabb_verts);
+
+    Matrix2x2 previous_snapped_aabb_box = CalcAABBCoords_Tight(
+        previous_snapped_aabb_verts, 4, ZERO_VECTOR_2D);
+
+    Vector2d initial_world_coords = ResolvePixelToWorldFrame(
+        source_world, game_drag_ctx->pointer_state.initial_pos);
+    Vector2d current_world_coords = ResolvePixelToWorldFrame(
+        source_world, game_drag_ctx->pointer_state.current_pos);
+    Vector2d drag_delta_world = VectorDiff_2d(current_world_coords,
+                                              initial_world_coords);
+    Vector2d new_center = VectorSum_2d(game_drag_ctx->target_anchor,
+                                       drag_delta_world);
+
+    Space2d *space = &source_world->grid_space.space;
+    Vector2d min_bound = space->grid_origin;
+    Vector2d max_bound = {
+        min_bound.x + (float)space->columns - 0.001f,
+        min_bound.y + (float)space->rows - 0.001f};
+
+    new_center.x = ClampFloat(new_center.x, min_bound.x, max_bound.x);
+    new_center.y = ClampFloat(new_center.y, min_bound.y, max_bound.y);
+
+    dragged->anchor_position = new_center;
+    dragged->bounds_origin = (Vector2d){
+        new_center.x - (dragged->bounds_size.x * 0.5f),
+        new_center.y - (dragged->bounds_size.y * 0.5f)};
+    dragged->velocity = ZERO_VECTOR_2D;
+    dragged->acceleration = ZERO_VECTOR_2D;
+    dragged->momentum = ZERO_VECTOR_2D;
+
+    RemapEntityInASpace(&source_world->grid_space.space,
+                        dragged,
+                        previous_snapped_aabb_box,
+                        &source_world->entity_space_map);
+}
+
+// Queue transfer when a dragged entity crosses into a different world.
+static void HandleInterWorldEntityDrag(Newtonoid2d *dragged,
+                                       World2d *destination_world,
+                                       int source_world_index,
+                                       int destination_world_index,
+                                       Vector2d uni_coords,
+                                       DragInteractionState *game_drag_ctx)
+{
+    Vector2d current_world_coords = ResolvePixelToWorldFrame(
+        destination_world, game_drag_ctx->pointer_state.current_pos);
+
+    // Re-seed the drag origin after a world transfer so the destination
+    // world uses the current pointer position.
+    game_drag_ctx->pointer_state.initial_pos = game_drag_ctx->pointer_state.current_pos;
+    game_drag_ctx->pointer_state.previous_pos = game_drag_ctx->pointer_state.current_pos;
+
+    Vector2d pointer_px = game_drag_ctx->pointer_state.current_pos;
+    LOG_INFO("DRAG_TRANSFER enqueue: entity=%d src_world=%d dst_world=%d pointer_px=(%.2f,%.2f) uni=(%.2f,%.2f)\n",
+             dragged->id,
+             source_world_index,
+             destination_world_index,
+             pointer_px.x,
+             pointer_px.y,
+             uni_coords.x,
+             uni_coords.y);
+
+    EnqueueMoveEntity(dragged->id,
+                      source_world_index,
+                      destination_world_index,
+                      destination_world->grid_space.object.id,
+                      current_world_coords,
+                      g_drag_motion_snapshot.collision_mask);
+}
+
+// Process pointer drag updates for a captured world entity.
+static void HandleCapturedEntityDrag(DragInteractionState *game_drag_ctx)
+{
+    if (!game_drag_ctx || !game_drag_ctx->has_capture ||
+        game_drag_ctx->target_kind != DRAG_TARGET_WORLD_ENTITY ||
+        !DragInteraction_IsDragActive(game_drag_ctx, INPUT_DRAG_THRESHOLD_PIXELS))
+    {
+        return;
+    }
+
+    Newtonoid2d *dragged = (Newtonoid2d *)game_drag_ctx->target;
+    int source_world_index = -1;
+    if (dragged)
+    {
+        Universe_GetEntityByID(&G_Universe, dragged->id, &source_world_index);
+    }
+
+    World2d *source_world = Universe_GetWorld(&G_Universe, source_world_index);
+    Vector2d uni_coords = ResolvePixelToWorldFrame(&G_Universe.root_world,
+                                                    game_drag_ctx->pointer_state.current_pos);
+
+    int destination_world_index = Universe_FindWorldAt(&G_Universe, uni_coords);
+    if (destination_world_index < 0)
+    {
+        destination_world_index = UNIVERSE_ROOT_WORLD_INDEX;
+    }
+
+    World2d *destination_world = Universe_GetWorld(&G_Universe,
+                                                   destination_world_index);
+    if (!dragged || !source_world || !destination_world)
+    {
+        return;
+    }
+
+    if (source_world_index == destination_world_index)
+    {
+        HandleIntraWorldEntityDrag(dragged, source_world, game_drag_ctx);
+    }
+    else
+    {
+        HandleInterWorldEntityDrag(dragged,
+                                   destination_world,
+                                   source_world_index,
+                                   destination_world_index,
+                                   uni_coords,
+                                   game_drag_ctx);
+    }
+}
+
+// Finish drag capture and restore the entity's physics state on mouse release.
+static InputRouteResult TryHandleEntityDragRelease(const InputFrame *input,
+                                                   DragInteractionState *game_drag_ctx,
+                                                   InputRouteResult prior_result)
+{
+    if (!input || !game_drag_ctx || !input->left_released ||
+        game_drag_ctx->pointer_state.left_button_hold_ticks <= 0)
+    {
+        return prior_result;
+    }
+
+    if (game_drag_ctx->has_capture &&
+        game_drag_ctx->target_kind == DRAG_TARGET_WORLD_ENTITY)
+    {
+        RestoreDraggedEntityMotion((Newtonoid2d *)game_drag_ctx->target);
+        return INPUT_ROUTE_HANDLED;
+    }
+
+    return prior_result;
+}
+
 // Route gameplay input for simulation, world-entity selection, dragging, and firing.
 InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult prior_result)
 {
@@ -310,168 +587,48 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
     }
     Vector2d click_pixel_coords = input->pointer_position;
     Vector2d click_world_coords = ResolvePixelToWorldFrame(active_world, click_pixel_coords);
-    DragInteractionState *game_drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
 
-    // Default debug spawn values used by the keyboard test controls.
-    float radius = GetRandomFloat(0.1, polygonoid_radius_default * 0.8f);
-    float mass = radius * polygonoid_mass_default;
-    int vertice_count = 7;
-    Vector2d velocity = {.x = GetRandomFloat(polygonoid_velocity_default.x * -8, polygonoid_velocity_default.x * 8), .y = GetRandomFloat(polygonoid_velocity_default.y * 8, polygonoid_velocity_default.y * -8)};
-    Vector2d acceleration = polygonoid_acceleration_default;
-    ColourRgba colour = polygonoid_line_colour;
+    // Pick root-owned entities in universe coordinates when the pointer is outside nested worlds.
+    if (prior_result == INPUT_ROUTE_IGNORED && cursor_in_game_viewport && input->left_down)
+    {
+        Vector2d click_universe_coords = ResolvePixelToWorldFrame(&G_Universe.root_world,
+                                                                  click_pixel_coords);
+        bool root_entity_hit = ResolveClosestEntityAt(&G_Universe.root_world,
+                                                       click_universe_coords,
+                                                       NULL, NULL, NULL, 0, NULL) != NULL;
+        int clicked_world_index = Universe_FindWorldAt(&G_Universe, click_universe_coords);
+        if (root_entity_hit || clicked_world_index < 0)
+        {
+            active_world = &G_Universe.root_world;
+            click_world_coords = click_universe_coords;
+        }
+        else
+        {
+            active_world = Universe_GetWorld(&G_Universe, clicked_world_index);
+            click_world_coords = ResolvePixelToWorldFrame(active_world, click_pixel_coords);
+        }
+    }
+
+    DragInteractionState *game_drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
 
     if (active_world)
     {
-        if (IsKeyPressed(KEY_SPACE))
-        {
-            TogglePause(active_world);
-        }
-
-        // Advance one frame while paused for physics debugging.
-        if (IsKeyPressed(KEY_LEFT_SHIFT) && active_world->mode == PAUSED)
-        {
-            UpdateWorld(active_world, frame_counter.delta_time);
-        }
-
-        if (IsKeyPressed(KEY_ONE))
-        {
-            CreateAddNewtonoid(vertice_count, radius, SHAPE_BUILD_IRREGULAR, mass, colour, click_world_coords, velocity, acceleration);
-            UpdateWorld(active_world, frame_counter.delta_time);
-        }
-
-        // Fire from the selected entity only when the selected entity belongs to
-        // the active world and is not itself a projectile.
-        if (prior_result == INPUT_ROUTE_IGNORED && IsKeyPressed(KEY_F))
-        {
-            Newtonoid2d *shooter = UIState_GetSelectedObject();
-            int shooter_world_index = -1;
-            Universe_GetEntityByID(&G_Universe,
-                                   shooter ? shooter->id : INVALID_ENTITY_ID,
-                                   &shooter_world_index);
-            World2d *shooter_world = Universe_GetWorld(&G_Universe, shooter_world_index);
-            if (shooter && shooter_world == active_world && shooter_world_index >= 0 &&
-                !IsProjectile(shooter))
-            {
-                if (FireProjectile(shooter_world, shooter, PROJECTILE_TYPE_BOLT) != INVALID_ENTITY_ID)
-                {
-                    prior_result = INPUT_ROUTE_HANDLED;
-                }
-            }
-        }
+        HandleWorldDebugHotkeys(active_world, click_world_coords);
+        prior_result = TryHandleFireProjectile(active_world, prior_result);
 
         if (prior_result == INPUT_ROUTE_IGNORED && cursor_in_game_viewport && input->left_down)
         {
-            if (!game_drag_ctx->has_capture)
-            {
-                char log[256] = "";
-                int offset = 0;
-                AppendLogLine(log, sizeof(log), &offset, "WORLD (%.1f,%.1f) --> ", game_viewport.local_origin.x, game_viewport.local_origin.y);
-
-                Cell *selected_cell = NULL;
-                int selected_cell_index = -1;
-                Newtonoid2d *p_closest = ResolveClosestEntityAt(active_world, click_world_coords, &selected_cell, &selected_cell_index,
-                                                                log, sizeof(log), &offset);
-
-                UIState_SetSelection(p_closest, selected_cell, selected_cell_index);
-
-                if (p_closest)
-                {
-                    SnapshotDraggedEntityMotion(p_closest);
-                    DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_ENTITY, p_closest, p_closest->anchor_position);
-                    AppendLogLine(log, sizeof(log), &offset, "--> SELECTED ENTITY: ID:%d", p_closest->id);
-                }
-                else
-                {
-                    g_drag_motion_snapshot.entity = NULL;
-                    g_drag_motion_snapshot.has_snapshot = false;
-                    DragInteraction_ClearCapture(game_drag_ctx);
-                    AppendLogLine(log, sizeof(log), &offset, " --> SELECTED ENTITY: NULL");
-                }
-
-                LOG_INFO("CLICKED (%d,%d) | %s\n", (int)input->pointer_position.x, (int)input->pointer_position.y, log);
-                prior_result = p_closest ? INPUT_ROUTE_CAPTURED : INPUT_ROUTE_HANDLED;
-            }
-
-            if (game_drag_ctx->has_capture && game_drag_ctx->target_kind == DRAG_TARGET_WORLD_ENTITY &&
-                DragInteraction_IsDragActive(game_drag_ctx, INPUT_DRAG_THRESHOLD_PIXELS))
-            {
-                Newtonoid2d *dragged = (Newtonoid2d *)game_drag_ctx->target;
-                int source_world_index = -1;
-                if (dragged)
-                {
-                    Universe_GetEntityByID(&G_Universe, dragged->id, &source_world_index);
-                }
-                World2d *source_world = Universe_GetWorld(&G_Universe, source_world_index);
-
-                Vector2d uni_coords = ResolvePixelToWorldFrame(&G_Universe.root_world,
-                                                              game_drag_ctx->pointer_state.current_pos);
-
-                int destination_world_index = Universe_FindWorldAt(&G_Universe, uni_coords);
-                if (destination_world_index < 0)
-                {
-                    destination_world_index = UNIVERSE_ROOT_WORLD_INDEX;
-                }
-                World2d *destination_world = Universe_GetWorld(&G_Universe, destination_world_index);
-                if (dragged && source_world && destination_world)
-                {
-                    if (source_world_index == destination_world_index)
-                    {
-                        Vector2d previous_snapped_aabb_verts[4] = {0};
-                        CalcSnappedAABB_Vertices(dragged->surface.surface_vectors.items,
-                                                 dragged->surface.surface_vectors.count,
-                                                 dragged->anchor_position, source_world->grid_space.space.frame.basis,
-                                                 previous_snapped_aabb_verts);
-                        Matrix2x2 previous_snapped_aabb_box = CalcAABBCoords_Tight(previous_snapped_aabb_verts, 4, ZERO_VECTOR_2D);
-                        Vector2d initial_world_coords = ResolvePixelToWorldFrame(source_world, game_drag_ctx->pointer_state.initial_pos);
-                        Vector2d current_world_coords = ResolvePixelToWorldFrame(source_world, game_drag_ctx->pointer_state.current_pos);
-                        Vector2d drag_delta_world = VectorDiff_2d(current_world_coords, initial_world_coords);
-                        Vector2d new_center = VectorSum_2d(game_drag_ctx->target_anchor, drag_delta_world);
-                        Space2d *space = &source_world->grid_space.space;
-                        Vector2d min_bound = space->grid_origin;
-                        Vector2d max_bound = {min_bound.x + (float)space->columns - 0.001f, min_bound.y + (float)space->rows - 0.001f};
-                        new_center.x = ClampFloat(new_center.x, min_bound.x, max_bound.x);
-                        new_center.y = ClampFloat(new_center.y, min_bound.y, max_bound.y);
-                        dragged->anchor_position = new_center;
-                        dragged->bounds_origin = (Vector2d){
-                            new_center.x - (dragged->bounds_size.x * 0.5f),
-                            new_center.y - (dragged->bounds_size.y * 0.5f)};
-                        dragged->velocity = ZERO_VECTOR_2D;
-                        dragged->acceleration = ZERO_VECTOR_2D;
-                        dragged->momentum = ZERO_VECTOR_2D;
-                        RemapEntityInASpace(&source_world->grid_space.space, dragged, previous_snapped_aabb_box,
-                                            &source_world->entity_space_map);
-                    }
-                    else
-                    {
-                        Vector2d current_world_coords = ResolvePixelToWorldFrame(destination_world, game_drag_ctx->pointer_state.current_pos);
-                        // Re-seed the drag origin after a world transfer so the
-                        // destination world uses the current pointer position.
-                        game_drag_ctx->pointer_state.initial_pos = game_drag_ctx->pointer_state.current_pos;
-                        game_drag_ctx->pointer_state.previous_pos = game_drag_ctx->pointer_state.current_pos;
-
-                        Vector2d pointer_px = game_drag_ctx->pointer_state.current_pos;
-                        LOG_INFO("DRAG_TRANSFER enqueue: entity=%d src_world=%d dst_world=%d pointer_px=(%.2f,%.2f) uni=(%.2f,%.2f)\n",
-                                 dragged->id,
-                                 source_world_index,
-                                 destination_world_index,
-                                 pointer_px.x,
-                                 pointer_px.y,
-                                 uni_coords.x,
-                                 uni_coords.y);
-                        EnqueueMoveEntity(dragged->id, source_world_index, destination_world_index,
-                                           destination_world->grid_space.object.id, current_world_coords,
-                                           g_drag_motion_snapshot.collision_mask);
-                    }
-                }
-            }
+            prior_result = TrySelectAndCaptureEntity(active_world,
+                                                     input,
+                                                     click_world_coords,
+                                                     game_drag_ctx,
+                                                     prior_result);
+            HandleCapturedEntityDrag(game_drag_ctx);
         }
-        else if (input->left_released && game_drag_ctx->pointer_state.left_button_hold_ticks > 0)
+        else
         {
-            if (game_drag_ctx->has_capture && game_drag_ctx->target_kind == DRAG_TARGET_WORLD_ENTITY)
-            {
-                RestoreDraggedEntityMotion((Newtonoid2d *)game_drag_ctx->target);
-                prior_result = INPUT_ROUTE_HANDLED;
-            }
+            prior_result = TryHandleEntityDragRelease(input, game_drag_ctx,
+                                                      prior_result);
         }
     }
 

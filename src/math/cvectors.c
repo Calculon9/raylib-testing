@@ -240,23 +240,6 @@ Matrix3x3 MatrixInvert_3x3(Matrix3x3 M)
 
     return res;
 }
-
-
-
-float VectorBox_2d(Vector2d vector)
-{
-    float box = vector.x * vector.y;
-
-    // Just want the absolute area
-    if (box < 0)
-    {
-        box *= -1;
-    }
-    return box;
-}
-
-
-
 // Returns the boxed coords from a collection of vertice vectors (must all be relative to the associated object's coords)
 // Matrix2x2 GetEnvelopingSubspace2d_FromMatrix(DynamicArray position_vectors)
 // {

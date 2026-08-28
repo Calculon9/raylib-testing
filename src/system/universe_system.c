@@ -24,7 +24,6 @@ UNIVERSE SYSTEM MODULE
 
 static int create_world_auto_select = 0;
 static bool camera_diagnostic_printed = false;
-static bool click_pending = false;
 ColourRgba camera_marker_colour = {86, 139, 127, 230};
 static CameraController cam_ctrl = {0};
 
@@ -164,6 +163,17 @@ InputRouteResult UpdateUniverseSystem(const InputFrame *input, InputRouteResult 
         return INPUT_ROUTE_CAPTURED;
     }
 
+    // Let the world route capture root-owned entities even when a nested world remains selected.
+    if (input->left_pressed && cursor_in_game_viewport)
+    {
+        Vector2d mouse_universe_coords = TransformCoordinates(root_world_to_pixel,
+                                                               input->pointer_position);
+        if (Universe_HasRootEntityAt(mouse_universe_coords))
+        {
+            return INPUT_ROUTE_IGNORED;
+        }
+    }
+
     if (input->left_pressed || input->left_released)
     {
         return INPUT_ROUTE_HANDLED;
@@ -265,10 +275,6 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
                 G_Universe.selected_world_index = -1;
                 SyncWorldStateFromSelection();
             }
-            else if (world_hit)
-            {
-                click_pending = true;
-            }
         }
     }
     else if (G_Universe.selected_world_index >= 0 && input->left_pressed && cursor_in_game_viewport)
@@ -339,11 +345,6 @@ bool IsCreateWorldAutoSelectEnabled(void)
     return create_world_auto_select != 0;
 }
 
-int *GetCreateWorldAutoSelectPtr(void)
-{
-    return &create_world_auto_select;
-}
-
 int GetWorldCount(void) { return Universe_GetWorldCount(&G_Universe); }
 int GetSelectedWorldIndex(void) { return Universe_GetSelectedIndex(&G_Universe); }
 World2d *GetSelectedWorld(void) { return Universe_GetSelectedWorld(&G_Universe); }
@@ -356,9 +357,3 @@ Vector2d *GetNextWorldBasisVPtr(void) { return &G_Universe.next_basis_v; }
 float *GetNextWorldGravityPtr(void) { return &G_Universe.next_gravity; }
 int *GetNextWorldObjectCountPtr(void) { return &G_Universe.next_object_count; }
 
-bool ConsumeUniverseWorldClick(void)
-{
-    bool pending = click_pending;
-    click_pending = false;
-    return pending;
-}

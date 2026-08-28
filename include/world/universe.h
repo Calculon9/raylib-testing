@@ -84,7 +84,6 @@ void Universe_Draw(Universe *u);
 // Check whether a universe-space click lands in a world and auto-select it when needed.
 // Returns true when any world was hit. local_out receives local coords in that world.
 bool Universe_ResolveClick(Universe *u,Vector2d universe_click, Vector2d *local_out);
-bool ConsumeUniverseWorldClick(void);
 
 // Find the world index at a universe-space point, or -1 if none.
 int Universe_FindWorldAt(const Universe *u, Vector2d universe_point);
@@ -167,7 +166,6 @@ void DrawUniverse(void);
 int CreateNewWorld(bool auto_select);
 bool SelectWorldByIndex(int index);
 bool IsCreateWorldAutoSelectEnabled(void);
-int *GetCreateWorldAutoSelectPtr(void);
 
 // Universe/world accessors used by UI and gameplay systems.
 int GetWorldCount(void);

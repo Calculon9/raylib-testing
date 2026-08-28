@@ -26,7 +26,6 @@ int CreateNewWorld(bool auto_select);
 int CreateNewWorld_Preset(bool auto_select, CoordinateSpacePreset preset);
 bool SelectWorldByIndex(int index);
 bool IsCreateWorldAutoSelectEnabled(void);
-int *GetCreateWorldAutoSelectPtr(void);
 
 int GetWorldCount(void);
 int GetSelectedWorldIndex(void);

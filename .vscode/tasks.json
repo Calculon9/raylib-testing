@@ -37,8 +37,24 @@
         {
             "type": "shell",
             "label": "CMake-Create-Makefile (PATH)",
-            "command": "cmake",
-            "args": ["-DCMAKE_BUILD_TYPE=Debug", "-S", "${workspaceFolder}", "-B","${workspaceFolder}/build/Debug" ]  
+            "command": "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
+            "args": [
+                "-G",
+                "MinGW Makefiles",
+                "-DCMAKE_BUILD_TYPE=Debug",
+                "-DCMAKE_C_COMPILER=C:/msys64/ucrt64/bin/gcc.exe",
+                "-DCMAKE_CXX_COMPILER=C:/msys64/ucrt64/bin/g++.exe",
+                "-DCMAKE_MAKE_PROGRAM=C:/msys64/ucrt64/bin/mingw32-make.exe",
+                "-S",
+                "${workspaceFolder}",
+                "-B",
+                "${workspaceFolder}/build/Debug"
+            ],
+            "options": {
+                "env": {
+                    "PATH": "C:/msys64/ucrt64/bin;${env:PATH}"
+                }
+            }
         },
         {
             "type": "shell",
@@ -56,13 +72,18 @@
         {
             "type": "shell",
             "label": "CMake-Execute-Makefile (PATH)",
-            "command": "cmake",
+            "command": "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
             "args": [
                 "--build",
                 "${workspaceFolder}/build/Debug"
             ],
             "dependsOn": ["CMake-Create-Makefile (PATH)"],
-            "problemMatcher": ["$gcc"]
+            "problemMatcher": ["$gcc"],
+            "options": {
+                "env": {
+                    "PATH": "C:/msys64/ucrt64/bin;${env:PATH}"
+                }
+            }
         },
         {
             "label": "Build",

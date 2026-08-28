@@ -118,15 +118,15 @@ void *LArray_Get(LArray *a, int index)
     return (char *)a->items + (index * a->elem_bytes);
 }
 
-void *LArray_GetCircular(LArray *a, int *index_tracker)
-{
-    if (a == NULL || a->count == 0 || index_tracker == NULL) return NULL;
+// void *LArray_GetCircular(LArray *a, int *index_tracker)
+// {
+//     if (a == NULL || a->count == 0 || index_tracker == NULL) return NULL;
 
-    void *item = (char *)a->items + ((*index_tracker) * a->elem_bytes);
-    *index_tracker = (*index_tracker + 1) % a->count;
+//     void *item = (char *)a->items + ((*index_tracker) * a->elem_bytes);
+//     *index_tracker = (*index_tracker + 1) % a->count;
 
-    return item;
-}
+//     return item;
+// }
 
 bool LArray_RemoveAt(LArray *a, int index)
 {
@@ -177,19 +177,6 @@ bool LArray_SwapPopAt(LArray *a, int index)
 
     a->count--;
     return true;
-}
-
-void *LArray_CircularEnumerate(LArray *a)
-{
-    if (a == NULL || a->count == 0)
-    {
-        return NULL;
-    }
-
-    void *item = (char *)a->items + (a->enumerator_index * a->elem_bytes);
-    a->enumerator_index = (a->enumerator_index + 1) % a->count;
-
-    return item;
 }
 
 // Dispose of the array and free its memory

@@ -39,8 +39,6 @@ static Frame2d *GetLPanelViewportFrame(void) { return &lpanel_viewport.frame; }
 static Frame2d *GetGameViewportFrame(void) { return &game_viewport.frame; }
 static Frame2d *GetRPanelViewportFrame(void) { return &rpanel_viewport.frame; }
 static Frame2d *GetUniverseSpaceFrame(void) { return &G_Universe.camera.frame; }
-static Frame2d *GetLPanelSpaceFrameTarget(void) { return GetLPanelSpaceFrame(); }
-static Frame2d *GetRPanelSpaceFrameTarget(void) { return GetRPanelSpaceFrame(); }
 
 static bool ApplyLPanelViewportBasis(Basis2d basis) { return SetViewportSpaceBasis(VIEWPORT_SPACE_LPANEL, basis.u, basis.v); }
 static bool ApplyGameViewportBasis(Basis2d basis) { return SetViewportSpaceBasis(VIEWPORT_SPACE_GAME, basis.u, basis.v); }
@@ -56,8 +54,6 @@ static void ResetLPanelViewportBasis(void) { ResetViewportSpaceBasis(VIEWPORT_SP
 static void ResetGameViewportBasis(void) { ResetViewportSpaceBasis(VIEWPORT_SPACE_GAME); }
 static void ResetRPanelViewportBasis(void) { ResetViewportSpaceBasis(VIEWPORT_SPACE_RPANEL); }
 static void ResetUniverseSpaceBasis(void) { SetUniverseCameraBasis(IDENTITY_BASIS_2D); }
-static void ResetLPanelSpaceBasisTarget(void) { ResetLPanelSpaceBasis(); }
-static void ResetRPanelSpaceBasisTarget(void) { ResetRPanelSpaceBasis(); }
 
 static const DebugBasisTargetOps debug_basis_target_ops[DEBUG_BASIS_TARGET_COUNT] = {
     [DEBUG_BASIS_TARGET_LPANEL_VIEWPORT] = {
@@ -85,15 +81,15 @@ static const DebugBasisTargetOps debug_basis_target_ops[DEBUG_BASIS_TARGET_COUNT
         .name = "UNIVERSE_SPACE",
     },
     [DEBUG_BASIS_TARGET_LPANEL_SPACE] = {
-        .get_frame_fn = GetLPanelSpaceFrameTarget,
+        .get_frame_fn = GetLPanelSpaceFrame,
         .apply_basis_fn = ApplyLPanelSpaceBasis,
-        .reset_fn = ResetLPanelSpaceBasisTarget,
+        .reset_fn = ResetLPanelSpaceBasis,
         .name = "LPANEL_SPACE",
     },
     [DEBUG_BASIS_TARGET_RPANEL_SPACE] = {
-        .get_frame_fn = GetRPanelSpaceFrameTarget,
+        .get_frame_fn = GetRPanelSpaceFrame,
         .apply_basis_fn = ApplyRPanelSpaceBasis,
-        .reset_fn = ResetRPanelSpaceBasisTarget,
+        .reset_fn = ResetRPanelSpaceBasis,
         .name = "RPANEL_SPACE",
     },
 };

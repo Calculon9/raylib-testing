@@ -116,7 +116,6 @@ static inline Vector2d VectorNormalize_2d(Vector2d v)
     return (mag > 0.0001f) ? VectorScale_2d(v, 1.0f / mag) : (Vector2d){0.0f, 0.0f};
 }
 
-float VectorBox_2d(Vector2d vector);
 float VectorDot_2d(Vector2d a, Vector2d b);
 float VectorCross_2d(Vector2d a, Vector2d b);
 float VectorRadians_2d(Vector2d vector);

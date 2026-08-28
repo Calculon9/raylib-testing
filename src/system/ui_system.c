@@ -475,6 +475,108 @@ void UpdateUISpace(UIElement *root_element, UIBox seed_box)
     UI_LayoutSubtree(root_element, seed_box);
 }
 
+// Write telemetry strings for visible stats labels without assuming every label exists.
+static void UpdateTelemetryStats(float fps, float frame_time_ms, float kib_allocated,
+                                 int newtonoid_count)
+{
+    // Only update every 20 frames to avoid unnecessary string formatting churn.
+    if (frame_counter.total_frames % 20 != 0)
+    {
+        return;
+    }
+
+    if (G_UIState.stats_fps_str)
+    {
+        UpdateString64(G_UIState.stats_fps_str->string, "%.1f", fps);
+    }
+    if (G_UIState.stats_mem_str)
+    {
+        UpdateString64(G_UIState.stats_mem_str->string, "%.1f", kib_allocated);
+    }
+    if (G_UIState.stats_polygs_str)
+    {
+        UpdateString64(G_UIState.stats_polygs_str->string, "%d", newtonoid_count);
+    }
+    if (G_UIState.stats_ftime_str)
+    {
+        UpdateString64(G_UIState.stats_ftime_str->string, "%.2f", frame_time_ms);
+    }
+}
+
+// Sync entity readout textboxes from the current selected object or clear when none is selected.
+static void RefreshSelectedObjectFields(const Newtonoid2d *selected_object)
+{
+    TextboxField state_fields[] = {
+        {G_UIState.state_id_tbox, INT, selected_object ? (void *)&selected_object->id : NULL, 0, NULL},
+        {G_UIState.state_mass_tbox, FLOAT, selected_object ? (void *)&selected_object->mass : NULL, 2, NULL},
+        {G_UIState.state_pos_tl_tbox, VECTOR2D, selected_object ? (void *)&selected_object->bounds_origin : NULL, 0, NULL},
+        {G_UIState.state_pos_c_tbox, VECTOR2D, selected_object ? (void *)&selected_object->anchor_position : NULL, 0, NULL},
+        {G_UIState.state_vel_tbox, VECTOR2D, selected_object ? (void *)&selected_object->velocity : NULL, 0, NULL},
+        {G_UIState.state_accel_tbox, VECTOR2D, selected_object ? (void *)&selected_object->acceleration : NULL, 0, NULL},
+        {G_UIState.state_moment_tbox, VECTOR2D, selected_object ? (void *)&selected_object->momentum : NULL, 0, NULL},
+        {G_UIState.state_angular_velocity_tbox, FLOAT, selected_object ? (void *)&selected_object->angular_velocity : NULL, 2, NULL},
+        {G_UIState.state_angular_acceleration_tbox, FLOAT, selected_object ? (void *)&selected_object->angular_acceleration : NULL, 2, NULL},
+        {G_UIState.state_health_tbox, FLOAT, selected_object ? (void *)&selected_object->health : NULL, 2, NULL},
+        {G_UIState.state_max_health_tbox, FLOAT, selected_object ? (void *)&selected_object->max_health : NULL, 2, NULL},
+        {G_UIState.state_damage_tbox, FLOAT, selected_object ? (void *)&selected_object->damage : NULL, 2, NULL},
+    };
+
+    RefreshTextboxFields(state_fields, ARRAY_COUNT(state_fields));
+}
+
+// Sync selected-cell labels and clear them when no cell is selected.
+static void RefreshSelectedCellFields(const Cell *selected_cell)
+{
+    if (selected_cell)
+    {
+        int index = UIState_GetSelectedCellIndex();
+        int occupancy = selected_cell->occupancy;
+        float value = selected_cell->value;
+        float fill = 0.0f;
+
+        if (G_UIState.cell_id_str)
+        {
+            UpdateString64(G_UIState.cell_id_str->string, "%d", index);
+        }
+        if (G_UIState.cell_occu_str)
+        {
+            UpdateString64(G_UIState.cell_occu_str->string, "%d", occupancy);
+        }
+        if (G_UIState.cell_value_str)
+        {
+            UpdateString64(G_UIState.cell_value_str->string, "%0.1f", value);
+        }
+        if (G_UIState.cell_fill_str)
+        {
+            UpdateString64(G_UIState.cell_fill_str->string, "%0.1f", fill);
+        }
+
+        return;
+    }
+
+    ClearString64(G_UIState.cell_id_str);
+    ClearString64(G_UIState.cell_occu_str);
+    ClearString64(G_UIState.cell_value_str);
+    ClearString64(G_UIState.cell_fill_str);
+}
+
+// Sync entity-creation editor textboxes when the draw view is active, otherwise clear them.
+static void RefreshEntityEditorFields(bool editor_active, Newtonoid2dParams *params)
+{
+    TextboxField edit_fields[] = {
+        {G_UIState.edit_vertice_count_tbox, INT, (editor_active && params) ? (void *)&params->vertice_count : NULL, 0, NULL},
+        {G_UIState.edit_width_tbox, FLOAT, (editor_active && params) ? (void *)&params->width : NULL, 2, NULL},
+        {G_UIState.edit_height_tbox, FLOAT, (editor_active && params) ? (void *)&params->height : NULL, 2, NULL},
+        {G_UIState.edit_mass_tbox, FLOAT, (editor_active && params) ? (void *)&params->mass : NULL, 2, NULL},
+        {G_UIState.edit_pos_c_tbox, VECTOR2D, (editor_active && params) ? (void *)&params->anchor_position : NULL, 0, NULL},
+        {G_UIState.edit_vel_tbox, VECTOR2D, (editor_active && params) ? (void *)&params->velocity : NULL, 0, NULL},
+        {G_UIState.edit_accel_tbox, VECTOR2D, (editor_active && params) ? (void *)&params->acceleration : NULL, 0, NULL},
+        {G_UIState.edit_moment_tbox, VECTOR2D, (editor_active && params) ? (void *)&params->momentum : NULL, 0, NULL},
+    };
+
+    RefreshTextboxFields(edit_fields, ARRAY_COUNT(edit_fields));
+}
+
 void UpdateGlobalUIState()
 {
     // UPDATE STATISTICS
@@ -483,117 +585,35 @@ void UpdateGlobalUIState()
     float bytes = GetCurrentMemoryAllocated() / 1024.0f;
     int polygs = GetNewtonoidCount();
 
-    // Only update every 20 frames, unnecessary to do every frame
-    if (frame_counter.total_frames % 20 == 0)
-    {
-        UpdateString64(G_UIState.stats_fps_str->string, "%.1f", fps);
-        UpdateString64(G_UIState.stats_mem_str->string, "%.1f", bytes);
-        UpdateString64(G_UIState.stats_polygs_str->string, "%d", polygs);
-        UpdateString64(G_UIState.stats_ftime_str->string, "%.2f", ftime);
-    }
+    UpdateTelemetryStats(fps, ftime, bytes, polygs);
 
     // DEBUG----
     if (frame_counter.total_frames % 900 == 0)
     {
+        const char *fps_text = G_UIState.stats_fps_str ? G_UIState.stats_fps_str->string : "N/A";
+        const char *ftime_text = G_UIState.stats_ftime_str ? G_UIState.stats_ftime_str->string : "N/A";
+        const char *mem_text = G_UIState.stats_mem_str ? G_UIState.stats_mem_str->string : "N/A";
+        const char *poly_text = G_UIState.stats_polygs_str ? G_UIState.stats_polygs_str->string : "N/A";
+
         LOG_INFO("[Telemetry Update] FPS: %s  | F.TIME: %s | MEM: %sKB | POLY: %s\n",
-                 G_UIState.stats_fps_str->string, G_UIState.stats_ftime_str->string,
-                 G_UIState.stats_mem_str->string, G_UIState.stats_polygs_str->string);
+                 fps_text, ftime_text, mem_text, poly_text);
     }
     // ----DEBUG //
 
     // COLLECT & UPDATE "SELECTED ENTITY" PROPERTIES
     // Read via the validated accessor so bindings never use stale entity pointers.
     Newtonoid2d *obj = UIState_GetSelectedObject();
-    if (obj)
-    {
-        TextboxField state_fields[] = {
-            {G_UIState.state_id_tbox, INT, &obj->id, 0, NULL},
-            {G_UIState.state_mass_tbox, FLOAT, &obj->mass, 2, NULL},
-            {G_UIState.state_pos_tl_tbox, VECTOR2D, &obj->bounds_origin, 0, NULL},
-            {G_UIState.state_pos_c_tbox, VECTOR2D, &obj->anchor_position, 0, NULL},
-            {G_UIState.state_vel_tbox, VECTOR2D, &obj->velocity, 0, NULL},
-            {G_UIState.state_accel_tbox, VECTOR2D, &obj->acceleration, 0, NULL},
-            {G_UIState.state_moment_tbox, VECTOR2D, &obj->momentum, 0, NULL},
-            {G_UIState.state_angular_velocity_tbox, FLOAT, &obj->angular_velocity, 2, NULL},
-            {G_UIState.state_angular_acceleration_tbox, FLOAT, &obj->angular_acceleration, 2, NULL},
-            {G_UIState.state_health_tbox, FLOAT, &obj->health, 2, NULL},
-            {G_UIState.state_max_health_tbox, FLOAT, &obj->max_health, 2, NULL},
-            {G_UIState.state_damage_tbox, FLOAT, &obj->damage, 2, NULL},
-        };
-        RefreshTextboxFields(state_fields, ARRAY_COUNT(state_fields));
-    }
-    else // Reset the bounded textbox output buffers AND unbind
-    {
-        TextboxField state_fields[] = {
-            {G_UIState.state_id_tbox, INT, NULL, 0, NULL},
-            {G_UIState.state_mass_tbox, FLOAT, NULL, 0, NULL},
-            {G_UIState.state_pos_tl_tbox, VECTOR2D, NULL, 0, NULL},
-            {G_UIState.state_pos_c_tbox, VECTOR2D, NULL, 0, NULL},
-            {G_UIState.state_vel_tbox, VECTOR2D, NULL, 0, NULL},
-            {G_UIState.state_accel_tbox, VECTOR2D, NULL, 0, NULL},
-            {G_UIState.state_moment_tbox, VECTOR2D, NULL, 0, NULL},
-            {G_UIState.state_angular_velocity_tbox, FLOAT, NULL, 0, NULL},
-            {G_UIState.state_angular_acceleration_tbox, FLOAT, NULL, 0, NULL},
-            {G_UIState.state_health_tbox, FLOAT, NULL, 0, NULL},
-            {G_UIState.state_max_health_tbox, FLOAT, NULL, 0, NULL},
-            {G_UIState.state_damage_tbox, FLOAT, NULL, 0, NULL},
-        };
-        RefreshTextboxFields(state_fields, ARRAY_COUNT(state_fields));
-    }
+    RefreshSelectedObjectFields(obj);
 
     // COLLECT & UPDATE SELECTED CELL PROPERTIES
     Cell *cell = UIState_GetSelectedCell();
-    if (cell)
-    {
-        int index = UIState_GetSelectedCellIndex();
-        int occu = cell->occupancy;
-        float val = cell->value;
-        float fill = 0; // set to 0 for now
-
-        UpdateString64(G_UIState.cell_id_str->string, "%d", index);
-        UpdateString64(G_UIState.cell_occu_str->string, "%d", occu);
-        UpdateString64(G_UIState.cell_value_str->string, "%0.1f", val);
-        UpdateString64(G_UIState.cell_fill_str->string, "%0.1f", fill);
-    }
-    else
-    {
-        ClearString64(G_UIState.cell_id_str);
-        ClearString64(G_UIState.cell_occu_str);
-        ClearString64(G_UIState.cell_value_str);
-        ClearString64(G_UIState.cell_fill_str);
-    }
+    RefreshSelectedCellFields(cell);
 
     // COLLECT & UPDATE EDITING ENTITY PROPERTIES
     // Determine if the Edit View is active.
     Newtonoid2dParams *params = G_UIState.newtonoid_params;
-    if (G_UIState.active_panel_view == LPANEL_DRAW_VIEW && params)
-    {
-        TextboxField edit_fields[] = {
-            {G_UIState.edit_vertice_count_tbox, INT, &params->vertice_count, 0, NULL},
-            {G_UIState.edit_width_tbox, FLOAT, &params->width, 2, NULL},
-            {G_UIState.edit_height_tbox, FLOAT, &params->height, 2, NULL},
-            {G_UIState.edit_mass_tbox, FLOAT, &params->mass, 2, NULL},
-            {G_UIState.edit_pos_c_tbox, VECTOR2D, &params->anchor_position, 0, NULL},
-            {G_UIState.edit_vel_tbox, VECTOR2D, &params->velocity, 0, NULL},
-            {G_UIState.edit_accel_tbox, VECTOR2D, &params->acceleration, 0, NULL},
-            {G_UIState.edit_moment_tbox, VECTOR2D, &params->momentum, 0, NULL},
-        };
-        RefreshTextboxFields(edit_fields, ARRAY_COUNT(edit_fields));
-    }
-    else
-    {
-        TextboxField edit_fields[] = {
-            {G_UIState.edit_vertice_count_tbox, INT, NULL, 0, NULL},
-            {G_UIState.edit_width_tbox, FLOAT, NULL, 0, NULL},
-            {G_UIState.edit_height_tbox, FLOAT, NULL, 0, NULL},
-            {G_UIState.edit_mass_tbox, FLOAT, NULL, 0, NULL},
-            {G_UIState.edit_pos_c_tbox, VECTOR2D, NULL, 0, NULL},
-            {G_UIState.edit_vel_tbox, VECTOR2D, NULL, 0, NULL},
-            {G_UIState.edit_accel_tbox, VECTOR2D, NULL, 0, NULL},
-            {G_UIState.edit_moment_tbox, VECTOR2D, NULL, 0, NULL},
-        };
-        RefreshTextboxFields(edit_fields, ARRAY_COUNT(edit_fields));
-    }
+    bool edit_view_active = G_UIState.active_panel_view == LPANEL_DRAW_VIEW;
+    RefreshEntityEditorFields(edit_view_active, params);
 }
 
 
