@@ -397,7 +397,7 @@ bool Frame_ContainsPoint_Local(Vector2d local_point, const Frame2d *frame)
 
 //    // Calc anchor_position - this is required when creating new objects
 //    Vector2d anchor_position = (Vector2d){origin.x + (resolution_ixj.x / 2.0), origin.y + (resolution_ixj.y / 2.0)};
-//    space_obj.object = CreateNewtonoid2d_Static(anchor_position, surface);
+//    space_obj.object = CreateNewtonoid2d(0.0f, anchor_position, ZERO_VECTOR_2D, ZERO_VECTOR_2D, surface);
 //    return space_obj;
 // }
 

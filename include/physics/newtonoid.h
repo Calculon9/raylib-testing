@@ -37,6 +37,7 @@ typedef enum EntityAttributeFlags
     ENTITY_ATTR_FLAG_VELOCITY_ALIGNED = 1 << 1,
     ENTITY_ATTR_FLAG_AFFECT_OWNER = 1 << 2,
     ENTITY_ATTR_FLAG_RIGID = 1 << 5,
+    ENTITY_ATTR_FLAG_POSITION_LOCKED = 1 << 6,
 } EntityAttributeFlags;
 
 typedef EntityTypeFlags EntityFlags;
@@ -55,6 +56,7 @@ typedef EntityAttributeFlags EntityAttributeFlag;
 #define FLAG_ATTR_VELOCITY_ALIGNED ENTITY_ATTR_FLAG_VELOCITY_ALIGNED
 #define FLAG_ATTR_AFFECT_OWNER ENTITY_ATTR_FLAG_AFFECT_OWNER
 #define FLAG_ATTR_RIGID ENTITY_ATTR_FLAG_RIGID
+#define FLAG_ATTR_POSITION_LOCKED ENTITY_ATTR_FLAG_POSITION_LOCKED
 #define FLAG_LIFETIME_CLOCKED ENTITY_STATUS_FLAG_CLOCKED
 
 // DEFAULT COLOURS
@@ -108,6 +110,8 @@ typedef struct Newtonoid2d
     Vector2d momentum;      // Linear momentum (mass × velocity)
     float mass;             // Object mass (kg)
     float inverse_mass;     // 1.0f / mass (0.0f if static)
+    float restitution;      // Normal contact coefficient in the inclusive range [0, 1]
+    float friction;         // Tangential contact coefficient, zero or greater
 
     // ============================================================================
     // WARM FIELDS - Bounds, Rotation, Collision (~96 bytes)
@@ -153,6 +157,8 @@ typedef struct Newtonoid2dParams
     Vector2d acceleration;
     Vector2d momentum;
     float mass;
+    float restitution;
+    float friction;
     float radius;
     float width;
     float height;
@@ -215,11 +221,18 @@ bool IsDamageable(const Newtonoid2d *entity);
 bool ApplyEntityDamage(Newtonoid2d *entity, float damage);
 // Align an opted-in entity's rendered geometry with its current velocity vector.
 void Newtonoid_SyncOrientationToVelocity(Newtonoid2d *object);
+// Configure an entity's normal collision bounce coefficient, clamped to [0, 1].
+void Newtonoid_ConfigureRestitution(Newtonoid2d *object, float restitution);
+// Configure an entity's tangential collision friction coefficient, clamped to zero or greater.
+void Newtonoid_ConfigureFriction(Newtonoid2d *object, float friction);
+// Configure a mass-bearing entity for fixed-position rotation.
+void Newtonoid_ConfigureRotor(Newtonoid2d *object);
 Newtonoid2d CreateNewtonoid2d(float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration, Surface2d surface);
 Newtonoid2d *CreateNewtonoid2d_Reference(float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration, Surface2d surface);
-Newtonoid2d CreateNewtonoid2d_Static(Vector2d anchor_position, Surface2d surface);
 Newtonoid2d CreateNewtonoid2d_Symmetric(int vertice_count, float radius, ColourRgba colour, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration);
 Newtonoid2d CreateNewtonoid2d_Irregular(int vertice_count, float min_radius, float max_radius, ColourRgba colour, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration);
+Newtonoid2d CreateNewtonoid2d_Rotor(int blade_count, Vector2d dimensions, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration);
+Newtonoid2d CreateNewtonoid2d_Gear(int tooth_count, Vector2d dimensions, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration);
 // Create a coloured Newtonoid from one of the reusable primitive entity shapes.
 Newtonoid2d CreateNewtonoid2d_Primitive(ShapeType shape_type, NewtonoidPrimitiveParams primitive_params,
                                          float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration);
@@ -227,8 +240,10 @@ void RebuildNewtonoidGeometry(Newtonoid2d *object);
 void SyncNewtonoidRotation(Newtonoid2d *object);
 Vector2d CalcVelocityAtPoint(const Newtonoid2d *body, Vector2d radius);
 void CalcVectors(Newtonoid2d *object, float deltaTime);
+float CalcMomentOfInertia(float mass, LArray *surface_vectors);
 Vector2d RotateVertex(Vector2d local_vertex, Vector2d local_axis);
 void Newtonoid_TransformVertices(const Newtonoid2d *object, Vector2d *out_world_vertices, int max_vertices);
+Matrix2x2 UpdateEntityBounds(Newtonoid2d *object, Vector2d out_world_vertices[MAX_SHAPE_VERTICES]);
 // Matrix2x2 FindBoxedCoords(DArray vertices);
 // Vector2d GetObjectCentre(Surface2d object_surface);
 

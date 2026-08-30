@@ -90,6 +90,9 @@ int Universe_FindWorldAt(const Universe *u, Vector2d universe_point);
 
 // Find an entity by universal ID and optionally return its owning world index.
 Newtonoid2d *Universe_GetEntityByID(const Universe *u, EntityId entity_id, int *world_index_out);
+// Check whether an entity pointer resolves to and is owned by the supplied world.
+bool Universe_IsEntityOwnedByWorld(const Universe *u, const World2d *world,
+                                   const Newtonoid2d *entity);
 EntityId Universe_AllocateEntityId(Universe *u);
 
 // --- Camera control ---

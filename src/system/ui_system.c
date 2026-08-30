@@ -509,6 +509,8 @@ static void RefreshSelectedObjectFields(const Newtonoid2d *selected_object)
     TextboxField state_fields[] = {
         {G_UIState.state_id_tbox, INT, selected_object ? (void *)&selected_object->id : NULL, 0, NULL},
         {G_UIState.state_mass_tbox, FLOAT, selected_object ? (void *)&selected_object->mass : NULL, 2, NULL},
+        {G_UIState.state_restitution_tbox, FLOAT, selected_object ? (void *)&selected_object->restitution : NULL, 2, NULL},
+        {G_UIState.state_friction_tbox, FLOAT, selected_object ? (void *)&selected_object->friction : NULL, 2, NULL},
         {G_UIState.state_pos_tl_tbox, VECTOR2D, selected_object ? (void *)&selected_object->bounds_origin : NULL, 0, NULL},
         {G_UIState.state_pos_c_tbox, VECTOR2D, selected_object ? (void *)&selected_object->anchor_position : NULL, 0, NULL},
         {G_UIState.state_vel_tbox, VECTOR2D, selected_object ? (void *)&selected_object->velocity : NULL, 0, NULL},
@@ -568,6 +570,8 @@ static void RefreshEntityEditorFields(bool editor_active, Newtonoid2dParams *par
         {G_UIState.edit_width_tbox, FLOAT, (editor_active && params) ? (void *)&params->width : NULL, 2, NULL},
         {G_UIState.edit_height_tbox, FLOAT, (editor_active && params) ? (void *)&params->height : NULL, 2, NULL},
         {G_UIState.edit_mass_tbox, FLOAT, (editor_active && params) ? (void *)&params->mass : NULL, 2, NULL},
+        {G_UIState.edit_restitution_tbox, FLOAT, (editor_active && params) ? (void *)&params->restitution : NULL, 2, NULL},
+        {G_UIState.edit_friction_tbox, FLOAT, (editor_active && params) ? (void *)&params->friction : NULL, 2, NULL},
         {G_UIState.edit_pos_c_tbox, VECTOR2D, (editor_active && params) ? (void *)&params->anchor_position : NULL, 0, NULL},
         {G_UIState.edit_vel_tbox, VECTOR2D, (editor_active && params) ? (void *)&params->velocity : NULL, 0, NULL},
         {G_UIState.edit_accel_tbox, VECTOR2D, (editor_active && params) ? (void *)&params->acceleration : NULL, 0, NULL},

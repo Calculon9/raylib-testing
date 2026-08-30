@@ -721,15 +721,25 @@ Newtonoid2d *ResolveEntityParamsToEntity(Newtonoid2dParams *newtonoid_params)
     case SHAPE_CIRCLE:
         vertice_count = MAX_SHAPE_VERTICES;
         break;
+    case SHAPE_ROTOR:
+        break;
+    case SHAPE_GEAR:
+        break;
     case SHAPE_POLYGON:
         break;
     default:
         return NULL;
     }
 
-    if (vertice_count < 3)
+    if (shape_type != SHAPE_ROTOR && vertice_count < 3)
     {
         LOG_WARN("Invalid vertice_count: vertice_count = %d\n", vertice_count);
+        return NULL;
+    }
+    if (shape_type == SHAPE_ROTOR &&
+        (vertice_count < 2 || vertice_count > MAX_SHAPE_VERTICES / 6))
+    {
+        LOG_WARN("Invalid rotor blade count: blade_count = %d\n", vertice_count);
         return NULL;
     }
     if (newtonoid_params->width <= 0.0 || newtonoid_params->height <= 0.0)
@@ -738,11 +748,73 @@ Newtonoid2d *ResolveEntityParamsToEntity(Newtonoid2dParams *newtonoid_params)
         return NULL;
     }
 
+    if (shape_type == SHAPE_ROTOR)
+    {
+        Newtonoid2d rotor = CreateNewtonoid2d_Rotor(
+            vertice_count,
+            (Vector2d){newtonoid_params->width, newtonoid_params->height},
+            newtonoid_params->mass,
+            newtonoid_params->anchor_position,
+            newtonoid_params->velocity,
+            newtonoid_params->acceleration);
+        if (!rotor.surface.surface_vectors.items || rotor.surface.surface_vectors.count < 3)
+        {
+            ClearLArray(&rotor.surface.surface_vectors);
+            return NULL;
+        }
+
+        Newtonoid2d *rotor_object = AllocateBytes(sizeof(Newtonoid2d));
+        if (!rotor_object)
+        {
+            ClearLArray(&rotor.surface.surface_vectors);
+            LOG_WARN("Failed to allocate new physical object. World entity pool full.\n");
+            return NULL;
+        }
+
+        *rotor_object = rotor;
+        Newtonoid_ConfigureRestitution(rotor_object, newtonoid_params->restitution);
+        Newtonoid_ConfigureFriction(rotor_object, newtonoid_params->friction);
+        LOG_INFO("Successfully spawned Entity ID: %d [Type: %d] at Position (%.2f, %.2f)\n",
+                 rotor_object->id, shape_type, rotor_object->anchor_position.x, rotor_object->anchor_position.y);
+        return rotor_object;
+    }
+
+    if (shape_type == SHAPE_GEAR)
+    {
+        Newtonoid2d gear = CreateNewtonoid2d_Gear(
+            vertice_count,
+            (Vector2d){newtonoid_params->width, newtonoid_params->height},
+            newtonoid_params->mass,
+            newtonoid_params->anchor_position,
+            newtonoid_params->velocity,
+            newtonoid_params->acceleration);
+        if (!gear.surface.surface_vectors.items || gear.surface.surface_vectors.count < 3)
+        {
+            ClearLArray(&gear.surface.surface_vectors);
+            return NULL;
+        }
+
+        Newtonoid2d *gear_object = AllocateBytes(sizeof(Newtonoid2d));
+        if (!gear_object)
+        {
+            ClearLArray(&gear.surface.surface_vectors);
+            LOG_WARN("Failed to allocate new physical object. World entity pool full.\n");
+            return NULL;
+        }
+
+        *gear_object = gear;
+        Newtonoid_ConfigureRestitution(gear_object, newtonoid_params->restitution);
+        Newtonoid_ConfigureFriction(gear_object, newtonoid_params->friction);
+        LOG_INFO("Successfully spawned Entity ID: %d [Type: %d] at Position (%.2f, %.2f)\n",
+                 gear_object->id, shape_type, gear_object->anchor_position.x, gear_object->anchor_position.y);
+        return gear_object;
+    }
+
     Surface2d surface = {0};
     if (shape_type == SHAPE_SQUARE || shape_type == SHAPE_RECTANGLE)
     {
         surface = CreateSurface_Rectangular(
-            (Vector2d){newtonoid_params->width, newtonoid_params->height}, ZERO_VECTOR_2D);
+            (Vector2d){newtonoid_params->width, newtonoid_params->height});
     }
     else
     {
@@ -761,6 +833,8 @@ Newtonoid2d *ResolveEntityParamsToEntity(Newtonoid2dParams *newtonoid_params)
         return NULL;
     }
     obj->shape_type = shape_type;
+    Newtonoid_ConfigureRestitution(obj, newtonoid_params->restitution);
+    Newtonoid_ConfigureFriction(obj, newtonoid_params->friction);
 
     LOG_INFO("Successfully spawned Entity ID: %d [Type: %d] at Position (%.2f, %.2f)\n",
              obj->id, shape_type, obj->anchor_position.x, obj->anchor_position.y);

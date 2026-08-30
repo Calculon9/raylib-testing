@@ -166,12 +166,14 @@ void UpdateWorld(World2d *world, float delta_time)
             continue;
         }
 
+        Vector2d previous_world_vertices[MAX_SHAPE_VERTICES] = {0};
+        Newtonoid_TransformVertices(child, previous_world_vertices, MAX_SHAPE_VERTICES);
         Vector2d previous_snapped_aabb_verts[4] = {0};
-        CalcSnappedAABB_Vertices(child->surface.surface_vectors.items,
-                                 child->surface.surface_vectors.count,
-                                 child->anchor_position,
-                                 space->frame.basis,
-                                 previous_snapped_aabb_verts);
+        CalcSnappedAABB_Vertices(previous_world_vertices,
+                     child->surface.surface_vectors.count,
+                     ZERO_VECTOR_2D,
+                     space->frame.basis,
+                     previous_snapped_aabb_verts);
         Matrix2x2 previous_snapped_aabb_box = CalcAABBCoords_Tight(
             previous_snapped_aabb_verts, 4, ZERO_VECTOR_2D);
 

@@ -114,6 +114,8 @@ static void InitEntityCreateDefaults(void)
     params->width = 1.0f;
     params->height = 1.0f;
     params->mass = 1.0f;
+    params->restitution = 0.9f;
+    params->friction = 0.5f;
     params->anchor_position = ZERO_VECTOR_2D;
     params->velocity = ZERO_VECTOR_2D;
 
@@ -121,6 +123,8 @@ static void InitEntityCreateDefaults(void)
     WriteTextboxFloat(G_UIState.edit_width_tbox, params->width, 2);
     WriteTextboxFloat(G_UIState.edit_height_tbox, params->height, 2);
     WriteTextboxFloat(G_UIState.edit_mass_tbox, params->mass, 2);
+    WriteTextboxFloat(G_UIState.edit_restitution_tbox, params->restitution, 2);
+    WriteTextboxFloat(G_UIState.edit_friction_tbox, params->friction, 2);
     WriteTextboxVectorPair(G_UIState.edit_pos_c_tbox, params->anchor_position);
     WriteTextboxVectorPair(G_UIState.edit_vel_tbox, params->velocity);
 }
@@ -220,6 +224,8 @@ void InitLPanelEditView(void)
         {"Width", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_width_tbox, NULL},
         {"Height", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_height_tbox, NULL},
         {"Mass", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_mass_tbox, NULL},
+        {"Restitution", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_restitution_tbox, NULL},
+        {"Friction", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_friction_tbox, NULL},
         {"Anchor", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.edit_pos_c_tbox, NULL},
         {"Vel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.edit_vel_tbox, NULL},
         {"Acc", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.edit_accel_tbox, NULL},
@@ -233,6 +239,8 @@ void InitLPanelEditView(void)
     BindTextboxData(G_UIState.edit_width_tbox, FLOAT, &G_UIState.newtonoid_params->width);
     BindTextboxData(G_UIState.edit_height_tbox, FLOAT, &G_UIState.newtonoid_params->height);
     BindTextboxData(G_UIState.edit_mass_tbox, FLOAT, &G_UIState.newtonoid_params->mass);
+    BindTextboxData(G_UIState.edit_restitution_tbox, FLOAT, &G_UIState.newtonoid_params->restitution);
+    BindTextboxData(G_UIState.edit_friction_tbox, FLOAT, &G_UIState.newtonoid_params->friction);
     BindTextboxData(G_UIState.edit_pos_c_tbox, VECTOR2D, &G_UIState.newtonoid_params->anchor_position);
     BindTextboxData(G_UIState.edit_vel_tbox, VECTOR2D, &G_UIState.newtonoid_params->velocity);
     InitEntityCreateDefaults();
@@ -302,6 +310,8 @@ void DestroyLPanel(void)
     G_UIState.edit_width_tbox = NULL;
     G_UIState.edit_height_tbox = NULL;
     G_UIState.edit_mass_tbox = NULL;
+    G_UIState.edit_restitution_tbox = NULL;
+    G_UIState.edit_friction_tbox = NULL;
     G_UIState.edit_pos_c_tbox = NULL;
     G_UIState.edit_vel_tbox = NULL;
     G_UIState.edit_accel_tbox = NULL;
@@ -311,6 +321,8 @@ void DestroyLPanel(void)
     G_UIState.edit_width_str = NULL;
     G_UIState.edit_height_str = NULL;
     G_UIState.edit_mass_str = NULL;
+    G_UIState.edit_restitution_str = NULL;
+    G_UIState.edit_friction_str = NULL;
     G_UIState.edit_pos_c_str = NULL;
     G_UIState.edit_vel_str = NULL;
     G_UIState.edit_accel_str = NULL;

@@ -1,8 +1,8 @@
 /**********************************************************************************************
-*
-* WORLD PHYSICS
-*
-**********************************************************************************************/
+ *
+ * WORLD PHYSICS
+ *
+ **********************************************************************************************/
 
 #include "world/world_internal.h"
 #include "combat/projectile.h"
@@ -13,7 +13,7 @@ static void FindMinMaxProjection(Vector2d *vertices, size_t count, Vector2d axis
 {
     *out_min = INFINITY;
     *out_max = -INFINITY;
-    
+
     for (size_t i = 0; i < count; i++)
     {
         float proj = VectorDot_2d(vertices[i], axis);
@@ -37,7 +37,7 @@ static Vector2d FindDeepestVertex(Vector2d *vertices, size_t count, Vector2d axi
 {
     Vector2d deepest = vertices[0];
     float extreme_proj = VectorDot_2d(vertices[0], axis);
-    
+
     for (size_t i = 1; i < count; i++)
     {
         float proj = VectorDot_2d(vertices[i], axis);
@@ -47,7 +47,7 @@ static Vector2d FindDeepestVertex(Vector2d *vertices, size_t count, Vector2d axi
             deepest = vertices[i];
         }
     }
-    
+
     return deepest;
 }
 
@@ -56,6 +56,97 @@ static Vector2d CalcSeparationVector(Vector2d normal, float penetration_depth)
     // The minimum translation vector is normal * penetration. It is the
     // shortest displacement that moves the overlapping boundaries apart.
     return VectorScale_2d(normal, penetration_depth);
+}
+
+static float CalculateHullCross(Vector2d point_a, Vector2d point_b, Vector2d point_c)
+{
+    Vector2d edge_ab = VectorDiff_2d(point_b, point_a);
+    Vector2d edge_ac = VectorDiff_2d(point_c, point_a);
+    return (edge_ab.x * edge_ac.y) - (edge_ab.y * edge_ac.x);
+}
+
+static size_t BuildConvexHull(Vector2d *vertices, size_t vertex_count,
+                              Vector2d *out_hull)
+{
+    const float epsilon = 0.000001f;
+    if (!vertices || !out_hull || vertex_count == 0 || vertex_count > MAX_SHAPE_VERTICES)
+    {
+        return 0;
+    }
+
+    Vector2d sorted_vertices[MAX_SHAPE_VERTICES];
+    for (size_t vertex_index = 0; vertex_index < vertex_count; vertex_index++)
+    {
+        sorted_vertices[vertex_index] = vertices[vertex_index];
+    }
+
+    // Insertion sort is sufficient for the small, fixed maximum vertex count.
+    for (size_t sort_index = 1; sort_index < vertex_count; sort_index++)
+    {
+        Vector2d candidate = sorted_vertices[sort_index];
+        size_t insert_index = sort_index;
+        while (insert_index > 0)
+        {
+            Vector2d previous = sorted_vertices[insert_index - 1];
+            bool comes_before = candidate.x < previous.x ||
+                                (candidate.x == previous.x && candidate.y < previous.y);
+            if (!comes_before)
+            {
+                break;
+            }
+
+            sorted_vertices[insert_index] = previous;
+            insert_index--;
+        }
+        sorted_vertices[insert_index] = candidate;
+    }
+
+    size_t unique_count = 0;
+    for (size_t vertex_index = 0; vertex_index < vertex_count; vertex_index++)
+    {
+        if (unique_count == 0 ||
+            fabsf(sorted_vertices[vertex_index].x - sorted_vertices[unique_count - 1].x) > epsilon ||
+            fabsf(sorted_vertices[vertex_index].y - sorted_vertices[unique_count - 1].y) > epsilon)
+        {
+            sorted_vertices[unique_count++] = sorted_vertices[vertex_index];
+        }
+    }
+
+    if (unique_count <= 2)
+    {
+        for (size_t vertex_index = 0; vertex_index < unique_count; vertex_index++)
+        {
+            out_hull[vertex_index] = sorted_vertices[vertex_index];
+        }
+        return unique_count;
+    }
+
+    size_t hull_count = 0;
+    for (size_t vertex_index = 0; vertex_index < unique_count; vertex_index++)
+    {
+        while (hull_count >= 2 &&
+               CalculateHullCross(out_hull[hull_count - 2], out_hull[hull_count - 1],
+                                  sorted_vertices[vertex_index]) <= epsilon)
+        {
+            hull_count--;
+        }
+        out_hull[hull_count++] = sorted_vertices[vertex_index];
+    }
+
+    size_t lower_hull_count = hull_count;
+    for (int vertex_index = (int)unique_count - 2; vertex_index >= 0; vertex_index--)
+    {
+        while (hull_count > lower_hull_count &&
+               CalculateHullCross(out_hull[hull_count - 2], out_hull[hull_count - 1],
+                                  sorted_vertices[vertex_index]) <= epsilon)
+        {
+            hull_count--;
+        }
+        out_hull[hull_count++] = sorted_vertices[vertex_index];
+    }
+
+    // The first point is repeated at the end while building the two hull halves.
+    return hull_count > 1 ? hull_count - 1 : hull_count;
 }
 
 static void ApplyPositionSeparation(Newtonoid2d *entity, Vector2d separation_vector, float move_fraction)
@@ -71,27 +162,66 @@ static void ApplyPositionSeparation(Newtonoid2d *entity, Vector2d separation_vec
     entity->bounds_origin = VectorSum_2d(entity->bounds_origin, VectorScale_2d(separation_vector, move_fraction));
 }
 
-// static void ApplyPositionSeparation(Newtonoid2d *entity, Vector2d separation_vector, float move_fraction)
-// {
-//     if (!entity)
-//     {
-//         return;
-//     }
-
-//     // Each body receives a share proportional to inverse mass: lighter bodies
-//     // move more, while a zero-inverse-mass body remains fixed.
-//     entity->anchor_position = VectorSum_2d(entity->anchor_position, VectorScale_2d(separation_vector, move_fraction));
-//     entity->bounds_origin = VectorSum_2d(entity->bounds_origin, VectorScale_2d(separation_vector, move_fraction));
-// }
-
-static float CalcElasticImpulseMagnitude(float normal_velocity_dot, float total_inv_mass)
+// Combine two material coefficients using the geometric mean:
+//
+//     e_collision = sqrt(e_a * e_b)
+//
+// This keeps the result symmetric and ensures a zero-restitution material
+// removes the normal bounce even when it collides with a highly elastic
+// material.
+static float CalcCollisionRestitution(const Newtonoid2d *a, const Newtonoid2d *b)
 {
-    // Impulse magnitude for a contact is
-    // j = -(1 + e) * (relative_velocity dot normal) / sum(inverse_mass).
-    // e = 1 models a perfectly elastic impact, so the normal component reverses
-    // without losing kinetic energy in this simplified response.
-    float e = 1.0f;
-    return -(1.0f + e) * normal_velocity_dot / total_inv_mass;
+    float restitution_a = fmaxf(0.0f, fminf(a->restitution, 1.0f));
+    float restitution_b = fmaxf(0.0f, fminf(b->restitution, 1.0f));
+    float restitution_product = restitution_a * restitution_b;
+    return sqrtf(fmaxf(restitution_product, 0.0f));
+}
+
+// Combine two material friction coefficients using the geometric mean:
+//
+//     mu_collision = sqrt(mu_a * mu_b)
+//
+// Friction is not limited to one because some material models use coefficients
+// greater than one; only negative values are invalid.
+static float CalcCollisionFriction(const Newtonoid2d *a, const Newtonoid2d *b)
+{
+    float friction_a = fmaxf(a->friction, 0.0f);
+    float friction_b = fmaxf(b->friction, 0.0f);
+    float friction_product = friction_a * friction_b;
+    return sqrtf(fmaxf(friction_product, 0.0f));
+}
+
+// Calculate the normal impulse magnitude for a contact. With the normal
+// directed from A to B, approaching speed is positive and the impulse applied
+// to A is opposite to the impulse applied to B:
+//
+//     j = -(1 + e) * (v_relative dot n) / effective_inverse_mass
+//
+// The coefficient e controls the post-impact normal speed: e = 0 is inelastic,
+// while e = 1 reverses the normal speed without normal energy loss.
+static float CalcRestitutionImpulseMagnitude(float normal_velocity_dot,
+                                         float total_inv_mass,
+                                         float restitution)
+{
+    return -(1.0f + restitution) * normal_velocity_dot / total_inv_mass;
+}
+
+// Calculate and clamp the tangential impulse using Coulomb's friction limit:
+//
+//     j_t = clamp(-v_t / effective_inverse_mass_t,
+//                 -mu * |j_n|, mu * |j_n|)
+//
+// The normal impulse magnitude supplies the maximum friction impulse available
+// at this contact.
+static float CalcFrictionImpulseMagnitude(float tangent_speed,
+                                          float effective_tangent_inverse_mass,
+                                          float normal_impulse_magnitude,
+                                          float friction)
+{
+    float friction_impulse_magnitude = -tangent_speed / effective_tangent_inverse_mass;
+    float maximum_friction_impulse = friction * fabsf(normal_impulse_magnitude);
+    return fmaxf(-maximum_friction_impulse,
+                 fminf(friction_impulse_magnitude, maximum_friction_impulse));
 }
 
 void PhysicsUpdateJob(void *context, int start, int end)
@@ -126,16 +256,21 @@ void PhysicsUpdateJob(void *context, int start, int end)
             // restore authored acceleration afterwards so it is not accumulated
             // repeatedly into the entity's persistent state.
             Vector2d authored_acceleration = obj->acceleration;
-            obj->acceleration.y += world->gravity;
+            if (!(obj->attribute_flags & FLAG_ATTR_POSITION_LOCKED))
+            {
+                obj->acceleration.y += world->gravity;
+            }
             CalcVectors(obj, frame_counter.delta_time);
             obj->acceleration = authored_acceleration;
 
             // Map the post-integration position so rendering, hit-testing, and the
-            // collision broad phase all observe the same location. Snapping the
-            // transformed AABB to cells is conservative: it may produce extra
-            // candidate pairs, but it cannot omit objects covered by the box.
+            // collision broad phase all observe the same location. Use transformed
+            // vertices so rotation cannot make the grid footprint too small.
+            Vector2d world_vertices[MAX_SHAPE_VERTICES] = {0};
+            UpdateEntityBounds(obj, world_vertices);
             Vector2d snapped_aabb_verts[4] = {0};
-            CalcSnappedAABB_Vertices(obj->surface.surface_vectors.items, obj->surface.surface_vectors.count, obj->anchor_position, space->frame.basis, snapped_aabb_verts);
+            CalcSnappedAABB_Vertices(world_vertices, obj->surface.surface_vectors.count,
+                                     ZERO_VECTOR_2D, space->frame.basis, snapped_aabb_verts);
             Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
             MapEntityToASpace(space, obj, snapped_aabb_box, entity_space_map);
             ResolveCollision_ContainerRect(obj, &space_entity->object);
@@ -149,25 +284,18 @@ CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b)
     CollisionResult_SAT result = {0};
     result.is_colliding = false;
 
-    // First use the cached axis-aligned boxes as a cheap broad phase. AABB
-    // overlap is necessary but not sufficient, so only the non-overlap case
-    // can be rejected here without testing the actual polygons.
-    if (!AABB2d_Overlaps(AABB2d_FromOriginDimensions(a->bounds_origin, a->bounds_size),
-                         AABB2d_FromOriginDimensions(b->bounds_origin, b->bounds_size)))
+    if (!a || !b)
         return result;
 
-    LArray a_vertices_arr = a->surface.surface_vectors;
-    LArray b_vertices_arr = b->surface.surface_vectors;
-    Vector2d *a_vertices = a_vertices_arr.items;
-    Vector2d *b_vertices = b_vertices_arr.items;
-
-    Vector2d a_world[MAX_SHAPE_VERTICES];
-    Vector2d b_world[MAX_SHAPE_VERTICES];
+    Vector2d a_world_vertices[MAX_SHAPE_VERTICES];
+    Vector2d b_world_vertices[MAX_SHAPE_VERTICES];
+    Vector2d a_hull[MAX_SHAPE_VERTICES];
+    Vector2d b_hull[MAX_SHAPE_VERTICES];
+    Vector2d *a_world = a_world_vertices;
+    Vector2d *b_world = b_world_vertices;
 
     size_t a_count = a->surface.surface_vectors.count;
     size_t b_count = b->surface.surface_vectors.count;
-    Vector2d *a_local = a->surface.surface_vectors.items;
-    Vector2d *b_local = b->surface.surface_vectors.items;
 
     // Early exit for degenerate shapes
     if (a_count < 3 || b_count < 3)
@@ -175,8 +303,34 @@ CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b)
 
     // SAT applies to convex polygons with consistently ordered vertices. The
     // vertices are transformed once because every candidate axis reuses them.
-    Newtonoid_TransformVertices(a, a_world, MAX_SHAPE_VERTICES);
-    Newtonoid_TransformVertices(b, b_world, MAX_SHAPE_VERTICES);
+    Newtonoid_TransformVertices(a, a_world_vertices, MAX_SHAPE_VERTICES);
+    Newtonoid_TransformVertices(b, b_world_vertices, MAX_SHAPE_VERTICES);
+
+    // Rotor outlines are concave, while this narrow phase requires convex
+    // polygons. Use the outer hull for collision without changing the detailed
+    // outline used by rendering.
+    if (a->shape_type == SHAPE_ROTOR)
+    {
+        a_count = BuildConvexHull(a_world_vertices, a_count, a_hull);
+        a_world = a_hull;
+    }
+    if (b->shape_type == SHAPE_ROTOR)
+    {
+        b_count = BuildConvexHull(b_world_vertices, b_count, b_hull);
+        b_world = b_hull;
+    }
+
+    if (a_count < 3 || b_count < 3)
+    {
+        return result;
+    }
+
+    // Use current transformed bounds for the cheap rejection so manually
+    // rotated objects cannot be rejected using stale unrotated AABBs. These axis-aligned boxes used as a cheap broad phase.
+    Matrix2x2 a_world_bounds = CalcAABBCoords_Tight(a_world, (int)a_count, ZERO_VECTOR_2D);
+    Matrix2x2 b_world_bounds = CalcAABBCoords_Tight(b_world, (int)b_count, ZERO_VECTOR_2D);
+    if (!AABB2d_Overlaps(a_world_bounds, b_world_bounds))
+        return result;
 
     float min_overlap_u = INFINITY;
     Vector2d final_u_axis = {0};
@@ -188,8 +342,8 @@ CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b)
     // Test candidate axes from shape A.
     for (size_t i = 0; i < a_count; i++)
     {
-        Vector2d p1_world = a_vertices[i];
-        Vector2d p2_world = a_vertices[(i + 1) % a_vertices_arr.count];
+        Vector2d p1_world = a_world[i];
+        Vector2d p2_world = a_world[(i + 1) % a_count];
         Vector2d u_axis_edge = (Vector2d){p2_world.x - p1_world.x, p2_world.y - p1_world.y};
         Vector2d u_axis_unit = VectorNormalize_2d(u_axis_edge);
         Vector2d v_axis_unit = (Vector2d){-u_axis_unit.y, u_axis_unit.x};
@@ -215,7 +369,7 @@ CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b)
 
     // Shape B contributes the other half of SAT's candidate axes. Testing both
     // sets matters because either polygon may provide the separating edge.
-    for (size_t i = 0; i < b_vertices_arr.count; i++)
+    for (size_t i = 0; i < b_count; i++)
     {
         Vector2d p1_world = b_world[i];
         Vector2d p2_world = b_world[(i + 1) % b_count];
@@ -252,6 +406,16 @@ CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b)
         final_u_axis = (Vector2d){-final_u_axis.x, -final_u_axis.y};
         separation_vector = (Vector2d){-separation_vector.x, -separation_vector.y};
     }
+
+    result.collision_normal = final_u_axis;
+    result.penetration_depth = min_overlap_u;
+
+    // Average the opposing support points to obtain a stable world-space
+    // contact point for the impulse. This is a useful single-point manifold
+    // approximation for both corner and edge contacts.
+    Vector2d point_on_a = FindDeepestVertex(a_world, a_count, final_u_axis, false);
+    Vector2d point_on_b = FindDeepestVertex(b_world, b_count, final_u_axis, true);
+    result.contact_point = VectorScale_2d(VectorSum_2d(point_on_a, point_on_b), 0.5f);
 
     // Pick the extreme vertex on the penetrating side for a useful contact
     // marker. This is a visualisation point; physical response is calculated
@@ -338,10 +502,13 @@ bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, 
              obj_id_a, obj_id_b, collision_result.collision_box.col1.x, collision_result.collision_box.col1.y,
              collision_result.collision_box.col2.x, collision_result.collision_box.col2.y);
 
-    // Resolve every physical contact elastically, including projectiles that
-    // are consumed after impact. Owner-overlap contacts intentionally skip both
-    // damage and momentum transfer through the IGNORED result above.
-    ResolveCollision(a, b);
+    // Resolve every physical contact with normal restitution and tangential
+    // friction, including projectiles that are consumed after impact.
+    // Owner-overlap contacts intentionally skip both damage and momentum
+    // transfer through the IGNORED result above.
+    ResolveCollision_WithRotation(a, b, collision_result.collision_normal,
+                                  collision_result.contact_point,
+                                  collision_result.penetration_depth);
     FlatMapInt_InsertOrUpdate(resolved_collisions, obj_pair_hash_key, 1);
 
     // Create a short-lived effect at the reported support vertex for debugging.
@@ -422,90 +589,139 @@ void ResolveCollision(Newtonoid2d *a, Newtonoid2d *b)
     Vector2d a_b_vel_diff = VectorDiff_2d(a->velocity, b->velocity);
     float a_b_vel_dot = VectorDot_2d(a_b_vel_diff, normal);
 
-    // Object may have angular momentum
-    if(a->angular_velocity != 0 || b->angular_velocity != 0)
-    {
-        // Using the geometric centre as the pivot, calculate angular momentum
-    }
-
     if (a_b_vel_dot > 0.0f)
     {
-        float j = CalcElasticImpulseMagnitude(a_b_vel_dot, total_inv_mass);
+        float restitution = CalcCollisionRestitution(a, b);
+        float j = CalcRestitutionImpulseMagnitude(a_b_vel_dot, total_inv_mass, restitution);
         Vector2d impulse_vector = VectorScale_2d(normal, j);
         a->velocity = VectorSum_2d(a->velocity, VectorScale_2d(impulse_vector, a->inverse_mass));
         b->velocity = VectorSum_2d(b->velocity, VectorScale_2d(impulse_vector, -b->inverse_mass));
+
+        // Recalculate tangential relative speed after the normal impulse and
+        // apply the Coulomb-limited friction impulse to this linear path.
+        Vector2d tangent = (Vector2d){-normal.y, normal.x};
+        Vector2d relative_velocity = VectorDiff_2d(a->velocity, b->velocity);
+        float tangent_speed = VectorDot_2d(relative_velocity, tangent);
+        float friction = CalcCollisionFriction(a, b);
+        float friction_impulse_magnitude = CalcFrictionImpulseMagnitude(
+            tangent_speed, total_inv_mass, j, friction);
+        Vector2d friction_impulse = VectorScale_2d(tangent, friction_impulse_magnitude);
+        a->velocity = VectorSum_2d(a->velocity, VectorScale_2d(friction_impulse, a->inverse_mass));
+        b->velocity = VectorSum_2d(b->velocity, VectorScale_2d(friction_impulse, -b->inverse_mass));
+        a->momentum = VectorScale_2d(a->velocity, a->mass);
+        b->momentum = VectorScale_2d(b->velocity, b->mass);
         Newtonoid_SyncOrientationToVelocity(a);
         Newtonoid_SyncOrientationToVelocity(b);
     }
 }
 
-void ResolveCollision_WithRotation(Newtonoid2d *a, Newtonoid2d *b)
+// Resolve a polygon collision using a single world-space contact impulse.
+void ResolveCollision_WithRotation(Newtonoid2d *a, Newtonoid2d *b, Vector2d collision_normal,
+                                   Vector2d contact_point, float penetration_depth)
 {
-    // This response uses the cached AABBs, giving a stable axis-aligned contact
-    // correction after SAT has confirmed that the actual polygons overlap.
+    if (!a || !b)
+        return;
+
+    // Inverse mass controls translation while inverse inertia controls rotation.
     float total_inv_mass = a->inverse_mass + b->inverse_mass;
-    if (total_inv_mass <= 0.0f)
+
+    float normal_magnitude = VectorMagnitude_2d(collision_normal);
+    if (normal_magnitude <= 0.0001f)
         return;
+    collision_normal = VectorScale_2d(collision_normal, 1.0f / normal_magnitude);
 
-    float a_half_w = a->bounds_size.x * 0.5f;
-    float a_half_h = a->bounds_size.y * 0.5f;
-    float b_half_w = b->bounds_size.x * 0.5f;
-    float b_half_h = b->bounds_size.y * 0.5f;
-
-    Vector2d distance_vec = VectorDiff_2d(b->anchor_position, a->anchor_position);
-
-    float x_overlap = (a_half_w + b_half_w) - fabsf(distance_vec.x);
-    float y_overlap = (a_half_h + b_half_h) - fabsf(distance_vec.y);
-
-    if (x_overlap <= 0.0f || y_overlap <= 0.0f)
-        return;
-
-    Vector2d normal = {0.0f, 0.0f};
-    float penetration_depth = 0.0f;
-
-    // Resolve along the axis of least overlap. Moving along that axis is the
-    // minimum translation needed to separate two overlapping AABBs.
-    if (x_overlap < y_overlap)
+    // Remove a small penetration slop before separating the bodies.
+    // This keeps floating-point contact noise from creating visible positional jitter.
+    float pen_percent = 0.2f; // Penetration percentage to resolve this frame (usually 20% to 80%)
+    float pen_slop = 0.02f;   // Penetration allowance to prevent jitter
+    float correction_depth = fmaxf(penetration_depth - pen_slop, 0.0f) * pen_percent;
+    if (total_inv_mass > 0.0f)
     {
-        penetration_depth = x_overlap;
-        normal = (distance_vec.x > 0.0f) ? (Vector2d){1.0f, 0.0f} : (Vector2d){-1.0f, 0.0f};
-    }
-    else
-    {
-        penetration_depth = y_overlap;
-        normal = (distance_vec.y > 0.0f) ? (Vector2d){0.0f, 1.0f} : (Vector2d){0.0f, -1.0f};
+        float a_move_fraction = a->inverse_mass / total_inv_mass;
+        float b_move_fraction = b->inverse_mass / total_inv_mass;
+        Vector2d separation_vector = CalcSeparationVector(collision_normal, correction_depth);
+
+        ApplyPositionSeparation(a, separation_vector, -a_move_fraction);
+        ApplyPositionSeparation(b, separation_vector, b_move_fraction);
     }
 
-    // Positional correction conserves the static body's position and shares the
-    // correction between dynamic bodies according to inverse mass.
-    float a_move_fraction = a->inverse_mass / total_inv_mass;
-    float b_move_fraction = b->inverse_mass / total_inv_mass;
-    Vector2d separation_vector = CalcSeparationVector(normal, penetration_depth);
-
-    ApplyPositionSeparation(a, separation_vector, -a_move_fraction);
-    ApplyPositionSeparation(b, separation_vector, b_move_fraction);
+    // The contact velocity includes the tangential speed generated by each body's current angular velocity.
+    Vector2d radius_a = VectorDiff_2d(contact_point, a->anchor_position);
+    Vector2d radius_b = VectorDiff_2d(contact_point, b->anchor_position);
+    Vector2d velocity_a_at_contact = CalcVelocityAtPoint(a, radius_a);
+    Vector2d velocity_b_at_contact = CalcVelocityAtPoint(b, radius_b);
 
     // Relative normal speed determines whether the bodies are approaching. With
     // normal directed from A to B, a positive (v_a - v_b) dot normal means A is
     // moving into B and therefore needs an impulse.
-    Vector2d a_b_vel_diff = VectorDiff_2d(a->velocity, b->velocity);
-    float a_b_vel_dot = VectorDot_2d(a_b_vel_diff, normal);
+    Vector2d relative_contact_velocity = VectorDiff_2d(velocity_a_at_contact, velocity_b_at_contact);
+    float normal_speed = VectorDot_2d(relative_contact_velocity, collision_normal);
 
-    // Object may have angular momentum
-    if(a->angular_velocity != 0 || b->angular_velocity != 0)
+    // A separating contact needs no impulse. The angular terms in the effective inverse mass account for the rotational resistance to impulse.
+    if (normal_speed <= 0.0f)
+        return;
+
+    float radius_a_cross_normal = VectorCross_2d(radius_a, collision_normal);
+    float radius_b_cross_normal = VectorCross_2d(radius_b, collision_normal);
+    float effective_inverse_mass = total_inv_mass +
+                                   (radius_a_cross_normal * radius_a_cross_normal * a->inverse_inertia) +
+                                   (radius_b_cross_normal * radius_b_cross_normal * b->inverse_inertia);
+    if (effective_inverse_mass <= 0.0f)
+        return;
+
+    float restitution = CalcCollisionRestitution(a, b);
+    float impulse_magnitude = CalcRestitutionImpulseMagnitude(normal_speed, effective_inverse_mass, restitution);
+    Vector2d impulse = VectorScale_2d(collision_normal, impulse_magnitude);
+
+    // Apply equal and opposite linear impulses to conserve linear momentum.
+    a->velocity = VectorSum_2d(a->velocity, VectorScale_2d(impulse, a->inverse_mass));
+    b->velocity = VectorSum_2d(b->velocity, VectorScale_2d(impulse, -b->inverse_mass));
+
+    // The impulse moment changes angular momentum: delta omega is the scalar
+    // cross product of the contact radius and impulse times inverse inertia.
+    a->angular_velocity += VectorCross_2d(radius_a, impulse) * a->inverse_inertia;
+    b->angular_velocity -= VectorCross_2d(radius_b, impulse) * b->inverse_inertia;
+
+    // Recalculate contact velocity after the normal impulse because its torque
+    // can change angular velocity at an off-centre Rotor contact.
+    velocity_a_at_contact = CalcVelocityAtPoint(a, radius_a);
+    velocity_b_at_contact = CalcVelocityAtPoint(b, radius_b);
+    relative_contact_velocity = VectorDiff_2d(velocity_a_at_contact, velocity_b_at_contact);
+
+    // Apply a tangential impulse to oppose sliding at the contact point. The
+    // rotational terms allow friction to transfer angular motion into linear
+    // motion, while the Coulomb limit prevents friction exceeding the normal
+    // contact impulse.
+    Vector2d tangent = (Vector2d){-collision_normal.y, collision_normal.x};
+    float tangent_speed = VectorDot_2d(relative_contact_velocity, tangent);
+    float radius_a_cross_tangent = VectorCross_2d(radius_a, tangent);
+    float radius_b_cross_tangent = VectorCross_2d(radius_b, tangent);
+    float effective_tangent_inverse_mass = total_inv_mass +
+                                           (radius_a_cross_tangent * radius_a_cross_tangent * a->inverse_inertia) +
+                                           (radius_b_cross_tangent * radius_b_cross_tangent * b->inverse_inertia);
+    if (effective_tangent_inverse_mass > 0.0f)
     {
-        // Using the geometric centre as the pivot, calculate angular momentum
+        float friction = CalcCollisionFriction(a, b);
+        float friction_impulse_magnitude = CalcFrictionImpulseMagnitude(
+            tangent_speed, effective_tangent_inverse_mass, impulse_magnitude, friction);
+        Vector2d friction_impulse = VectorScale_2d(tangent, friction_impulse_magnitude);
+
+        a->velocity = VectorSum_2d(a->velocity,
+                                   VectorScale_2d(friction_impulse, a->inverse_mass));
+        b->velocity = VectorSum_2d(b->velocity,
+                                   VectorScale_2d(friction_impulse, -b->inverse_mass));
+        a->angular_velocity += VectorCross_2d(radius_a, friction_impulse) * a->inverse_inertia;
+        b->angular_velocity -= VectorCross_2d(radius_b, friction_impulse) * b->inverse_inertia;
     }
 
-    if (a_b_vel_dot > 0.0f)
-    {
-        float j = CalcElasticImpulseMagnitude(a_b_vel_dot, total_inv_mass);
-        Vector2d impulse_vector = VectorScale_2d(normal, j);
-        a->velocity = VectorSum_2d(a->velocity, VectorScale_2d(impulse_vector, a->inverse_mass));
-        b->velocity = VectorSum_2d(b->velocity, VectorScale_2d(impulse_vector, -b->inverse_mass));
-        Newtonoid_SyncOrientationToVelocity(a);
-        Newtonoid_SyncOrientationToVelocity(b);
-    }
+    // Keep the cached linear momentum consistent with the updated velocities.
+    a->momentum = VectorScale_2d(a->velocity, a->mass);
+    b->momentum = VectorScale_2d(b->velocity, b->mass);
+
+    // Preserve the existing behaviour for entities whose visual orientation is
+    // explicitly tied to their velocity rather than to free rigid-body rotation.
+    Newtonoid_SyncOrientationToVelocity(a);
+    Newtonoid_SyncOrientationToVelocity(b);
 }
 
 void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container)
@@ -559,33 +775,26 @@ void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container)
 
     if (penetration_depth > 0.0f)
     {
-        float total_inv_mass = entity->inverse_mass + container->inverse_mass;
-        if (total_inv_mass <= 0.0f)
+        // Find the transformed support vertex at the selected wall. Passing the embedded world Newtonoid to the shared resolver keeps contact-point
+        // rotation and elastic response identical to entity collisions.
+        Vector2d world_vertices[MAX_SHAPE_VERTICES] = {0};
+        int vertex_count = (int)entity->surface.surface_vectors.count;
+        if (vertex_count < 1)
             return;
+        if (vertex_count > MAX_SHAPE_VERTICES)
+            vertex_count = MAX_SHAPE_VERTICES;
+        Newtonoid_TransformVertices(entity, world_vertices, MAX_SHAPE_VERTICES);
+        Vector2d contact_point = FindDeepestVertex(world_vertices, (size_t)vertex_count,
+                                                   inward_normal, true);
 
-        // Move only the child by its inverse-mass share; a static container does
-        // not move because its inverse mass is zero.
-        float entity_move_fraction = entity->inverse_mass / total_inv_mass;
-        Vector2d separation_vector = CalcSeparationVector(inward_normal, penetration_depth);
-
-        ApplyPositionSeparation(entity, separation_vector, entity_move_fraction);
-
-        // A negative relative speed along the inward normal means the child is
-        // travelling out through the wall, so reflect that component elastically.
-        Vector2d c_e_vel_diff = VectorDiff_2d(entity->velocity, container->velocity);
-        float c_e_vel_dot = VectorDot_2d(c_e_vel_diff, inward_normal);
-
-        if (c_e_vel_dot < 0.0f)
-        {
-            float j = CalcElasticImpulseMagnitude(c_e_vel_dot, total_inv_mass);
-            Vector2d impulse_vector = VectorScale_2d(inward_normal, j);
-            entity->velocity = VectorSum_2d(entity->velocity, VectorScale_2d(impulse_vector, entity->inverse_mass));
-            Newtonoid_SyncOrientationToVelocity(entity);
-        }
+        // The boundary normal points into the container, whereas the shared
+        // resolver expects a normal directed from the entity towards body B.
+        Vector2d entity_to_container_normal = VectorScale_2d(inward_normal, -1.0f);
+        ResolveCollision_WithRotation(entity, container,
+                                      entity_to_container_normal,
+                                      contact_point, penetration_depth);
     }
 }
-
-
 
 void MapEntityToASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 snapped_aabb_box, FlatMapInt *O_entity_to_space_index_map)
 {
@@ -605,7 +814,7 @@ void MapEntityToASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 snapped_aa
             Cell *cell = GetCellFromCoords(space, cell_coords);
             if (cell == NULL)
             {
-                //LOG_WARN("Cell (index %d) not found in MapEntityToASpace or its coordinates are out of bounds. Skipping this object-->cell mapping.\n", cell_i);
+                // LOG_WARN("Cell (index %d) not found in MapEntityToASpace or its coordinates are out of bounds. Skipping this object-->cell mapping.\n", cell_i);
                 continue;
             }
 
@@ -710,10 +919,12 @@ void RefreshWorldSpatialMap(World2d *world)
                 continue;
             }
 
+            Vector2d world_vertices[MAX_SHAPE_VERTICES] = {0};
+            UpdateEntityBounds(object, world_vertices);
             Vector2d snapped_aabb_verts[4] = {0};
-            CalcSnappedAABB_Vertices(object->surface.surface_vectors.items,
+            CalcSnappedAABB_Vertices(world_vertices,
                                      object->surface.surface_vectors.count,
-                                     object->anchor_position,
+                                     ZERO_VECTOR_2D,
                                      space->frame.basis,
                                      snapped_aabb_verts);
             Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
@@ -721,42 +932,4 @@ void RefreshWorldSpatialMap(World2d *world)
         }
     }
 }
-
-void PrintVerticeCoords(LArray *vertices_arr, Vector2d offset)
-{
-    if (vertices_arr == NULL || vertices_arr->count == 0)
-    {
-        LOG_INFO("Vertices x_coords: []\nVertices y_coords: []\n");
-        return;
-    }
-
-    Vector2d *vertices = (Vector2d *)vertices_arr->items;
-    char x_buffer[2048] = "x_coords = [";
-    char y_buffer[2048] = "y_coords = [";
-    size_t x_offset = strlen(x_buffer);
-    size_t y_offset = strlen(y_buffer);
-
-    for (size_t i = 0; i <= vertices_arr->count; i++)
-    {
-        bool is_last = (i == vertices_arr->count);
-        const char *delimiter = is_last ? "]" : ", ";
-
-        size_t j = vertices_arr->count - (i % vertices_arr->count) - 1;
-        int x_written = snprintf(x_buffer + x_offset, sizeof(x_buffer) - x_offset, "%.2f%s", vertices[j].x + offset.x, delimiter);
-        if (x_written > 0 && x_offset + x_written < sizeof(x_buffer))
-        {
-            x_offset += x_written;
-        }
-
-        int y_written = snprintf(y_buffer + y_offset, sizeof(y_buffer) - y_offset, "%.2f%s", vertices[j].y + offset.y, delimiter);
-        if (y_written > 0 && y_offset + y_written < sizeof(y_buffer))
-        {
-            y_offset += y_written;
-        }
-    }
-
-    LOG_INFO("%s\n", x_buffer);
-    LOG_INFO("%s\n", y_buffer);
-}
-
 

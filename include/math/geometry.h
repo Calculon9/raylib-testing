@@ -42,7 +42,9 @@ typedef enum {
     SHAPE_RECTANGLE,
     SHAPE_TRIANGLE_EQUILATERAL,
     SHAPE_TRIANGLE_ISOSCELES,
-    SHAPE_ARROW
+    SHAPE_ARROW,
+    SHAPE_ROTOR,
+    SHAPE_GEAR
 } ShapeType;
 
 typedef enum {
@@ -57,22 +59,20 @@ typedef enum {
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-Surface2d CreateSurface_Rectangular(Vector2d dimensions, Vector2d vertice_offset);
+Surface2d CreateSurface_Rectangular(Vector2d dimensions);
 Matrix2x2 AABB2d_FromPoints(const Vector2d *points, int point_count);
 Matrix2x2 AABB2d_FromOriginDimensions(Vector2d origin, Vector2d dimensions);
 bool AABB2d_Overlaps(Matrix2x2 box1, Matrix2x2 box2);
 bool AABB2d_Contains(Matrix2x2 container, Matrix2x2 box);
 Matrix2x2 CalcAABBCoords_Tight(Vector2d *vertices, int vertice_count, Vector2d vertice_offset);
-Vector2d CalcAABBDimensions(Vector2d *vertices, int vertice_count);
-Vector2d CalcCenteredBoxOffset(Vector2d box_a_dimensions, Vector2d box_b_dimensions);
 Vector2d CalcGeometricCentre_FromBox(Matrix2x2 box_coords);
-Vector2d CalcGeometricCentre_FromSurface(Surface2d object_surface, Vector2d vertice_offset);
 void CenterVerticesToExtents(LArray *points);
 void NormaliseVerticesToLocal(LArray *points);
 bool IsPointInPolygon(Vector2d point, Vector2d *polygon_vertices, Vector2d vertice_offset, int vertice_count);
-bool ShapeFitsWithinShape(LArray *shape1_vertices, LArray *shape2_vertices, Vector2d shape1_vertice_offset, Vector2d shape2_vertice_offset);
 void CalcBoxVertices(Vector2d dimensions, Vector2d anchor_position, Vector2d out_vertices[4]);
 LArray ShapeAVerticesInShapeB(LArray *shape1_vertices, LArray *shape2_vertices, Vector2d shape1_vertice_offset, Vector2d shape2_vertice_offset);
 LArray CreateVertices_Symmetric (int vertice_count, float radius_x, float radius_y);
 LArray CreateVertices_Irregular (int vertice_count, float min_radius, float max_radius);
+LArray CreateVertices_Rotor(int blade_count, float radius_x, float radius_y);
+LArray CreateVertices_Gear(int tooth_count, float radius_x, float radius_y);
 #endif

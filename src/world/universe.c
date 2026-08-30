@@ -6,6 +6,7 @@ UNIVERSE MODULE
 #include "world/universe.h"
 #include "world/world.h"
 #include "world/world_internal.h"
+#include "editor/geometry_editor.h"
 #include "system/systems.h"
 #include "system/click_resolver.h"
 #include "math/cvectors.h"
@@ -449,6 +450,22 @@ Newtonoid2d *Universe_GetEntityByID(const Universe *u, EntityId entity_id, int *
     return NULL;
 }
 
+// Confirm both entity identity and the world that currently owns the entity.
+bool Universe_IsEntityOwnedByWorld(const Universe *u, const World2d *world,
+                                   const Newtonoid2d *entity)
+{
+    if (!u || !world || !entity)
+    {
+        return false;
+    }
+
+    int owner_world_index = UNIVERSE_ROOT_WORLD_INDEX;
+    Newtonoid2d *resolved_entity = Universe_GetEntityByID(u, entity->id,
+                                                          &owner_world_index);
+    World2d *owner_world = Universe_GetWorld((Universe *)u, owner_world_index);
+    return resolved_entity == entity && owner_world == world;
+}
+
 // ---------------------------------------------------------------------------
 void Universe_Draw(Universe *u)
 {
@@ -456,6 +473,7 @@ void Universe_Draw(Universe *u)
     Matrix3x3 universe_to_pixel_mtx = ResolveWorldToPixelMatrix(&u->root_world, &u->camera);
     DrawNewtonoids(&u->root_world.objects, universe_to_pixel_mtx);
     DrawNewtonoids(&u->root_world.temp_objects, universe_to_pixel_mtx);
+    GeometryEditor_DrawHandles(&u->root_world, &u->camera);
 
     for (int i = 0; i < u->world_count; i++)
     {

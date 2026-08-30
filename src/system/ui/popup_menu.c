@@ -46,6 +46,8 @@ typedef struct
 static PopupShapeAction popup_triangle_action = {SHAPE_TRIANGLE};
 static PopupShapeAction popup_square_action = {SHAPE_SQUARE};
 static PopupShapeAction popup_circle_action = {SHAPE_CIRCLE};
+static PopupShapeAction popup_rotor_action = {SHAPE_ROTOR};
+static PopupShapeAction popup_gear_action = {SHAPE_GEAR};
 
 typedef struct
 {
@@ -113,6 +115,12 @@ static void HandlePopupShapeClick(UIElement *button)
         break;
     case SHAPE_CIRCLE:
         G_UIState.newtonoid_params->vertice_count = MAX_SHAPE_VERTICES;
+        break;
+    case SHAPE_ROTOR:
+        G_UIState.newtonoid_params->vertice_count = 4;
+        break;
+    case SHAPE_GEAR:
+        G_UIState.newtonoid_params->vertice_count = 8;
         break;
     default:
         return;
@@ -191,6 +199,14 @@ static void InitCreateEntitySubmenu(void)
                           popup_menu_item_size, ZERO_VECTOR_2D,
                           popup_menu->palette, HandlePopupShapeClick,
                           &popup_circle_action, NULL);
+    CreateUIButtonDefault(popup_create_entity_submenu_cont, UI_ELEMENT_BUTTON_SIMPLE, "rotor",
+                          popup_menu_item_size, ZERO_VECTOR_2D,
+                          popup_menu->palette, HandlePopupShapeClick,
+                          &popup_rotor_action, NULL);
+    CreateUIButtonDefault(popup_create_entity_submenu_cont, UI_ELEMENT_BUTTON_SIMPLE, "gear",
+                          popup_menu_item_size, ZERO_VECTOR_2D,
+                          popup_menu->palette, HandlePopupShapeClick,
+                          &popup_gear_action, NULL);
 }
 
 static void HandlePopupWorldClick(UIElement *button)

@@ -27,6 +27,110 @@ LArray CreateVertices_Symmetric(int vertice_count, float radius_x, float radius_
     CenterVerticesToExtents(&points);
     return points;
 }
+
+// Create a centred rotor outline by sampling a smooth radial blade profile.
+LArray CreateVertices_Rotor(int blade_count, float radius_x, float radius_y)
+{
+    const int minimum_blades = 2;
+    const int points_per_blade = 6;
+    const int maximum_blades = MAX_SHAPE_VERTICES / points_per_blade;
+
+    if (blade_count < minimum_blades || blade_count > maximum_blades ||
+        radius_x <= 0.0f || radius_y <= 0.0f)
+    {
+        return MakeLArray(0, sizeof(Vector2d));
+    }
+
+    int vertex_count = blade_count * points_per_blade;
+    LArray points = MakeLArray(vertex_count, sizeof(Vector2d));
+    if (!points.items)
+    {
+        return points;
+    }
+
+    Vector2d *vert_ptr = (Vector2d *)points.items;
+    float sector_step = (2.0f * PI) / (float)blade_count;
+    // Each blade spans a fraction of the sector width to leave gaps between blades
+    float half_blade_span = sector_step * 0.35f;
+
+    int write_index = 0;
+    for (int blade_index = 0; blade_index < blade_count; blade_index++)
+    {
+        float center_angle = (float)blade_index * sector_step;
+
+        for (int point_index = 0; point_index < points_per_blade; point_index++)
+        {
+            // Normalize t from -1.0 (left edge of blade) to +1.0 (right edge of blade)
+            float t = -1.0f + (2.0f * (float)point_index / (float)(points_per_blade - 1));
+
+            // Curve the radius outwards toward the center tip of the blade (t = 0)
+            // Float rounding can make the endpoint cosine slightly negative;
+            // clamp it before applying a fractional power to keep vertices finite.
+            float blade_lobe = fmaxf(cosf(t * (PI * 0.5f)), 0.0f);
+            float radius_scale = 0.25f + (0.75f * powf(blade_lobe, 1.5f));
+
+            float local_angle = center_angle + (t * half_blade_span);
+
+            vert_ptr[write_index].x = radius_x * radius_scale * cosf(local_angle);
+            vert_ptr[write_index].y = radius_y * radius_scale * sinf(local_angle);
+            write_index++;
+        }
+    }
+
+    points.count = write_index;
+    return points;
+}
+
+// Create a centred gear outline by alternating between root and tip radii.
+LArray CreateVertices_Gear(int tooth_count, float radius_x, float radius_y)
+{
+    const int minimum_teeth = 3;
+    const int points_per_tooth = 3;
+    const int maximum_teeth = MAX_SHAPE_VERTICES / points_per_tooth;
+
+    if (tooth_count < minimum_teeth || tooth_count > maximum_teeth ||
+        radius_x <= 0.0f || radius_y <= 0.0f)
+    {
+        return MakeLArray(0, sizeof(Vector2d));
+    }
+
+    int vertex_count = tooth_count * points_per_tooth;
+    LArray points = MakeLArray(vertex_count, sizeof(Vector2d));
+    if (!points.items)
+    {
+        return points;
+    }
+
+    Vector2d *vert_ptr = (Vector2d *)points.items;
+    float tooth_step = (2.0f * PI) / (float)tooth_count;
+    float tip_span = tooth_step * 0.18f;
+    float root_scale = 0.78f;
+    float tip_scale = 1.0f;
+
+    int write_index = 0;
+    for (int tooth_index = 0; tooth_index < tooth_count; tooth_index++)
+    {
+        float center_angle = (float)tooth_index * tooth_step;
+        float root_angle = center_angle - (tooth_step * 0.5f);
+        float tip_start_angle = center_angle - tip_span;
+        float tip_end_angle = center_angle + tip_span;
+
+        vert_ptr[write_index++] = (Vector2d){
+            radius_x * root_scale * cosf(root_angle),
+            radius_y * root_scale * sinf(root_angle)};
+        vert_ptr[write_index++] = (Vector2d){
+            radius_x * tip_scale * cosf(tip_start_angle),
+            radius_y * tip_scale * sinf(tip_start_angle)};
+        vert_ptr[write_index++] = (Vector2d){
+            radius_x * tip_scale * cosf(tip_end_angle),
+            radius_y * tip_scale * sinf(tip_end_angle)};
+    }
+
+    points.count = write_index;
+    CenterVerticesToExtents(&points);
+    return points;
+}
+
 LArray CreateVertices_Irregular(int vertice_count, float min_radius, float max_radius)
 {
     if (vertice_count <= 0)
@@ -54,11 +158,10 @@ LArray CreateVertices_Irregular(int vertice_count, float min_radius, float max_r
     CenterVerticesToExtents(&points);
     return points;
 }
-// Creates surface vectors with the provided offset.
 // 4----3
 // |    |
 // 1----2
-Surface2d CreateSurface_Rectangular(Vector2d dimensions, Vector2d vertice_offset)
+Surface2d CreateSurface_Rectangular(Vector2d dimensions)
 {
     Surface2d surf = {0};
     surf.surface_vectors = MakeLArray(4, sizeof(Vector2d));
@@ -165,64 +268,28 @@ Matrix2x2 CalcAABBCoords_Tight(Vector2d *vertices, int vertice_count, Vector2d v
         return (Matrix2x2){0};
     }
 
-    // Translate each local point by the same offset, then take component-wise
-    // minima and maxima. This is the tight AABB for that point set in world space.
-    Vector2d *offset_points = AllocateBytes((size_t)vertice_count * sizeof(Vector2d));
-    if (!offset_points)
+    // Apply the offset during the bounds scan so we avoid allocating a
+    // temporary translated vertex array.
+    Matrix2x2 box_coords = {0};
+    box_coords.col1 = VectorSum_2d(vertice_offset, vertices[0]);
+    box_coords.col2 = box_coords.col1;
+
+    for (int i = 1; i < vertice_count; i++)
     {
-        return (Matrix2x2){0};
+        Vector2d p = VectorSum_2d(vertice_offset, vertices[i]);
+
+        if (p.x < box_coords.col1.x)
+            box_coords.col1.x = p.x;
+        if (p.x > box_coords.col2.x)
+            box_coords.col2.x = p.x;
+
+        if (p.y < box_coords.col1.y)
+            box_coords.col1.y = p.y;
+        if (p.y > box_coords.col2.y)
+            box_coords.col2.y = p.y;
     }
 
-    for (int i = 0; i < vertice_count; i++)
-    {
-        offset_points[i] = VectorSum_2d(vertice_offset, vertices[i]);
-    }
-
-    Matrix2x2 result = AABB2d_FromPoints(offset_points, vertice_count);
-    Deallocate((void **)&offset_points, (size_t)vertice_count * sizeof(Vector2d));
-    return result;
-}
-
-Vector2d CalcAABBDimensions(Vector2d *vertices, int vertice_count)
-{
-    Matrix2x2 box_coords = CalcAABBCoords_Tight(vertices, vertice_count, ZERO_VECTOR_2D);
-
-    Vector2d box_dims = (Vector2d){box_coords.col2.x - box_coords.col1.x, box_coords.col2.y - box_coords.col1.y};
-
-    return box_dims;
-}
-
-// Returns true if shape1 fits within shape2
-bool ShapeFitsWithinShape(LArray *shape1_vertices, LArray *shape2_vertices, Vector2d shape1_vertice_offset, Vector2d shape2_vertice_offset)
-{
-    if (shape1_vertices->count < 2 && shape2_vertices->count < 2)
-    {
-        return false;
-    }
-    Vector2d *pts1 = shape1_vertices->items;
-    Vector2d *pts2 = shape2_vertices->items;
-
-    // Must initialise with one of the provided vertices rather than all 0s because 0 could be the largest or smallest value compared to the provided vertices
-    Matrix2x2 box1_coords = CalcAABBCoords_Tight(shape1_vertices->items, shape1_vertices->count, shape1_vertice_offset);
-    Matrix2x2 box2_coords = CalcAABBCoords_Tight(shape2_vertices->items, shape2_vertices->count, shape2_vertice_offset);
-
-    return AABB2d_Contains(box2_coords, box1_coords);
-}
-
-// Returns the adjusted offset for Box B so it is perfectly centered inside Box A
-Vector2d CalcCenteredBoxOffset(Vector2d box_a_dimensions, Vector2d box_b_dimensions)
-{
-    Vector2d centered_coords;
-
-    // Calculate half of the empty space remaining on the X axis
-    float total_empty_width = box_a_dimensions.x - box_b_dimensions.x;
-    centered_coords.x = total_empty_width / 2.0f;
-
-    // Calculate half of the empty space remaining on the Y axis
-    float total_empty_height = box_a_dimensions.y - box_b_dimensions.y;
-    centered_coords.y = total_empty_height / 2.0f;
-
-    return centered_coords;
+    return box_coords;
 }
 
 // Translates the vertices so that the minimum extreme point of the shape is at the origin (0,0)
@@ -335,18 +402,6 @@ Vector2d CalcGeometricCentre_FromBox(Matrix2x2 box_coords)
     mid.y = mid_y;
 
     return mid;
-}
-
-Vector2d CalcGeometricCentre_FromSurface(Surface2d object_surface, Vector2d vertice_offset)
-{
-    // First check that the provided box coords have valid dimensions (i.e. col2 is greater than col1 in both axes)
-    if (object_surface.surface_vectors.items == NULL || object_surface.surface_vectors.count < 1)
-    {
-        printf("WARNING: Surface vectors provided to GetGeometricCentre_FromSurface are NULL or contain no items. Returning (0,0) as default value.\n");
-        return ZERO_VECTOR_2D; // Invalid box, return (0,0) as a default value
-    }
-    Matrix2x2 box_coords = CalcAABBCoords_Tight(object_surface.surface_vectors.items, object_surface.surface_vectors.count, vertice_offset);
-    return CalcGeometricCentre_FromBox(box_coords);
 }
 
 // Returns true if shape1 fits within shape2

@@ -47,8 +47,9 @@ void RefreshWorldSpatialMap(World2d *world);
 CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b);
 bool CheckForCollision_AABB(Newtonoid2d a, Newtonoid2d b);
 void ResolveCollision(Newtonoid2d *a, Newtonoid2d *b);
+void ResolveCollision_WithRotation(Newtonoid2d *a, Newtonoid2d *b, Vector2d collision_normal,
+                                   Vector2d contact_point, float penetration_depth);
 void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container);
-void PrintVerticeCoords(LArray *vertices_arr, Vector2d offset);
 bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, int cell_i, FlatMapInt *resolved_collisions, LArray *scheduled_world_cmds);
 
 #endif // WORLD_INTERNAL_H

@@ -19,9 +19,9 @@ static VertexHandleTarget vertex_handle_target = {0};
 static bool GeometryEditor_IsEnabled(const World2d *world, const Newtonoid2d *selected_object)
 {
     // selected_object is already existence-validated by UIState_GetSelectedObject, so a
-    // NULL check here is equivalent to (and far cheaper than) an universe-wide entity scan.
+    // NULL check here is equivalent to (and far cheaper than) a universe-wide entity scan.
     return world && world->mode == PAUSED &&
-           selected_object != NULL &&
+           Universe_IsEntityOwnedByWorld(&G_Universe, world, selected_object) &&
            G_UIState.active_panel_view == LPANEL_DRAW_VIEW;
 }
 

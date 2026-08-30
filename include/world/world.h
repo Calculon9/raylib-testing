@@ -101,6 +101,8 @@ typedef struct CollisionResult_SAT
     Polar2d v_unit_axis;          // normalized vector representing one of the potential separating axes (the "v" axis of entity A)
     Polar2d separating_unit_axis; // either u_unit_axis or v_unit_axis, depending on which has the least penetration (smallest overlap distance)
     Matrix2x2 collision_box;      // The collision box of the two objects
+    Vector2d collision_normal;     // Unit normal directed from entity A towards entity B
+    Vector2d contact_point;        // World-space point where the impulse is applied
     float penetration_depth;      // How much the objects are overlapping along the separating_unit_axis (the smaller this value, the less deep the collision is, and the easier it will be to resolve)
     // AxisIntersectionRange2d overlap_range_a; // The range along the separating axis where the vertices of object A are located (the "shadow" of object A on the separating axis)
     // AxisIntersectionRange2d overlap_range_b; // The range along the separating axis where the vertices of object B are located (the "shadow" of object B on the separating axis)

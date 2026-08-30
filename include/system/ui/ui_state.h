@@ -42,6 +42,12 @@ typedef struct
     String64 *state_id_str;
     UIElement *state_mass_tbox;
     String64 *state_mass_str;
+    UIElement *state_restitution_tbox;
+    String64 *state_restitution_str;
+    UIElement *state_friction_tbox;
+    String64 *state_friction_str;
+    UIElement *state_world_restitution_tbox;
+    UIElement *state_world_friction_tbox;
     UIElement *state_pos_tl_tbox;
     String64 *state_pos_tl_str;
     UIElement *state_pos_c_tbox;
@@ -89,6 +95,10 @@ typedef struct
     String64 *edit_height_str;
     UIElement *edit_mass_tbox;
     String64 *edit_mass_str;
+    UIElement *edit_restitution_tbox;
+    String64 *edit_restitution_str;
+    UIElement *edit_friction_tbox;
+    String64 *edit_friction_str;
     // UIElement *edit_pos_tl_tbox;
     // String64 *edit_pos_tl_str;
     UIElement *edit_pos_c_tbox;

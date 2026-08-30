@@ -125,11 +125,11 @@ GridSpace2d NewGridSpace2d(Vector2d origin_in_parent, Vector2d local_resolution,
    space_obj.colour_fill = colour_fill;
 
    Vector2d grid_size = {(float)space_obj.space.columns, (float)space_obj.space.rows};
-   Surface2d surface = CreateSurface_Rectangular(grid_size, ZERO_VECTOR_2D);
+   Surface2d surface = CreateSurface_Rectangular(grid_size);
 
    // Calc anchor_position - this is required when creating new objects
    Vector2d anchor_position = (Vector2d){origin_in_parent.x + (grid_size.x / 2.0f), origin_in_parent.y + (grid_size.y / 2.0f)};
-   space_obj.object = CreateNewtonoid2d_Static(anchor_position, surface);
+   space_obj.object = CreateNewtonoid2d(0.0f, anchor_position, ZERO_VECTOR_2D, ZERO_VECTOR_2D, surface);
    return space_obj;
 }
 

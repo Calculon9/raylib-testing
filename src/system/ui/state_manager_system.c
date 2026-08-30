@@ -137,6 +137,7 @@ static const StateManagerFlagSpec state_manager_flag_specs[] = {
     {"VELOCITY", FLAG_ATTR_VELOCITY_ALIGNED, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
     {"AFFECT OWNER", FLAG_ATTR_AFFECT_OWNER, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
     {"RIGID", FLAG_ATTR_RIGID, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
+    {"POSITION LOCKED", FLAG_ATTR_POSITION_LOCKED, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
 
     {"ALIVE", FLAG_STATUS_ALIVE, STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS},
     {"CLOCKED", FLAG_LIFETIME_CLOCKED, STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS},
@@ -326,7 +327,7 @@ static UIElement *CreateStateManagerBoundButton(UIElement *parent, const StateMa
                                                 const UIPalette *palette)
 {
     return CreateUIButtonDefault(parent, UI_ELEMENT_BUTTON_SIMPLE, spec->label,
-                                 ui_standard_button_size, ui_standard_button_padding,
+                                 ui_wide_button_size, ui_standard_button_padding,
                                  palette, HandleStateManagerFlagClick, (void *)spec, NULL);
 }
 
@@ -384,8 +385,7 @@ static void CreateStateManagerSectionButtons(UIElement *section, StateManagerFla
 
 // View construction.
 // Create and register a state-manager view with its requested child layout.
-static View *CreateStateManagerView(int view_id, bool is_draggable, bool is_enabled,
-                                    Spacing child_spacing)
+static View *CreateStateManagerView(int view_id, bool is_draggable, bool is_enabled, Spacing child_spacing)
 {
     View *view = PanelSystem_CreateView(state_manager_panel, view_id);
     UIElement *container = view ? view->container : NULL;
@@ -426,6 +426,8 @@ static void InitPhysStateView(void)
                                                               state_manager_panel->palette);
     const UIFieldSpec physics_specs[] = {
         {"Mass", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.state_mass_tbox, NULL},
+        {"Restitution", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.state_restitution_tbox, NULL},
+        {"Friction", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.state_friction_tbox, NULL},
         {"Anchor", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.state_pos_c_tbox, NULL},
         {"Vel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.state_vel_tbox, NULL},
         {"Accel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.state_accel_tbox, NULL},
@@ -471,7 +473,7 @@ static void InitPhysStateView(void)
 static void InitAttributeStateView(void)
 {
     View *attributes_view = CreateStateManagerView(
-        STATE_MANAGER_ATTRIBUTES_VIEW, true, false, ui_zero_x_inline_wrap_spacing);
+        STATE_MANAGER_ATTRIBUTES_VIEW, true, true, ui_zero_x_inline_wrap_spacing);
     if (!attributes_view)
     {
         return;
@@ -513,6 +515,18 @@ static void InitWorldStateView(void)
 
     UIElement *world_section = CreateViewSection_StackWrap(world_view->container, "World", view_section_size,
                                                             state_manager_panel->palette);
+
+    UIElement *world_physics_section = CreateViewSection_StackWrap(
+        world_view->container, "Physics", view_section_size, state_manager_panel->palette);
+    const UIFieldSpec world_physics_specs[] = {
+        {"Restitution", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT,
+         &G_UIState.state_world_restitution_tbox, NULL},
+        {"Friction", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT,
+         &G_UIState.state_world_friction_tbox, NULL},
+    };
+    InitUIFields(world_physics_section, world_physics_specs,
+                 ARRAY_COUNT(world_physics_specs),
+                 ui_standard_field_padding, state_manager_panel->palette);
 
     CreateStateManagerSectionButtons(world_section, &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_WORLD],
                                      &state_manager_button_count);
@@ -666,6 +680,16 @@ void UpdateStateManagerSelectedObject(void)
 
     UpdateStateManagerGameplayFieldVisibility(object);
 
+    // World material values belong to the boundary Newtonoid, so WORLD view
+    // edits directly update the object used by container collision response.
+    TextboxField world_physics_fields[] = {
+        {G_UIState.state_world_restitution_tbox, FLOAT,
+         world ? (void *)&world->grid_space.object.restitution : NULL, 2, "N/A"},
+        {G_UIState.state_world_friction_tbox, FLOAT,
+         world ? (void *)&world->grid_space.object.friction : NULL, 2, "N/A"},
+    };
+    RefreshTextboxFields(world_physics_fields, ARRAY_COUNT(world_physics_fields));
+
     StateManagerFlagSource entity_source = {
         .kind = object ? STATE_MANAGER_FLAG_SOURCE_ENTITY : STATE_MANAGER_FLAG_SOURCE_NONE,
         .entity = object,
@@ -711,8 +735,13 @@ void InitStateManagerSystem(void)
     if (!state_manager_panel)
         return;
 
-    // Cap each section at the StateManager panel height so stacked fields wrap into columns.
-    view_section_size = UI_SIZE_CONTENT_MAX(0.0f, (float)state_manager_panel->space.rows);
+    // Match section measurement to the view height left after the selector and container padding.
+    float state_manager_view_height = (float)state_manager_panel->space.rows -
+                                      (2.0f * state_manager_panel->default_padding.y) -
+                                      ui_standard_selector_button_size.dimensions.y -
+                                      state_manager_panel->root_child_spacing.spacing.y -
+                                      (2.0f * ui_standard_container_padding.y);
+    view_section_size = UI_SIZE_CONTENT_MAX(0.0f, fmaxf(0.0f, state_manager_view_height));
 
     InitStateManagerFlagGroups();
     InitPhysStateView();
@@ -782,6 +811,10 @@ void DestroyStateManagerSystem(void)
 
     G_UIState.state_id_tbox = NULL;
     G_UIState.state_mass_tbox = NULL;
+    G_UIState.state_restitution_tbox = NULL;
+    G_UIState.state_friction_tbox = NULL;
+    G_UIState.state_world_restitution_tbox = NULL;
+    G_UIState.state_world_friction_tbox = NULL;
     G_UIState.state_pos_tl_tbox = NULL;
     G_UIState.state_pos_c_tbox = NULL;
     G_UIState.state_vel_tbox = NULL;

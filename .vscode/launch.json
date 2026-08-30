@@ -6,10 +6,10 @@
             "type": "cppvsdbg",
             "request": "launch",
             // Point this to the exact path of your compiled binary
-            "program": "${workspaceFolder}/build/raylib-game/Debug/raylib-game.exe",
+            "program": "${workspaceFolder}/build/raylib-game/raylib-game.exe",
             "args": [],
             "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/build/raylib-game/Debug",
+            "cwd": "${workspaceFolder}/build/raylib-game/",
             "environment": [],
             "externalConsole": false,
             "preLaunchTask": "Build" // Matches the label in tasks.json
