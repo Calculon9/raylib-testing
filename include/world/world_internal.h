@@ -40,6 +40,8 @@ void ScheduleEntityDeletion(LArray *scheduled_events, EntityId object_id, int fl
 void RunScheduledWorldCmds(LArray *scheduled_cmds, World2d *world);
 
 // Physics / collision helpers
+// Return whether an entity is eligible for broad-phase spatial-map occupancy.
+bool EntityIsEligbleForSpatialMap(const Newtonoid2d *entity);
 void PhysicsUpdateJob(void *context, int start, int end);
 void MapEntityToASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 snapped_aabb_box, FlatMapInt *O_entity_to_space_index_map);
 void RemapEntityInASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 previous_snapped_aabb_box, FlatMapInt *entity_space_map);

@@ -73,9 +73,10 @@ EntityId AddObjectToWorld(World2d *world, Newtonoid2d *object, EntityId parent_i
         return INVALID_ENTITY_ID;
     }
 
-    // Solid objects are collision-enabled and must have room in their initial cell.
+    // Only eligible physical objects are collision-enabled and need room in
+    // their initial cell; effects and dead entities remain outside the map.
     int cell_index = -1;
-    if (!(object->entity_flags & FLAG_TYPE_EFFECT))
+    if (EntityIsEligbleForSpatialMap(object))
     {
         cell_index = grid_cell_index;
         Cell *cells = world->grid_space.space.cells.items;

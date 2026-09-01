@@ -18,6 +18,8 @@ typedef enum DebugOverlayId
     DEBUG_UNIVERSE_GRID_LABELS,
     DEBUG_UI_BORDERS,
     DEBUG_OBJECT_AXES,
+    DEBUG_OBJECT_HULL,
+    DEBUG_OBJECT_AABB,
     DEBUG_COUNT
 } DebugOverlayId;
 

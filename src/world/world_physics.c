@@ -445,6 +445,15 @@ bool CheckForCollision_AABB(Newtonoid2d a, Newtonoid2d b)
                            AABB2d_FromOriginDimensions(b.bounds_origin, b.bounds_size));
 }
 
+// Return true only for live physical entities that may participate in the
+// broad-phase map. Visual effects can remain attached and rendered without
+// becoming cell occupants or collision-pair candidates.
+bool EntityIsEligbleForSpatialMap(const Newtonoid2d *entity)
+{
+    return entity && (entity->status_flags & FLAG_STATUS_ALIVE) &&
+           !(entity->entity_flags & FLAG_TYPE_EFFECT);
+}
+
 // Process one candidate pair from the spatial broad phase and apply the
 // projectile and physical responses after narrow-phase collision confirmation.
 bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, int cell_i,
@@ -474,7 +483,9 @@ bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, 
         return false;
     }
 
-    if (!(a->status_flags & FLAG_STATUS_ALIVE) || !(b->status_flags & FLAG_STATUS_ALIVE))
+    // Treat this as a defensive boundary in case a stale or future indexing
+    // path supplies an effect or dead entity to the pair resolver.
+    if (!EntityIsEligbleForSpatialMap(a) || !EntityIsEligbleForSpatialMap(b))
     {
         return false;
     }
@@ -798,6 +809,11 @@ void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container)
 
 void MapEntityToASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 snapped_aabb_box, FlatMapInt *O_entity_to_space_index_map)
 {
+    // Keep this function as the final admission boundary for cell occupancy so
+    // every caller follows the same physical-entity rule.
+    if (!space || !EntityIsEligbleForSpatialMap(object))
+        return;
+
     // The spatial grid is a broad-phase index: insert an entity into every cell
     // touched by its snapped AABB, then let SAT remove false-positive pairs.
     float snapped_w = (snapped_aabb_box.col2.x - snapped_aabb_box.col1.x);
@@ -882,6 +898,11 @@ void RemapEntityInASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 previous
 
     RemoveEntityFromASpace(space, object->id, previous_snapped_aabb_box, entity_space_map);
 
+    // Remove stale membership if necessary, but never reinsert an entity that
+    // is dead or exists only as a visual effect.
+    if (!EntityIsEligbleForSpatialMap(object))
+        return;
+
     Vector2d snapped_aabb_verts[4] = {0};
     CalcSnappedAABB_Vertices(object->surface.surface_vectors.items,
                              object->surface.surface_vectors.count,
@@ -912,8 +933,7 @@ void RefreshWorldSpatialMap(World2d *world)
         for (size_t index = 0; index < object_array->count; index++)
         {
             Newtonoid2d *object = &objects[index];
-            if (!(object->status_flags & FLAG_STATUS_ALIVE) ||
-                (object->entity_flags & FLAG_TYPE_EFFECT) ||
+            if (!EntityIsEligbleForSpatialMap(object) ||
                 object->parent_id != world->grid_space.object.id)
             {
                 continue;

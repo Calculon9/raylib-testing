@@ -272,16 +272,16 @@ void InitWorldSystem(void)
     InitCommandQueue();
 }
 
-// Advance every running world and refresh the selected-entity pointer after
-// simulation operations that may swap or remove entities from backing arrays.
-static void UpdateWorldSimulation(void)
+// Advance every running world, or advance each paused world once when a debug
+// step was requested, then refresh selected-entity state after array changes.
+static void UpdateWorldSimulation(bool step_requested)
 {
     ProcessCommandQueue();
 
     for (int world_index = 0; world_index < G_Universe.world_count; world_index++)
     {
         World2d *world = &G_Universe.worlds[world_index];
-        if (world->mode != PAUSED)
+        if (world->mode != PAUSED || step_requested)
         {
             UpdateWorld(world, frame_counter.delta_time);
         }
@@ -311,12 +311,6 @@ static void HandleWorldDebugHotkeys(World2d *active_world, Vector2d click_world_
     if (IsKeyPressed(KEY_SPACE))
     {
         TogglePause(active_world);
-    }
-
-    // Advance one frame while paused for physics debugging.
-    if (IsKeyPressed(KEY_LEFT_SHIFT) && active_world->mode == PAUSED)
-    {
-        UpdateWorld(active_world, frame_counter.delta_time);
     }
 
     if (IsKeyPressed(KEY_ONE))
@@ -575,7 +569,9 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
         return prior_result;
     }
 
-    UpdateWorldSimulation();
+    // Right Arrow advances every paused world through the normal simulation
+    // path exactly once for this input frame.
+    UpdateWorldSimulation(IsKeyPressed(KEY_RIGHT));
 
     bool cursor_in_game_viewport = ViewportRegion_ContainsPixel(&game_viewport, input->pointer_position);
 

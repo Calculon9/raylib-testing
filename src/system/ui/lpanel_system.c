@@ -58,6 +58,8 @@ static const LPanelDebugToggle lpanel_debug_ui_toggles[] = {
 
 static const LPanelDebugToggle lpanel_debug_object_toggles[] = {
     {DEBUG_OBJECT_AXES, "Object Axes"},
+    {DEBUG_OBJECT_HULL, "Object Hull"},
+    {DEBUG_OBJECT_AABB, "Object AABB"},
 };
 
 static void HandleLPanelDebugToggleClick(UIElement *button)

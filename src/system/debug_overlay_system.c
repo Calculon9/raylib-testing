@@ -168,6 +168,8 @@ static bool dashboard_overlay_enabled = false;
 static bool grid_labels_overlay_enabled = false;
 static bool world_grid_overlay_enabled = true;
 static bool object_axes_overlay_enabled = false;
+static bool object_hull_overlay_enabled = false;
+static bool object_aabb_overlay_enabled = false;
 static bool basis_editor_enabled = false;
 static bool basis_editor_editing_u = true;
 static DebugBasisTargetId basis_editor_target = DEBUG_BASIS_TARGET_LPANEL_VIEWPORT;
@@ -338,6 +340,10 @@ static void DrawDashboardControlsSection(int col_x, int *row_y, int row_step,
                       "F4 Universe grid labels: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_UNIVERSE_GRID_LABELS)));
     DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
                       "F1 Object axes: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_OBJECT_AXES)));
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "F12 Object hull: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_OBJECT_HULL)));
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "Shift+F12 Object AABB: %s", GetOnOffLabel(IsDebugEnabled(DEBUG_OBJECT_AABB)));
     DrawDashboardLine("F7/F8 Logical height   F9/F10 UI scale", col_x, *row_y, body_color);
     *row_y += row_step;
     DrawDashboardLine("TAB Space   U/V Vector   I/J/K/L Nudge", col_x, *row_y, body_color);
@@ -532,6 +538,12 @@ void ToggleDebug(DebugOverlayId overlay_id)
     case DEBUG_OBJECT_AXES:
         object_axes_overlay_enabled = !object_axes_overlay_enabled;
         break;
+    case DEBUG_OBJECT_HULL:
+        object_hull_overlay_enabled = !object_hull_overlay_enabled;
+        break;
+    case DEBUG_OBJECT_AABB:
+        object_aabb_overlay_enabled = !object_aabb_overlay_enabled;
+        break;
     default:
         break;
     }
@@ -555,6 +567,10 @@ int IsDebugEnabled(DebugOverlayId overlay_id)
         return ui_borders_enabled;
     case DEBUG_OBJECT_AXES:
         return object_axes_overlay_enabled;
+    case DEBUG_OBJECT_HULL:
+        return object_hull_overlay_enabled;
+    case DEBUG_OBJECT_AABB:
+        return object_aabb_overlay_enabled;
     default:
         return 0;
     }
@@ -610,6 +626,20 @@ static void HandleDebugToggleHotkeys(void)
         {
             ToggleDebug(DEBUG_OBJECT_AXES);
             printf("[World] Object axes: %s\n", IsDebugEnabled(DEBUG_OBJECT_AXES) ? "ON" : "OFF");
+        }
+    }
+
+    if (IsKeyPressed(KEY_F12))
+    {
+        if (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT))
+        {
+            ToggleDebug(DEBUG_OBJECT_AABB);
+            printf("[World] Object AABB: %s\n", IsDebugEnabled(DEBUG_OBJECT_AABB) ? "ON" : "OFF");
+        }
+        else
+        {
+            ToggleDebug(DEBUG_OBJECT_HULL);
+            printf("[World] Object hull: %s\n", IsDebugEnabled(DEBUG_OBJECT_HULL) ? "ON" : "OFF");
         }
     }
 }

@@ -6,6 +6,7 @@
 #include "raylib.h"
 #include <stdint.h>
 #include "common/common.h"
+#include "colour/colour.h"
 #include "editor/geometry_editor.h"
 #include "camera/camera.h"
 #include "system/draw_primitives.h"
@@ -27,6 +28,9 @@ void DrawRotatedObjectVertices(Vector2d *local_vertices, int vertices_count, Vec
                                Matrix3x3 space_to_pixel_mtx, ColourRgba line_colour,
                                ColourRgba fill_colour);
 static void DrawNewtonoidAxes(const Newtonoid2d *newtonoid, Matrix3x3 space_to_pixel_mtx);
+static void DrawNewtonoidHull(const Vector2d *world_vertices, int vertices_count,
+                              Matrix3x3 space_to_pixel_mtx);
+static void DrawNewtonoidAABB(const Newtonoid2d *newtonoid, Matrix3x3 space_to_pixel_mtx);
 void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 space_to_pixel_mtx);
 
 static float CalculatePolygonCross(Vector2d point_a, Vector2d point_b, Vector2d point_c)
@@ -135,6 +139,49 @@ static int BuildConvexHull(Vector2d *vertices, int vertices_count, Vector2d *out
     }
 
     return hull_count;
+}
+
+// Draw the convex collision hull around an object's transformed world vertices.
+static void DrawNewtonoidHull(const Vector2d *world_vertices, int vertices_count,
+                              Matrix3x3 space_to_pixel_mtx)
+{
+    if (!world_vertices || vertices_count < 3 || !IsDebugEnabled(DEBUG_OBJECT_HULL))
+    {
+        return;
+    }
+
+    Vector2d hull_vertices[MAX_SHAPE_VERTICES];
+    int hull_count = BuildConvexHull((Vector2d *)world_vertices, vertices_count, hull_vertices);
+    if (hull_count < 2)
+    {
+        return;
+    }
+
+    for (int vertex_index = 0; vertex_index < hull_count; vertex_index++)
+    {
+        int next_index = (vertex_index + 1) % hull_count;
+        DrawTransformedLineV(hull_vertices[vertex_index], hull_vertices[next_index],
+                             space_to_pixel_mtx, game_default_palette.primary);
+    }
+}
+
+// Draw the tight world-space axis-aligned bounds used by the broad phase.
+static void DrawNewtonoidAABB(const Newtonoid2d *newtonoid, Matrix3x3 space_to_pixel_mtx)
+{
+    if (!newtonoid || !IsDebugEnabled(DEBUG_OBJECT_AABB))
+    {
+        return;
+    }
+
+    Vector2d min_corner = newtonoid->bounds_origin;
+    Vector2d max_corner = VectorSum_2d(min_corner, newtonoid->bounds_size);
+    Vector2d top_right = (Vector2d){max_corner.x, min_corner.y};
+    Vector2d bottom_left = (Vector2d){min_corner.x, max_corner.y};
+
+    DrawTransformedLineV(min_corner, top_right, space_to_pixel_mtx, game_default_palette.secondary);
+    DrawTransformedLineV(top_right, max_corner, space_to_pixel_mtx, game_default_palette.secondary);
+    DrawTransformedLineV(max_corner, bottom_left, space_to_pixel_mtx, game_default_palette.secondary);
+    DrawTransformedLineV(bottom_left, min_corner, space_to_pixel_mtx, game_default_palette.secondary);
 }
 
 // Fill a simple polygon with ear-clipped triangles so concave outlines remain
@@ -458,6 +505,16 @@ void DrawNewtonoids(LArray *newtonoids, Matrix3x3 space_to_pixel_mtx)
                                   newtonoid->local_axis_x, newtonoid->local_axis_y,
                                   space_to_pixel_mtx, newtonoid->line_colour,
                                   newtonoid->fill_colour);
+        Vector2d world_vertices[MAX_SHAPE_VERTICES];
+        int vertices_count = (int)surf_vectors.count;
+        if (vertices_count > MAX_SHAPE_VERTICES)
+        {
+            vertices_count = MAX_SHAPE_VERTICES;
+        }
+
+        Newtonoid_TransformVertices(newtonoid, world_vertices, vertices_count);
+        DrawNewtonoidHull(world_vertices, vertices_count, space_to_pixel_mtx);
+        DrawNewtonoidAABB(newtonoid, space_to_pixel_mtx);
         DrawNewtonoidAxes(newtonoid, space_to_pixel_mtx);
     }
 }
