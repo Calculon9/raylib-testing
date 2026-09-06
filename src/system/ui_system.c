@@ -57,6 +57,7 @@ const Size ui_standard_selector_button_size = {{1.75f, 0.5f}, SIZE_FIXED};
 const Spacing ui_standard_stack_spacing = {{0.0f, 0.06f}, SIZE_FIXED, SPACING_STACKED};
 const Spacing ui_compact_stack_spacing = {{0.0f, 0.025f}, SIZE_FIXED, SPACING_STACKED};
 const Spacing ui_standard_stack_wrap_spacing = {{0.06f, 0.06f}, SIZE_FIXED, SPACING_STACKED_WRAP};
+const Spacing ui_standard_stack_smart_wrap_spacing = {{0.06f, 0.06f}, SIZE_FIXED, SPACING_STACKED_SMART_WRAP};
 const Spacing ui_compact_stack_wrap_spacing = {{0.025f, 0.025f}, SIZE_FIXED, SPACING_STACKED_WRAP};
 const Spacing ui_zero_x_stack_wrap_spacing = {{0.0f, 0.06f}, SIZE_FIXED, SPACING_STACKED_WRAP};
 const Spacing ui_standard_inline_wrap_spacing = {{0.06f, 0.06f}, SIZE_FIXED, SPACING_INLINE_WRAP};

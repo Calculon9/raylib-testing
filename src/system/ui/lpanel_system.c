@@ -112,6 +112,7 @@ static void InitEntityCreateDefaults(void)
 
     Newtonoid2dParams *params = G_UIState.newtonoid_params;
     params->shape_type = SHAPE_AUTO;
+    params->archetype = ENTITY_ARCHETYPE_NONE;
     params->vertice_count = 4;
     params->width = 1.0f;
     params->height = 1.0f;

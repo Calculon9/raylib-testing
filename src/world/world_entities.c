@@ -162,7 +162,7 @@ EntityId RegisterEntity(World2d *world, Newtonoid2d *entity)
 {
     ArchetypeID array_type;
 
-    if (!(entity->status_flags & FLAG_LIFETIME_CLOCKED))
+    if (!(entity->status_flags & ENTITY_STATUS_FLAG_CLOCKED))
     {
         array_type = ARCHETYPE_INHABITANT;
     }

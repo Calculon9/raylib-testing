@@ -252,6 +252,10 @@ static Vector2d MeasureElementContent(UIElement *element, float parent_content_w
     {
         measured = MeasureStackedWrapContent(element, content_width);
     }
+    // else if (element->child_spacing.spacing_type == SPACING_STACKED_SMART_WRAP)
+    // {
+    //     Implement a "Claimed Space" system where you have allocated, claimed & unclaimed. If there's unclaimed space then another element can go there (if it fits).
+    // }
     else if (child_count > 1 && element->child_spacing.spacing_type == SPACING_INLINE)
     {
         measured.x += spacing_x * (child_count - 1);

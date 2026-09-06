@@ -23,7 +23,7 @@ static const ProjectileDefinition projectile_definitions[PROJECTILE_TYPE_COUNT] 
         .speed = 8.0f,
         .damage = 1.0f,
         .lifetime_frames = PROJECTILE_DEFAULT_LIFETIME_FRAMES,
-        .collision_mask = FLAG_TYPE_WALL | FLAG_TYPE_NEWTONOID,
+        .collision_mask = ENTITY_FLAG_WALL | ENTITY_FLAG_NEWTONOID,
         .attribute_flags = ENTITY_ATTR_FLAG_NONE,
         .line_colour = COLOUR_GAME_INK_RGBA,
         .fill_colour = COLOUR_GAME_TERRACOTTA_RGBA}};
@@ -31,7 +31,7 @@ static const ProjectileDefinition projectile_definitions[PROJECTILE_TYPE_COUNT] 
 // Return whether an entity has the projectile type flag.
 bool IsProjectile(const Newtonoid2d *entity)
 {
-    return entity && (entity->entity_flags & FLAG_TYPE_PROJECTILE) != 0;
+    return entity && (entity->entity_flags & ENTITY_FLAG_PROJECTILE) != 0;
 }
 
 // Return the immutable definition for a projectile type, or NULL when invalid.
@@ -48,12 +48,12 @@ const ProjectileDefinition *Projectile_GetDefinition(ProjectileType type)
 // Mark a projectile inactive and schedule safe removal after collision processing completes.
 static void ConsumeProjectile(World2d *world, Newtonoid2d *projectile)
 {
-    if (!world || !projectile || !(projectile->status_flags & FLAG_STATUS_ALIVE))
+    if (!world || !projectile || !(projectile->status_flags & ENTITY_STATUS_FLAG_ALIVE))
     {
         return;
     }
 
-    projectile->status_flags &= ~FLAG_STATUS_ALIVE;
+    projectile->status_flags &= ~ENTITY_STATUS_FLAG_ALIVE;
     ScheduleEntityDeletion(&world->scheduled_world_cmds, projectile->id,
                            0, 0, 1, 1);
 }
@@ -67,7 +67,7 @@ static bool ProjectileCanAffectTarget(const Newtonoid2d *projectile, const Newto
     }
 
     return projectile->owner_id != target->id ||
-           (projectile->attribute_flags & FLAG_ATTR_AFFECT_OWNER) != 0;
+           (projectile->attribute_flags & ENTITY_ATTR_FLAG_AFFECT_OWNER) != 0;
 }
 
 // Create a projectile Newtonoid, register it with the world, and schedule its expiry.
@@ -109,10 +109,10 @@ EntityId SpawnProjectile(World2d *world, const ProjectileSpawnParams *params)
     projectile.damage = definition->damage;
     projectile.rotation = VectorRadians_2d(direction);
     SyncNewtonoidRotation(&projectile);
-    Newtonoid_ConfigureMetadata(&projectile, FLAG_TYPE_PROJECTILE,
+    Newtonoid_ConfigureMetadata(&projectile, ENTITY_FLAG_PROJECTILE,
                                 definition->collision_mask,
-                                definition->attribute_flags | FLAG_ATTR_VELOCITY_ALIGNED,
-                                FLAG_STATUS_ALIVE | FLAG_LIFETIME_CLOCKED,
+                                definition->attribute_flags | ENTITY_ATTR_FLAG_VELOCITY_ALIGNED,
+                                ENTITY_STATUS_FLAG_ALIVE | ENTITY_STATUS_FLAG_CLOCKED,
                                 definition->line_colour, definition->fill_colour);
 
     EntityId projectile_id = AddObjectToWorld(world, &projectile, world->grid_space.object.id);

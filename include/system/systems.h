@@ -99,7 +99,6 @@ void InitWorldSystem(void);
 void InitUniverseSystem(void);
 InputRouteResult UpdateUniverseSystem(const InputFrame *input, InputRouteResult prior_result);
 void DrawWorldRegion(World2d *world, Camera2d *universe_camera);
-Newtonoid2d *ResolveEntityParamsToEntity(Newtonoid2dParams *newtonoid_params);
 //----------------------------------------------------------------------------------
 // Integration Functions Declaration
 //----------------------------------------------------------------------------------

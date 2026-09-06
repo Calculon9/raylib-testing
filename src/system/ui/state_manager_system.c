@@ -73,7 +73,7 @@ typedef enum
 typedef struct
 {
     StateManagerFlagSourceKind kind;
-    const Newtonoid2d *entity;
+    Newtonoid2d *entity;
     const World2d *world;
     const Cell *cell;
 } StateManagerFlagSource;
@@ -106,9 +106,9 @@ static bool StateManagerObjectMatchesFieldRule(const Newtonoid2d *object,
     switch (rule)
     {
         case STATE_MANAGER_FIELD_VISIBILITY_DAMAGEABLE:
-            return (object->attribute_flags & FLAG_ATTR_DAMAGEABLE) != 0;
+            return (object->attribute_flags & ENTITY_ATTR_FLAG_DAMAGEABLE) != 0;
         case STATE_MANAGER_FIELD_VISIBILITY_PROJECTILE:
-            return (object->entity_flags & FLAG_TYPE_PROJECTILE) != 0;
+            return (object->entity_flags & ENTITY_FLAG_PROJECTILE) != 0;
         case STATE_MANAGER_FIELD_VISIBILITY_ALWAYS:
         default:
             return true;
@@ -127,26 +127,27 @@ static void StateManagerSetFieldRowEnabled(UIElement *textbox, bool is_enabled)
 
 // Flag metadata.
 static const StateManagerFlagSpec state_manager_flag_specs[] = {
-    {"WALL", FLAG_TYPE_WALL, STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE},
-    {"NEWTONOID", FLAG_TYPE_NEWTONOID, STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE},
-    {"PROJECTILE", FLAG_TYPE_PROJECTILE, STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE},
-    {"EFFECT", FLAG_TYPE_EFFECT, STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE},
-    {"CAMERA", FLAG_TYPE_CAMERA, STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE},
+    {"WALL", ENTITY_FLAG_WALL, STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE},
+    {"NEWTONOID", ENTITY_FLAG_NEWTONOID, STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE},
+    {"PROJECTILE", ENTITY_FLAG_PROJECTILE, STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE},
+    {"EFFECT", ENTITY_FLAG_EFFECT, STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE},
+    {"CAMERA", ENTITY_FLAG_CAMERA, STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE},
 
-    {"DAMAGEABLE", FLAG_ATTR_DAMAGEABLE, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
-    {"VELOCITY", FLAG_ATTR_VELOCITY_ALIGNED, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
-    {"AFFECT OWNER", FLAG_ATTR_AFFECT_OWNER, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
-    {"RIGID", FLAG_ATTR_RIGID, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
-    {"POSITION LOCKED", FLAG_ATTR_POSITION_LOCKED, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
+    {"DAMAGEABLE", ENTITY_ATTR_FLAG_DAMAGEABLE, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
+    {"VELOCITY", ENTITY_ATTR_FLAG_VELOCITY_ALIGNED, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
+    {"AFFECT OWNER", ENTITY_ATTR_FLAG_AFFECT_OWNER, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
+    {"RIGID", ENTITY_ATTR_FLAG_RIGID, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
+    {"POSITION LOCKED", ENTITY_ATTR_FLAG_POSITION_LOCKED, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
 
-    {"ALIVE", FLAG_STATUS_ALIVE, STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS},
-    {"CLOCKED", FLAG_LIFETIME_CLOCKED, STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS},
+    {"ALIVE", ENTITY_STATUS_FLAG_ALIVE, STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS},
+    {"SLEEPING", ENTITY_STATUS_FLAG_SLEEPING, STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS},
+    {"CLOCKED", ENTITY_STATUS_FLAG_CLOCKED, STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS},
 
-    {"WALL", FLAG_TYPE_WALL, STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK},
-    {"NEWTONOID", FLAG_TYPE_NEWTONOID, STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK},
-    {"PROJECTILE", FLAG_TYPE_PROJECTILE, STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK},
-    {"EFFECT", FLAG_TYPE_EFFECT, STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK},
-    {"CAMERA", FLAG_TYPE_CAMERA, STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK},
+    {"WALL", ENTITY_FLAG_WALL, STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK},
+    {"NEWTONOID", ENTITY_FLAG_NEWTONOID, STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK},
+    {"PROJECTILE", ENTITY_FLAG_PROJECTILE, STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK},
+    {"EFFECT", ENTITY_FLAG_EFFECT, STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK},
+    {"CAMERA", ENTITY_FLAG_CAMERA, STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK},
 
     {"ACTIVE", WORLD_FLAG_ACTIVE, STATE_MANAGER_FLAG_CATEGORY_WORLD},
     {"VISIBLE", WORLD_FLAG_VISIBLE, STATE_MANAGER_FLAG_CATEGORY_WORLD},
@@ -167,8 +168,8 @@ static StateManagerFlagGroup state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGO
 // Keep every flag button in one contiguous array so refresh groups use stable offsets.
 static size_t state_manager_button_count = 0;
 
-static const uint32_t state_manager_type_flags = FLAG_TYPE_WALL | FLAG_TYPE_NEWTONOID |
-                                                 FLAG_TYPE_PROJECTILE | FLAG_TYPE_EFFECT | FLAG_TYPE_CAMERA;
+static const uint32_t state_manager_type_flags = ENTITY_FLAG_WALL | ENTITY_FLAG_NEWTONOID |
+                                                 ENTITY_FLAG_PROJECTILE | ENTITY_FLAG_EFFECT | ENTITY_FLAG_CAMERA;
 
 void MarkStateManagerRefreshDirty(void)
 {
@@ -310,6 +311,18 @@ static void HandleStateManagerFlagClick(UIElement *button)
     {
         *target &= ~state_manager_type_flags;
         *target |= spec->flag;
+    }
+    else if (spec->category == STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS &&
+             spec->flag == ENTITY_STATUS_FLAG_SLEEPING && source.entity)
+    {
+        if (*target & spec->flag)
+        {
+            WakeUp(source.entity);
+        }
+        else
+        {
+            ApplySleep(source.entity);
+        }
     }
     else if (*target & spec->flag)
     {
@@ -769,11 +782,8 @@ void DrawStateManagerSystem(void)
 {
     if (state_manager_panel)
     {
-        if (state_manager_refresh_dirty)
-        {
-            UpdateStateManagerSelectedObject();
-            state_manager_refresh_dirty = false;
-        }
+        UpdateStateManagerSelectedObject();
+        state_manager_refresh_dirty = false;
         PanelSystem_Draw(state_manager_panel);
     }
 }

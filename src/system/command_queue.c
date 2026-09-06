@@ -1,5 +1,6 @@
 #include "system/command_queue.h"
 #include <string.h>
+#include "system/entity_creation.h"
 #include "system/systems.h"
 #include "world/universe.h"
 #include "world/world.h"
@@ -136,7 +137,7 @@ void ProcessCommandQueue(void)
         if (c->type == CMD_CREATE_ENTITY)
         {
             // New entities always enter the universe's root world first, unworlded.
-            Newtonoid2d *new_entity = ResolveEntityParamsToEntity(&c->data.create_entity);
+            Newtonoid2d *new_entity = CreateEntityFromParams(&c->data.create_entity);
             if (new_entity)
             {
                 EntityId spawned_id = AddObjectToWorld(&G_Universe.root_world, new_entity,

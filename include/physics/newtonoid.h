@@ -27,6 +27,7 @@ typedef enum EntityStatusFlags
 {
     ENTITY_STATUS_FLAG_NONE = 0,
     ENTITY_STATUS_FLAG_ALIVE = 1 << 0,
+    ENTITY_STATUS_FLAG_SLEEPING = 1 << 1,
     ENTITY_STATUS_FLAG_CLOCKED = 1 << 6,
 } EntityStatusFlags;
 
@@ -40,24 +41,18 @@ typedef enum EntityAttributeFlags
     ENTITY_ATTR_FLAG_POSITION_LOCKED = 1 << 6,
 } EntityAttributeFlags;
 
+typedef enum EntityArchetype
+{
+    ENTITY_ARCHETYPE_NONE,
+    ENTITY_ARCHETYPE_ROTOR,
+    ENTITY_ARCHETYPE_GEAR,
+    ENTITY_ARCHETYPE_PORTAL,
+} EntityArchetype;
+
 typedef EntityTypeFlags EntityFlags;
 typedef EntityTypeFlags EntityTypeFlag;
 typedef EntityStatusFlags EntityStatusFlag;
 typedef EntityAttributeFlags EntityAttributeFlag;
-
-// Compatibility aliases used throughout the existing codebase.
-#define FLAG_STATUS_ALIVE ENTITY_STATUS_FLAG_ALIVE
-#define FLAG_TYPE_WALL ENTITY_FLAG_WALL
-#define FLAG_TYPE_NEWTONOID ENTITY_FLAG_NEWTONOID
-#define FLAG_TYPE_PROJECTILE ENTITY_FLAG_PROJECTILE
-#define FLAG_TYPE_EFFECT ENTITY_FLAG_EFFECT
-#define FLAG_TYPE_CAMERA ENTITY_FLAG_CAMERA
-#define FLAG_ATTR_DAMAGEABLE ENTITY_ATTR_FLAG_DAMAGEABLE
-#define FLAG_ATTR_VELOCITY_ALIGNED ENTITY_ATTR_FLAG_VELOCITY_ALIGNED
-#define FLAG_ATTR_AFFECT_OWNER ENTITY_ATTR_FLAG_AFFECT_OWNER
-#define FLAG_ATTR_RIGID ENTITY_ATTR_FLAG_RIGID
-#define FLAG_ATTR_POSITION_LOCKED ENTITY_ATTR_FLAG_POSITION_LOCKED
-#define FLAG_LIFETIME_CLOCKED ENTITY_STATUS_FLAG_CLOCKED
 
 // DEFAULT COLOURS
 #define COLOUR_LINE_DEFAULT COLOUR_GAME_INK_RGBA
@@ -112,6 +107,7 @@ typedef struct Newtonoid2d
     float inverse_mass;     // 1.0f / mass (0.0f if static)
     float restitution;      // Normal contact coefficient in the inclusive range [0, 1]
     float friction;         // Tangential contact coefficient, zero or greater
+    float sleep_timer;      // Tracks consecutive frames where kinetic energy is below a threshold
 
     // ============================================================================
     // WARM FIELDS - Bounds, Rotation, Collision (~96 bytes)
@@ -137,6 +133,7 @@ typedef struct Newtonoid2d
     ColourRgba line_colour;  // Outline color
     ColourRgba fill_colour;  // Fill color
     ShapeType shape_type;    // Shape classification for collision algorithms
+    EntityArchetype archetype; // Functional object classification
     int edge_count;          // Cached edge count
     EntityFlags entity_flags;        // What AM I? (e.g., LAYER_PROJECTILE)
     EntityFlags collision_mask;      // What can I HIT? (e.g., LAYER_ENEMY | LAYER_WALL)
@@ -165,6 +162,7 @@ typedef struct Newtonoid2dParams
     // int edge_count;
     int vertice_count;
     ShapeType shape_type;
+    EntityArchetype archetype;
     ColourRgba line_colour;
     ColourRgba fill_colour;
     Surface2d surface;
@@ -213,6 +211,10 @@ void Newtonoid_ConfigureMetadata(Newtonoid2d *object, EntityFlags entity_flags,
                                  EntityFlags collision_mask, EntityAttributeFlags attribute_flags,
                                  EntityStatusFlags status_flags,
                                  ColourRgba line_colour, ColourRgba fill_colour);
+// Configure an entity to accept collisions with every defined entity category.
+void Newtonoid_ConfigureUniversalCollisionMask(Newtonoid2d *object);
+// Configure an entity to reject collisions with every entity category.
+void Newtonoid_ConfigureNoCollisionMask(Newtonoid2d *object);
 // Set an entity's maximum and current health.
 void Newtonoid_ConfigureHealth(Newtonoid2d *object, float max_health);
 // Return whether an entity can receive damage.
@@ -227,12 +229,16 @@ void Newtonoid_ConfigureRestitution(Newtonoid2d *object, float restitution);
 void Newtonoid_ConfigureFriction(Newtonoid2d *object, float friction);
 // Configure a mass-bearing entity for fixed-position rotation.
 void Newtonoid_ConfigureRotor(Newtonoid2d *object);
+// Configure a portal entity's continuous rotational behaviour.
+void Newtonoid_ConfigurePortal(Newtonoid2d *object);
 Newtonoid2d CreateNewtonoid2d(float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration, Surface2d surface);
 Newtonoid2d *CreateNewtonoid2d_Reference(float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration, Surface2d surface);
 Newtonoid2d CreateNewtonoid2d_Symmetric(int vertice_count, float radius, ColourRgba colour, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration);
 Newtonoid2d CreateNewtonoid2d_Irregular(int vertice_count, float min_radius, float max_radius, ColourRgba colour, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration);
 Newtonoid2d CreateNewtonoid2d_Rotor(int blade_count, Vector2d dimensions, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration);
 Newtonoid2d CreateNewtonoid2d_Gear(int tooth_count, Vector2d dimensions, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration);
+// Create a rotating ellipse-shaped portal from full width and height dimensions.
+Newtonoid2d CreateNewtonoid2d_Portal(Vector2d dimensions, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration);
 // Create a coloured Newtonoid from one of the reusable primitive entity shapes.
 Newtonoid2d CreateNewtonoid2d_Primitive(ShapeType shape_type, NewtonoidPrimitiveParams primitive_params,
                                          float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration);
@@ -241,9 +247,10 @@ void SyncNewtonoidRotation(Newtonoid2d *object);
 Vector2d CalcVelocityAtPoint(const Newtonoid2d *body, Vector2d radius);
 void CalcVectors(Newtonoid2d *object, float deltaTime);
 float CalcMomentOfInertia(float mass, LArray *surface_vectors);
-Vector2d RotateVertex(Vector2d local_vertex, Vector2d local_axis);
 void Newtonoid_TransformVertices(const Newtonoid2d *object, Vector2d *out_world_vertices, int max_vertices);
 Matrix2x2 UpdateEntityBounds(Newtonoid2d *object, Vector2d out_world_vertices[MAX_SHAPE_VERTICES]);
+void ApplySleep(Newtonoid2d *entity);
+void WakeUp(Newtonoid2d *entity);
 // Matrix2x2 FindBoxedCoords(DArray vertices);
 // Vector2d GetObjectCentre(Surface2d object_surface);
 

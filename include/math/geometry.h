@@ -38,6 +38,7 @@ typedef enum {
     SHAPE_TRIANGLE,
     SHAPE_SQUARE,
     SHAPE_CIRCLE,
+    SHAPE_ELLIPSE,
     SHAPE_POLYGON,
     SHAPE_RECTANGLE,
     SHAPE_TRIANGLE_EQUILATERAL,
@@ -75,4 +76,5 @@ LArray CreateVertices_Symmetric (int vertice_count, float radius_x, float radius
 LArray CreateVertices_Irregular (int vertice_count, float min_radius, float max_radius);
 LArray CreateVertices_Rotor(int blade_count, float radius_x, float radius_y);
 LArray CreateVertices_Gear(int tooth_count, float radius_x, float radius_y);
+LArray CreateVertices_Portal(Vector2d dimensions);
 #endif

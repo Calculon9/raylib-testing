@@ -131,6 +131,20 @@ LArray CreateVertices_Gear(int tooth_count, float radius_x, float radius_y)
     return points;
 }
 
+// Create a centred ellipse approximation for portal geometry using the maximum
+// supported vertex count so the curved outline remains smooth for SAT and rendering.
+LArray CreateVertices_Portal(Vector2d dimensions)
+{
+    if (dimensions.x <= 0.0f || dimensions.y <= 0.0f)
+    {
+        return MakeLArray(0, sizeof(Vector2d));
+    }
+
+    return CreateVertices_Symmetric(MAX_SHAPE_VERTICES,
+                                    dimensions.x * 0.5f,
+                                    dimensions.y * 0.5f);
+}
+
 LArray CreateVertices_Irregular(int vertice_count, float min_radius, float max_radius)
 {
     if (vertice_count <= 0)

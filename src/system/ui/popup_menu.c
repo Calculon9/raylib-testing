@@ -28,6 +28,8 @@ static const Size popup_view_selector_size = {{3.75f, 0.5f}, SIZE_FIXED};
 static const Size popup_view_selector_button_size = {{1.875f, 0.5f}, SIZE_FIXED};
 static const Size popup_menu_view_size = {{3.75f, 5.0f}, SIZE_FIXED};
 static const Size popup_create_entity_submenu_size = UI_SIZE_CONTENT;
+static const float popup_portal_width = 0.666f;
+static const float popup_portal_height = 1.0f;
 static const Vector2d popup_view_selector_offset = {0.0f, 0.0f};
 static const Vector2d popup_menu_view_offset = {0.0f, 0.5f};
 static const Vector2d popup_create_entity_submenu_offset = {3.75f, 0.5f};
@@ -41,13 +43,15 @@ static void InitCreateWorldSubmenu(void);
 typedef struct
 {
     ShapeType shape;
-} PopupShapeAction;
+    EntityArchetype archetype;
+} PopupCreateAction;
 
-static PopupShapeAction popup_triangle_action = {SHAPE_TRIANGLE};
-static PopupShapeAction popup_square_action = {SHAPE_SQUARE};
-static PopupShapeAction popup_circle_action = {SHAPE_CIRCLE};
-static PopupShapeAction popup_rotor_action = {SHAPE_ROTOR};
-static PopupShapeAction popup_gear_action = {SHAPE_GEAR};
+static PopupCreateAction popup_triangle_action = {SHAPE_TRIANGLE, ENTITY_ARCHETYPE_NONE};
+static PopupCreateAction popup_square_action = {SHAPE_SQUARE, ENTITY_ARCHETYPE_NONE};
+static PopupCreateAction popup_circle_action = {SHAPE_CIRCLE, ENTITY_ARCHETYPE_NONE};
+static PopupCreateAction popup_rotor_action = {SHAPE_AUTO, ENTITY_ARCHETYPE_ROTOR};
+static PopupCreateAction popup_gear_action = {SHAPE_AUTO, ENTITY_ARCHETYPE_GEAR};
+static PopupCreateAction popup_portal_action = {SHAPE_AUTO, ENTITY_ARCHETYPE_PORTAL};
 
 typedef struct
 {
@@ -90,7 +94,7 @@ static void HandlePopupHover(UIElement *item)
     }
 }
 
-static void HandlePopupShapeClick(UIElement *button)
+static void HandlePopupCreateClick(UIElement *button)
 {
     if (!button || !button->is_enabled ||
         !G_UIState.newtonoid_params)
@@ -98,35 +102,46 @@ static void HandlePopupShapeClick(UIElement *button)
         return;
     }
 
-    PopupShapeAction *action =
-        (PopupShapeAction *)button->data.button.user_data;
+    PopupCreateAction *action = (PopupCreateAction *)button->data.button.user_data;
     if (!action)
     {
         return;
     }
 
-    switch (action->shape)
+    switch (action->archetype)
     {
-    case SHAPE_TRIANGLE:
-        G_UIState.newtonoid_params->vertice_count = 3;
-        break;
-    case SHAPE_SQUARE:
+    case ENTITY_ARCHETYPE_ROTOR:
         G_UIState.newtonoid_params->vertice_count = 4;
         break;
-    case SHAPE_CIRCLE:
-        G_UIState.newtonoid_params->vertice_count = MAX_SHAPE_VERTICES;
-        break;
-    case SHAPE_ROTOR:
-        G_UIState.newtonoid_params->vertice_count = 4;
-        break;
-    case SHAPE_GEAR:
+    case ENTITY_ARCHETYPE_GEAR:
         G_UIState.newtonoid_params->vertice_count = 8;
         break;
-    default:
-        return;
+    case ENTITY_ARCHETYPE_PORTAL:
+        G_UIState.newtonoid_params->vertice_count = MAX_SHAPE_VERTICES;
+        G_UIState.newtonoid_params->width = popup_portal_width;
+        G_UIState.newtonoid_params->height = popup_portal_height;
+        break;
+    case ENTITY_ARCHETYPE_NONE:
+        switch (action->shape)
+        {
+        case SHAPE_TRIANGLE:
+            G_UIState.newtonoid_params->vertice_count = 3;
+            break;
+        case SHAPE_SQUARE:
+            G_UIState.newtonoid_params->vertice_count = 4;
+            break;
+        case SHAPE_CIRCLE:
+            G_UIState.newtonoid_params->vertice_count = MAX_SHAPE_VERTICES;
+            break;
+        default:
+            return;
+        }
+        break;
     }
 
-    G_UIState.newtonoid_params->shape_type = action->shape;
+    G_UIState.newtonoid_params->shape_type =
+        action->archetype == ENTITY_ARCHETYPE_NONE ? action->shape : SHAPE_AUTO;
+    G_UIState.newtonoid_params->archetype = action->archetype;
     G_UIState.newtonoid_params->anchor_position = popup_spawn_position;
     EnqueueCreateEntity(G_UIState.newtonoid_params);
     HidePopupMenu();
@@ -189,24 +204,31 @@ static void InitCreateEntitySubmenu(void)
                               ZERO_VECTOR_2D, popup_menu->palette);
     CreateUIButtonDefault(popup_create_entity_submenu_cont, UI_ELEMENT_BUTTON_SIMPLE, "triangle",
                           popup_menu_item_size, ZERO_VECTOR_2D,
-                          popup_menu->palette, HandlePopupShapeClick,
+                              popup_menu->palette, HandlePopupCreateClick,
                           &popup_triangle_action, NULL);
     CreateUIButtonDefault(popup_create_entity_submenu_cont, UI_ELEMENT_BUTTON_SIMPLE, "square",
                           popup_menu_item_size, ZERO_VECTOR_2D,
-                          popup_menu->palette, HandlePopupShapeClick,
+                          popup_menu->palette, HandlePopupCreateClick,
                           &popup_square_action, NULL);
     CreateUIButtonDefault(popup_create_entity_submenu_cont, UI_ELEMENT_BUTTON_SIMPLE, "circle",
                           popup_menu_item_size, ZERO_VECTOR_2D,
-                          popup_menu->palette, HandlePopupShapeClick,
+                          popup_menu->palette, HandlePopupCreateClick,
                           &popup_circle_action, NULL);
+    CreateUILabelTitleDefault(popup_create_entity_submenu_cont,
+                              "Functional", popup_menu_item_size,
+                              ZERO_VECTOR_2D, popup_menu->palette);
     CreateUIButtonDefault(popup_create_entity_submenu_cont, UI_ELEMENT_BUTTON_SIMPLE, "rotor",
                           popup_menu_item_size, ZERO_VECTOR_2D,
-                          popup_menu->palette, HandlePopupShapeClick,
+                          popup_menu->palette, HandlePopupCreateClick,
                           &popup_rotor_action, NULL);
     CreateUIButtonDefault(popup_create_entity_submenu_cont, UI_ELEMENT_BUTTON_SIMPLE, "gear",
                           popup_menu_item_size, ZERO_VECTOR_2D,
-                          popup_menu->palette, HandlePopupShapeClick,
+                          popup_menu->palette, HandlePopupCreateClick,
                           &popup_gear_action, NULL);
+    CreateUIButtonDefault(popup_create_entity_submenu_cont, UI_ELEMENT_BUTTON_SIMPLE, "portal",
+                          popup_menu_item_size, ZERO_VECTOR_2D,
+                          popup_menu->palette, HandlePopupCreateClick,
+                          &popup_portal_action, NULL);
 }
 
 static void HandlePopupWorldClick(UIElement *button)

@@ -10,17 +10,40 @@
 #include "math/affine_space_ops.h"
 
 //----------------------------------------------------------------------------------
-// Module Variables Definition (local)
+// Module Constants Definition (local)
 //----------------------------------------------------------------------------------
-
-//----------------------------------------------------------------------------------
-// Functions Definition
-//----------------------------------------------------------------------------------
-float CalcMomentOfInertia(float mass, LArray *surface_vectors);
 static const float default_rotor_angular_velocity = 2.0f;
-static const float default_rotor_mass = 1.0f;
 static const float default_restitution = 0.9f;
 static const float default_friction = 0.8f;
+static const float SLEEP_LINEAR_DISPLACEMENT_TOLERANCE_SQ = 0.0001f; // Very small per-frame movement
+static const float SLEEP_ANGULAR_DISPLACEMENT_TOLERANCE_SQ = 0.00005f; // Very small per-frame rotation
+static const float TIME_TO_SLEEP = 0.3f;
+
+//----------------------------------------------------------------------------------
+// Module Functions Declaration (local)
+//----------------------------------------------------------------------------------
+float CalcMomentOfInertia(float mass, LArray *surface_vectors);
+static bool ValidateNewtonoidSurface(Surface2d surface);
+static Surface2d CreateIsoscelesTriangleSurface(Vector2d dimensions);
+static Surface2d CreateArrowSurface(Vector2d dimensions, float requested_head_length);
+static Surface2d CreatePrimitiveSurface(ShapeType shape_type,
+                                        NewtonoidPrimitiveParams primitive_params);
+static Newtonoid2d CreateNewtonoid2d_FromShape(ShapeBuildType build_type, int vertice_count,
+                                               float min_radius, float max_radius,
+                                               ColourRgba colour, float mass,
+                                               Vector2d anchor_position, Vector2d velocity,
+                                               Vector2d acceleration);
+typedef void (*NewtonoidConfigureFunction)(Newtonoid2d *object);
+static void ConfigureNewtonoidBase(Newtonoid2d *object);
+static bool BuildNewtonoid2d(Newtonoid2d *out_object, ShapeType shape_type,
+                             float mass, Vector2d anchor_position,
+                             Vector2d velocity, Vector2d acceleration,
+                             Surface2d surface,
+                             NewtonoidConfigureFunction configure);
+
+//----------------------------------------------------------------------------------
+// Entity Configuration
+//----------------------------------------------------------------------------------
 
 // Configure the metadata shared by all Newtonoid creation paths.
 void Newtonoid_ConfigureMetadata(Newtonoid2d *object, EntityFlags entity_flags,
@@ -41,6 +64,29 @@ void Newtonoid_ConfigureMetadata(Newtonoid2d *object, EntityFlags entity_flags,
    object->fill_colour = fill_colour;
 }
 
+// Configure an entity to accept collisions with every defined entity category.
+void Newtonoid_ConfigureUniversalCollisionMask(Newtonoid2d *object)
+{
+   if (!object)
+   {
+      return;
+   }
+
+   object->collision_mask = ENTITY_FLAG_WALL | ENTITY_FLAG_NEWTONOID |
+                            ENTITY_FLAG_PROJECTILE | ENTITY_FLAG_EFFECT |
+                            ENTITY_FLAG_CAMERA;
+}
+
+// Configure the common metadata profile used by ordinary Newtonoid factories.
+static void ConfigureNewtonoidBase(Newtonoid2d *object)
+{
+   Newtonoid_ConfigureMetadata(object, ENTITY_FLAG_NEWTONOID,
+                               ENTITY_FLAG_WALL | ENTITY_FLAG_NEWTONOID | ENTITY_FLAG_PROJECTILE,
+                               ENTITY_ATTR_FLAG_RIGID,
+                               ENTITY_STATUS_FLAG_ALIVE,
+                               COLOUR_LINE_DEFAULT, COLOUR_FILL_DEFAULT);
+}
+
 // Set an entity's maximum and current health.
 void Newtonoid_ConfigureHealth(Newtonoid2d *object, float max_health)
 {
@@ -56,8 +102,8 @@ void Newtonoid_ConfigureHealth(Newtonoid2d *object, float max_health)
 // Return whether an entity is alive and configured to receive damage.
 bool IsDamageable(const Newtonoid2d *entity)
 {
-   return entity && (entity->attribute_flags & FLAG_ATTR_DAMAGEABLE) != 0 &&
-          entity->max_health > 0.0f && (entity->status_flags & FLAG_STATUS_ALIVE) != 0;
+   return entity && (entity->attribute_flags & ENTITY_ATTR_FLAG_DAMAGEABLE) != 0 &&
+          entity->max_health > 0.0f && (entity->status_flags & ENTITY_STATUS_FLAG_ALIVE) != 0;
 }
 
 // Apply damage and clear the alive status when health reaches zero.
@@ -75,14 +121,43 @@ bool ApplyEntityDamage(Newtonoid2d *entity, float damage)
    }
 
    entity->health = 0.0f;
-   entity->status_flags &= ~FLAG_STATUS_ALIVE;
+   entity->status_flags &= ~ENTITY_STATUS_FLAG_ALIVE;
    return true;
+}
+
+// Put an entity to sleep and clear residual motion so the state is stable.
+void ApplySleep(Newtonoid2d *entity)
+{
+   if (!entity)
+   {
+      return;
+   }
+
+   entity->status_flags |= ENTITY_STATUS_FLAG_SLEEPING;
+   entity->sleep_timer = TIME_TO_SLEEP;
+   entity->velocity = ZERO_VECTOR_2D;
+   entity->momentum = ZERO_VECTOR_2D;
+   entity->angular_velocity = 0.0f;
+   entity->angular_acceleration = 0.0f;
+   entity->torque = 0.0f;
+}
+
+// Wake an entity and restart the quiet-period timer used by automatic sleeping.
+void WakeUp(Newtonoid2d *entity)
+{
+   if (!entity)
+   {
+      return;
+   }
+
+   entity->status_flags &= ~ENTITY_STATUS_FLAG_SLEEPING;
+   entity->sleep_timer = 0.0f;
 }
 
 // Align an opted-in entity's rendered geometry with its current velocity vector.
 void Newtonoid_SyncOrientationToVelocity(Newtonoid2d *object)
 {
-   if (!object || !(object->attribute_flags & FLAG_ATTR_VELOCITY_ALIGNED) ||
+   if (!object || !(object->attribute_flags & ENTITY_ATTR_FLAG_VELOCITY_ALIGNED) ||
        VectorMagnitude_2d(object->velocity) <= 0.0001f)
    {
       return;
@@ -127,7 +202,7 @@ void Newtonoid_ConfigureFriction(Newtonoid2d *object, float friction)
    object->friction = friction >= 0.0f ? friction : 0.0f;
 }
 
-// Configure a mass-bearing entity with continuous rotation while retaining normal translation.
+// Configure a rotor with ordinary Newtonoid metadata and continuous rotation.
 void Newtonoid_ConfigureRotor(Newtonoid2d *object)
 {
    if (!object)
@@ -135,9 +210,33 @@ void Newtonoid_ConfigureRotor(Newtonoid2d *object)
       return;
    }
 
+   ConfigureNewtonoidBase(object);
    object->angular_velocity = default_rotor_angular_velocity;
+   object->attribute_flags |= ENTITY_ATTR_FLAG_POSITION_LOCKED;
 }
 
+// Configure a portal with ordinary Newtonoid metadata and continuous rotation.
+void Newtonoid_ConfigurePortal(Newtonoid2d *object)
+{
+   if (!object)
+   {
+      return;
+   }
+
+   ConfigureNewtonoidBase(object);
+   object->collision_mask = ENTITY_FLAG_NONE;
+   //Newtonoid_ConfigureUniversalCollisionMask(object);
+   //object->angular_velocity = default_rotor_angular_velocity;
+   object->attribute_flags &= ~ENTITY_ATTR_FLAG_DAMAGEABLE;
+   object->attribute_flags |= ENTITY_ATTR_FLAG_POSITION_LOCKED;
+
+}
+
+//----------------------------------------------------------------------------------
+// Geometry and Coordinate Synchronisation
+//----------------------------------------------------------------------------------
+
+// Rebuild the cached bounds, centre, edge count, and inertia after local geometry changes.
 void RebuildNewtonoidGeometry(Newtonoid2d *object)
 {
    if (!object || object->surface.surface_vectors.count == 0)
@@ -165,6 +264,7 @@ void RebuildNewtonoidGeometry(Newtonoid2d *object)
    object->inverse_inertia = object->inertia != 0.0f ? 1.0f / object->inertia : 0.0f;
 }
 
+// Refresh the cached local coordinate basis after an object's rotation changes.
 void SyncNewtonoidRotation(Newtonoid2d *object)
 {
    if (!object)
@@ -178,52 +278,62 @@ void SyncNewtonoidRotation(Newtonoid2d *object)
    object->local_axis_y = basis.v;
 }
 
-static bool InitializeNewtonoid2d(Newtonoid2d *newtonoid, float mass,
-                                  Vector2d anchor_position, Vector2d velocity,
-                                  Vector2d acceleration, Surface2d surface)
-{
-   if (!newtonoid || surface.surface_vectors.count > MAX_SHAPE_VERTICES)
-   {
-      return false;
-   }
-
-   newtonoid->anchor_position = anchor_position;
-   newtonoid->mass = mass;
-   newtonoid->restitution = default_restitution;
-   newtonoid->friction = default_friction;
-   // Inverse mass is used by collision response to distribute movement and
-   // impulses. Zero mass represents an immovable body, so its inverse is zero
-   // rather than an IEEE infinity that could contaminate later calculations.
-   newtonoid->inverse_mass = (mass != 0.0f) ? 1.0f / mass : 0.0f;
-   newtonoid->velocity = velocity;
-   newtonoid->acceleration = acceleration;
-   newtonoid->angular_acceleration = 0.0f;
-   newtonoid->attribute_flags = ENTITY_ATTR_FLAG_NONE;
-   newtonoid->health = 0.0f;
-   newtonoid->max_health = 0.0f;
-   newtonoid->surface = surface;
-   RebuildNewtonoidGeometry(newtonoid);
-   newtonoid->momentum.x = newtonoid->mass * newtonoid->velocity.x;
-   newtonoid->momentum.y = newtonoid->mass * newtonoid->velocity.y;
-   SyncNewtonoidRotation(newtonoid);
-   Newtonoid_ConfigureMetadata(newtonoid, FLAG_TYPE_NEWTONOID,
-                               FLAG_TYPE_WALL | FLAG_TYPE_NEWTONOID | FLAG_TYPE_PROJECTILE,
-                               FLAG_ATTR_RIGID,
-                               FLAG_STATUS_ALIVE,
-                               COLOUR_LINE_DEFAULT, COLOUR_FILL_DEFAULT);
-   return true;
-}
+//----------------------------------------------------------------------------------
+// Shape Construction Helpers
+//----------------------------------------------------------------------------------
 
 static bool ValidateNewtonoidSurface(Surface2d surface)
 {
-   if (surface.surface_vectors.count <= MAX_SHAPE_VERTICES)
+   if (surface.surface_vectors.count >= 3 &&
+       surface.surface_vectors.count <= MAX_SHAPE_VERTICES)
    {
       return true;
    }
 
-   LOG_ERROR("Entity creation failed: vertex count %d exceeds MAX_SHAPE_VERTICES (%d)\n",
+   LOG_ERROR("Entity creation failed: vertex count %d must be between 3 and %d\n",
              surface.surface_vectors.count, MAX_SHAPE_VERTICES);
    return false;
+}
+
+// Build a Newtonoid from owned surface data, applying the supplied archetype
+// configuration. Release the surface on failure so shape factories cannot
+// leak geometry during validation or initialisation.
+static bool BuildNewtonoid2d(Newtonoid2d *out_object, ShapeType shape_type,
+                             float mass, Vector2d anchor_position,
+                             Vector2d velocity, Vector2d acceleration,
+                             Surface2d surface,
+                             NewtonoidConfigureFunction configure)
+{
+   if (!out_object || !configure || !ValidateNewtonoidSurface(surface))
+   {
+      ClearLArray(&surface.surface_vectors);
+      return false;
+   }
+
+   out_object->anchor_position = anchor_position;
+   out_object->mass = mass;
+   out_object->restitution = default_restitution;
+   out_object->friction = default_friction;
+   // Inverse mass is used by collision response to distribute movement and
+   // impulses. Zero mass represents an immovable body, so its inverse is zero
+   // rather than an IEEE infinity that could contaminate later calculations.
+   out_object->inverse_mass = (mass != 0.0f) ? 1.0f / mass : 0.0f;
+   out_object->velocity = velocity;
+   out_object->acceleration = acceleration;
+   out_object->angular_acceleration = 0.0f;
+   out_object->attribute_flags = ENTITY_ATTR_FLAG_NONE;
+   out_object->archetype = ENTITY_ARCHETYPE_NONE;
+   out_object->health = 0.0f;
+   out_object->max_health = 0.0f;
+   out_object->surface = surface;
+   RebuildNewtonoidGeometry(out_object);
+   out_object->momentum.x = out_object->mass * out_object->velocity.x;
+   out_object->momentum.y = out_object->mass * out_object->velocity.y;
+   SyncNewtonoidRotation(out_object);
+   out_object->shape_type = shape_type;
+   configure(out_object);
+
+   return true;
 }
 
 // Create a centred isosceles triangle with its point facing along the local positive X axis.
@@ -319,81 +429,6 @@ static Surface2d CreatePrimitiveSurface(ShapeType shape_type,
    return surface;
 }
 
-Newtonoid2d CreateNewtonoid2d_Rotor(int blade_count, Vector2d dimensions, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration)
-{
-   Newtonoid2d empty_newtonoid = {0};
-   if (dimensions.x <= 0.0f || dimensions.y <= 0.0f)
-   {
-      return empty_newtonoid;
-   }
-
-   Surface2d surface = {0};
-   surface.surface_vectors = CreateVertices_Rotor(blade_count, dimensions.x * 0.5f, dimensions.y * 0.5f);
-   if (surface.surface_vectors.count < 3)
-   {
-      ClearLArray(&surface.surface_vectors);
-      return empty_newtonoid;
-   }
-
-   Newtonoid2d newtonoid = CreateNewtonoid2d(mass, anchor_position, velocity, acceleration, surface);
-   newtonoid.shape_type = SHAPE_ROTOR;
-   Newtonoid_ConfigureRotor(&newtonoid);
-   return newtonoid;
-}
-
-// Create a spinning gear Newtonoid using the same rotational setup as the rotor.
-Newtonoid2d CreateNewtonoid2d_Gear(int tooth_count, Vector2d dimensions, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration)
-{
-   Newtonoid2d empty_newtonoid = {0};
-   if (dimensions.x <= 0.0f || dimensions.y <= 0.0f || tooth_count < 3)
-   {
-      return empty_newtonoid;
-   }
-
-   Surface2d surface = {0};
-   surface.surface_vectors = CreateVertices_Gear(tooth_count, dimensions.x * 0.5f, dimensions.y * 0.5f);
-   if (surface.surface_vectors.count < 3)
-   {
-      ClearLArray(&surface.surface_vectors);
-      return empty_newtonoid;
-   }
-
-   Newtonoid2d newtonoid = CreateNewtonoid2d(mass, anchor_position, velocity, acceleration, surface);
-   newtonoid.shape_type = SHAPE_GEAR;
-   Newtonoid_ConfigureRotor(&newtonoid);
-   return newtonoid;
-}
-
-Newtonoid2d CreateNewtonoid2d(float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration, Surface2d surface)
-{
-   Newtonoid2d newtonoid = {0};
-   if (!ValidateNewtonoidSurface(surface) ||
-       !InitializeNewtonoid2d(&newtonoid, mass, anchor_position, velocity, acceleration, surface))
-   {
-      return newtonoid;
-   }
-
-   return newtonoid;
-}
-
-Newtonoid2d *CreateNewtonoid2d_Reference(float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration, Surface2d surface)
-{
-   if (!ValidateNewtonoidSurface(surface))
-   {
-      return NULL;
-   }
-
-   Newtonoid2d *newtOb = AllocateBytes(sizeof(Newtonoid2d));
-   if (!newtOb)
-   {
-      LOG_ERROR("Failed to allocate memory for Newtonoid2d object.\n");
-      return NULL;
-   }
-
-   InitializeNewtonoid2d(newtOb, mass, anchor_position, velocity, acceleration, surface);
-   return newtOb;
-}
-
 // Builds surface vertices from shape parameters and creates a coloured Newtonoid.
 static Newtonoid2d CreateNewtonoid2d_FromShape(ShapeBuildType build_type, int vertice_count,
                                                float min_radius, float max_radius,
@@ -411,10 +446,48 @@ static Newtonoid2d CreateNewtonoid2d_FromShape(ShapeBuildType build_type, int ve
       surface.surface_vectors = CreateVertices_Symmetric(vertice_count, max_radius, max_radius);
    }
 
-   Newtonoid2d newtOb = CreateNewtonoid2d(mass, anchor_position, velocity, acceleration, surface);
+   Newtonoid2d newtOb = {0};
+   if (!BuildNewtonoid2d(&newtOb, SHAPE_POLYGON, mass, anchor_position,
+                         velocity, acceleration, surface, ConfigureNewtonoidBase))
+   {
+      return newtOb;
+   }
+
    newtOb.line_colour = colour;
    newtOb.fill_colour = colour;
    newtOb.radius = max_radius;
+   return newtOb;
+}
+
+//----------------------------------------------------------------------------------
+// Newtonoid Creation
+//----------------------------------------------------------------------------------
+
+Newtonoid2d CreateNewtonoid2d(float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration, Surface2d surface)
+{
+   Newtonoid2d newtonoid = {0};
+   BuildNewtonoid2d(&newtonoid, SHAPE_AUTO, mass, anchor_position, velocity,
+                    acceleration, surface, ConfigureNewtonoidBase);
+   return newtonoid;
+}
+
+Newtonoid2d *CreateNewtonoid2d_Reference(float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration, Surface2d surface)
+{
+   Newtonoid2d *newtOb = AllocateBytes(sizeof(Newtonoid2d));
+   if (!newtOb)
+   {
+      LOG_ERROR("Failed to allocate memory for Newtonoid2d object.\n");
+      ClearLArray(&surface.surface_vectors);
+      return NULL;
+   }
+
+   if (!BuildNewtonoid2d(newtOb, SHAPE_AUTO, mass, anchor_position, velocity,
+                         acceleration, surface, ConfigureNewtonoidBase))
+   {
+      Deallocate((void **)&newtOb, sizeof(Newtonoid2d));
+      return NULL;
+   }
+
    return newtOb;
 }
 
@@ -428,6 +501,57 @@ Newtonoid2d CreateNewtonoid2d_Irregular(int vertice_count, float min_radius, flo
 {
    return CreateNewtonoid2d_FromShape(SHAPE_BUILD_IRREGULAR, vertice_count, min_radius, max_radius,
                                       colour, mass, anchor_position, velocity, acceleration);
+}
+
+Newtonoid2d CreateNewtonoid2d_Rotor(int blade_count, Vector2d dimensions, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration)
+{
+   if (dimensions.x <= 0.0f || dimensions.y <= 0.0f)
+   {
+      return (Newtonoid2d){0};
+   }
+
+   Surface2d surface = {0};
+   surface.surface_vectors = CreateVertices_Rotor(blade_count, dimensions.x * 0.5f, dimensions.y * 0.5f);
+   Newtonoid2d newtonoid = {0};
+   BuildNewtonoid2d(&newtonoid, SHAPE_ROTOR, mass, anchor_position,
+                    velocity, acceleration, surface, Newtonoid_ConfigureRotor);
+   newtonoid.archetype = ENTITY_ARCHETYPE_ROTOR;
+   return newtonoid;
+}
+
+// Create a spinning gear Newtonoid using the same rotational setup as the rotor.
+Newtonoid2d CreateNewtonoid2d_Gear(int tooth_count, Vector2d dimensions, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration)
+{
+   if (dimensions.x <= 0.0f || dimensions.y <= 0.0f || tooth_count < 3)
+   {
+      return (Newtonoid2d){0};
+   }
+
+   Surface2d surface = {0};
+   surface.surface_vectors = CreateVertices_Gear(tooth_count, dimensions.x * 0.5f, dimensions.y * 0.5f);
+   Newtonoid2d newtonoid = {0};
+   BuildNewtonoid2d(&newtonoid, SHAPE_GEAR, mass, anchor_position,
+                    velocity, acceleration, surface, Newtonoid_ConfigureRotor);
+   newtonoid.archetype = ENTITY_ARCHETYPE_GEAR;
+   return newtonoid;
+}
+
+// Create a rotating ellipse-shaped portal from full width and height dimensions.
+Newtonoid2d CreateNewtonoid2d_Portal(Vector2d dimensions, float mass, Vector2d anchor_position, Vector2d velocity,
+                                     Vector2d acceleration)
+{
+   if (dimensions.x <= 0.0f || dimensions.y <= 0.0f)
+   {
+      return (Newtonoid2d){0};
+   }
+
+   Surface2d surface = {0};
+   surface.surface_vectors = CreateVertices_Portal(dimensions);
+   Newtonoid2d newtonoid = {0};
+   BuildNewtonoid2d(&newtonoid, SHAPE_ELLIPSE, mass, anchor_position,
+                    velocity, acceleration, surface, Newtonoid_ConfigurePortal);
+   newtonoid.archetype = ENTITY_ARCHETYPE_PORTAL;
+   return newtonoid;
 }
 
 // Create a fully initialised Newtonoid from a reusable primitive shape specification.
@@ -449,44 +573,99 @@ Newtonoid2d CreateNewtonoid2d_Primitive(ShapeType shape_type,
       return empty_newtonoid;
    }
 
-   Newtonoid2d newtonoid = CreateNewtonoid2d(mass, anchor_position, velocity,
-                                             acceleration, surface);
-   newtonoid.shape_type = shape_type;
+   Newtonoid2d newtonoid = {0};
+   if (!BuildNewtonoid2d(&newtonoid, shape_type, mass, anchor_position,
+                         velocity, acceleration, surface, ConfigureNewtonoidBase))
+   {
+      return empty_newtonoid;
+   }
+
    newtonoid.line_colour = primitive_params.colour;
    newtonoid.fill_colour = primitive_params.colour;
    return newtonoid;
 }
 
-void CalcVectors(Newtonoid2d *object, float deltaTime)
+//----------------------------------------------------------------------------------
+// Physics Integration
+//----------------------------------------------------------------------------------
+
+// Advance an object's linear and angular state for one simulation step.
+void CalcVectors(Newtonoid2d *obj, float delta_time)
 {
-   bool position_locked = (object->attribute_flags & FLAG_ATTR_POSITION_LOCKED) != 0;
-
-   // Dynamic Mass/Inertia Safety Pass
-   // Recalc inverses up front in case gameplay code mutated mass or bounds this frame
-   if (object->mass != 0.0f)
+   if (!obj)
    {
-      // A position-locked body keeps its mass and rotational inertia while
-      // contributing no translational inverse mass to collision response.
-      object->inverse_mass = position_locked ? 0.0f : 1.0f / object->mass;
+      return;
+   }
 
-      // Recalculate from local geometry so rotation-induced AABB changes do not
-      // alter the body's physical moment of inertia.
-      object->inertia = CalcMomentOfInertia(object->mass, &object->surface.surface_vectors);
-      object->inverse_inertia = object->inertia > 0.0f ? 1.0f / object->inertia : 0.0f;
+   bool position_locked = (obj->attribute_flags & ENTITY_ATTR_FLAG_POSITION_LOCKED) != 0;
+   bool is_sleeping = (obj->status_flags & ENTITY_STATUS_FLAG_SLEEPING) != 0;
+
+   // A sleeping body can be woken by an impulse applied since its last update.
+   float linear_displacement_x = obj->velocity.x * delta_time;
+   float linear_displacement_y = obj->velocity.y * delta_time;
+   float linear_displacement_sq = (linear_displacement_x * linear_displacement_x) +
+                                  (linear_displacement_y * linear_displacement_y);
+   float angular_displacement = obj->angular_velocity * delta_time;
+   float angular_displacement_sq = angular_displacement * angular_displacement;
+   bool below_linear_tolerance = linear_displacement_sq < SLEEP_LINEAR_DISPLACEMENT_TOLERANCE_SQ;
+   bool below_angular_tolerance = angular_displacement_sq < SLEEP_ANGULAR_DISPLACEMENT_TOLERANCE_SQ &&
+                                   fabsf(obj->torque) <= 0.001f;
+
+   if (is_sleeping)
+   {
+      if (below_linear_tolerance && below_angular_tolerance)
+      {
+         return;
+      }
+
+      WakeUp(obj);
+   }
+
+   // Check if under tolerances
+   if (below_linear_tolerance && below_angular_tolerance)
+   {
+      obj->sleep_timer += delta_time;
+
+      if (obj->sleep_timer >= TIME_TO_SLEEP)
+      {
+         // Put the object to sleep and zero out micro-movements
+         ApplySleep(obj);
+         LOG_INFO("----APPLYING SLEEP----");
+         return;
+      }
    }
    else
    {
-      object->inverse_mass = 0.0f;
-      object->inertia = 0.0f;
-      object->inverse_inertia = 0.0f; // Infinite resistance to rotation
+      // Object is moving significantly, reset the timer
+      obj->sleep_timer = 0.0f;
+   }
+
+   // Dynamic Mass/Inertia Safety Pass
+   // Recalc inverses up front in case gameplay code mutated mass or bounds this frame
+   if (obj->mass != 0.0f)
+   {
+      // A position-locked body keeps its mass and rotational inertia while
+      // contributing no translational inverse mass to collision response.
+      obj->inverse_mass = position_locked ? 0.0f : 1.0f / obj->mass;
+
+      // Recalculate from local geometry so rotation-induced AABB changes do not
+      // alter the body's physical moment of inertia.
+      obj->inertia = CalcMomentOfInertia(obj->mass, &obj->surface.surface_vectors);
+      obj->inverse_inertia = obj->inertia > 0.0f ? 1.0f / obj->inertia : 0.0f;
+   }
+   else
+   {
+      obj->inverse_mass = 0.0f;
+      obj->inertia = 0.0f;
+      obj->inverse_inertia = 0.0f; // Infinite resistance to rotation
    }
 
    if (position_locked)
    {
       // A locked body cannot accumulate linear motion, but its angular state
       // remains available for rotors and other fixed-axis bodies.
-      object->velocity = ZERO_VECTOR_2D;
-      object->momentum = ZERO_VECTOR_2D;
+      obj->velocity = ZERO_VECTOR_2D;
+      obj->momentum = ZERO_VECTOR_2D;
    }
    else
    {
@@ -494,40 +673,44 @@ void CalcVectors(Newtonoid2d *object, float deltaTime)
       // s = v * dt + 0.5 * a * dt^2 advances the position using the velocity at
       // the start of the frame plus the acceleration contribution over the frame.
       Vector2d displacement;
-      displacement.x = (object->velocity.x * deltaTime) + (0.5f * object->acceleration.x * deltaTime * deltaTime);
-      displacement.y = (object->velocity.y * deltaTime) + (0.5f * object->acceleration.y * deltaTime * deltaTime);
+      displacement.x = (obj->velocity.x * delta_time) + (0.5f * obj->acceleration.x * delta_time * delta_time);
+      displacement.y = (obj->velocity.y * delta_time) + (0.5f * obj->acceleration.y * delta_time * delta_time);
 
       // Displace tracking origins
-      object->bounds_origin = VectorSum_2d(object->bounds_origin, displacement);
-      object->anchor_position = VectorSum_2d(object->anchor_position, displacement);
+      obj->bounds_origin = VectorSum_2d(obj->bounds_origin, displacement);
+      obj->anchor_position = VectorSum_2d(obj->anchor_position, displacement);
 
       // Then update velocity with v_new = v_old + a * dt. Keeping this separate
       // from the displacement calculation makes the time-step convention explicit.
-      object->velocity.x += object->acceleration.x * deltaTime;
-      object->velocity.y += object->acceleration.y * deltaTime;
+      obj->velocity.x += obj->acceleration.x * delta_time;
+      obj->velocity.y += obj->acceleration.y * delta_time;
 
       // Linear momentum is p = m * v. Store it as a derived value so systems that
       // inspect momentum do not need to reconstruct it from mass and velocity.
-      object->momentum.x = object->mass * object->velocity.x;
-      object->momentum.y = object->mass * object->velocity.y;
+      obj->momentum.x = obj->mass * obj->velocity.x;
+      obj->momentum.y = obj->mass * obj->velocity.y;
    }
 
    // Rotational Newton's second law is alpha = torque / inertia. Multiplying
    // by inverse inertia avoids a division in the hot update path.
-   object->angular_acceleration = object->torque * object->inverse_inertia;
+   obj->angular_acceleration = obj->torque * obj->inverse_inertia;
 
    // Apply the constant-angular-acceleration equivalents of the linear formulas:
    // angle += omega * dt + 0.5 * alpha * dt^2, then omega += alpha * dt.
-   object->rotation += (object->angular_velocity * deltaTime) +
-                       (0.5f * object->angular_acceleration * deltaTime * deltaTime);
-   object->angular_velocity += object->angular_acceleration * deltaTime;
+   obj->rotation += (obj->angular_velocity * delta_time) +
+                    (0.5f * obj->angular_acceleration * delta_time * delta_time);
+   obj->angular_velocity += obj->angular_acceleration * delta_time;
 
    // Matrix Sync Pass: Re-bake local coordinate framework
-   SyncNewtonoidRotation(object);
+   SyncNewtonoidRotation(obj);
 
    // Reset accumulation registers for forces/forces of rotation
-   object->torque = 0.0f;
+   obj->torque = 0.0f;
 }
+
+//----------------------------------------------------------------------------------
+// Physics Queries
+//----------------------------------------------------------------------------------
 
 // Computes the scalar 2D mass moment of inertia about the local origin, corresponding to the axis perpendicular to the polygon
 // I=∫r^2dm
@@ -581,25 +764,9 @@ Vector2d CalcVelocityAtPoint(const Newtonoid2d *body, Vector2d radius)
    return VectorSum_2d(body->velocity, rotational_velocity);
 }
 
-// void RotateEntity(Newtonoid2d *entity, float radians)
-// {
-//    // Update the entity's rotation angle
-//    entity->rotation += radians;
-
-//    rotated.x = local_vertex.x * local_axis.x - local_vertex.y * local_axis.y;
-//    rotated.y = local_vertex.x * local_axis.y + local_vertex.y * local_axis.x;
-//    return rotated;
-// }
-
-Vector2d RotateVertex(Vector2d local_vertex, Vector2d local_axis)
-{
-   Vector2d rotated;
-   // Standard 2D Rotation Matrix layout using our pre-computed local_axis vector:
-   // cos(theta) is local_axis.x, sin(theta) is local_axis.y
-   rotated.x = local_vertex.x * local_axis.x - local_vertex.y * local_axis.y;
-   rotated.y = local_vertex.x * local_axis.y + local_vertex.y * local_axis.x;
-   return rotated;
-}
+//----------------------------------------------------------------------------------
+// Geometry Utilities
+//----------------------------------------------------------------------------------
 
 // Transforms the object's local surface vertices into its local space using its
 // cached rotation basis and anchor position. Writes at most max_vertices entries.
@@ -629,18 +796,32 @@ void Newtonoid_TransformVertices(const Newtonoid2d *object, Vector2d *out_world_
 // Transform an object's surface, refresh its world-space AABB, and return it.
 Matrix2x2 UpdateEntityBounds(Newtonoid2d *object, Vector2d out_world_vertices[MAX_SHAPE_VERTICES])
 {
-    if (!object || !out_world_vertices)
-        return (Matrix2x2){0};
+   if (!object || !out_world_vertices)
+      return (Matrix2x2){0};
 
-    int vertex_count = (int)object->surface.surface_vectors.count;
-    Newtonoid_TransformVertices(object, out_world_vertices, MAX_SHAPE_VERTICES);
-    Matrix2x2 bounds = CalcAABBCoords_Tight(out_world_vertices, vertex_count, ZERO_VECTOR_2D);
-    object->bounds_origin = bounds.col1;
-    object->bounds_size = (Vector2d){
-        bounds.col2.x - bounds.col1.x,
-        bounds.col2.y - bounds.col1.y};
-    return bounds;
+   int vertex_count = (int)object->surface.surface_vectors.count;
+   Newtonoid_TransformVertices(object, out_world_vertices, MAX_SHAPE_VERTICES);
+   Matrix2x2 bounds = CalcAABBCoords_Tight(out_world_vertices, vertex_count, ZERO_VECTOR_2D);
+   object->bounds_origin = bounds.col1;
+   object->bounds_size = (Vector2d){
+       bounds.col2.x - bounds.col1.x,
+       bounds.col2.y - bounds.col1.y};
+   return bounds;
 }
+
+//----------------------------------------------------------------------------------
+// Legacy Reference Code
+//----------------------------------------------------------------------------------
+
+// void RotateEntity(Newtonoid2d *entity, float radians)
+// {
+//    // Update the entity's rotation angle
+//    entity->rotation += radians;
+
+//    rotated.x = local_vertex.x * local_axis.x - local_vertex.y * local_axis.y;
+//    rotated.y = local_vertex.x * local_axis.y + local_vertex.y * local_axis.x;
+//    return rotated;
+// }
 
 // Vector2d CalculateCenterRelativeToOrigin_Fast(NewtonObject2d *object)
 // {

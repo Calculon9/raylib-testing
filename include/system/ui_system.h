@@ -80,6 +80,7 @@ extern const Size ui_standard_selector_button_size;
 extern const Spacing ui_standard_stack_spacing;
 extern const Spacing ui_compact_stack_spacing;
 extern const Spacing ui_standard_stack_wrap_spacing;
+extern const Spacing ui_standard_stack_smart_wrap_spacing;
 extern const Spacing ui_compact_stack_wrap_spacing;
 extern const Spacing ui_zero_x_stack_wrap_spacing;
 extern const Spacing ui_standard_inline_wrap_spacing;

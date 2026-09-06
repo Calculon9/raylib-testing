@@ -249,14 +249,14 @@ void PhysicsUpdateJob(void *context, int start, int end)
 
             Newtonoid2d *obj = &newtonoids[index];
 
-            if (!(obj->status_flags & FLAG_STATUS_ALIVE) || (obj->entity_flags & FLAG_TYPE_EFFECT) || obj->parent_id != space_entity->object.id)
+            if (!(obj->status_flags & ENTITY_STATUS_FLAG_ALIVE) || (obj->entity_flags & ENTITY_FLAG_EFFECT) || obj->parent_id != space_entity->object.id)
                 continue;
 
             // Gravity is an environmental acceleration added for this step only;
             // restore authored acceleration afterwards so it is not accumulated
             // repeatedly into the entity's persistent state.
             Vector2d authored_acceleration = obj->acceleration;
-            if (!(obj->attribute_flags & FLAG_ATTR_POSITION_LOCKED))
+            if (!(obj->attribute_flags & ENTITY_ATTR_FLAG_POSITION_LOCKED))
             {
                 obj->acceleration.y += world->gravity;
             }
@@ -450,8 +450,8 @@ bool CheckForCollision_AABB(Newtonoid2d a, Newtonoid2d b)
 // becoming cell occupants or collision-pair candidates.
 bool EntityIsEligbleForSpatialMap(const Newtonoid2d *entity)
 {
-    return entity && (entity->status_flags & FLAG_STATUS_ALIVE) &&
-           !(entity->entity_flags & FLAG_TYPE_EFFECT);
+        return entity && (entity->status_flags & ENTITY_STATUS_FLAG_ALIVE) &&
+            !(entity->entity_flags & ENTITY_FLAG_EFFECT);
 }
 
 // Process one candidate pair from the spatial broad phase and apply the
@@ -535,14 +535,14 @@ bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, 
     collision_surface.surface_vectors.count = 4;
     Newtonoid2d collision_obj = CreateNewtonoid2d(0.00001f, collision_center, penetrating_entity->velocity,
                                                   penetrating_entity->acceleration, collision_surface);
-    collision_obj.entity_flags = FLAG_TYPE_EFFECT;
-    collision_obj.status_flags |= FLAG_LIFETIME_CLOCKED;
+    collision_obj.entity_flags = ENTITY_FLAG_EFFECT;
+    collision_obj.status_flags |= ENTITY_STATUS_FLAG_CLOCKED;
     StickEntity(world, &collision_obj, penetrating_entity);
     EntityId id = AddObjectToWorld(world, &collision_obj, penetrating_entity->id);
 
     if (id != INVALID_ENTITY_ID)
     {
-        ScheduleEntityDeletion(scheduled_world_cmds, id, FLAG_STATUS_ALIVE, 120, 1, 1);
+        ScheduleEntityDeletion(scheduled_world_cmds, id, ENTITY_STATUS_FLAG_ALIVE, 120, 1, 1);
     }
 
     return true;
@@ -550,6 +550,9 @@ bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, 
 
 void ResolveCollision(Newtonoid2d *a, Newtonoid2d *b)
 {
+    bool a_was_sleeping = (a->status_flags & ENTITY_STATUS_FLAG_SLEEPING) != 0;
+    bool b_was_sleeping = (b->status_flags & ENTITY_STATUS_FLAG_SLEEPING) != 0;
+
     // This response uses the cached AABBs, giving a stable axis-aligned contact
     // correction after SAT has confirmed that the actual polygons overlap.
     float total_inv_mass = a->inverse_mass + b->inverse_mass;
@@ -621,6 +624,14 @@ void ResolveCollision(Newtonoid2d *a, Newtonoid2d *b)
         b->velocity = VectorSum_2d(b->velocity, VectorScale_2d(friction_impulse, -b->inverse_mass));
         a->momentum = VectorScale_2d(a->velocity, a->mass);
         b->momentum = VectorScale_2d(b->velocity, b->mass);
+        if (a_was_sleeping)
+        {
+            WakeUp(a);
+        }
+        if (b_was_sleeping)
+        {
+            WakeUp(b);
+        }
         Newtonoid_SyncOrientationToVelocity(a);
         Newtonoid_SyncOrientationToVelocity(b);
     }
@@ -632,6 +643,9 @@ void ResolveCollision_WithRotation(Newtonoid2d *a, Newtonoid2d *b, Vector2d coll
 {
     if (!a || !b)
         return;
+
+    bool a_was_sleeping = (a->status_flags & ENTITY_STATUS_FLAG_SLEEPING) != 0;
+    bool b_was_sleeping = (b->status_flags & ENTITY_STATUS_FLAG_SLEEPING) != 0;
 
     // Inverse mass controls translation while inverse inertia controls rotation.
     float total_inv_mass = a->inverse_mass + b->inverse_mass;
@@ -728,6 +742,14 @@ void ResolveCollision_WithRotation(Newtonoid2d *a, Newtonoid2d *b, Vector2d coll
     // Keep the cached linear momentum consistent with the updated velocities.
     a->momentum = VectorScale_2d(a->velocity, a->mass);
     b->momentum = VectorScale_2d(b->velocity, b->mass);
+    if (a_was_sleeping)
+    {
+        WakeUp(a);
+    }
+    if (b_was_sleeping)
+    {
+        WakeUp(b);
+    }
 
     // Preserve the existing behaviour for entities whose visual orientation is
     // explicitly tied to their velocity rather than to free rigid-body rotation.

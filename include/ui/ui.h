@@ -55,6 +55,7 @@ typedef enum
     SPACING_NONE,
     SPACING_STACKED, // Stack elements vertically in sibling order, using child height plus spacing.y. spacing.x is ignored.
     SPACING_STACKED_WRAP, // Arrange elements vertically and wrap to the next column when content height is exceeded.
+    SPACING_STACKED_SMART_WRAP, // Arrange elements vertically and wrap to the next column when content height is exceeded.
     SPACING_INLINE, // Arrange elements horizontally in sibling order, using child width plus spacing.x.
     SPACING_INLINE_WRAP, // Arrange elements horizontally and wrap to the next row when content width is exceeded.
     SPACING_NORMAL, // Add a per-index spacing offset on top of each child's authored/manual parent offset.

@@ -142,7 +142,7 @@ void UpdateWorld(World2d *world, float delta_time)
     Newtonoid2d *child;
     LArray_ForEach(temp_objects, Newtonoid2d *, child)
     {
-        if (!(child->status_flags & FLAG_STATUS_ALIVE) || child->parent_id == space_entity->object.id)
+        if (!(child->status_flags & ENTITY_STATUS_FLAG_ALIVE) || child->parent_id == space_entity->object.id)
             continue;
 
         // Look up where the parent currently lives in memory using the registry.
