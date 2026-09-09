@@ -3,7 +3,7 @@
  * WORLD LIFECYCLE AND SIMULATION
  *
  * World construction, destruction, and frame updates. Gameplay input lives in
- * src/system/world_system.c, while collision response lives in world_physics.c.
+ * src/engine/system/world_system.c, while collision response lives in world_physics.c.
  *
  **********************************************************************************************/
 #include "common/common.h"

@@ -64,19 +64,6 @@ void Newtonoid_ConfigureMetadata(Newtonoid2d *object, EntityFlags entity_flags,
    object->fill_colour = fill_colour;
 }
 
-// Configure an entity to accept collisions with every defined entity category.
-void Newtonoid_ConfigureUniversalCollisionMask(Newtonoid2d *object)
-{
-   if (!object)
-   {
-      return;
-   }
-
-   object->collision_mask = ENTITY_FLAG_WALL | ENTITY_FLAG_NEWTONOID |
-                            ENTITY_FLAG_PROJECTILE | ENTITY_FLAG_EFFECT |
-                            ENTITY_FLAG_CAMERA;
-}
-
 // Configure the common metadata profile used by ordinary Newtonoid factories.
 static void ConfigureNewtonoidBase(Newtonoid2d *object)
 {
@@ -85,18 +72,6 @@ static void ConfigureNewtonoidBase(Newtonoid2d *object)
                                ENTITY_ATTR_FLAG_RIGID,
                                ENTITY_STATUS_FLAG_ALIVE,
                                COLOUR_LINE_DEFAULT, COLOUR_FILL_DEFAULT);
-}
-
-// Set an entity's maximum and current health.
-void Newtonoid_ConfigureHealth(Newtonoid2d *object, float max_health)
-{
-   if (!object)
-   {
-      return;
-   }
-
-   object->max_health = max_health > 0.0f ? max_health : 0.0f;
-   object->health = object->max_health;
 }
 
 // Return whether an entity is alive and configured to receive damage.
@@ -110,12 +85,6 @@ bool IsDamageable(const Newtonoid2d *entity)
 bool ApplyEntityDamage(Newtonoid2d *entity, float damage)
 {
    if (!IsDamageable(entity) || damage <= 0.0f)
-   {
-      return false;
-   }
-
-   entity->health -= damage;
-   if (entity->health > 0.0f)
    {
       return false;
    }
@@ -471,26 +440,6 @@ Newtonoid2d CreateNewtonoid2d(float mass, Vector2d anchor_position, Vector2d vel
    return newtonoid;
 }
 
-Newtonoid2d *CreateNewtonoid2d_Reference(float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration, Surface2d surface)
-{
-   Newtonoid2d *newtOb = AllocateBytes(sizeof(Newtonoid2d));
-   if (!newtOb)
-   {
-      LOG_ERROR("Failed to allocate memory for Newtonoid2d object.\n");
-      ClearLArray(&surface.surface_vectors);
-      return NULL;
-   }
-
-   if (!BuildNewtonoid2d(newtOb, SHAPE_AUTO, mass, anchor_position, velocity,
-                         acceleration, surface, ConfigureNewtonoidBase))
-   {
-      Deallocate((void **)&newtOb, sizeof(Newtonoid2d));
-      return NULL;
-   }
-
-   return newtOb;
-}
-
 Newtonoid2d CreateNewtonoid2d_Symmetric(int vertice_count, float radius, ColourRgba colour, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration)
 {
    return CreateNewtonoid2d_FromShape(SHAPE_BUILD_REGULAR, vertice_count, radius, radius,
@@ -812,6 +761,42 @@ Matrix2x2 UpdateEntityBounds(Newtonoid2d *object, Vector2d out_world_vertices[MA
 //----------------------------------------------------------------------------------
 // Legacy Reference Code
 //----------------------------------------------------------------------------------
+
+// Configure an entity to accept collisions with every defined entity category.
+void Newtonoid_ConfigureUniversalCollisionMask(Newtonoid2d *object)
+{
+   if (!object)
+   {
+      return;
+   }
+
+   object->collision_mask = ENTITY_FLAG_WALL | ENTITY_FLAG_NEWTONOID |
+                            ENTITY_FLAG_PROJECTILE | ENTITY_FLAG_EFFECT |
+                            ENTITY_FLAG_CAMERA;
+}
+
+// Create a heap-allocated Newtonoid using the original pointer-returning API.
+Newtonoid2d *CreateNewtonoid2d_Reference(float mass, Vector2d anchor_position,
+                                          Vector2d velocity, Vector2d acceleration,
+                                          Surface2d surface)
+{
+   Newtonoid2d *newtOb = AllocateBytes(sizeof(Newtonoid2d));
+   if (!newtOb)
+   {
+      LOG_ERROR("Failed to allocate memory for Newtonoid2d object.\n");
+      ClearLArray(&surface.surface_vectors);
+      return NULL;
+   }
+
+   if (!BuildNewtonoid2d(newtOb, SHAPE_AUTO, mass, anchor_position,
+                         velocity, acceleration, surface, ConfigureNewtonoidBase))
+   {
+      Deallocate((void **)&newtOb, sizeof(Newtonoid2d));
+      return NULL;
+   }
+
+   return newtOb;
+}
 
 // void RotateEntity(Newtonoid2d *entity, float radians)
 // {

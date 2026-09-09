@@ -3,7 +3,7 @@
  * WORLD GAMEPLAY SYSTEM
  *
  * Gameplay input, world selection, entity picking, and screen-level world helpers.
- * Simulation and entity storage remain in the world module under src/world.
+ * Simulation and entity storage remain in the world module under src/engine/world.
  *
  **********************************************************************************************/
 

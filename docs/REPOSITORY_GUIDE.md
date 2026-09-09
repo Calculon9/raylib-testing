@@ -11,7 +11,9 @@ The main dependency is raylib 5.5. CMake downloads it through `FetchContent` unl
 ## Repository Layout
 
 - `include/` contains public headers grouped by subsystem.
-- `src/` contains the C implementations and the application entry point.
+- `src/` contains the application entry point, screen implementations, and grouped C implementations.
+- `src/common/` contains shared low-level utilities such as collections, memory, math, colour, and input helpers.
+- `src/engine/` contains the runtime engine modules, including physics, world, camera, editor, and UI systems.
 - `src/resources/` contains runtime resources copied beside the built executable.
 - `projects/VS2022/` contains the Visual Studio solution and project files from the template.
 - `docs/` contains technical and architectural notes.
@@ -24,13 +26,13 @@ Important source areas include:
 | Area | Responsibility |
 | --- | --- |
 | `src/raylib_game.c` | Application globals, screen lifecycle, transitions, and the main loop. |
-| `src/system/` | Cross-cutting systems such as panels, input routing, viewport management, debugging, and utility functions. |
-| `src/ui/` | UI element trees, layout, constructors, text fields, rendering, and input handling. |
-| `src/world/` | Universe and world state, world rendering, and entity lookup. |
-| `src/physics/` | Newtonoid/entity physics and related simulation data. |
-| `src/math/` | Vectors, geometry, coordinate spaces, and transforms. |
-| `src/memory/` and `src/collections/` | Allocation wrappers, pools, arrays, and maps. |
-| `src/camera/` and `src/input/` | Camera transforms and shared pointer/drag input state. |
+| `src/engine/system/` | Cross-cutting systems such as panels, input routing, viewport management, debugging, and utility functions. |
+| `src/engine/ui/` | UI element trees, layout, constructors, text fields, rendering, and input handling. |
+| `src/engine/world/` | Universe and world state, world rendering, and entity lookup. |
+| `src/engine/physics/` | Newtonoid/entity physics and related simulation data. |
+| `src/common/math/` | Vectors, geometry, coordinate spaces, and transforms. |
+| `src/common/memory/` and `src/common/collections/` | Allocation wrappers, pools, arrays, and maps. |
+| `src/engine/camera/` and `src/common/input/` | Camera transforms and shared pointer/drag input state. |
 
 CMake recursively includes `.c` files under `src/`, excluding generated `CMakeFiles` directories and `DEPRECATED` directories. A new source file under `src/` is therefore normally picked up automatically after CMake reconfiguration.
 
@@ -80,7 +82,7 @@ The UI is a tree of `UIElement` nodes. Each node stores:
 3. Distribute immediate children according to child spacing.
 4. Recursively lay out each child.
 
-Use the shared constructors in `src/ui/ui_constructors.c` and `CreateUIContainer()` when creating panel controls. They centralise palette colours, spacing, enabled state, dragging, and common text-field/button setup.
+Use the shared constructors in `src/engine/ui/ui_constructors.c` and `CreateUIContainer()` when creating panel controls. They centralise palette colours, spacing, enabled state, dragging, and common text-field/button setup.
 
 ## UI Size Modes
 
@@ -101,7 +103,7 @@ The content presets are defined in `include/ui/ui.h`:
 #define UI_SIZE_CONTENT_FILL ((Size){{0.0f, 0.0f}, SIZE_CONTENT_FILL})
 ```
 
-For `SIZE_CONTENT` and `SIZE_CONTENT_FILL`, changing the `{0.0f, 0.0f}` placeholder must not change layout. The layout helpers in `src/ui/ui.c` resolve content modes from `measured_content_size` during stacked, inline, wrapped, and final box layout.
+For `SIZE_CONTENT` and `SIZE_CONTENT_FILL`, changing the `{0.0f, 0.0f}` placeholder must not change layout. The layout helpers in `src/engine/ui/ui.c` resolve content modes from `measured_content_size` during stacked, inline, wrapped, and final box layout.
 
 Content measurement currently follows the UI tree: it measures enabled children and the element's padding. A leaf label or textbox does not automatically become text-metric-sized merely by using `SIZE_CONTENT`; give leaf controls an explicit size or place them inside a measured container.
 
