@@ -34,7 +34,6 @@ typedef struct Universe
     int world_count;
     int selected_world_index;
     World2d root_world; // Spans the whole universe; holds objects not owned by any nested world.
-    EntityId next_entity_id; // IDs are allocated once for the whole universe, not once per world.
 
     // Universe-space camera (operates in world-local units)
     CameraController camera_ctrl;
@@ -93,7 +92,8 @@ Newtonoid2d *Universe_GetEntityByID(const Universe *u, EntityId entity_id, int *
 // Check whether an entity pointer resolves to and is owned by the supplied world.
 bool Universe_IsEntityOwnedByWorld(const Universe *u, const World2d *world,
                                    const Newtonoid2d *entity);
-EntityId Universe_AllocateEntityId(Universe *u);
+World2d *Universe_GetWorldById(Universe *u, EntityId world_id);
+int Universe_GetWorldIndexById(const Universe *u, EntityId world_id);
 
 // --- Camera control ---
 Camera2d *Universe_GetCamera(Universe *u);

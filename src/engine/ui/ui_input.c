@@ -423,9 +423,9 @@ void HandleBtnSubmitClick(UIElement *btn)
             return;
 
         // Enqueue a create-entity command instead of creating immediately
-        if (G_UIState.newtonoid_params)
+        if (G_UIState.entity_create_params)
         {
-            EnqueueCreateEntity(G_UIState.newtonoid_params);
+            EnqueueCreateEntity(G_UIState.entity_create_params);
         }
     } else if (action == BUTTON_ACTION_DELETE_ENTITY)
     {

@@ -43,15 +43,15 @@ static void InitCreateWorldSubmenu(void);
 typedef struct
 {
     ShapeType shape;
-    EntityArchetype archetype;
+    EntityPreset preset;
 } PopupCreateAction;
 
-static PopupCreateAction popup_triangle_action = {SHAPE_TRIANGLE, ENTITY_ARCHETYPE_NONE};
-static PopupCreateAction popup_square_action = {SHAPE_SQUARE, ENTITY_ARCHETYPE_NONE};
-static PopupCreateAction popup_circle_action = {SHAPE_CIRCLE, ENTITY_ARCHETYPE_NONE};
-static PopupCreateAction popup_rotor_action = {SHAPE_AUTO, ENTITY_ARCHETYPE_ROTOR};
-static PopupCreateAction popup_gear_action = {SHAPE_AUTO, ENTITY_ARCHETYPE_GEAR};
-static PopupCreateAction popup_portal_action = {SHAPE_AUTO, ENTITY_ARCHETYPE_PORTAL};
+static PopupCreateAction popup_triangle_action = {SHAPE_TRIANGLE, ENTITY_PRESET_STANDARD};
+static PopupCreateAction popup_square_action = {SHAPE_SQUARE, ENTITY_PRESET_STANDARD};
+static PopupCreateAction popup_circle_action = {SHAPE_CIRCLE, ENTITY_PRESET_STANDARD};
+static PopupCreateAction popup_rotor_action = {SHAPE_AUTO, ENTITY_PRESET_ROTOR};
+static PopupCreateAction popup_gear_action = {SHAPE_AUTO, ENTITY_PRESET_GEAR};
+static PopupCreateAction popup_portal_action = {SHAPE_AUTO, ENTITY_PRESET_PORTAL};
 
 typedef struct
 {
@@ -97,7 +97,7 @@ static void HandlePopupHover(UIElement *item)
 static void HandlePopupCreateClick(UIElement *button)
 {
     if (!button || !button->is_enabled ||
-        !G_UIState.newtonoid_params)
+        !G_UIState.entity_create_params)
     {
         return;
     }
@@ -108,30 +108,30 @@ static void HandlePopupCreateClick(UIElement *button)
         return;
     }
 
-    switch (action->archetype)
+    switch (action->preset)
     {
-    case ENTITY_ARCHETYPE_ROTOR:
-        G_UIState.newtonoid_params->vertice_count = 4;
+    case ENTITY_PRESET_ROTOR:
+        G_UIState.entity_create_params->physics.vertice_count = 4;
         break;
-    case ENTITY_ARCHETYPE_GEAR:
-        G_UIState.newtonoid_params->vertice_count = 8;
+    case ENTITY_PRESET_GEAR:
+        G_UIState.entity_create_params->physics.vertice_count = 8;
         break;
-    case ENTITY_ARCHETYPE_PORTAL:
-        G_UIState.newtonoid_params->vertice_count = MAX_SHAPE_VERTICES;
-        G_UIState.newtonoid_params->width = popup_portal_width;
-        G_UIState.newtonoid_params->height = popup_portal_height;
+    case ENTITY_PRESET_PORTAL:
+        G_UIState.entity_create_params->physics.vertice_count = MAX_SHAPE_VERTICES;
+        G_UIState.entity_create_params->physics.width = popup_portal_width;
+        G_UIState.entity_create_params->physics.height = popup_portal_height;
         break;
-    case ENTITY_ARCHETYPE_NONE:
+    case ENTITY_PRESET_STANDARD:
         switch (action->shape)
         {
         case SHAPE_TRIANGLE:
-            G_UIState.newtonoid_params->vertice_count = 3;
+            G_UIState.entity_create_params->physics.vertice_count = 3;
             break;
         case SHAPE_SQUARE:
-            G_UIState.newtonoid_params->vertice_count = 4;
+            G_UIState.entity_create_params->physics.vertice_count = 4;
             break;
         case SHAPE_CIRCLE:
-            G_UIState.newtonoid_params->vertice_count = MAX_SHAPE_VERTICES;
+            G_UIState.entity_create_params->physics.vertice_count = MAX_SHAPE_VERTICES;
             break;
         default:
             return;
@@ -139,11 +139,11 @@ static void HandlePopupCreateClick(UIElement *button)
         break;
     }
 
-    G_UIState.newtonoid_params->shape_type =
-        action->archetype == ENTITY_ARCHETYPE_NONE ? action->shape : SHAPE_AUTO;
-    G_UIState.newtonoid_params->archetype = action->archetype;
-    G_UIState.newtonoid_params->anchor_position = popup_spawn_position;
-    EnqueueCreateEntity(G_UIState.newtonoid_params);
+    G_UIState.entity_create_params->physics.shape_type =
+        action->preset == ENTITY_PRESET_STANDARD ? action->shape : SHAPE_AUTO;
+    G_UIState.entity_create_params->preset = action->preset;
+    G_UIState.entity_create_params->physics.anchor_position = popup_spawn_position;
+    EnqueueCreateEntity(G_UIState.entity_create_params);
     HidePopupMenu();
 }
 

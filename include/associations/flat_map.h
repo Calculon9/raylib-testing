@@ -8,7 +8,7 @@ QUEUE MODULE
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include "common/entity_id.h"
+#include "entities/entity_id.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines

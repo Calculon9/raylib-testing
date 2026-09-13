@@ -14,17 +14,6 @@ WORLD MODULE
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
-#define PACKED_INT_LOW_BITS 26
-#define PACKED_INT_HIGH_BITS 6
-
-#define PACK_INTS(low, high) \
-    (((high) & ((1 << PACKED_INT_HIGH_BITS) - 1)) << PACKED_INT_LOW_BITS) | ((low) & ((1 << PACKED_INT_LOW_BITS) - 1))
-
-#define UNPACK_INT_LOW(packed) \
-    ((packed) & ((1 << PACKED_INT_LOW_BITS) - 1))
-
-#define UNPACK_INT_HIGH(packed) \
-    (((packed) >> PACKED_INT_LOW_BITS) & ((1 << PACKED_INT_HIGH_BITS) - 1))
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
@@ -47,27 +36,19 @@ typedef enum
     CMD_DELETE_OBJECT,
 } WorldCmdType;
 
-typedef enum
-{
-    ARCHETYPE_INHABITANT = 0,
-    ARCHETYPE_CLOCKED = 1
-} ArchetypeID;
-
 typedef struct World2d
 {
     GridSpace2d grid_space; // The coordinate space of the world, containing the basis vectors and line segments for drawing the world (if applicable)
     FrameTunnel tunnel; // Transform from world-local to universe coordinates
     LArray objects;
-    LArray temp_objects;
     LArray collisions;
     FlatMapInt entity_space_map;
     FlatMapInt resolved_collisions;
-    FlatMapInt entity_world_index_registry;
     LArray scheduled_world_cmds;
     float gravity;
     WorldFlags flags;
     WorldMode mode;
-    struct Universe *universe; // Owner used for universe-wide entity ID allocation.
+    struct Universe *universe; // Owning universe used for world-level context and lifetime.
     Vector2d uni_coords_center; // Position of this world in the shared universe space (world-local units). Keeps local coords 0-based.
     Matrix2x2 bounds; // Cached universe-space AABB; only meaningful when bounds_valid.
     bool bounds_valid;

@@ -11,7 +11,9 @@
 #include "world/world_internal.h"
 #include "world/universe.h"
 #include "physics/physics.h"
+#include "mechanics/portal.h"
 #include "system/job_system.h"
+#include "entities/entity_registry.h"
 
 // Number of delayed world commands initially reserved for a new world.
 static int initObjectCount = 4;
@@ -52,11 +54,18 @@ bool CreateWorld(GridSpace2d space_obj, float gravity, struct Universe *universe
     out_world->flags = WORLD_FLAG_ACTIVE | WORLD_FLAG_VISIBLE | WORLD_FLAG_SELECTABLE |
                        WORLD_FLAG_PHYSICS_ENABLED | WORLD_FLAG_SPAWNS_ENABLED |
                        WORLD_FLAG_DRAGGABLE;
-    out_world->grid_space.object.id = Universe_AllocateEntityId(universe);
+    out_world->grid_space.object.id = EntityRegistry_AllocateId();
 
     if (out_world->grid_space.object.id == INVALID_ENTITY_ID)
     {
-        LOG_ERROR("Cannot create world: universe entity ID allocation failed.\n");
+        LOG_ERROR("Cannot create world: entity ID allocation failed.\n");
+        return false;
+    }
+    // Register the world entity in the entity registry.
+    if (!EntityRegistry_SetLocation(out_world->grid_space.object.id, out_world->grid_space.object.id, -1))
+    {
+        EntityRegistry_ReleaseId(out_world->grid_space.object.id);
+        LOG_ERROR("Cannot create world: entity location registration failed.\n");
         return false;
     }
     int object_count = *GetNextWorldObjectCountPtr();
@@ -66,12 +75,10 @@ bool CreateWorld(GridSpace2d space_obj, float gravity, struct Universe *universe
     }
     out_world->objects = MakeLArray(object_count, sizeof(Newtonoid2d));
     out_world->collisions = MakeLArray(object_count, sizeof(Matrix2x2));
-    out_world->temp_objects = MakeLArray(object_count, sizeof(Newtonoid2d));
 
-    // Initialise per-world lookup maps and the delayed command queue.
+    // Initialise per-world spatial, collision, and delayed-command storage.
     out_world->entity_space_map = MakeFlatMapInt(1 + (int)(space_obj.space.cells.count / 5));
     out_world->resolved_collisions = MakeFlatMapInt(1 + (int)(out_world->entity_space_map.count / 2));
-    out_world->entity_world_index_registry = MakeFlatMapInt(1 + (int)(out_world->entity_space_map.count / 2));
     out_world->scheduled_world_cmds = MakeLArray(initObjectCount, sizeof(WorldCommand));
     InitJobSystem(256);
     return true;
@@ -91,7 +98,6 @@ void DestroyWorld(World2d *world)
     ClearDArray(&world->grid_space.space.cells);
     ClearFlatMapInt(&world->entity_space_map);
     ClearFlatMapInt(&world->resolved_collisions);
-    ClearFlatMapInt(&world->entity_world_index_registry);
     MemorySet(world, 0, sizeof(*world));
 }
 
@@ -106,14 +112,14 @@ void UpdateWorld(World2d *world, float delta_time)
     // Cache the per-frame maps and command storage used by the update passes.
     FlatMapInt *entity_space_map = &world->entity_space_map;
     FlatMapInt *resolved_collisions = &world->resolved_collisions;
-    FlatMapInt *entity_world_index_registry = &world->entity_world_index_registry;
     LArray *scheduled_world_cmds = &world->scheduled_world_cmds;
 
     // Run delayed world events first so deletions continue even when no
     // inhabitants remain in the world.
     RunScheduledWorldCmds(scheduled_world_cmds, world);
+    Portal_TickCooldowns(world);
 
-    int obj_count = objects->count + world->temp_objects.count;
+    int obj_count = objects->count;
     if (obj_count < 1)
         return;
 
@@ -135,31 +141,20 @@ void UpdateWorld(World2d *world, float delta_time)
 
     // Pass 1 is performed by PhysicsUpdateJob: integrate positions and
     // velocities, refresh AABBs, and insert each entity into the spatial grid.
-    LArray *temp_objects = &world->temp_objects;
 
     // Pass 2 resolves attachment hierarchies after parent simulation and before
     // collision processing, then remaps each moved child in the spatial grid.
     Newtonoid2d *child;
-    LArray_ForEach(temp_objects, Newtonoid2d *, child)
+    LArray_ForEach(objects, Newtonoid2d *, child)
     {
-        if (!(child->status_flags & ENTITY_STATUS_FLAG_ALIVE) || child->parent_id == space_entity->object.id)
-            continue;
-
-        // Look up where the parent currently lives in memory using the registry.
-        int parent_packed_loc = 0;
-        if (!FlatMapInt_GetValue(entity_world_index_registry, child->parent_id, &parent_packed_loc))
+        if (!(child->status_flags & ENTITY_STATUS_FLAG_ALIVE) || child->parent_id == space_entity->object.id ||
+            child->parent_id == INVALID_ENTITY_ID)
         {
-            // The parent was likely deleted! Detach or kill the child so it doesn't crash
-            child->parent_id = INVALID_ENTITY_ID;
             continue;
         }
 
-        // Unpack the routing information to access the correct backing array.
-        int parent_type = UNPACK_INT_HIGH(parent_packed_loc);
-        int parent_idx = UNPACK_INT_LOW(parent_packed_loc);
-        LArray *parent_array = (parent_type == ARCHETYPE_CLOCKED) ? temp_objects : objects;
-
-        Newtonoid2d *parent = (Newtonoid2d *)LArray_Get(parent_array, parent_idx);
+        // Resolve the parent through the generation-checked global slot map.
+        Newtonoid2d *parent = (Newtonoid2d *)GetEntityByID(world, child->parent_id);
         if (!parent)
         {
             child->parent_id = INVALID_ENTITY_ID;
@@ -317,7 +312,7 @@ void UpdateWorld(World2d *world, float delta_time)
 //    }
 
 //    int parent_index = 0;
-//    FlatMapInt_GetValue(context.entity_world_index_registry, a->parent_id, &parent_index);
+//    FlatMapInt_GetValue(context.entity_location_index, a->parent_id, &parent_index);
 
 //    // Base Case 2: Parent ID exists but can't be found/resolved in registry
 //    if (parent_index <= 0)

@@ -22,9 +22,10 @@ COMMON MODULE
 #include "math/cmath.h"
 #include "collections/dynamic_array.h"
 #include "collections/linear_array.h"
+#include "collections/slot_map.h"
 #include "associations/flat_map.h"
 #include <assert.h>
-#include "common/entity_id.h"
+#include "entities/entity_id.h"
 
 // Check if DEBUG is defined (usually passed by your compiler/IDE)
 // ANSI Escape Codes for Colors (Works beautifully in modern terminals/cmd)

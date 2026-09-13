@@ -13,6 +13,8 @@ NEWTONOID MODULE
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
+
+// Entity Type Flags: Define the broad category or role of an entity (e.g., wall, newtonoid, projectile, effect, camera)
 typedef enum EntityTypeFlags
 {
     ENTITY_FLAG_NONE = 0,
@@ -23,6 +25,7 @@ typedef enum EntityTypeFlags
     ENTITY_FLAG_CAMERA = 1 << 5,
 } EntityTypeFlags;
 
+// Entity Status Flags: Define the current state of an entity (e.g., alive, sleeping, clocked)
 typedef enum EntityStatusFlags
 {
     ENTITY_STATUS_FLAG_NONE = 0,
@@ -31,6 +34,7 @@ typedef enum EntityStatusFlags
     ENTITY_STATUS_FLAG_CLOCKED = 1 << 6,
 } EntityStatusFlags;
 
+// Entity Attribute Flags: Define special properties and behaviors for entities (e.g., damageable, sensor, rigid)
 typedef enum EntityAttributeFlags
 {
     ENTITY_ATTR_FLAG_NONE = 0,
@@ -39,20 +43,14 @@ typedef enum EntityAttributeFlags
     ENTITY_ATTR_FLAG_AFFECT_OWNER = 1 << 2,
     ENTITY_ATTR_FLAG_RIGID = 1 << 5,
     ENTITY_ATTR_FLAG_POSITION_LOCKED = 1 << 6,
+    ENTITY_ATTR_FLAG_SENSOR = 1 << 7, // Generates sensor interaction events when overlap is detected.
+    ENTITY_ATTR_FLAG_NO_CONTACT_RESPONSE = 1 << 8, // Suppresses physical collision impulses.
 } EntityAttributeFlags;
 
-typedef enum EntityArchetype
-{
-    ENTITY_ARCHETYPE_NONE,
-    ENTITY_ARCHETYPE_ROTOR,
-    ENTITY_ARCHETYPE_GEAR,
-    ENTITY_ARCHETYPE_PORTAL,
-} EntityArchetype;
-
-typedef EntityTypeFlags EntityFlags;
-typedef EntityTypeFlags EntityTypeFlag;
-typedef EntityStatusFlags EntityStatusFlag;
-typedef EntityAttributeFlags EntityAttributeFlag;
+// typedef EntityTypeFlags EntityFlags;
+// typedef EntityTypeFlags EntityTypeFlag;
+// typedef EntityStatusFlags EntityStatusFlag;
+// typedef EntityAttributeFlags EntityAttributeFlag;
 
 // DEFAULT COLOURS
 #define COLOUR_LINE_DEFAULT COLOUR_GAME_INK_RGBA
@@ -61,36 +59,6 @@ typedef EntityAttributeFlags EntityAttributeFlag;
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
-
-// 2D velocity state
-typedef struct Velocity2d
-{
-    Vector2d velocityXy;
-    float radians;
-    float magnitude;
-} Velocity2d;
-
-// 2D acceleration state
-typedef struct Acceleration2d
-{
-    Vector2d accelerationXy;
-    float radians;
-    float magnitude;
-} Acceleration2d;
-
-// 2D mommentum state
-typedef struct Momentum2d
-{
-    Vector2d momentumXy;
-    float radians;
-    float magnitude;
-} Momentum2d;
-
-typedef struct Box2d
-{
-    Vector2d coords;     // Box origin, usually the top-left corner for AABB/bounds helpers
-    Vector2d dimensions; // Width (x) and Height (y)
-} Box2d;
 
 // 2D Object with Newtonian properties; mass, position, velocity, acceleration, momentum
 // CACHE-OPTIMIZED LAYOUT: Hot fields (physics update) grouped at start for L1 cache efficiency
@@ -133,10 +101,9 @@ typedef struct Newtonoid2d
     ColourRgba line_colour;  // Outline color
     ColourRgba fill_colour;  // Fill color
     ShapeType shape_type;    // Shape classification for collision algorithms
-    EntityArchetype archetype; // Functional object classification
     int edge_count;          // Cached edge count
-    EntityFlags entity_flags;        // What AM I? (e.g., LAYER_PROJECTILE)
-    EntityFlags collision_mask;      // What can I HIT? (e.g., LAYER_ENEMY | LAYER_WALL)
+    EntityTypeFlags entity_flags;        // What AM I? (e.g., LAYER_PROJECTILE)
+    EntityTypeFlags collision_mask;      // What can I HIT? (e.g., LAYER_ENEMY | LAYER_WALL)
     EntityAttributeFlags attribute_flags; // Persistent gameplay capabilities (e.g., damageable)
     EntityStatusFlags status_flags;   // Runtime status flags (e.g., FLAG_POISONED)
     EntityId id;             // Universal entity ID
@@ -162,7 +129,6 @@ typedef struct Newtonoid2dParams
     // int edge_count;
     int vertice_count;
     ShapeType shape_type;
-    EntityArchetype archetype;
     ColourRgba line_colour;
     ColourRgba fill_colour;
     Surface2d surface;
@@ -176,28 +142,6 @@ typedef struct NewtonoidPrimitiveParams
     ColourRgba colour;
 } NewtonoidPrimitiveParams;
 
-typedef struct Newtonoid2d_Static
-{
-    Vector2d anchor_position;
-    Vector2d bounds_origin;
-    Surface2d surface;
-    float mass;
-    float inverse_mass;
-    EntityId id;
-    EntityId parent_id;
-} Newtonoid2d_Static;
-
-typedef enum
-{
-    NOTHING,
-    ID,
-    MASS,
-    VELOCITY,
-    ACCELERATION,
-    MOMENTUM,
-    POSITION,
-} NewtonProperty;
-
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)
 //----------------------------------------------------------------------------------
@@ -207,14 +151,10 @@ typedef enum
 //----------------------------------------------------------------------------------
 
 // Apply the entity flags, collision mask, attribute flags, status flags, and render colours for a Newtonoid.
-void Newtonoid_ConfigureMetadata(Newtonoid2d *object, EntityFlags entity_flags,
-                                 EntityFlags collision_mask, EntityAttributeFlags attribute_flags,
+void Newtonoid_ConfigureMetadata(Newtonoid2d *object, EntityTypeFlags entity_flags,
+                                 EntityTypeFlags collision_mask, EntityAttributeFlags attribute_flags,
                                  EntityStatusFlags status_flags,
                                  ColourRgba line_colour, ColourRgba fill_colour);
-// Configure an entity to accept collisions with every defined entity category.
-void Newtonoid_ConfigureUniversalCollisionMask(Newtonoid2d *object);
-// Configure an entity to reject collisions with every entity category.
-void Newtonoid_ConfigureNoCollisionMask(Newtonoid2d *object);
 // Set an entity's maximum and current health.
 void Newtonoid_ConfigureHealth(Newtonoid2d *object, float max_health);
 // Return whether an entity can receive damage.
@@ -227,18 +167,11 @@ void Newtonoid_SyncOrientationToVelocity(Newtonoid2d *object);
 void Newtonoid_ConfigureRestitution(Newtonoid2d *object, float restitution);
 // Configure an entity's tangential collision friction coefficient, clamped to zero or greater.
 void Newtonoid_ConfigureFriction(Newtonoid2d *object, float friction);
-// Configure a mass-bearing entity for fixed-position rotation.
-void Newtonoid_ConfigureRotor(Newtonoid2d *object);
-// Configure a portal entity's continuous rotational behaviour.
-void Newtonoid_ConfigurePortal(Newtonoid2d *object);
 Newtonoid2d CreateNewtonoid2d(float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration, Surface2d surface);
-Newtonoid2d *CreateNewtonoid2d_Reference(float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration, Surface2d surface);
+// Create an allocated Newtonoid directly, transferring surface ownership on success.
+Newtonoid2d *CreateNewtonoid2d_Allocated(float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration, Surface2d surface);
 Newtonoid2d CreateNewtonoid2d_Symmetric(int vertice_count, float radius, ColourRgba colour, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration);
 Newtonoid2d CreateNewtonoid2d_Irregular(int vertice_count, float min_radius, float max_radius, ColourRgba colour, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration);
-Newtonoid2d CreateNewtonoid2d_Rotor(int blade_count, Vector2d dimensions, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration);
-Newtonoid2d CreateNewtonoid2d_Gear(int tooth_count, Vector2d dimensions, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration);
-// Create a rotating ellipse-shaped portal from full width and height dimensions.
-Newtonoid2d CreateNewtonoid2d_Portal(Vector2d dimensions, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration);
 // Create a coloured Newtonoid from one of the reusable primitive entity shapes.
 Newtonoid2d CreateNewtonoid2d_Primitive(ShapeType shape_type, NewtonoidPrimitiveParams primitive_params,
                                          float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration);

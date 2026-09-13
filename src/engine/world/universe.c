@@ -13,6 +13,7 @@ UNIVERSE MODULE
 #include "math/affine_space_ops.h"
 #include "common/common.h"
 #include "camera/camera.h"
+#include "entities/entity_registry.h"
 
 void DrawNewtonoids(LArray *newtonoids, Matrix3x3 space_to_pixel_mtx);
 
@@ -128,7 +129,6 @@ void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_wor
 {
     u->world_count = 0;
     u->selected_world_index = -1;
-    u->next_entity_id = 1;
 
     for (int i = 0; i < UNIVERSE_MAX_WORLDS; i++)
     {
@@ -158,16 +158,6 @@ void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_wor
     CreateAndBindWorld(u, root_space, 0.0f, &u->camera.frame, &u->root_world);
     // Pure container: not drawn as a grid, not selectable/draggable, not physics-ticked.
     u->root_world.flags = WORLD_FLAG_ACTIVE;
-}
-
-EntityId Universe_AllocateEntityId(Universe *u)
-{
-    if (!u || u->next_entity_id == INVALID_ENTITY_ID)
-    {
-        return INVALID_ENTITY_ID;
-    }
-
-    return u->next_entity_id++;
 }
 
 // ---------------------------------------------------------------------------
@@ -260,6 +250,7 @@ bool Universe_DeleteWorld(Universe *u, int index)
 
     DestroyWorld(&u->worlds[index]);
 
+    // Compact the world array by shifting all worlds after the deleted one down by one slot.
     int last_world_index = u->world_count - 1;
     for (int world_index = index; world_index < last_world_index; world_index++)
     {
@@ -406,64 +397,45 @@ int Universe_FindWorldAt(const Universe *u, Vector2d universe_point)
     return -1;
 }
 
-// Maps a 0..world_count logical index to a world, with world_count itself meaning root.
-static World2d *Universe_GetWorldByLogicalIndex(const Universe *u, int logical_index, int *world_index_out)
-{
-    if (logical_index < u->world_count)
-    {
-        if (world_index_out)
-        {
-            *world_index_out = logical_index;
-        }
-        return (World2d *)&u->worlds[logical_index];
-    }
-
-    if (world_index_out)
-    {
-        *world_index_out = UNIVERSE_ROOT_WORLD_INDEX;
-    }
-    return (World2d *)&u->root_world;
-}
-
 Newtonoid2d *Universe_GetEntityByID(const Universe *u, EntityId entity_id, int *world_index_out)
 {
-    if (!u || entity_id == INVALID_ENTITY_ID)
+    if (!u)
     {
         return NULL;
     }
 
-    for (int i = 0; i <= u->world_count; i++)
+    // Determine the world that owns the entity.
+    EntityId world_id = EntityRegistry_GetEntityWorldId(entity_id);
+    if (world_id == INVALID_ENTITY_ID)
     {
-        int world_index;
-        World2d *world = Universe_GetWorldByLogicalIndex(u, i, &world_index);
-        Newtonoid2d *entity = (Newtonoid2d *)GetEntityByID(world, entity_id);
-        if (entity)
-        {
-            if (world_index_out)
-            {
-                *world_index_out = world_index;
-            }
-            return entity;
-        }
+        return NULL;
     }
 
-    return NULL;
+    // Retrieve the entity from the registry.
+    Newtonoid2d *entity = EntityRegistry_GetEntity(entity_id);
+    if (!entity)
+    {
+        return NULL;
+    }
+
+    if (world_index_out)
+    {
+        *world_index_out = Universe_GetWorldIndexById(u, world_id);
+    }
+
+    return entity;
 }
 
 // Confirm both entity identity and the world that currently owns the entity.
-bool Universe_IsEntityOwnedByWorld(const Universe *u, const World2d *world,
-                                   const Newtonoid2d *entity)
+bool Universe_IsEntityOwnedByWorld(const Universe *u, const World2d *world, const Newtonoid2d *entity)
 {
     if (!u || !world || !entity)
     {
         return false;
     }
 
-    int owner_world_index = UNIVERSE_ROOT_WORLD_INDEX;
-    Newtonoid2d *resolved_entity = Universe_GetEntityByID(u, entity->id,
-                                                          &owner_world_index);
-    World2d *owner_world = Universe_GetWorld((Universe *)u, owner_world_index);
-    return resolved_entity == entity && owner_world == world;
+    return EntityRegistry_GetEntityWorldId(entity->id) == world->grid_space.object.id &&
+           EntityRegistry_GetEntity(entity->id) == entity;
 }
 
 // ---------------------------------------------------------------------------
@@ -472,7 +444,6 @@ void Universe_Draw(Universe *u)
     // Root world's local space is universe space, so the universe->pixel matrix applies directly.
     Matrix3x3 universe_to_pixel_mtx = ResolveWorldToPixelMatrix(&u->root_world, &u->camera);
     DrawNewtonoids(&u->root_world.objects, universe_to_pixel_mtx);
-    DrawNewtonoids(&u->root_world.temp_objects, universe_to_pixel_mtx);
     GeometryEditor_DrawHandles(&u->root_world, &u->camera);
 
     for (int i = 0; i < u->world_count; i++)
@@ -542,6 +513,54 @@ World2d *Universe_GetWorld(Universe *u, int index)
     if (index < 0 || index >= u->world_count)
         return NULL;
     return &u->worlds[index];
+}
+
+// Resolve a stable world root ID to the current world-array address.
+World2d *Universe_GetWorldById(Universe *u, EntityId world_id)
+{
+    if (!u || world_id == INVALID_ENTITY_ID)
+    {
+        return NULL;
+    }
+
+    if (u->root_world.grid_space.object.id == world_id)
+    {
+        return &u->root_world;
+    }
+
+    for (int world_index = 0; world_index < u->world_count; world_index++)
+    {
+        if (u->worlds[world_index].grid_space.object.id == world_id)
+        {
+            return &u->worlds[world_index];
+        }
+    }
+
+    return NULL;
+}
+
+// Resolve a stable world root ID to the command-queue index expected by movement APIs.
+int Universe_GetWorldIndexById(const Universe *u, EntityId world_id)
+{
+    if (!u || world_id == INVALID_ENTITY_ID)
+    {
+        return -1;
+    }
+
+    if (u->root_world.grid_space.object.id == world_id)
+    {
+        return UNIVERSE_ROOT_WORLD_INDEX;
+    }
+
+    for (int world_index = 0; world_index < u->world_count; world_index++)
+    {
+        if (u->worlds[world_index].grid_space.object.id == world_id)
+        {
+            return world_index;
+        }
+    }
+
+    return -1;
 }
 
 // ---------------------------------------------------------------------------

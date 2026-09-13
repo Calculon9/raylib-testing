@@ -19,10 +19,9 @@ Matrix3x3 ResolveWorldToPixelMatrix(const World2d *world, const Camera2d *univer
 Matrix3x3 ResolvePixelToWorldMatrix(const World2d *world, const Camera2d *universe_camera);
 Vector2d ResolvePixelToWorldFrame(const World2d *active_world, Vector2d pixel_coords);
 
-// Entity registry / lookup helpers
+// Entity storage and lookup helpers
 // Release entity-owned nested surface data and entity arrays for a world.
 void DestroyWorldEntityStorage(World2d *world);
-void UpdateEntityWorldRegistry(FlatMapInt *entity_world_index_registry, EntityId entity_id, int type_flag, int entity_arr_index);
 EntityId RegisterEntity(World2d *world, Newtonoid2d *entity);
 void DeregisterEntity(World2d *world, EntityId object_id);
 void StickEntity(World2d *world, Newtonoid2d *child, Newtonoid2d *parent);
@@ -50,8 +49,8 @@ CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b);
 bool CheckForCollision_AABB(Newtonoid2d a, Newtonoid2d b);
 void ResolveCollision(Newtonoid2d *a, Newtonoid2d *b);
 void ResolveCollision_WithRotation(Newtonoid2d *a, Newtonoid2d *b, Vector2d collision_normal,
-                                   Vector2d contact_point, float penetration_depth);
-void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container);
+                                   Vector2d contact_point, float penetration_depth, float support_normal_impulse);
+void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container, Vector2d environmental_acceleration, float delta_time);
 bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, int cell_i, FlatMapInt *resolved_collisions, LArray *scheduled_world_cmds);
 
 #endif // WORLD_INTERNAL_H

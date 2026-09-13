@@ -121,7 +121,7 @@ void WriteTextboxVectorPair(UIElement *textbox, Vector2d value)
         return;
     }
 
-    UpdateString64(textbox->data.textbox.text.string, "(%.1f,%.1f)", value.x, value.y);
+    UpdateString64(textbox->data.textbox.text.string, "(%.2f,%.2f)", value.x, value.y);
 }
 
 void WriteTextboxNumberIfUnfocused(UIElement *textbox, float value, int precision)
@@ -259,7 +259,7 @@ void PipelineVectorToText(Vector2d input_vector, char *target_buffer, size_t tar
     if (!target_buffer)
         return;
 
-    snprintf(target_buffer, target_buffer_bytes, "(%.1f,%.1f)", input_vector.x, input_vector.y);
+    snprintf(target_buffer, target_buffer_bytes, "(%.2f,%.2f)", input_vector.x, input_vector.y);
 }
 
 // Writes vector components as "x.y"

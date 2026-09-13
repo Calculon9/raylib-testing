@@ -389,7 +389,6 @@ void DrawWorldRegion(World2d *world, Camera2d *universe_camera)
 
     DrawGridSpace(&world->grid_space, world_to_pixel_mtx);
     DrawNewtonoids(&world->objects, world_to_pixel_mtx);
-    DrawNewtonoids(&world->temp_objects, world_to_pixel_mtx);
     GeometryEditor_DrawHandles(world, universe_camera);
     // DrawCollisions(&world->collisions, world_to_pixel_mtx);
 }

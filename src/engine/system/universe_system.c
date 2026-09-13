@@ -21,6 +21,7 @@ UNIVERSE SYSTEM MODULE
 #include "system/ui/popup_menu.h"
 #include "system/command_queue.h"
 #include "world/world_internal.h"
+#include "entities/entity_registry.h"
 
 static int create_world_auto_select = 0;
 static bool camera_diagnostic_printed = false;
@@ -103,6 +104,7 @@ void InitUniverseSystem(void)
 {
     extern float gravity;
 
+    EntityRegistry_Init();
     Vector2d universe_resolution = UniverseRenderer_GetResolution();
     G_Universe.resolution = universe_resolution;
     Universe_Init(&G_Universe, ZERO_VECTOR_2D, (Vector2d){7, 5}, gravity);

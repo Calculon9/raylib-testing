@@ -8,6 +8,7 @@
 #include "ui/ui_constructors.h"
 #include "system/panel_system.h"
 #include "system/utility_system.h"
+#include "entities/entity_registry.h"
 
 // ============================================================================
 // Panel System
@@ -299,7 +300,7 @@ void DrawRPanel(void)
         }
         if (rpanel_world_next_id_tbox)
         {
-            WriteTextboxInt(rpanel_world_next_id_tbox, G_Universe.next_entity_id);
+            WriteTextboxInt(rpanel_world_next_id_tbox, EntityRegistry_GetNextId());
         }
     }
     else

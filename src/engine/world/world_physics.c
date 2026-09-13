@@ -6,6 +6,8 @@
 
 #include "world/world_internal.h"
 #include "combat/projectile.h"
+#include "entities/entity_registry.h"
+#include "mechanics/portal.h"
 
 // Find the scalar projection interval of a polygon onto an axis. SAT reduces
 // each 2D shape to this 1D interval using projection = vertex dot unit_axis.
@@ -234,48 +236,40 @@ void PhysicsUpdateJob(void *context, int start, int end)
     Space2d *space = &space_entity->space;
     FlatMapInt *entity_space_map = &world->entity_space_map;
 
-    LArray *object_arrays[] = {&world->objects, &world->temp_objects};
-    int global_index = 0;
-    for (size_t array_index = 0; array_index < 2; array_index++)
+    LArray *objects = &world->objects;
+    Newtonoid2d *newtonoids = (Newtonoid2d *)objects->items;
+    for (int index = start; index < end && index < (int)objects->count; index++)
     {
-        LArray *objects = object_arrays[array_index];
-        Newtonoid2d *newtonoids = (Newtonoid2d *)objects->items;
-        for (int index = 0; index < (int)objects->count; index++, global_index++)
+        Newtonoid2d *obj = &newtonoids[index];
+
+        if (!(obj->status_flags & ENTITY_STATUS_FLAG_ALIVE) || (obj->entity_flags & ENTITY_FLAG_EFFECT) || obj->parent_id != space_entity->object.id)
+            continue;
+
+        // Gravity is an environmental acceleration added for this step only;
+        // restore authored acceleration afterwards so it is not accumulated
+        // repeatedly into the entity's persistent state.
+        Vector2d authored_acceleration = obj->acceleration;
+        if (!(obj->attribute_flags & ENTITY_ATTR_FLAG_POSITION_LOCKED))
         {
-            if (global_index < start || global_index >= end)
-            {
-                continue;
-            }
-
-            Newtonoid2d *obj = &newtonoids[index];
-
-            if (!(obj->status_flags & ENTITY_STATUS_FLAG_ALIVE) || (obj->entity_flags & ENTITY_FLAG_EFFECT) || obj->parent_id != space_entity->object.id)
-                continue;
-
-            // Gravity is an environmental acceleration added for this step only;
-            // restore authored acceleration afterwards so it is not accumulated
-            // repeatedly into the entity's persistent state.
-            Vector2d authored_acceleration = obj->acceleration;
-            if (!(obj->attribute_flags & ENTITY_ATTR_FLAG_POSITION_LOCKED))
-            {
-                obj->acceleration.y += world->gravity;
-            }
-            CalcVectors(obj, frame_counter.delta_time);
-            obj->acceleration = authored_acceleration;
-
-            // Map the post-integration position so rendering, hit-testing, and the
-            // collision broad phase all observe the same location. Use transformed
-            // vertices so rotation cannot make the grid footprint too small.
-            Vector2d world_vertices[MAX_SHAPE_VERTICES] = {0};
-            UpdateEntityBounds(obj, world_vertices);
-            Vector2d snapped_aabb_verts[4] = {0};
-            CalcSnappedAABB_Vertices(world_vertices, obj->surface.surface_vectors.count,
-                                     ZERO_VECTOR_2D, space->frame.basis, snapped_aabb_verts);
-            Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
-            MapEntityToASpace(space, obj, snapped_aabb_box, entity_space_map);
-            ResolveCollision_ContainerRect(obj, &space_entity->object);
-            Newtonoid_SyncOrientationToVelocity(obj);
+            obj->acceleration.y += world->gravity;
         }
+        CalcVectors(obj, frame_counter.delta_time);
+        obj->acceleration = authored_acceleration;
+
+        // Map the post-integration position so rendering, hit-testing, and the
+        // collision broad phase all observe the same location. Use transformed
+        // vertices so rotation cannot make the grid footprint too small.
+        Vector2d world_vertices[MAX_SHAPE_VERTICES] = {0};
+        UpdateEntityBounds(obj, world_vertices);
+        Vector2d snapped_aabb_verts[4] = {0};
+        CalcSnappedAABB_Vertices(world_vertices, obj->surface.surface_vectors.count,
+                                 ZERO_VECTOR_2D, space->frame.basis, snapped_aabb_verts);
+        Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
+        MapEntityToASpace(space, obj, snapped_aabb_box, entity_space_map);
+        ResolveCollision_ContainerRect(obj, &space_entity->object,
+                           (Vector2d){0.0f, world->gravity},
+                           frame_counter.delta_time);
+        Newtonoid_SyncOrientationToVelocity(obj);
     }
 }
 
@@ -454,6 +448,29 @@ bool EntityIsEligbleForSpatialMap(const Newtonoid2d *entity)
             !(entity->entity_flags & ENTITY_FLAG_EFFECT);
 }
 
+// Dispatches interaction behaviour between a sensor trigger volume and an entrant entity.
+// SENSOR is deliberately independent from contact response: a sensor may still
+// continue into normal projectile and rigid-body handling after this callback.
+static void DispatchSensorTrigger(World2d *world, Newtonoid2d *sensor, Newtonoid2d *entrant,
+                                  const CollisionResult_SAT *collision_result)
+{
+    (void)collision_result;
+    if (!world || !sensor || !entrant)
+    {
+        return;
+    }
+
+    // Portal sensor: trigger teleportation to the paired destination portal.
+    EntityComponent *portal_component = EntityRegistry_GetComponent(sensor->id, ENTITY_COMPONENT_PORTAL);
+    if (portal_component)
+    {
+        Portal_RequestTeleport(world->universe, sensor->id, entrant->id);
+        return;
+    }
+
+    // Additional sensor types (hazards, checkpoints, pickups) can be dispatched here by component type.
+}
+
 // Process one candidate pair from the spatial broad phase and apply the
 // projectile and physical responses after narrow-phase collision confirmation.
 bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, int cell_i,
@@ -490,13 +507,47 @@ bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, 
         return false;
     }
 
-    // Collision masks are a cheap compatibility filter. SAT remains necessary
-    // because sharing a broad-phase cell does not prove surface intersection.
-    if (!(a->collision_mask & b->entity_flags) || !(b->collision_mask & a->entity_flags))
-        return false;
+    // Sensors must still be checked while sleeping because overlap can trigger
+    // gameplay behaviour. Ordinary sleeping pairs have no active motion that
+    // needs a response, so mark them resolved without running SAT or impulses.
+    bool a_is_sensor = (a->attribute_flags & ENTITY_ATTR_FLAG_SENSOR) != 0;
+    bool b_is_sensor = (b->attribute_flags & ENTITY_ATTR_FLAG_SENSOR) != 0;
+    if (!a_is_sensor && !b_is_sensor && (a->status_flags & ENTITY_STATUS_FLAG_SLEEPING) && (b->status_flags & ENTITY_STATUS_FLAG_SLEEPING))
+    {
+        FlatMapInt_InsertOrUpdate(resolved_collisions, obj_pair_hash_key, 1);
+        return true;
+    }
 
     CollisionResult_SAT collision_result = CheckForCollision_SAT(a, b);
     if (!collision_result.is_colliding)
+        return false;
+
+    // Sensors generate gameplay interaction events independently of physical
+    // response. A pair with two sensors does not select an entrant, but it may
+    // still continue into solid handling if neither side suppresses response.
+    if (a_is_sensor || b_is_sensor)
+    {
+        if (a_is_sensor != b_is_sensor)
+        {
+            Newtonoid2d *sensor = a_is_sensor ? a : b;
+            Newtonoid2d *entrant = a_is_sensor ? b : a;
+            DispatchSensorTrigger(world, sensor, entrant, &collision_result);
+        }
+
+        // Sensor interaction and physical contact are separate capabilities.
+        // Only an explicit no-contact flag prevents impulses and projectile
+        // collision handling from running after the sensor callback.
+        if ((a->attribute_flags & ENTITY_ATTR_FLAG_NO_CONTACT_RESPONSE) ||
+            (b->attribute_flags & ENTITY_ATTR_FLAG_NO_CONTACT_RESPONSE))
+        {
+            FlatMapInt_InsertOrUpdate(resolved_collisions, obj_pair_hash_key, 1);
+            return true;
+        }
+    }
+
+    // Collision masks are a cheap compatibility filter. SAT has already
+    // confirmed the polygons overlap, removing broad-phase false positives.
+    if (!(a->collision_mask & b->entity_flags) || !(b->collision_mask & a->entity_flags))
         return false;
 
     ProjectileCollisionResult projectile_result = Projectile_HandleCollision(world, a, b);
@@ -517,9 +568,8 @@ bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, 
     // friction, including projectiles that are consumed after impact.
     // Owner-overlap contacts intentionally skip both damage and momentum
     // transfer through the IGNORED result above.
-    ResolveCollision_WithRotation(a, b, collision_result.collision_normal,
-                                  collision_result.contact_point,
-                                  collision_result.penetration_depth);
+    ResolveCollision_WithRotation(a, b, collision_result.collision_normal, collision_result.contact_point,
+                                  collision_result.penetration_depth, 0.0f);
     FlatMapInt_InsertOrUpdate(resolved_collisions, obj_pair_hash_key, 1);
 
     // Create a short-lived effect at the reported support vertex for debugging.
@@ -637,9 +687,9 @@ void ResolveCollision(Newtonoid2d *a, Newtonoid2d *b)
     }
 }
 
-// Resolve a polygon collision using a single world-space contact impulse.
+// Resolve a polygon collision using a normal and tangential contact impulse.
 void ResolveCollision_WithRotation(Newtonoid2d *a, Newtonoid2d *b, Vector2d collision_normal,
-                                   Vector2d contact_point, float penetration_depth)
+                                   Vector2d contact_point, float penetration_depth, float support_normal_impulse)
 {
     if (!a || !b)
         return;
@@ -676,77 +726,81 @@ void ResolveCollision_WithRotation(Newtonoid2d *a, Newtonoid2d *b, Vector2d coll
     Vector2d velocity_a_at_contact = CalcVelocityAtPoint(a, radius_a);
     Vector2d velocity_b_at_contact = CalcVelocityAtPoint(b, radius_b);
 
-    // Relative normal speed determines whether the bodies are approaching. With
-    // normal directed from A to B, a positive (v_a - v_b) dot normal means A is
-    // moving into B and therefore needs an impulse.
+    // Split the contact response into normal and tangential parts. Restitution
+    // belongs only to the normal impact impulse; friction is solved separately
+    // below so a resting body can still lose tangential and angular motion.
     Vector2d relative_contact_velocity = VectorDiff_2d(velocity_a_at_contact, velocity_b_at_contact);
     float normal_speed = VectorDot_2d(relative_contact_velocity, collision_normal);
 
-    // A separating contact needs no impulse. The angular terms in the effective inverse mass account for the rotational resistance to impulse.
-    if (normal_speed <= 0.0f)
-        return;
-
     float radius_a_cross_normal = VectorCross_2d(radius_a, collision_normal);
     float radius_b_cross_normal = VectorCross_2d(radius_b, collision_normal);
-    float effective_inverse_mass = total_inv_mass +
-                                   (radius_a_cross_normal * radius_a_cross_normal * a->inverse_inertia) +
+    float effective_inverse_mass = total_inv_mass + (radius_a_cross_normal * radius_a_cross_normal * a->inverse_inertia) +
                                    (radius_b_cross_normal * radius_b_cross_normal * b->inverse_inertia);
-    if (effective_inverse_mass <= 0.0f)
-        return;
+    float normal_impulse_magnitude = 0.0f;
+    bool contact_impulse_applied = false;
 
-    float restitution = CalcCollisionRestitution(a, b);
-    float impulse_magnitude = CalcRestitutionImpulseMagnitude(normal_speed, effective_inverse_mass, restitution);
-    Vector2d impulse = VectorScale_2d(collision_normal, impulse_magnitude);
+    // A positive normal speed means the bodies are approaching. Only that
+    // impact case receives restitution; a separating or resting contact skips
+    // this phase but continues to the independent tangential solve.
+    if (normal_speed > 0.0f && effective_inverse_mass > 0.0f)
+    {
+        float restitution = CalcCollisionRestitution(a, b);
+        float normal_impulse = CalcRestitutionImpulseMagnitude(
+            normal_speed, effective_inverse_mass, restitution);
+        normal_impulse_magnitude = fabsf(normal_impulse);
+        Vector2d impulse = VectorScale_2d(collision_normal, normal_impulse);
 
-    // Apply equal and opposite linear impulses to conserve linear momentum.
-    a->velocity = VectorSum_2d(a->velocity, VectorScale_2d(impulse, a->inverse_mass));
-    b->velocity = VectorSum_2d(b->velocity, VectorScale_2d(impulse, -b->inverse_mass));
+        // Apply equal and opposite linear impulses to conserve linear momentum.
+        a->velocity = VectorSum_2d(a->velocity, VectorScale_2d(impulse, a->inverse_mass));
+        b->velocity = VectorSum_2d(b->velocity, VectorScale_2d(impulse, -b->inverse_mass));
 
-    // The impulse moment changes angular momentum: delta omega is the scalar
-    // cross product of the contact radius and impulse times inverse inertia.
-    a->angular_velocity += VectorCross_2d(radius_a, impulse) * a->inverse_inertia;
-    b->angular_velocity -= VectorCross_2d(radius_b, impulse) * b->inverse_inertia;
+        // An off-centre normal impulse also changes angular momentum.
+        a->angular_velocity += VectorCross_2d(radius_a, impulse) * a->inverse_inertia;
+        b->angular_velocity -= VectorCross_2d(radius_b, impulse) * b->inverse_inertia;
+        contact_impulse_applied = true;
 
-    // Recalculate contact velocity after the normal impulse because its torque
-    // can change angular velocity at an off-centre Rotor contact.
-    velocity_a_at_contact = CalcVelocityAtPoint(a, radius_a);
-    velocity_b_at_contact = CalcVelocityAtPoint(b, radius_b);
-    relative_contact_velocity = VectorDiff_2d(velocity_a_at_contact, velocity_b_at_contact);
+        // Recalculate contact velocity because the normal impulse can change
+        // angular velocity at an off-centre contact.
+        velocity_a_at_contact = CalcVelocityAtPoint(a, radius_a);
+        velocity_b_at_contact = CalcVelocityAtPoint(b, radius_b);
+        relative_contact_velocity = VectorDiff_2d(velocity_a_at_contact, velocity_b_at_contact);
+    }
 
     // Apply a tangential impulse to oppose sliding at the contact point. The
     // rotational terms allow friction to transfer angular motion into linear
-    // motion, while the Coulomb limit prevents friction exceeding the normal
-    // contact impulse.
+    // motion, while the Coulomb limit prevents friction exceeding the available
+    // normal reaction. For a resting boundary contact, support_normal_impulse
+    // represents the floor's reaction to gravity because there is no impact
+    // impulse to provide the friction limit.
     Vector2d tangent = (Vector2d){-collision_normal.y, collision_normal.x};
     float tangent_speed = VectorDot_2d(relative_contact_velocity, tangent);
     float radius_a_cross_tangent = VectorCross_2d(radius_a, tangent);
     float radius_b_cross_tangent = VectorCross_2d(radius_b, tangent);
-    float effective_tangent_inverse_mass = total_inv_mass +
-                                           (radius_a_cross_tangent * radius_a_cross_tangent * a->inverse_inertia) +
+    float effective_tangent_inverse_mass = total_inv_mass +(radius_a_cross_tangent * radius_a_cross_tangent * a->inverse_inertia) +
                                            (radius_b_cross_tangent * radius_b_cross_tangent * b->inverse_inertia);
     if (effective_tangent_inverse_mass > 0.0f)
     {
         float friction = CalcCollisionFriction(a, b);
+        float available_normal_impulse = fmaxf(normal_impulse_magnitude, fmaxf(support_normal_impulse, 0.0f));
         float friction_impulse_magnitude = CalcFrictionImpulseMagnitude(
-            tangent_speed, effective_tangent_inverse_mass, impulse_magnitude, friction);
+            tangent_speed, effective_tangent_inverse_mass, available_normal_impulse, friction);
         Vector2d friction_impulse = VectorScale_2d(tangent, friction_impulse_magnitude);
 
-        a->velocity = VectorSum_2d(a->velocity,
-                                   VectorScale_2d(friction_impulse, a->inverse_mass));
-        b->velocity = VectorSum_2d(b->velocity,
-                                   VectorScale_2d(friction_impulse, -b->inverse_mass));
+        a->velocity = VectorSum_2d(a->velocity, VectorScale_2d(friction_impulse, a->inverse_mass));
+        b->velocity = VectorSum_2d(b->velocity, VectorScale_2d(friction_impulse, -b->inverse_mass));
         a->angular_velocity += VectorCross_2d(radius_a, friction_impulse) * a->inverse_inertia;
         b->angular_velocity -= VectorCross_2d(radius_b, friction_impulse) * b->inverse_inertia;
+        contact_impulse_applied |= fabsf(friction_impulse_magnitude) > 0.0f;
     }
 
     // Keep the cached linear momentum consistent with the updated velocities.
     a->momentum = VectorScale_2d(a->velocity, a->mass);
     b->momentum = VectorScale_2d(b->velocity, b->mass);
-    if (a_was_sleeping)
+    if (contact_impulse_applied && a_was_sleeping)
     {
         WakeUp(a);
     }
-    if (b_was_sleeping)
+    if (contact_impulse_applied && b_was_sleeping)
     {
         WakeUp(b);
     }
@@ -757,7 +811,8 @@ void ResolveCollision_WithRotation(Newtonoid2d *a, Newtonoid2d *b, Vector2d coll
     Newtonoid_SyncOrientationToVelocity(b);
 }
 
-void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container)
+void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container,
+                                    Vector2d environmental_acceleration, float delta_time)
 {
     if (!entity || !container || entity->parent_id != container->id)
         return;
@@ -823,9 +878,17 @@ void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container)
         // The boundary normal points into the container, whereas the shared
         // resolver expects a normal directed from the entity towards body B.
         Vector2d entity_to_container_normal = VectorScale_2d(inward_normal, -1.0f);
-        ResolveCollision_WithRotation(entity, container,
-                                      entity_to_container_normal,
-                                      contact_point, penetration_depth);
+        float inward_acceleration = VectorDot_2d(environmental_acceleration, entity_to_container_normal);
+        float support_normal_impulse = 0.0f;
+        if (inward_acceleration > 0.0f && delta_time > 0.0f && entity->mass > 0.0f)
+        {
+            // A resting contact still needs a normal reaction to support the
+            // body's weight. Convert that reaction force into the impulse that
+            // Coulomb friction may use to slow sliding and angular motion.
+            support_normal_impulse = entity->mass * inward_acceleration * delta_time;
+        }
+        ResolveCollision_WithRotation(entity, container, entity_to_container_normal,
+                                      contact_point, penetration_depth, support_normal_impulse);
     }
 }
 
@@ -947,31 +1010,27 @@ void RefreshWorldSpatialMap(World2d *world)
     ResetFlatMapInt(&world->entity_space_map);
     ResetSpaceCells(space);
 
-    LArray *object_arrays[] = {&world->objects, &world->temp_objects};
-    for (size_t array_index = 0; array_index < 2; array_index++)
+    LArray *object_array = &world->objects;
+    Newtonoid2d *objects = (Newtonoid2d *)object_array->items;
+    for (size_t index = 0; index < object_array->count; index++)
     {
-        LArray *object_array = object_arrays[array_index];
-        Newtonoid2d *objects = (Newtonoid2d *)object_array->items;
-        for (size_t index = 0; index < object_array->count; index++)
+        Newtonoid2d *object = &objects[index];
+        if (!EntityIsEligbleForSpatialMap(object) ||
+            object->parent_id != world->grid_space.object.id)
         {
-            Newtonoid2d *object = &objects[index];
-            if (!EntityIsEligbleForSpatialMap(object) ||
-                object->parent_id != world->grid_space.object.id)
-            {
-                continue;
-            }
-
-            Vector2d world_vertices[MAX_SHAPE_VERTICES] = {0};
-            UpdateEntityBounds(object, world_vertices);
-            Vector2d snapped_aabb_verts[4] = {0};
-            CalcSnappedAABB_Vertices(world_vertices,
-                                     object->surface.surface_vectors.count,
-                                     ZERO_VECTOR_2D,
-                                     space->frame.basis,
-                                     snapped_aabb_verts);
-            Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
-            MapEntityToASpace(space, object, snapped_aabb_box, &world->entity_space_map);
+            continue;
         }
+
+        Vector2d world_vertices[MAX_SHAPE_VERTICES] = {0};
+        UpdateEntityBounds(object, world_vertices);
+        Vector2d snapped_aabb_verts[4] = {0};
+        CalcSnappedAABB_Vertices(world_vertices,
+                                 object->surface.surface_vectors.count,
+                                 ZERO_VECTOR_2D,
+                                 space->frame.basis,
+                                 snapped_aabb_verts);
+        Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
+        MapEntityToASpace(space, object, snapped_aabb_box, &world->entity_space_map);
     }
 }
 

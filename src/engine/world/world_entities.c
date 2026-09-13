@@ -6,16 +6,7 @@
 
 #include "world/world_internal.h"
 #include "world/universe.h"
-
-static LArray *GetWorldObjectArrayForArchetype(World2d *world, ArchetypeID array_type)
-{
-    if (!world)
-    {
-        return NULL;
-    }
-
-    return (array_type == ARCHETYPE_CLOCKED) ? &world->temp_objects : &world->objects;
-}
+#include "entities/entity_registry.h"
 
 static void FreeEntitySurfaceVectors(Newtonoid2d *entity)
 {
@@ -28,7 +19,7 @@ static void FreeEntitySurfaceVectors(Newtonoid2d *entity)
     ClearLArray(&entity->surface.surface_vectors);
 }
 
-// Free every entity surface and the backing allocation of an entity array.
+// Free every entity component, surface, and backing allocation of an entity array.
 static void FreeWorldEntityArray(LArray *entities)
 {
     if (!entities)
@@ -39,13 +30,17 @@ static void FreeWorldEntityArray(LArray *entities)
     for (int entity_index = 0; entity_index < entities->count; entity_index++)
     {
         Newtonoid2d *entity = (Newtonoid2d *)LArray_Get(entities, entity_index);
+        if (entity)
+        {
+            EntityRegistry_ReleaseId(entity->id);
+        }
         FreeEntitySurfaceVectors(entity);
     }
 
     ClearLArray(entities);
 }
 
-// Release entity-owned nested surface data and the two entity arrays for a world.
+// Release entity-owned nested surface data and the entity array for a world.
 void DestroyWorldEntityStorage(World2d *world)
 {
     if (!world)
@@ -55,7 +50,7 @@ void DestroyWorldEntityStorage(World2d *world)
 
     FreeEntitySurfaceVectors(&world->grid_space.object);
     FreeWorldEntityArray(&world->objects);
-    FreeWorldEntityArray(&world->temp_objects);
+    EntityRegistry_ReleaseId(world->grid_space.object.id);
 }
 
 // Add an entity after validating its world position and initial spatial cell.
@@ -146,87 +141,78 @@ void ClearObjectFlag(World2d *world, EntityId object_id, int flag_to_update)
     object->status_flags = object->status_flags & inverse_flag;
 }
 
-void UpdateEntityWorldRegistry(FlatMapInt *entity_world_index_registry, EntityId entity_id, int type_flag, int entity_arr_index)
-{
-    int max_type = (1 << PACKED_INT_HIGH_BITS) - 1;
-    int max_index = (1 << PACKED_INT_LOW_BITS) - 1;
-
-    assert(type_flag <= max_type && "Engine Error: type flag exceeds maximum capacity for high bits");
-    assert(entity_arr_index <= max_index && "Engine Error: Array index exceeds maximum capacity for low bits.");
-
-    int packed = PACK_INTS(entity_arr_index, type_flag);
-    FlatMapInt_InsertOrUpdate(entity_world_index_registry, entity_id, packed);
-}
-
 EntityId RegisterEntity(World2d *world, Newtonoid2d *entity)
 {
-    ArchetypeID array_type;
-
-    if (!(entity->status_flags & ENTITY_STATUS_FLAG_CLOCKED))
-    {
-        array_type = ARCHETYPE_INHABITANT;
-    }
-    else
-    {
-        array_type = ARCHETYPE_CLOCKED;
-    }
-
-    LArray *world_objects = GetWorldObjectArrayForArchetype(world, array_type);
-    if (!world_objects)
+    if (!world)
     {
         return INVALID_ENTITY_ID;
     }
 
+    LArray *world_objects = &world->objects;
+
+    bool allocated_id = false;
     if (entity->id > 0)
     {
-        // Transfers preserve IDs, so reject an existing ID instead of silently aliasing it.
-        if (GetEntityByID(world, entity->id))
+        // Transfers preserve active IDs, but a live location cannot be registered twice.
+        if (!EntityRegistry_IsIdActive(entity->id) || EntityRegistry_GetEntity(entity->id))
         {
             LOG_WARN("Cannot register duplicate entity ID %d in world.\n", entity->id);
             return INVALID_ENTITY_ID;
         }
     }
-    else if (world->universe)
-    {
-        entity->id = Universe_AllocateEntityId(world->universe);
-    }
     else
     {
-        LOG_ERROR("Cannot register entity without a universe ID allocator.\n");
-        return INVALID_ENTITY_ID;
+        entity->id = EntityRegistry_AllocateId();
+        allocated_id = entity->id != INVALID_ENTITY_ID;
     }
 
     if (entity->id == INVALID_ENTITY_ID)
     {
         return INVALID_ENTITY_ID;
     }
-    LArray_Push(world_objects, entity);
+    if (!LArray_Push(world_objects, entity))
+    {
+        if (allocated_id)
+        {
+            EntityRegistry_ReleaseId(entity->id);
+        }
+        return INVALID_ENTITY_ID;
+    }
+
     int assigned_index = world_objects->count - 1;
-    UpdateEntityWorldRegistry(&world->entity_world_index_registry, entity->id, array_type, assigned_index);
-    LOG_INFO("Registered entity %d at index %d in array type %d", entity->id, assigned_index, array_type);
+    if (!EntityRegistry_SetLocation(entity->id, world->grid_space.object.id, assigned_index))
+    {
+        LArray_SwapPopAt(world_objects, assigned_index);
+        if (allocated_id)
+        {
+            EntityRegistry_ReleaseId(entity->id);
+        }
+        return INVALID_ENTITY_ID;
+    }
+
+    LOG_INFO("Registered entity %d at index %d in world %d", entity->id, assigned_index, world->grid_space.object.id);
     return entity->id;
 }
 
-static bool RemoveRegisteredEntity(World2d *world, EntityId entity_id, bool free_surface)
+static bool RemoveRegisteredEntity(World2d *world, EntityId entity_id, bool release_id)
 {
-    int packed_value = 0;
-    if (!world || !FlatMapInt_GetValue(&world->entity_world_index_registry, entity_id, &packed_value))
+    EntityId registered_world_id = INVALID_ENTITY_ID;
+    int deleted_idx = -1;
+    if (!world || !EntityRegistry_GetLocation(entity_id, &registered_world_id, &deleted_idx) ||
+        registered_world_id != world->grid_space.object.id)
     {
         return false;
     }
 
-    int type = UNPACK_INT_HIGH(packed_value);
-    int deleted_idx = UNPACK_INT_LOW(packed_value);
-    LArray *world_objects = GetWorldObjectArrayForArchetype(world, (ArchetypeID)type);
-    if (!world_objects || deleted_idx < 0 || deleted_idx >= world_objects->count)
+    LArray *world_objects = &world->objects;
+    if (deleted_idx < 0 || deleted_idx >= world_objects->count)
     {
-        //LOG_WARN("DeregisterEntity: world array empty for entity %d (type=%d). Clearing stale registry entry.\n", entity_id, type);
-        FlatMapInt_DeactivateSlot(&world->entity_world_index_registry, entity_id);
+        EntityRegistry_ClearLocation(entity_id);
         return false;
     }
 
     Newtonoid2d *entity_to_remove = (Newtonoid2d *)LArray_Get(world_objects, deleted_idx);
-    if (free_surface)
+    if (release_id)
     {
         FreeEntitySurfaceVectors(entity_to_remove);
     }
@@ -238,7 +224,7 @@ static bool RemoveRegisteredEntity(World2d *world, EntityId entity_id, bool free
         Newtonoid2d *last_entity = (Newtonoid2d *)LArray_Get(world_objects, last_idx);
         if (last_entity)
         {
-            UpdateEntityWorldRegistry(&world->entity_world_index_registry, last_entity->id, type, deleted_idx);
+            EntityRegistry_SetLocation(last_entity->id, world->grid_space.object.id, deleted_idx);
         }
         else
         {
@@ -247,13 +233,16 @@ static bool RemoveRegisteredEntity(World2d *world, EntityId entity_id, bool free
     }
 
     LArray_SwapPopAt(world_objects, deleted_idx);
-    FlatMapInt_DeactivateSlot(&world->entity_world_index_registry, entity_id);
+    EntityRegistry_ClearLocation(entity_id);
+    if (release_id)
+    {
+        EntityRegistry_ReleaseId(entity_id);
+    }
     return true;
 }
 
-EntityId MoveObjectBetweenWorlds(World2d *source_world, World2d *destination_world,
-                                 EntityId object_id, EntityId destination_parent_id,
-                                 Vector2d destination_coords)
+EntityId MoveObjectBetweenWorlds(World2d *source_world, World2d *destination_world, EntityId object_id,
+                                 EntityId destination_parent_id, Vector2d destination_coords)
 {
     if (!source_world || !destination_world || source_world == destination_world)
     {
@@ -267,12 +256,23 @@ EntityId MoveObjectBetweenWorlds(World2d *source_world, World2d *destination_wor
         return INVALID_ENTITY_ID;
     }
 
-    Vector2d local_coords = destination_coords;
-    if (GetIndexFromCoords(&destination_world->grid_space.space, local_coords) < 0)
+    if (GetIndexFromCoords(&destination_world->grid_space.space, destination_coords) < 0)
     {
-        LOG_WARN("Cannot move entity %d: position (%0.2f,%0.2f) is outside the destination world.\n",
-                 object_id, local_coords.x, local_coords.y);
+        LOG_WARN("Cannot move entity %d: position (%0.2f,%0.2f) is outside the destination world's internal bounds.\n",
+                 object_id, destination_coords.x, destination_coords.y);
         return INVALID_ENTITY_ID;
+    }
+
+    if (source_world == destination_world)
+    {
+        // Same-world portal transfers keep the existing registry identity and
+        // component, so only the entity location and spatial map need work.
+        source_entity->parent_id = destination_parent_id;
+        source_entity->anchor_position = destination_coords;
+        Vector2d world_vertices[MAX_SHAPE_VERTICES] = {0};
+        UpdateEntityBounds(source_entity, world_vertices);
+        RefreshWorldSpatialMap(source_world);
+        return source_entity->id;
     }
 
     EntityId original_parent_id = source_entity->parent_id;
@@ -337,23 +337,12 @@ void *GetEntityByID(World2d *world, EntityId entity_id)
         return NULL;
     }
 
-    if (world->grid_space.object.id == entity_id)
-    {
-        // The world root is stored separately from the registered object arrays.
-        return &world->grid_space.object;
-    }
-
-    int packed_value = 0;
-    if (!FlatMapInt_GetValue(&world->entity_world_index_registry, entity_id, &packed_value))
+    if (EntityRegistry_GetEntityWorldId(entity_id) != world->grid_space.object.id)
     {
         return NULL;
     }
 
-    int type_flag = UNPACK_INT_HIGH(packed_value);
-    int index = UNPACK_INT_LOW(packed_value);
-
-    LArray *world_objects = GetWorldObjectArrayForArchetype(world, (ArchetypeID)type_flag);
-    return world_objects ? LArray_Get(world_objects, index) : NULL;
+    return EntityRegistry_GetEntity(entity_id);
 }
 
 void ScheduleEntityFlagSet(LArray *scheduled_events, EntityId object_id, int flag_to_set, int initial_frame_delay, int interval_frames, int run_limit)

@@ -1,7 +1,7 @@
 #ifndef COMMAND_QUEUE_H
 #define COMMAND_QUEUE_H
 
-#include "physics/newtonoid.h"
+#include "entities/entity_factory.h"
 #include "system/systems.h"
 
 typedef enum
@@ -30,7 +30,7 @@ typedef struct
     CommandType type;
     union
     {
-        Newtonoid2dParams create_entity;
+        EntityCreateParams create_entity;
         EntityId delete_entity;
         int world_select_delta;
         int world_delete_index;
@@ -39,7 +39,7 @@ typedef struct
 } Command;
 
 void InitCommandQueue(void);
-bool EnqueueCreateEntity(const Newtonoid2dParams *params);
+bool EnqueueCreateEntity(const EntityCreateParams *params);
 bool EnqueueDeleteEntity(EntityId entity_id);
 bool EnqueueCreateWorld(void);
 bool EnqueueSelectWorld(int delta);

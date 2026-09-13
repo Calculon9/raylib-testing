@@ -18,6 +18,7 @@
 #include "system/ui/state_manager_system.h"
 #include "system/panel_system.h"
 #include "system/ui/utility_panel_system.h"
+#include "entities/entity_factory.h"
 #include "system/ui/popup_menu.h"
 #include "world/world.h"
 #include "world/world_internal.h"
@@ -507,8 +508,14 @@ static void UpdateTelemetryStats(float fps, float frame_time_ms, float kib_alloc
 // Sync entity readout textboxes from the current selected object or clear when none is selected.
 static void RefreshSelectedObjectFields(const Newtonoid2d *selected_object)
 {
+    // Calculate derived state fields for the selected object.
+    int slot = selected_object ? (int)EntityId_GetSlotIndex(selected_object->id) : -1;
+    int generation = selected_object ? (int)EntityId_GetGeneration(selected_object->id) : -1;
+
     TextboxField state_fields[] = {
         {G_UIState.state_id_tbox, INT, selected_object ? (void *)&selected_object->id : NULL, 0, NULL},
+        {G_UIState.state_slot_tbox, INT, selected_object ? (void *)&slot : NULL, 0, NULL},
+        {G_UIState.state_generation_tbox, INT, selected_object ? (void *)&generation : NULL, 0, NULL},
         {G_UIState.state_mass_tbox, FLOAT, selected_object ? (void *)&selected_object->mass : NULL, 2, NULL},
         {G_UIState.state_restitution_tbox, FLOAT, selected_object ? (void *)&selected_object->restitution : NULL, 2, NULL},
         {G_UIState.state_friction_tbox, FLOAT, selected_object ? (void *)&selected_object->friction : NULL, 2, NULL},
@@ -564,19 +571,19 @@ static void RefreshSelectedCellFields(const Cell *selected_cell)
 }
 
 // Sync entity-creation editor textboxes when the draw view is active, otherwise clear them.
-static void RefreshEntityEditorFields(bool editor_active, Newtonoid2dParams *params)
+static void RefreshEntityEditorFields(bool editor_active, EntityCreateParams *params)
 {
     TextboxField edit_fields[] = {
-        {G_UIState.edit_vertice_count_tbox, INT, (editor_active && params) ? (void *)&params->vertice_count : NULL, 0, NULL},
-        {G_UIState.edit_width_tbox, FLOAT, (editor_active && params) ? (void *)&params->width : NULL, 2, NULL},
-        {G_UIState.edit_height_tbox, FLOAT, (editor_active && params) ? (void *)&params->height : NULL, 2, NULL},
-        {G_UIState.edit_mass_tbox, FLOAT, (editor_active && params) ? (void *)&params->mass : NULL, 2, NULL},
-        {G_UIState.edit_restitution_tbox, FLOAT, (editor_active && params) ? (void *)&params->restitution : NULL, 2, NULL},
-        {G_UIState.edit_friction_tbox, FLOAT, (editor_active && params) ? (void *)&params->friction : NULL, 2, NULL},
-        {G_UIState.edit_pos_c_tbox, VECTOR2D, (editor_active && params) ? (void *)&params->anchor_position : NULL, 0, NULL},
-        {G_UIState.edit_vel_tbox, VECTOR2D, (editor_active && params) ? (void *)&params->velocity : NULL, 0, NULL},
-        {G_UIState.edit_accel_tbox, VECTOR2D, (editor_active && params) ? (void *)&params->acceleration : NULL, 0, NULL},
-        {G_UIState.edit_moment_tbox, VECTOR2D, (editor_active && params) ? (void *)&params->momentum : NULL, 0, NULL},
+        {G_UIState.edit_vertice_count_tbox, INT, (editor_active && params) ? (void *)&params->physics.vertice_count : NULL, 0, NULL},
+        {G_UIState.edit_width_tbox, FLOAT, (editor_active && params) ? (void *)&params->physics.width : NULL, 2, NULL},
+        {G_UIState.edit_height_tbox, FLOAT, (editor_active && params) ? (void *)&params->physics.height : NULL, 2, NULL},
+        {G_UIState.edit_mass_tbox, FLOAT, (editor_active && params) ? (void *)&params->physics.mass : NULL, 2, NULL},
+        {G_UIState.edit_restitution_tbox, FLOAT, (editor_active && params) ? (void *)&params->physics.restitution : NULL, 2, NULL},
+        {G_UIState.edit_friction_tbox, FLOAT, (editor_active && params) ? (void *)&params->physics.friction : NULL, 2, NULL},
+        {G_UIState.edit_pos_c_tbox, VECTOR2D, (editor_active && params) ? (void *)&params->physics.anchor_position : NULL, 0, NULL},
+        {G_UIState.edit_vel_tbox, VECTOR2D, (editor_active && params) ? (void *)&params->physics.velocity : NULL, 0, NULL},
+        {G_UIState.edit_accel_tbox, VECTOR2D, (editor_active && params) ? (void *)&params->physics.acceleration : NULL, 0, NULL},
+        {G_UIState.edit_moment_tbox, VECTOR2D, (editor_active && params) ? (void *)&params->physics.momentum : NULL, 0, NULL},
     };
 
     RefreshTextboxFields(edit_fields, ARRAY_COUNT(edit_fields));
@@ -616,7 +623,7 @@ void UpdateGlobalUIState()
 
     // COLLECT & UPDATE EDITING ENTITY PROPERTIES
     // Determine if the Edit View is active.
-    Newtonoid2dParams *params = G_UIState.newtonoid_params;
+    EntityCreateParams *params = G_UIState.entity_create_params;
     bool edit_view_active = G_UIState.active_panel_view == LPANEL_DRAW_VIEW;
     RefreshEntityEditorFields(edit_view_active, params);
 }

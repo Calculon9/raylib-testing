@@ -24,6 +24,7 @@
 #include "system/viewport_system.h"
 #include "input/drag_interaction.h"
 #include "combat/projectile.h"
+#include "entities/entity_registry.h"
 
 // World-level defaults used by the gameplay screen and debug spawning controls.
 bool world_grid_debug_labels_enabled = false;
@@ -262,12 +263,12 @@ Newtonoid2d *ResolveClosestEntityAt(World2d *active_world, Vector2d click_local_
 void InitWorldSystem(void)
 {
     UIState_SetSelection(NULL, NULL, -1);
-    if (G_UIState.newtonoid_params)
+    if (G_UIState.entity_create_params)
     {
-        Deallocate((void **)&G_UIState.newtonoid_params,
-                   sizeof(*G_UIState.newtonoid_params));
+        Deallocate((void **)&G_UIState.entity_create_params,
+                   sizeof(*G_UIState.entity_create_params));
     }
-    G_UIState.newtonoid_params = AllocateBytes(sizeof(Newtonoid2dParams));
+    G_UIState.entity_create_params = AllocateBytes(sizeof(EntityCreateParams));
     extern void InitCommandQueue(void);
     InitCommandQueue();
 }
@@ -678,15 +679,16 @@ void TogglePause(World2d *world)
     }
 }
 
-// Return the number of live and clocked entities in the selected world.
+// Return the number of live entities in the selected world.
 int GetNewtonoidCount(void)
 {
     World2d *active_world = Universe_GetSelectedWorld(&G_Universe);
-    return active_world ? active_world->objects.count + active_world->temp_objects.count : 0;
+    return active_world ? active_world->objects.count : 0;
 }
 
-// Release the shared job-system resources when the gameplay screen unloads.
+// Release the shared job-system resources and entity registry when the gameplay screen unloads.
 void UnloadGameplayScreen(void)
 {
     ShutdownJobSystem();
+    EntityRegistry_Shutdown();
 }

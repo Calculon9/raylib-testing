@@ -138,6 +138,8 @@ static const StateManagerFlagSpec state_manager_flag_specs[] = {
     {"AFFECT OWNER", ENTITY_ATTR_FLAG_AFFECT_OWNER, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
     {"RIGID", ENTITY_ATTR_FLAG_RIGID, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
     {"POSITION LOCKED", ENTITY_ATTR_FLAG_POSITION_LOCKED, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
+    {"SENSOR", ENTITY_ATTR_FLAG_SENSOR, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
+    {"NO CONTACT RESPONSE", ENTITY_ATTR_FLAG_NO_CONTACT_RESPONSE, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
 
     {"ALIVE", ENTITY_STATUS_FLAG_ALIVE, STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS},
     {"SLEEPING", ENTITY_STATUS_FLAG_SLEEPING, STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS},
@@ -428,7 +430,9 @@ static void InitPhysStateView(void)
     UIElement *identity_section = CreateViewSection_StackWrap(view_cont, "Identity", view_section_size,
                                                                state_manager_panel->palette);
     const UIFieldSpec identity_specs[] = {
-        {"Id", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &G_UIState.state_id_tbox, NULL},
+        {"Id:", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &G_UIState.state_id_tbox, NULL},
+        {"Slot:", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &G_UIState.state_slot_tbox, NULL},
+        {"Generation:", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &G_UIState.state_generation_tbox, NULL},
         {"World", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, NULL, &G_UIState.state_world_str},
     };
     InitUIFields(identity_section, identity_specs,
@@ -820,6 +824,8 @@ void DestroyStateManagerSystem(void)
     }
 
     G_UIState.state_id_tbox = NULL;
+    G_UIState.state_slot_tbox = NULL;
+    G_UIState.state_generation_tbox = NULL;
     G_UIState.state_mass_tbox = NULL;
     G_UIState.state_restitution_tbox = NULL;
     G_UIState.state_friction_tbox = NULL;

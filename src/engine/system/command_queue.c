@@ -1,6 +1,7 @@
 #include "system/command_queue.h"
 #include <string.h>
-#include "system/entity_creation.h"
+#include "entities/entity_factory.h"
+#include "entities/entity_registry.h"
 #include "system/systems.h"
 #include "world/universe.h"
 #include "world/world.h"
@@ -58,7 +59,7 @@ void InitCommandQueue(void)
     q_head = q_tail = q_count = 0;
 }
 
-bool EnqueueCreateEntity(const Newtonoid2dParams *params)
+bool EnqueueCreateEntity(const EntityCreateParams *params)
 {
     if (!params)
     {
@@ -137,11 +138,22 @@ void ProcessCommandQueue(void)
         if (c->type == CMD_CREATE_ENTITY)
         {
             // New entities always enter the universe's root world first, unworlded.
-            Newtonoid2d *new_entity = CreateEntityFromParams(&c->data.create_entity);
-            if (new_entity)
+            EntityCreateResult creation = {0};
+            if (EntityFactory_Create(&c->data.create_entity, &creation))
             {
-                EntityId spawned_id = AddObjectToWorld(&G_Universe.root_world, new_entity,
+                EntityId spawned_id = AddObjectToWorld(&G_Universe.root_world, creation.entity,
                                                        G_Universe.root_world.grid_space.object.id);
+                if (spawned_id != INVALID_ENTITY_ID)
+                {
+                    if (creation.component.type != ENTITY_COMPONENT_NONE &&
+                        !EntityRegistry_RegisterComponent(spawned_id, &creation.component))
+                    {
+                        DeregisterEntity(&G_Universe.root_world, spawned_id);
+                        creation.entity->surface.surface_vectors = (LArray){0};
+                        spawned_id = INVALID_ENTITY_ID;
+                    }
+                }
+
                 if (spawned_id != INVALID_ENTITY_ID)
                 {
                     UIState_SetSelectedObjectById(spawned_id);
@@ -149,7 +161,7 @@ void ProcessCommandQueue(void)
                 }
                 else
                 {
-                    LArray *vectors = &new_entity->surface.surface_vectors;
+                    LArray *vectors = &creation.entity->surface.surface_vectors;
                     if (vectors->items && vectors->capacity > 0 && vectors->elem_bytes > 0)
                     {
                         size_t bytes = (size_t)vectors->capacity * vectors->elem_bytes;
@@ -158,7 +170,7 @@ void ProcessCommandQueue(void)
                 }
 
                 // The world's object array owns the surface buffer after a successful copy.
-                Deallocate((void **)&new_entity, sizeof(Newtonoid2d));
+                Deallocate((void **)&creation.entity, sizeof(Newtonoid2d));
             }
         }
 

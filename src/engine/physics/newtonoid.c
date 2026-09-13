@@ -12,42 +12,37 @@
 //----------------------------------------------------------------------------------
 // Module Constants Definition (local)
 //----------------------------------------------------------------------------------
-static const float default_rotor_angular_velocity = 2.0f;
 static const float default_restitution = 0.9f;
 static const float default_friction = 0.8f;
 static const float SLEEP_LINEAR_DISPLACEMENT_TOLERANCE_SQ = 0.0001f; // Very small per-frame movement
-static const float SLEEP_ANGULAR_DISPLACEMENT_TOLERANCE_SQ = 0.00005f; // Very small per-frame rotation
-static const float TIME_TO_SLEEP = 0.3f;
+static const float SLEEP_ANGULAR_DISPLACEMENT_TOLERANCE_SQ = 0.00002f; // Very small per-frame rotation
+static const float TIME_TO_SLEEP = 0.4f;
 
 //----------------------------------------------------------------------------------
 // Module Functions Declaration (local)
 //----------------------------------------------------------------------------------
-float CalcMomentOfInertia(float mass, LArray *surface_vectors);
 static bool ValidateNewtonoidSurface(Surface2d surface);
 static Surface2d CreateIsoscelesTriangleSurface(Vector2d dimensions);
 static Surface2d CreateArrowSurface(Vector2d dimensions, float requested_head_length);
-static Surface2d CreatePrimitiveSurface(ShapeType shape_type,
-                                        NewtonoidPrimitiveParams primitive_params);
+static Surface2d CreatePrimitiveSurface(ShapeType shape_type, NewtonoidPrimitiveParams primitive_params);
 static Newtonoid2d CreateNewtonoid2d_FromShape(ShapeBuildType build_type, int vertice_count,
                                                float min_radius, float max_radius,
                                                ColourRgba colour, float mass,
                                                Vector2d anchor_position, Vector2d velocity,
                                                Vector2d acceleration);
-typedef void (*NewtonoidConfigureFunction)(Newtonoid2d *object);
 static void ConfigureNewtonoidBase(Newtonoid2d *object);
 static bool BuildNewtonoid2d(Newtonoid2d *out_object, ShapeType shape_type,
                              float mass, Vector2d anchor_position,
                              Vector2d velocity, Vector2d acceleration,
-                             Surface2d surface,
-                             NewtonoidConfigureFunction configure);
+                             Surface2d surface);
 
 //----------------------------------------------------------------------------------
 // Entity Configuration
 //----------------------------------------------------------------------------------
 
 // Configure the metadata shared by all Newtonoid creation paths.
-void Newtonoid_ConfigureMetadata(Newtonoid2d *object, EntityFlags entity_flags,
-                                 EntityFlags collision_mask, EntityAttributeFlags attribute_flags,
+void Newtonoid_ConfigureMetadata(Newtonoid2d *object, EntityTypeFlags entity_flags,
+                                 EntityTypeFlags collision_mask, EntityAttributeFlags attribute_flags,
                                  EntityStatusFlags status_flags,
                                  ColourRgba line_colour, ColourRgba fill_colour)
 {
@@ -72,6 +67,18 @@ static void ConfigureNewtonoidBase(Newtonoid2d *object)
                                ENTITY_ATTR_FLAG_RIGID,
                                ENTITY_STATUS_FLAG_ALIVE,
                                COLOUR_LINE_DEFAULT, COLOUR_FILL_DEFAULT);
+}
+
+// Set an entity's maximum and current health to the supplied non-negative value.
+void Newtonoid_ConfigureHealth(Newtonoid2d *object, float max_health)
+{
+   if (!object)
+   {
+      return;
+   }
+
+   object->max_health = max_health > 0.0f ? max_health : 0.0f;
+   object->health = object->max_health;
 }
 
 // Return whether an entity is alive and configured to receive damage.
@@ -171,36 +178,6 @@ void Newtonoid_ConfigureFriction(Newtonoid2d *object, float friction)
    object->friction = friction >= 0.0f ? friction : 0.0f;
 }
 
-// Configure a rotor with ordinary Newtonoid metadata and continuous rotation.
-void Newtonoid_ConfigureRotor(Newtonoid2d *object)
-{
-   if (!object)
-   {
-      return;
-   }
-
-   ConfigureNewtonoidBase(object);
-   object->angular_velocity = default_rotor_angular_velocity;
-   object->attribute_flags |= ENTITY_ATTR_FLAG_POSITION_LOCKED;
-}
-
-// Configure a portal with ordinary Newtonoid metadata and continuous rotation.
-void Newtonoid_ConfigurePortal(Newtonoid2d *object)
-{
-   if (!object)
-   {
-      return;
-   }
-
-   ConfigureNewtonoidBase(object);
-   object->collision_mask = ENTITY_FLAG_NONE;
-   //Newtonoid_ConfigureUniversalCollisionMask(object);
-   //object->angular_velocity = default_rotor_angular_velocity;
-   object->attribute_flags &= ~ENTITY_ATTR_FLAG_DAMAGEABLE;
-   object->attribute_flags |= ENTITY_ATTR_FLAG_POSITION_LOCKED;
-
-}
-
 //----------------------------------------------------------------------------------
 // Geometry and Coordinate Synchronisation
 //----------------------------------------------------------------------------------
@@ -264,16 +241,15 @@ static bool ValidateNewtonoidSurface(Surface2d surface)
    return false;
 }
 
-// Build a Newtonoid from owned surface data, applying the supplied archetype
+// Build a Newtonoid from owned surface data and apply its generic physics
 // configuration. Release the surface on failure so shape factories cannot
 // leak geometry during validation or initialisation.
 static bool BuildNewtonoid2d(Newtonoid2d *out_object, ShapeType shape_type,
                              float mass, Vector2d anchor_position,
                              Vector2d velocity, Vector2d acceleration,
-                             Surface2d surface,
-                             NewtonoidConfigureFunction configure)
+                             Surface2d surface)
 {
-   if (!out_object || !configure || !ValidateNewtonoidSurface(surface))
+   if (!out_object || !ValidateNewtonoidSurface(surface))
    {
       ClearLArray(&surface.surface_vectors);
       return false;
@@ -291,7 +267,6 @@ static bool BuildNewtonoid2d(Newtonoid2d *out_object, ShapeType shape_type,
    out_object->acceleration = acceleration;
    out_object->angular_acceleration = 0.0f;
    out_object->attribute_flags = ENTITY_ATTR_FLAG_NONE;
-   out_object->archetype = ENTITY_ARCHETYPE_NONE;
    out_object->health = 0.0f;
    out_object->max_health = 0.0f;
    out_object->surface = surface;
@@ -300,7 +275,7 @@ static bool BuildNewtonoid2d(Newtonoid2d *out_object, ShapeType shape_type,
    out_object->momentum.y = out_object->mass * out_object->velocity.y;
    SyncNewtonoidRotation(out_object);
    out_object->shape_type = shape_type;
-   configure(out_object);
+   ConfigureNewtonoidBase(out_object);
 
    return true;
 }
@@ -417,7 +392,7 @@ static Newtonoid2d CreateNewtonoid2d_FromShape(ShapeBuildType build_type, int ve
 
    Newtonoid2d newtOb = {0};
    if (!BuildNewtonoid2d(&newtOb, SHAPE_POLYGON, mass, anchor_position,
-                         velocity, acceleration, surface, ConfigureNewtonoidBase))
+                         velocity, acceleration, surface))
    {
       return newtOb;
    }
@@ -436,7 +411,29 @@ Newtonoid2d CreateNewtonoid2d(float mass, Vector2d anchor_position, Vector2d vel
 {
    Newtonoid2d newtonoid = {0};
    BuildNewtonoid2d(&newtonoid, SHAPE_AUTO, mass, anchor_position, velocity,
-                    acceleration, surface, ConfigureNewtonoidBase);
+                    acceleration, surface);
+   return newtonoid;
+}
+
+// Create a heap-owned Newtonoid directly so entity constructors avoid a struct copy.
+Newtonoid2d *CreateNewtonoid2d_Allocated(float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration, Surface2d surface)
+{
+   Newtonoid2d *newtonoid = AllocateBytes(sizeof(*newtonoid));
+   if (!newtonoid)
+   {
+      LOG_ERROR("Failed to allocate memory for Newtonoid2d object.\n");
+      ClearLArray(&surface.surface_vectors);
+      return NULL;
+   }
+   // Reset the memory of the newly allocated Newtonoid2d structure.
+   MemorySet(newtonoid, 0, sizeof(*newtonoid));
+   if (!BuildNewtonoid2d(newtonoid, SHAPE_AUTO, mass, anchor_position,
+                         velocity, acceleration, surface))
+   {
+      Deallocate((void **)&newtonoid, sizeof(*newtonoid));
+      return NULL;
+   }
+
    return newtonoid;
 }
 
@@ -452,57 +449,6 @@ Newtonoid2d CreateNewtonoid2d_Irregular(int vertice_count, float min_radius, flo
                                       colour, mass, anchor_position, velocity, acceleration);
 }
 
-Newtonoid2d CreateNewtonoid2d_Rotor(int blade_count, Vector2d dimensions, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration)
-{
-   if (dimensions.x <= 0.0f || dimensions.y <= 0.0f)
-   {
-      return (Newtonoid2d){0};
-   }
-
-   Surface2d surface = {0};
-   surface.surface_vectors = CreateVertices_Rotor(blade_count, dimensions.x * 0.5f, dimensions.y * 0.5f);
-   Newtonoid2d newtonoid = {0};
-   BuildNewtonoid2d(&newtonoid, SHAPE_ROTOR, mass, anchor_position,
-                    velocity, acceleration, surface, Newtonoid_ConfigureRotor);
-   newtonoid.archetype = ENTITY_ARCHETYPE_ROTOR;
-   return newtonoid;
-}
-
-// Create a spinning gear Newtonoid using the same rotational setup as the rotor.
-Newtonoid2d CreateNewtonoid2d_Gear(int tooth_count, Vector2d dimensions, float mass, Vector2d anchor_position, Vector2d velocity, Vector2d acceleration)
-{
-   if (dimensions.x <= 0.0f || dimensions.y <= 0.0f || tooth_count < 3)
-   {
-      return (Newtonoid2d){0};
-   }
-
-   Surface2d surface = {0};
-   surface.surface_vectors = CreateVertices_Gear(tooth_count, dimensions.x * 0.5f, dimensions.y * 0.5f);
-   Newtonoid2d newtonoid = {0};
-   BuildNewtonoid2d(&newtonoid, SHAPE_GEAR, mass, anchor_position,
-                    velocity, acceleration, surface, Newtonoid_ConfigureRotor);
-   newtonoid.archetype = ENTITY_ARCHETYPE_GEAR;
-   return newtonoid;
-}
-
-// Create a rotating ellipse-shaped portal from full width and height dimensions.
-Newtonoid2d CreateNewtonoid2d_Portal(Vector2d dimensions, float mass, Vector2d anchor_position, Vector2d velocity,
-                                     Vector2d acceleration)
-{
-   if (dimensions.x <= 0.0f || dimensions.y <= 0.0f)
-   {
-      return (Newtonoid2d){0};
-   }
-
-   Surface2d surface = {0};
-   surface.surface_vectors = CreateVertices_Portal(dimensions);
-   Newtonoid2d newtonoid = {0};
-   BuildNewtonoid2d(&newtonoid, SHAPE_ELLIPSE, mass, anchor_position,
-                    velocity, acceleration, surface, Newtonoid_ConfigurePortal);
-   newtonoid.archetype = ENTITY_ARCHETYPE_PORTAL;
-   return newtonoid;
-}
-
 // Create a fully initialised Newtonoid from a reusable primitive shape specification.
 Newtonoid2d CreateNewtonoid2d_Primitive(ShapeType shape_type,
                                         NewtonoidPrimitiveParams primitive_params,
@@ -510,10 +456,6 @@ Newtonoid2d CreateNewtonoid2d_Primitive(ShapeType shape_type,
                                         Vector2d velocity, Vector2d acceleration)
 {
    Newtonoid2d empty_newtonoid = {0};
-   if (shape_type == SHAPE_ROTOR)
-   {
-      return empty_newtonoid;
-   }
 
    Surface2d surface = CreatePrimitiveSurface(shape_type, primitive_params);
    if (shape_type == SHAPE_AUTO || surface.surface_vectors.count < 3)
@@ -524,7 +466,7 @@ Newtonoid2d CreateNewtonoid2d_Primitive(ShapeType shape_type,
 
    Newtonoid2d newtonoid = {0};
    if (!BuildNewtonoid2d(&newtonoid, shape_type, mass, anchor_position,
-                         velocity, acceleration, surface, ConfigureNewtonoidBase))
+                         velocity, acceleration, surface))
    {
       return empty_newtonoid;
    }
@@ -759,44 +701,21 @@ Matrix2x2 UpdateEntityBounds(Newtonoid2d *object, Vector2d out_world_vertices[MA
 }
 
 //----------------------------------------------------------------------------------
-// Legacy Reference Code
+// Legacy Utility Functions - do not delete
 //----------------------------------------------------------------------------------
 
 // Configure an entity to accept collisions with every defined entity category.
-void Newtonoid_ConfigureUniversalCollisionMask(Newtonoid2d *object)
-{
-   if (!object)
-   {
-      return;
-   }
+// void Newtonoid_ConfigureUniversalCollisionMask(Newtonoid2d *object)
+// {
+//    if (!object)
+//    {
+//       return;
+//    }
 
-   object->collision_mask = ENTITY_FLAG_WALL | ENTITY_FLAG_NEWTONOID |
-                            ENTITY_FLAG_PROJECTILE | ENTITY_FLAG_EFFECT |
-                            ENTITY_FLAG_CAMERA;
-}
-
-// Create a heap-allocated Newtonoid using the original pointer-returning API.
-Newtonoid2d *CreateNewtonoid2d_Reference(float mass, Vector2d anchor_position,
-                                          Vector2d velocity, Vector2d acceleration,
-                                          Surface2d surface)
-{
-   Newtonoid2d *newtOb = AllocateBytes(sizeof(Newtonoid2d));
-   if (!newtOb)
-   {
-      LOG_ERROR("Failed to allocate memory for Newtonoid2d object.\n");
-      ClearLArray(&surface.surface_vectors);
-      return NULL;
-   }
-
-   if (!BuildNewtonoid2d(newtOb, SHAPE_AUTO, mass, anchor_position,
-                         velocity, acceleration, surface, ConfigureNewtonoidBase))
-   {
-      Deallocate((void **)&newtOb, sizeof(Newtonoid2d));
-      return NULL;
-   }
-
-   return newtOb;
-}
+//    object->collision_mask = ENTITY_FLAG_WALL | ENTITY_FLAG_NEWTONOID |
+//                             ENTITY_FLAG_PROJECTILE | ENTITY_FLAG_EFFECT |
+//                             ENTITY_FLAG_CAMERA;
+// }
 
 // void RotateEntity(Newtonoid2d *entity, float radians)
 // {

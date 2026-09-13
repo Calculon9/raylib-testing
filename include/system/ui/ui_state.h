@@ -13,7 +13,7 @@ UI STATE MODULE
 //----------------------------------------------------------------------------------
 typedef struct UIElement UIElement;
 typedef struct Newtonoid2d Newtonoid2d;
-typedef struct Newtonoid2dParams Newtonoid2dParams;
+typedef struct EntityCreateParams EntityCreateParams;
 typedef struct Cell Cell;
 
 typedef enum
@@ -39,6 +39,8 @@ typedef struct
     UIElement *focused_element;
     // OBJECT PROPERTIES UI
     UIElement *state_id_tbox;
+    UIElement *state_slot_tbox;
+    UIElement *state_generation_tbox;
     String64 *state_id_str;
     UIElement *state_mass_tbox;
     String64 *state_mass_str;
@@ -127,7 +129,7 @@ typedef struct
     // SELECTION STATE (previously in WorldState)
     EntityId selected_object_id;
     Newtonoid2d *selected_object;
-    Newtonoid2dParams *newtonoid_params;
+    EntityCreateParams *entity_create_params;
     Cell *selected_cell;
     int selected_cell_index;
 } UIState;

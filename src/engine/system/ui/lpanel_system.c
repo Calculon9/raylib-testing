@@ -3,6 +3,7 @@
 #include "system/viewport_system.h"
 #include "ui/ui.h"
 #include "system/ui_system.h"
+#include "entities/entity_factory.h"
 #include "system/debug_overlay_system.h"
 #include "ui/ui_constructors.h"
 #include "system/panel_system.h"
@@ -105,31 +106,31 @@ void InitLPanelEditView(void);
 
 static void InitEntityCreateDefaults(void)
 {
-    if (!G_UIState.newtonoid_params)
+    if (!G_UIState.entity_create_params)
     {
         return;
     }
 
-    Newtonoid2dParams *params = G_UIState.newtonoid_params;
-    params->shape_type = SHAPE_AUTO;
-    params->archetype = ENTITY_ARCHETYPE_NONE;
-    params->vertice_count = 4;
-    params->width = 1.0f;
-    params->height = 1.0f;
-    params->mass = 1.0f;
-    params->restitution = 0.9f;
-    params->friction = 0.5f;
-    params->anchor_position = ZERO_VECTOR_2D;
-    params->velocity = ZERO_VECTOR_2D;
+    EntityCreateParams *params = G_UIState.entity_create_params;
+    params->preset = ENTITY_PRESET_STANDARD;
+    params->physics.shape_type = SHAPE_AUTO;
+    params->physics.vertice_count = 4;
+    params->physics.width = 1.0f;
+    params->physics.height = 1.0f;
+    params->physics.mass = 1.0f;
+    params->physics.restitution = 0.9f;
+    params->physics.friction = 0.5f;
+    params->physics.anchor_position = ZERO_VECTOR_2D;
+    params->physics.velocity = ZERO_VECTOR_2D;
 
-    WriteTextboxInt(G_UIState.edit_vertice_count_tbox, params->vertice_count);
-    WriteTextboxFloat(G_UIState.edit_width_tbox, params->width, 2);
-    WriteTextboxFloat(G_UIState.edit_height_tbox, params->height, 2);
-    WriteTextboxFloat(G_UIState.edit_mass_tbox, params->mass, 2);
-    WriteTextboxFloat(G_UIState.edit_restitution_tbox, params->restitution, 2);
-    WriteTextboxFloat(G_UIState.edit_friction_tbox, params->friction, 2);
-    WriteTextboxVectorPair(G_UIState.edit_pos_c_tbox, params->anchor_position);
-    WriteTextboxVectorPair(G_UIState.edit_vel_tbox, params->velocity);
+    WriteTextboxInt(G_UIState.edit_vertice_count_tbox, params->physics.vertice_count);
+    WriteTextboxFloat(G_UIState.edit_width_tbox, params->physics.width, 2);
+    WriteTextboxFloat(G_UIState.edit_height_tbox, params->physics.height, 2);
+    WriteTextboxFloat(G_UIState.edit_mass_tbox, params->physics.mass, 2);
+    WriteTextboxFloat(G_UIState.edit_restitution_tbox, params->physics.restitution, 2);
+    WriteTextboxFloat(G_UIState.edit_friction_tbox, params->physics.friction, 2);
+    WriteTextboxVectorPair(G_UIState.edit_pos_c_tbox, params->physics.anchor_position);
+    WriteTextboxVectorPair(G_UIState.edit_vel_tbox, params->physics.velocity);
 }
 
 void InitLPanel()
@@ -238,14 +239,14 @@ void InitLPanelEditView(void)
                  ARRAY_COUNT(edit_specs), ui_standard_field_padding,
                  lpanel->palette);
 
-    BindTextboxData(G_UIState.edit_vertice_count_tbox, INT, &G_UIState.newtonoid_params->vertice_count);
-    BindTextboxData(G_UIState.edit_width_tbox, FLOAT, &G_UIState.newtonoid_params->width);
-    BindTextboxData(G_UIState.edit_height_tbox, FLOAT, &G_UIState.newtonoid_params->height);
-    BindTextboxData(G_UIState.edit_mass_tbox, FLOAT, &G_UIState.newtonoid_params->mass);
-    BindTextboxData(G_UIState.edit_restitution_tbox, FLOAT, &G_UIState.newtonoid_params->restitution);
-    BindTextboxData(G_UIState.edit_friction_tbox, FLOAT, &G_UIState.newtonoid_params->friction);
-    BindTextboxData(G_UIState.edit_pos_c_tbox, VECTOR2D, &G_UIState.newtonoid_params->anchor_position);
-    BindTextboxData(G_UIState.edit_vel_tbox, VECTOR2D, &G_UIState.newtonoid_params->velocity);
+    BindTextboxData(G_UIState.edit_vertice_count_tbox, INT, &G_UIState.entity_create_params->physics.vertice_count);
+    BindTextboxData(G_UIState.edit_width_tbox, FLOAT, &G_UIState.entity_create_params->physics.width);
+    BindTextboxData(G_UIState.edit_height_tbox, FLOAT, &G_UIState.entity_create_params->physics.height);
+    BindTextboxData(G_UIState.edit_mass_tbox, FLOAT, &G_UIState.entity_create_params->physics.mass);
+    BindTextboxData(G_UIState.edit_restitution_tbox, FLOAT, &G_UIState.entity_create_params->physics.restitution);
+    BindTextboxData(G_UIState.edit_friction_tbox, FLOAT, &G_UIState.entity_create_params->physics.friction);
+    BindTextboxData(G_UIState.edit_pos_c_tbox, VECTOR2D, &G_UIState.entity_create_params->physics.anchor_position);
+    BindTextboxData(G_UIState.edit_vel_tbox, VECTOR2D, &G_UIState.entity_create_params->physics.velocity);
     InitEntityCreateDefaults();
 
     CreateUIButtonDefault(lpanel_edit_entity_tcont, UI_ELEMENT_BUTTON_SUBMIT,
