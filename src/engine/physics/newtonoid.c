@@ -15,8 +15,8 @@
 static const float default_restitution = 0.9f;
 static const float default_friction = 0.8f;
 static const float SLEEP_LINEAR_DISPLACEMENT_TOLERANCE_SQ = 0.0001f; // Very small per-frame movement
-static const float SLEEP_ANGULAR_DISPLACEMENT_TOLERANCE_SQ = 0.00002f; // Very small per-frame rotation
-static const float TIME_TO_SLEEP = 0.4f;
+static const float SLEEP_ANGULAR_DISPLACEMENT_TOLERANCE_SQ = 0.000055f; // Very small per-frame rotation
+static const float TIME_TO_SLEEP = 0.3f;
 
 //----------------------------------------------------------------------------------
 // Module Functions Declaration (local)

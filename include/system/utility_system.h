@@ -75,6 +75,13 @@ static inline int UpdateString64(char *dest, const char *fmt, ...)
     return result;
 }
 
+// Clear the contents of a String64 buffer when it is available.
+static inline void ClearString64(String64 *value)
+{
+    if (value)
+        value->string[0] = '\0';
+}
+
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------

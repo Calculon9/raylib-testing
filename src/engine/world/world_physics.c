@@ -7,7 +7,7 @@
 #include "world/world_internal.h"
 #include "combat/projectile.h"
 #include "entities/entity_registry.h"
-#include "mechanics/portal.h"
+#include "system/entities/portal_system.h"
 
 // Find the scalar projection interval of a polygon onto an axis. SAT reduces
 // each 2D shape to this 1D interval using projection = vertex dot unit_axis.
@@ -461,10 +461,10 @@ static void DispatchSensorTrigger(World2d *world, Newtonoid2d *sensor, Newtonoid
     }
 
     // Portal sensor: trigger teleportation to the paired destination portal.
-    EntityComponent *portal_component = EntityRegistry_GetComponent(sensor->id, ENTITY_COMPONENT_PORTAL);
+    PortalEntity *portal_component = EntityRegistry_GetPortal(sensor->id);
     if (portal_component)
     {
-        Portal_RequestTeleport(world->universe, sensor->id, entrant->id);
+        PortalSystem_RequestTeleport(world->universe, sensor->id, entrant->id);
         return;
     }
 

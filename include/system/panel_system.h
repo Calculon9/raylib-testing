@@ -84,6 +84,36 @@ void PanelSystem_InitViews(PanelSystem *panel, size_t view_count);
 // Create a standard view container, allocate its View, register it, and return the panel-owned View.
 View *PanelSystem_CreateView(PanelSystem *panel, ViewType view_type);
 
+// Configure vertical scrollability for a view.
+void View_SetScrollableY(View *view, bool is_scrollable);
+
+// Configure horizontal scrollability for a view.
+void View_SetScrollableX(View *view, bool is_scrollable);
+
+// Set the horizontal scroll offset directly, clamped to [0, max_scroll_x].
+void View_SetScrollX(View *view, float scroll_x);
+
+// Scroll the view horizontally by a delta in local units, clamped to [0, max_scroll_x].
+void View_ScrollX(View *view, float delta);
+
+// Retrieve the current horizontal scroll offset.
+float View_GetScrollX(const View *view);
+
+// Set the vertical scroll offset directly, clamped to [0, max_scroll_y].
+void View_SetScrollY(View *view, float scroll_y);
+
+// Scroll the view vertically by a delta in local units, clamped to [0, max_scroll_y].
+void View_ScrollY(View *view, float delta);
+
+// Retrieve the current vertical scroll offset.
+float View_GetScrollY(const View *view);
+
+// Recompute content height, max scroll bounds, and clamp current scroll offset.
+void View_UpdateScrollBounds(View *view);
+
+// Retrieve the currently active view in a panel system (the first enabled view container).
+View *PanelSystem_GetActiveView(PanelSystem *panel);
+
 // Create buttons that select views in the panel's view array.
 ViewSelector *PanelSystem_CreateViewSelector(PanelSystem *panel, UIElement *parent,
                                                   Size button_size, const char *labels[],

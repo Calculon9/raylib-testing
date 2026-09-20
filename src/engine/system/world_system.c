@@ -324,8 +324,7 @@ static void HandleWorldDebugHotkeys(World2d *active_world, Vector2d click_world_
 }
 
 // Fire from the selected entity when input routing has not already been claimed.
-static InputRouteResult TryHandleFireProjectile(World2d *active_world,
-                                                InputRouteResult prior_result)
+static InputRouteResult TryHandleFireProjectile(World2d *active_world, InputRouteResult prior_result)
 {
     if (!active_world || prior_result != INPUT_ROUTE_IGNORED || !IsKeyPressed(KEY_F))
     {
@@ -334,9 +333,7 @@ static InputRouteResult TryHandleFireProjectile(World2d *active_world,
 
     Newtonoid2d *shooter = UIState_GetSelectedObject();
     int shooter_world_index = -1;
-    Universe_GetEntityByID(&G_Universe,
-                           shooter ? shooter->id : INVALID_ENTITY_ID,
-                           &shooter_world_index);
+    Universe_GetEntityByID(&G_Universe, shooter ? shooter->id : INVALID_ENTITY_ID, &shooter_world_index);
 
     World2d *shooter_world = Universe_GetWorld(&G_Universe, shooter_world_index);
     if (shooter && shooter_world == active_world && shooter_world_index >= 0 &&
@@ -663,8 +660,7 @@ void CreateAddNewtonoid(int vertice_count, float radius, ShapeBuildType build_ty
         Newtonoid_ConfigureMetadata(&new_newtonoid, ENTITY_FLAG_NEWTONOID,
                          ENTITY_FLAG_WALL | ENTITY_FLAG_NEWTONOID | ENTITY_FLAG_PROJECTILE,
                          ENTITY_ATTR_FLAG_RIGID | ENTITY_ATTR_FLAG_DAMAGEABLE,
-                         ENTITY_STATUS_FLAG_ALIVE,
-                                     COLOUR_GAME_INK_RGBA, colour);
+                         ENTITY_STATUS_FLAG_ALIVE, COLOUR_GAME_INK_RGBA, colour);
         Newtonoid_ConfigureHealth(&new_newtonoid, 3.0f);
         AddObjectToWorld(active_world, &new_newtonoid, active_world->grid_space.object.id);
     }

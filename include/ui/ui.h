@@ -191,6 +191,15 @@ typedef struct
     Vector2d dimensions;
 } UIBox;
 
+// Pixel-space clipping rectangle defined by minimum and maximum extents.
+typedef struct UIClipRect
+{
+    Vector2d min;
+    Vector2d max;
+} UIClipRect;
+
+#define UI_UNCONSTRAINED_CLIP ((UIClipRect){{-1000000.0f, -1000000.0f}, {1000000.0f, 1000000.0f}})
+
 typedef struct UIElement UIElement;
 typedef struct UIElement
 {
@@ -199,6 +208,7 @@ typedef struct UIElement
     Offset authored_offset;
     Spacing child_spacing;
     Vector2d padding;
+    Vector2d scroll_offset; // Scroll offset in local units applied to child placement
     ColourRgba colour_border;
     ColourRgba colour_fill;
     Size size;
@@ -211,6 +221,8 @@ typedef struct UIElement
     Vector2d measured_content_size;
     float cached_stacked_fill_height; // Set once per layout pass by the stacked parent; read by this element's own box resolution.
     bool is_focused, is_dirty, is_draggable, is_enabled; // For interactive elements like TextBoxes and Buttons
+    bool is_scrollable_x; // Bypasses horizontal size clamping when scrolling
+    bool is_scrollable_y; // Bypasses vertical size clamping when scrolling
 
     UIElement *parent;
     UIElement *first_child;
@@ -239,6 +251,14 @@ typedef struct View
 {
     UIElement *container;
     ViewType type;
+    float scroll_x;       // Current horizontal scroll offset in local coordinate units
+    float max_scroll_x;   // Maximum horizontal scroll offset
+    float content_width;  // Total measured width of children inside this view
+    float scroll_y;       // Current vertical scroll offset in local coordinate units
+    float max_scroll_y;   // Maximum vertical scroll offset (content_height - visible_height)
+    float content_height; // Total measured height of children inside this view
+    bool is_scrollable_x; // Whether horizontal scrolling is active on this view
+    bool is_scrollable_y; // Whether vertical scrolling is active on this view
 } View;
 
 typedef struct Pool Pool;
@@ -259,7 +279,16 @@ UIElement *CreateUIElementInTree(UIElementType type, Size size, UIElement *paren
 UIElement *CreateBtnUIElementInTree(UIElementType type, Size size, UIElement *parent, Offset parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill);
 void GetUIElementVertices(UIElement *e, Vector2d out_vertices[4]);
 bool IsMouseOverElement(UIElement *el, Vector2d mouse_pos);
-bool UI_AABB_Intersects(UIBox a, UIBox b) ;
+bool UI_AABB_Intersects(UIBox a, UIBox b);
+
+// Clip rectangle helpers for software clipping
+UIClipRect UIClipRect_FromBox(UIBox box);
+UIClipRect UIClipRect_Intersect(UIClipRect a, UIClipRect b);
+bool UIClipRect_IsEmpty(UIClipRect rect);
+bool UIClipRect_ContainsBox(UIClipRect clip, UIBox box);
+bool UIClipRect_IntersectsBox(UIClipRect clip, UIBox box);
+UIBox UIBox_Clip(UIBox box, UIClipRect clip);
+
 void UI_LayoutSubtree(UIElement *e, UIBox parent_box);
 void UI_DistributeChildren(UIElement *e);
 UIBox ResolveElementBox(UIElement *element, UIBox parent_box);
@@ -270,9 +299,13 @@ void RemoveElementFromTree(UIElement *element);
 UIElement *GetPreviousSibling(UIElement *element);
 bool ElementHasSibling(UIElement *e);
 UIElement *GetElementAt(UIElement *e, Vector2d pixel_coords);
+UIElement *GetElementAtClipped(UIElement *e, Vector2d pixel_coords, UIClipRect clip);
 void DisposeUIElement(UIElement *e);
 void EnableElement(UIElement *element);
 void DisableElement(UIElement *element);
+void DisableParent(UIElement *child);
+void SetEnabledState(UIElement *element, bool is_enabled);
+void SetParentEnabledState(UIElement *child, bool is_enabled);
 Pool *GetUIElementPool(void);
 void SetUIElementPool(Pool *pool);
 void SetUIElementTextHorizontalAlignment(UIElement *element, UITextHorizontalAlignment alignment);
@@ -280,6 +313,10 @@ void SetUIElementTextVerticalAlignment(UIElement *element, UITextVerticalAlignme
 bool IsTextbox(UIElement *e);
 bool IsBtn(UIElement *e);
 void ToggleElementEnabled(UIElement *element);
+// Scroll a horizontally scrollable element by local coordinate units.
+void ScrollUIElementX(UIElement *element, float delta);
+// Scroll a vertically scrollable element by local coordinate units.
+void ScrollUIElementY(UIElement *element, float delta);
 // UIElement *CreateTextField(float width, float height, Vector2d origin_coords, Vector2d parent_offset, Vector2d label_tbox_offset, Vector2d label_tbox_padding, char max_label_chars, char max_text_box_chars);
 #endif
 

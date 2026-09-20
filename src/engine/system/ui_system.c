@@ -209,16 +209,6 @@ void UIPalette_GetSurfaceColours(const UIPalette *palette, UIPaletteSurface surf
 
 void UpdateGlobalUIState();
 
-static void ClearString64(String64 *value)
-{
-    if (!value)
-    {
-        return;
-    }
-
-    value->string[0] = '\0';
-}
-
 void UIState_SetSelectedObject(Newtonoid2d *object)
 {
     // Centralise object selection writes so other systems stop mutating the UI state directly.
@@ -505,71 +495,6 @@ static void UpdateTelemetryStats(float fps, float frame_time_ms, float kib_alloc
     }
 }
 
-// Sync entity readout textboxes from the current selected object or clear when none is selected.
-static void RefreshSelectedObjectFields(const Newtonoid2d *selected_object)
-{
-    // Calculate derived state fields for the selected object.
-    int slot = selected_object ? (int)EntityId_GetSlotIndex(selected_object->id) : -1;
-    int generation = selected_object ? (int)EntityId_GetGeneration(selected_object->id) : -1;
-
-    TextboxField state_fields[] = {
-        {G_UIState.state_id_tbox, INT, selected_object ? (void *)&selected_object->id : NULL, 0, NULL},
-        {G_UIState.state_slot_tbox, INT, selected_object ? (void *)&slot : NULL, 0, NULL},
-        {G_UIState.state_generation_tbox, INT, selected_object ? (void *)&generation : NULL, 0, NULL},
-        {G_UIState.state_mass_tbox, FLOAT, selected_object ? (void *)&selected_object->mass : NULL, 2, NULL},
-        {G_UIState.state_restitution_tbox, FLOAT, selected_object ? (void *)&selected_object->restitution : NULL, 2, NULL},
-        {G_UIState.state_friction_tbox, FLOAT, selected_object ? (void *)&selected_object->friction : NULL, 2, NULL},
-        {G_UIState.state_pos_tl_tbox, VECTOR2D, selected_object ? (void *)&selected_object->bounds_origin : NULL, 0, NULL},
-        {G_UIState.state_pos_c_tbox, VECTOR2D, selected_object ? (void *)&selected_object->anchor_position : NULL, 0, NULL},
-        {G_UIState.state_vel_tbox, VECTOR2D, selected_object ? (void *)&selected_object->velocity : NULL, 0, NULL},
-        {G_UIState.state_accel_tbox, VECTOR2D, selected_object ? (void *)&selected_object->acceleration : NULL, 0, NULL},
-        {G_UIState.state_moment_tbox, VECTOR2D, selected_object ? (void *)&selected_object->momentum : NULL, 0, NULL},
-        {G_UIState.state_angular_velocity_tbox, FLOAT, selected_object ? (void *)&selected_object->angular_velocity : NULL, 2, NULL},
-        {G_UIState.state_angular_acceleration_tbox, FLOAT, selected_object ? (void *)&selected_object->angular_acceleration : NULL, 2, NULL},
-        {G_UIState.state_health_tbox, FLOAT, selected_object ? (void *)&selected_object->health : NULL, 2, NULL},
-        {G_UIState.state_max_health_tbox, FLOAT, selected_object ? (void *)&selected_object->max_health : NULL, 2, NULL},
-        {G_UIState.state_damage_tbox, FLOAT, selected_object ? (void *)&selected_object->damage : NULL, 2, NULL},
-    };
-
-    RefreshTextboxFields(state_fields, ARRAY_COUNT(state_fields));
-}
-
-// Sync selected-cell labels and clear them when no cell is selected.
-static void RefreshSelectedCellFields(const Cell *selected_cell)
-{
-    if (selected_cell)
-    {
-        int index = UIState_GetSelectedCellIndex();
-        int occupancy = selected_cell->occupancy;
-        float value = selected_cell->value;
-        float fill = 0.0f;
-
-        if (G_UIState.cell_id_str)
-        {
-            UpdateString64(G_UIState.cell_id_str->string, "%d", index);
-        }
-        if (G_UIState.cell_occu_str)
-        {
-            UpdateString64(G_UIState.cell_occu_str->string, "%d", occupancy);
-        }
-        if (G_UIState.cell_value_str)
-        {
-            UpdateString64(G_UIState.cell_value_str->string, "%0.1f", value);
-        }
-        if (G_UIState.cell_fill_str)
-        {
-            UpdateString64(G_UIState.cell_fill_str->string, "%0.1f", fill);
-        }
-
-        return;
-    }
-
-    ClearString64(G_UIState.cell_id_str);
-    ClearString64(G_UIState.cell_occu_str);
-    ClearString64(G_UIState.cell_value_str);
-    ClearString64(G_UIState.cell_fill_str);
-}
-
 // Sync entity-creation editor textboxes when the draw view is active, otherwise clear them.
 static void RefreshEntityEditorFields(bool editor_active, EntityCreateParams *params)
 {
@@ -611,15 +536,6 @@ void UpdateGlobalUIState()
                  fps_text, ftime_text, mem_text, poly_text);
     }
     // ----DEBUG //
-
-    // COLLECT & UPDATE "SELECTED ENTITY" PROPERTIES
-    // Read via the validated accessor so bindings never use stale entity pointers.
-    Newtonoid2d *obj = UIState_GetSelectedObject();
-    RefreshSelectedObjectFields(obj);
-
-    // COLLECT & UPDATE SELECTED CELL PROPERTIES
-    Cell *cell = UIState_GetSelectedCell();
-    RefreshSelectedCellFields(cell);
 
     // COLLECT & UPDATE EDITING ENTITY PROPERTIES
     // Determine if the Edit View is active.

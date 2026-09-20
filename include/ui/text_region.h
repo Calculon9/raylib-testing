@@ -104,6 +104,8 @@ UIElement *CreateTextFieldContainerInTree(Size size, UIElement *parent, Offset p
 bool IsFocused(Vector2d pixel_coords, Vector2d *vertices, int vertex_count);
 // bool IsFocused(Vector2d pixel_coords, Polygon *polygon);
 float DrawTextCustom(const char *text, Vector2d origin_coords, int scale, Bitmap_Font font, ColourRgba colour);
+float DrawTextCustomClipped(const char *text, Vector2d origin_coords, int scale, Bitmap_Font font, ColourRgba colour, UIClipRect clip);
+void DrawCharClipped(char c, Vector2d origin_coords, int scale, Bitmap_Font font, ColourRgba colour, UIClipRect clip);
 int GetTextWidth(char *text, char font_spacing, char scale);
 
 

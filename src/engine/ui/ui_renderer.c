@@ -20,8 +20,9 @@
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
 //
-void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel);
+void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel, UIClipRect current_clip);
 void DrawTextArea(UIElement *e);
+void DrawTextAreaClipped(UIElement *e, UIClipRect clip);
 
 static int CountTextRows(const char *text, float available_width, int glyph_advance, int glyph_cell_width, int max_rows)
 {
@@ -72,14 +73,106 @@ void DrawElementBox(UIElement *e)
                          1.0f, ToRaylibColor(colour_border));
 }
 
+// Draw an element's background and border clipped against an active clip rectangle.
+void DrawElementBoxClipped(UIElement *e, UIClipRect clip)
+{
+    if (!e || !UIClipRect_IntersectsBox(clip, e->screen_box))
+    {
+        return;
+    }
+
+    if (UIClipRect_ContainsBox(clip, e->screen_box))
+    {
+        DrawElementBox(e);
+        return;
+    }
+
+    UIBox clipped_box = UIBox_Clip(e->screen_box, clip);
+    if (clipped_box.dimensions.x <= 0.0f || clipped_box.dimensions.y <= 0.0f)
+    {
+        return;
+    }
+
+    ColourRgba colour_fill = e->colour_fill;
+    ColourRgba colour_border = e->colour_border;
+    if (!IsDebugEnabled(DEBUG_UI_BORDERS))
+    {
+        colour_border.a = 0;
+    }
+
+    // Draw the clipped background fill.
+    if (colour_fill.a > 0)
+    {
+        DrawRectangleRec((Rectangle){clipped_box.coords.x, clipped_box.coords.y,
+                                     clipped_box.dimensions.x, clipped_box.dimensions.y},
+                         ToRaylibColor(colour_fill));
+    }
+
+    // Only draw borders along the original element edges if they fall within the clip rect.
+    if (colour_border.a > 0)
+    {
+        Color border_color = ToRaylibColor(colour_border);
+        const float epsilon = 0.5f;
+
+        // Draw top border if not clipped away.
+        if (fabsf(clipped_box.coords.y - e->screen_box.coords.y) <= epsilon)
+        {
+            DrawRectangleRec((Rectangle){clipped_box.coords.x, clipped_box.coords.y,
+                                         clipped_box.dimensions.x, 1.0f},
+                             border_color);
+        }
+
+        // Draw bottom border if not clipped away.
+        if (fabsf((clipped_box.coords.y + clipped_box.dimensions.y) -
+                  (e->screen_box.coords.y + e->screen_box.dimensions.y)) <= epsilon)
+        {
+            DrawRectangleRec((Rectangle){clipped_box.coords.x,
+                                         clipped_box.coords.y + clipped_box.dimensions.y - 1.0f,
+                                         clipped_box.dimensions.x, 1.0f},
+                             border_color);
+        }
+
+        // Draw left border if not clipped away.
+        if (fabsf(clipped_box.coords.x - e->screen_box.coords.x) <= epsilon)
+        {
+            DrawRectangleRec((Rectangle){clipped_box.coords.x, clipped_box.coords.y,
+                                         1.0f, clipped_box.dimensions.y},
+                             border_color);
+        }
+
+        // Draw right border if not clipped away.
+        if (fabsf((clipped_box.coords.x + clipped_box.dimensions.x) -
+                  (e->screen_box.coords.x + e->screen_box.dimensions.x)) <= epsilon)
+        {
+            DrawRectangleRec((Rectangle){clipped_box.coords.x + clipped_box.dimensions.x - 1.0f,
+                                         clipped_box.coords.y,
+                                         1.0f, clipped_box.dimensions.y},
+                             border_color);
+        }
+    }
+}
+
 void DrawTextArea(UIElement *e)
 {
-    if (!e)
-        return;
+    DrawTextAreaClipped(e, UI_UNCONSTRAINED_CLIP);
+}
 
-    // Data Setup - Abstract the difference between Label and Textbox
-    char *text_ptr = NULL;  //(e->type == UI_ELEMENT_LABEL) ? e->data.label.text.string : e->data.textbox.text.string;
-    Bitmap_Font font = {0}; // e->data.textbox.font; // Assuming similar struct layout
+// Draw text within an element's screen bounds, clipped against an active clip rectangle.
+void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
+{
+    if (!e || UIClipRect_IsEmpty(clip))
+    {
+        return;
+    }
+
+    if (!UIClipRect_IntersectsBox(clip, e->screen_box))
+    {
+        return;
+    }
+
+    // Data Setup - Abstract the difference between Label, Button, HoverItem, and Textbox.
+    char *text_ptr = NULL;
+    Bitmap_Font font = {0};
     if (IsTextbox(e))
     {
         text_ptr = e->data.textbox.text.string;
@@ -117,7 +210,7 @@ void DrawTextArea(UIElement *e)
     int rows_that_fit = (int)(available_space.y / row_height);
     int text_row_count = CountTextRows(text_ptr, available_space.x, glyph_advance, glyph_cell_width, rows_that_fit);
     float vertical_offset = 0.0f;
-    float text_height = text_row_count * row_height;
+    float text_height = (float)(text_row_count * row_height);
     if (e->text_vertical_alignment == UI_TEXT_VERTICAL_ALIGN_CENTRE)
     {
         vertical_offset = fmaxf(0.0f, (available_space.y - text_height) / 2.0f);
@@ -129,8 +222,7 @@ void DrawTextArea(UIElement *e)
     int char_ptr = 0;
     int current_row = 0;
     float last_row_x_end = e->screen_box.coords.x;
-    // if (rows_that_fit <= 0)
-    // return;
+    bool fully_contained = UIClipRect_ContainsBox(clip, e->screen_box);
 
     // Segmenting and Drawing
     // We'll draw row-by-row to save memory (no need for a massive 2D array)
@@ -146,11 +238,11 @@ void DrawTextArea(UIElement *e)
             char c = text_ptr[char_ptr];
             int char_width = row_char_count == 0 ? glyph_cell_width : glyph_advance;
 
-            if (current_row_width + char_width > available_space.x)
+            if (current_row_width + (float)char_width > available_space.x)
                 break;
 
             row_buffer[row_char_count++] = c;
-            current_row_width += char_width;
+            current_row_width += (float)char_width;
             char_ptr++;
         }
         row_buffer[row_char_count] = '\0';
@@ -158,7 +250,7 @@ void DrawTextArea(UIElement *e)
         // Draw the row
         Vector2d draw_pos = {
             e->screen_box.coords.x,
-            e->screen_box.coords.y + vertical_offset + (current_row * row_height)};
+            e->screen_box.coords.y + vertical_offset + (float)(current_row * row_height)};
 
         if (e->text_horizontal_alignment == UI_TEXT_ALIGN_CENTRE)
         {
@@ -169,8 +261,36 @@ void DrawTextArea(UIElement *e)
             draw_pos.x += fmaxf(0.0f, available_space.x - current_row_width);
         }
 
-        // Draw and capture the end X position for the cursor
-        last_row_x_end = DrawTextCustom(row_buffer, draw_pos, font.scale, font, font.colour);
+        if (fully_contained)
+        {
+            // Fast path: element is entirely inside the clip rectangle
+            last_row_x_end = DrawTextCustom(row_buffer, draw_pos, font.scale, font, font.colour);
+        }
+        else
+        {
+            float row_bottom = draw_pos.y + (float)row_height;
+            float row_right = draw_pos.x + current_row_width;
+
+            // Check if this row overlaps the clipping rectangle
+            if (row_bottom > clip.min.y && draw_pos.y < clip.max.y &&
+                row_right > clip.min.x && draw_pos.x < clip.max.x)
+            {
+                if (draw_pos.x >= clip.min.x && row_right <= clip.max.x &&
+                    draw_pos.y >= clip.min.y && row_bottom <= clip.max.y)
+                {
+                    last_row_x_end = DrawTextCustom(row_buffer, draw_pos, font.scale, font, font.colour);
+                }
+                else
+                {
+                    last_row_x_end = DrawTextCustomClipped(row_buffer, draw_pos, font.scale, font, font.colour, clip);
+                }
+            }
+            else
+            {
+                last_row_x_end = draw_pos.x + current_row_width;
+            }
+        }
+
         current_row++;
     }
 
@@ -190,9 +310,20 @@ void DrawTextArea(UIElement *e)
         // Place cursor at the end of the last drawn character
         // Note: Subtract 1 from current_row because it was incremented after the last draw
         float adjusted_x = last_row_x_end;
-        float adjusted_y = char_ptr > 0 ? e->screen_box.coords.y + vertical_offset + ((current_row - 1) * row_height) : e->screen_box.coords.y + vertical_offset;
+        float adjusted_y = char_ptr > 0
+                               ? e->screen_box.coords.y + vertical_offset + (float)((current_row - 1) * row_height)
+                               : e->screen_box.coords.y + vertical_offset;
         Vector2d cursor_pos = {adjusted_x, adjusted_y};
-        DrawTextCustom("|", cursor_pos, font.scale, font, font.colour);
+
+        if (fully_contained)
+        {
+            DrawTextCustom("|", cursor_pos, font.scale, font, font.colour);
+        }
+        else if (cursor_pos.x >= clip.min.x && cursor_pos.x < clip.max.x &&
+                 cursor_pos.y + (float)row_height > clip.min.y && cursor_pos.y < clip.max.y)
+        {
+            DrawTextCustomClipped("|", cursor_pos, font.scale, font, font.colour, clip);
+        }
     }
 }
 
@@ -223,14 +354,14 @@ void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Matrix3x3 M_ui_t
     // Draw background & border
     DrawElementBox(root_element);
 
-    // Recursively draw children
+    // Recursively draw children using an unconstrained root clip
     ForEachChild(root_element, child)
     {
-        DrawUIElement(child, root_element->screen_box, M_ui_to_pixel);
+        DrawUIElement(child, root_element->screen_box, M_ui_to_pixel, UI_UNCONSTRAINED_CLIP);
     }
 }
 
-void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel)
+void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel, UIClipRect current_clip)
 {
     if (!e || !e->is_enabled)
     {
@@ -256,26 +387,40 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel)
         // LOG_INFO("I'm a textbox, check my dimensions.");
     }
 
-    // DRAW IT ... IF it's within or intersects with the ranged coordinates of its parent
-    // if (!UI_AABB_Intersects(e->screen_box, parent_box))
-    // {
-    //     frame_counter.total_frames == 0 ? LOG_WARN("NOT DRAWING [%s] | NOT FULLY BOUNDED BY PARENT [%s]\n", GetElementTypeName(e->type), GetElementTypeName(e->parent->type)) : (void)0;
-    //     return; // Completely out of bounds, safe to skip
-    // }
+    // Prune elements completely outside the current clipping rectangle if they cannot scroll children into view.
+    if (!(e->is_scrollable_x || e->is_scrollable_y) &&
+        !UIClipRect_IntersectsBox(current_clip, e->screen_box))
+    {
+        return;
+    }
 
-    // Draw background & border
-    DrawElementBox(e);
+    // Draw background & border with clipping against the current clip rectangle
+    DrawElementBoxClipped(e, current_clip);
+
     if (IsTextbox(e) || IsBtn(e) || e->type == UI_ELEMENT_LABEL ||
         e->type == UI_ELEMENT_HOVER_ITEM)
     {
-        // Draw the Text
-        DrawTextArea(e);
+        // Draw text only if element intersects the visible clip
+        if (UIClipRect_IntersectsBox(current_clip, e->screen_box))
+        {
+            DrawTextArea(e);
+        }
     }
 
-    // Recursively draw children elements
-    ForEachChild(e, child)
+    // Calculate clip rectangle for children; scrollable containers constrain all descendants.
+    UIClipRect child_clip = current_clip;
+    if (e->is_scrollable_x || e->is_scrollable_y)
     {
-        DrawUIElement(child, e->screen_box, M_ui_to_pixel);
+        child_clip = UIClipRect_Intersect(current_clip, UIClipRect_FromBox(e->screen_box));
+    }
+
+    if (!UIClipRect_IsEmpty(child_clip))
+    {
+        // Recursively draw children elements within the propagated clip boundary
+        ForEachChild(e, child)
+        {
+            DrawUIElement(child, e->screen_box, M_ui_to_pixel, child_clip);
+        }
     }
 }
 

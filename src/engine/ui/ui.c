@@ -26,9 +26,9 @@ static UIElement *GetNextEnabledChild(UIElement *child)
     return child;
 }
 
-#define ForEachEnabledChild(parent, child) \
-    for (UIElement *(child) = GetNextEnabledChild((parent) ? (parent)->first_child : NULL); \
-         (child) != NULL; \
+#define ForEachEnabledChild(parent, child)                                                   \
+    for (UIElement * (child) = GetNextEnabledChild((parent) ? (parent)->first_child : NULL); \
+         (child) != NULL;                                                                    \
          (child) = GetNextEnabledChild((child)->next_sibling))
 
 // Resolve the width available to an element during the measurement pass.
@@ -41,21 +41,21 @@ static float ResolveMeasurementWidth(const UIElement *element, float parent_cont
 
     switch (element->size.size_mode)
     {
-        case SIZE_PERCENT:
-            return fmaxf(0.0f, parent_content_width * element->size.dimensions.x);
-        case SIZE_FILL:
-        case SIZE_CONTENT_FILL:
-        case SIZE_CONTENT:
+    case SIZE_PERCENT:
+        return fmaxf(0.0f, parent_content_width * element->size.dimensions.x);
+    case SIZE_FILL:
+    case SIZE_CONTENT_FILL:
+    case SIZE_CONTENT:
+        return fmaxf(0.0f, parent_content_width);
+    case SIZE_CONTENT_MAX:
+        if (element->size.dimensions.x <= 0.0f)
+        {
             return fmaxf(0.0f, parent_content_width);
-        case SIZE_CONTENT_MAX:
-            if (element->size.dimensions.x <= 0.0f)
-            {
-                return fmaxf(0.0f, parent_content_width);
-            }
-            return fminf(fmaxf(0.0f, parent_content_width), element->size.dimensions.x);
-        case SIZE_FIXED:
-        default:
-            return fmaxf(0.0f, element->size.dimensions.x);
+        }
+        return fminf(fmaxf(0.0f, parent_content_width), element->size.dimensions.x);
+    case SIZE_FIXED:
+    default:
+        return fmaxf(0.0f, element->size.dimensions.x);
     }
 }
 
@@ -69,19 +69,19 @@ static Vector2d ResolveMeasuredChildSize(const UIElement *child, float parent_co
 
     switch (child->size.size_mode)
     {
-        case SIZE_PERCENT:
-            return (Vector2d){
-                parent_content_width * child->size.dimensions.x,
-                child->size.dimensions.y};
-        case SIZE_FILL:
-        case SIZE_CONTENT_FILL:
-            return (Vector2d){parent_content_width, child->measured_content_size.y};
-        case SIZE_CONTENT:
-        case SIZE_CONTENT_MAX:
-            return child->measured_content_size;
-        case SIZE_FIXED:
-        default:
-            return child->size.dimensions;
+    case SIZE_PERCENT:
+        return (Vector2d){
+            parent_content_width * child->size.dimensions.x,
+            child->size.dimensions.y};
+    case SIZE_FILL:
+    case SIZE_CONTENT_FILL:
+        return (Vector2d){parent_content_width, child->measured_content_size.y};
+    case SIZE_CONTENT:
+    case SIZE_CONTENT_MAX:
+        return child->measured_content_size;
+    case SIZE_FIXED:
+    default:
+        return child->size.dimensions;
     }
 }
 
@@ -153,7 +153,7 @@ static Vector2d MeasureStackedWrapContent(UIElement *element, float content_widt
         element->size.dimensions.y > 0.0f)
     {
         column_height_limit = fmaxf(0.0f, element->size.dimensions.y -
-                                             (2.0f * element->padding.y));
+                                              (2.0f * element->padding.y));
     }
 
     float measured_width = 0.0f;
@@ -376,7 +376,7 @@ static Vector2d ResolveChildSizeFixed(const UIElement *child, Vector2d content_a
     }
 
     return (Vector2d){child->size.dimensions.x,
-                      ResolveChildHeight(child,content_area_local.y,content_area_local.y - consumed_fixed_y)};
+                      ResolveChildHeight(child, content_area_local.y, content_area_local.y - consumed_fixed_y)};
 }
 
 typedef struct StackedLayoutStats
@@ -698,6 +698,9 @@ UIElement *CreateUIElement(UIElementType type, Size size, Offset parent_offset, 
     e->is_dirty = true;
     e->is_draggable = false;
     e->child_spacing = UI_SPACING_NONE;
+    e->scroll_offset = ZERO_VECTOR_2D;
+    e->is_scrollable_x = false;
+    e->is_scrollable_y = false;
 
     return e;
 }
@@ -888,42 +891,82 @@ void UI_DistributeChildren(UIElement *e)
 // Call this to kick of the recursive distribution of children for a given parent element and its resolved box. This function will traverse the entire subtree of the parent element, applying the appropriate spacing rules to each child based on the parent's configuration.
 //  Correct top-down recursion
 
+// Resolve the deepest interactive UIElement under pixel coordinates, respecting unconstrained bounds.
 UIElement *GetElementAt(UIElement *e, Vector2d pixel_coords)
 {
-    if (!e)
-        return NULL;
+    return GetElementAtClipped(e, pixel_coords, UI_UNCONSTRAINED_CLIP);
+}
 
-    // Disabled elements and their subtrees are not interactive.
-    if (!e->is_enabled)
+// Resolve the deepest interactive UIElement under pixel coordinates, respecting an active clip rectangle.
+UIElement *GetElementAtClipped(UIElement *e, Vector2d pixel_coords, UIClipRect clip)
+{
+    if (!e || !e->is_enabled)
     {
         return NULL;
     }
 
-    // 1. If the mouse isn't even over THIS element, it can't be over its children
+    // Verify pointer coordinates fall within the active clipping rectangle.
+    if (pixel_coords.x < clip.min.x || pixel_coords.x > clip.max.x ||
+        pixel_coords.y < clip.min.y || pixel_coords.y > clip.max.y)
+    {
+        return NULL;
+    }
+
+    // If the mouse isn't over this element, it cannot be over its children.
     if (!IsMouseOverElement(e, pixel_coords))
     {
         return NULL;
     }
 
-    // 2. Check children in REVERSE order (last sibling is usually drawn on top)
-    // For simplicity here, we'll go first-to-last, but the top-most child wins
-    UIElement *found = NULL;
-    ForEachChild(e, child)
+    // If this container is scrollable, constrain child hit-testing to the container's visible bounds.
+    UIClipRect child_clip = clip;
+    if (e->is_scrollable_x || e->is_scrollable_y)
     {
-        UIElement *clicked = GetElementAt(child, pixel_coords);
-        if (clicked)
+        child_clip = UIClipRect_Intersect(clip, UIClipRect_FromBox(e->screen_box));
+    }
+
+    // Check children (last sibling is usually drawn on top, so top-most child wins).
+    UIElement *found = NULL;
+    if (!UIClipRect_IsEmpty(child_clip))
+    {
+        ForEachChild(e, child)
         {
-            found = clicked; // Keep track of the most recent (top-most) match
+            UIElement *clicked = GetElementAtClipped(child, pixel_coords, child_clip);
+            if (clicked)
+            {
+                found = clicked;
+            }
         }
     }
 
-    // 3. If a child was clicked, return that. Otherwise, it's this element.
+    // If a child was clicked, return that. Otherwise, it's this element.
     return (found) ? found : e;
 }
 
 void DisableElement(UIElement *element)
 {
     element->is_enabled = false;
+}
+
+void SetEnabledState(UIElement *element, bool is_enabled)
+{
+    if (element)
+    {
+        element->is_enabled = is_enabled;
+    }
+}
+
+void SetParentEnabledState(UIElement *child, bool is_enabled)
+{
+    if (child)
+    {
+        UIElement *parent = child->parent;
+        if (parent)
+        {
+            parent->is_enabled = is_enabled;
+            return;
+        }
+    }
 }
 
 void EnableElement(UIElement *element)
@@ -934,6 +977,30 @@ void EnableElement(UIElement *element)
 void ToggleElementEnabled(UIElement *element)
 {
     element->is_enabled = !element->is_enabled;
+}
+
+// Scroll a horizontally scrollable element and clamp its offset to measured content bounds.
+void ScrollUIElementX(UIElement *element, float delta)
+{
+    if (!element || !element->is_scrollable_x)
+    {
+        return;
+    }
+
+    float max_scroll = fmaxf(0.0f, element->measured_content_size.x - element->local_box.dimensions.x);
+    element->scroll_offset.x = fminf(max_scroll, fmaxf(0.0f, element->scroll_offset.x + delta));
+}
+
+// Scroll a vertically scrollable element and clamp its offset to measured content bounds.
+void ScrollUIElementY(UIElement *element, float delta)
+{
+    if (!element || !element->is_scrollable_y)
+    {
+        return;
+    }
+
+    float max_scroll = fmaxf(0.0f, element->measured_content_size.y - element->local_box.dimensions.y);
+    element->scroll_offset.y = fminf(max_scroll, fmaxf(0.0f, element->scroll_offset.y + delta));
 }
 
 void SetUIElementTextHorizontalAlignment(UIElement *element, UITextHorizontalAlignment alignment)
@@ -1057,12 +1124,12 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box)
     // Apply any padding to correct the available area
     if (element->parent)
     {
-        // Account for padding
+        // Account for padding and parent scroll offset
         float pad_x = element->parent->padding.x;
         float pad_y = element->parent->padding.y;
 
-        box.coords.x += pad_x;
-        box.coords.y += pad_y;
+        box.coords.x += pad_x - element->parent->scroll_offset.x;
+        box.coords.y += pad_y - element->parent->scroll_offset.y;
 
         content_area_w -= (pad_x * 2.0f);
         content_area_h -= (pad_y * 2.0f);
@@ -1124,19 +1191,105 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box)
     }
     else
     {
-        box.dimensions.x = fminf(box.dimensions.x, remaining_w);
-        box.dimensions.y = fminf(box.dimensions.y, remaining_h);
+        // Clamp dimensions only when the parent is not scrollable along that axis.
+        if (!element->parent || !element->parent->is_scrollable_x)
+        {
+            box.dimensions.x = fminf(box.dimensions.x, remaining_w);
+        }
+        if (!element->parent || !element->parent->is_scrollable_y)
+        {
+            box.dimensions.y = fminf(box.dimensions.y, remaining_h);
+        }
     }
 
     return box;
 }
 
-bool UI_AABB_Intersects(UIBox a, UIBox b) 
+bool UI_AABB_Intersects(UIBox a, UIBox b)
 {
     return (a.coords.x < b.coords.x + b.dimensions.x &&
             a.coords.x + a.dimensions.x > b.coords.x &&
             a.coords.y < b.coords.y + b.dimensions.y &&
             a.coords.y + a.dimensions.y > b.coords.y);
+}
+
+// Convert a UIBox into an axis-aligned minimum/maximum clipping rectangle.
+UIClipRect UIClipRect_FromBox(UIBox box)
+{
+    return (UIClipRect){
+        .min = box.coords,
+        .max = (Vector2d){box.coords.x + box.dimensions.x, box.coords.y + box.dimensions.y}};
+}
+
+// Compute the overlapping intersection of two clipping rectangles.
+UIClipRect UIClipRect_Intersect(UIClipRect a, UIClipRect b)
+{
+    UIClipRect result;
+    result.min.x = fmaxf(a.min.x, b.min.x);
+    result.min.y = fmaxf(a.min.y, b.min.y);
+    result.max.x = fminf(a.max.x, b.max.x);
+    result.max.y = fminf(a.max.y, b.max.y);
+    if (result.max.x < result.min.x)
+    {
+        result.max.x = result.min.x;
+    }
+    if (result.max.y < result.min.y)
+    {
+        result.max.y = result.min.y;
+    }
+    return result;
+}
+
+// Return true if the clipping rectangle has zero or negative area.
+bool UIClipRect_IsEmpty(UIClipRect rect)
+{
+    return (rect.max.x <= rect.min.x) || (rect.max.y <= rect.min.y);
+}
+
+// Check whether a UIBox is entirely contained within a clipping rectangle.
+bool UIClipRect_ContainsBox(UIClipRect clip, UIBox box)
+{
+    if (box.dimensions.x <= 0.0f || box.dimensions.y <= 0.0f)
+    {
+        return true;
+    }
+    return (box.coords.x >= clip.min.x &&
+            box.coords.x + box.dimensions.x <= clip.max.x &&
+            box.coords.y >= clip.min.y &&
+            box.coords.y + box.dimensions.y <= clip.max.y);
+}
+
+// Check whether a UIBox partially or fully overlaps a clipping rectangle.
+bool UIClipRect_IntersectsBox(UIClipRect clip, UIBox box)
+{
+    if (box.dimensions.x <= 0.0f || box.dimensions.y <= 0.0f)
+    {
+        return false;
+    }
+    return (box.coords.x < clip.max.x &&
+            box.coords.x + box.dimensions.x > clip.min.x &&
+            box.coords.y < clip.max.y &&
+            box.coords.y + box.dimensions.y > clip.min.y);
+}
+
+// Trim a UIBox against a clipping rectangle, returning the clamped visible box.
+UIBox UIBox_Clip(UIBox box, UIClipRect clip)
+{
+    float min_x = fmaxf(box.coords.x, clip.min.x);
+    float min_y = fmaxf(box.coords.y, clip.min.y);
+    float max_x = fminf(box.coords.x + box.dimensions.x, clip.max.x);
+    float max_y = fminf(box.coords.y + box.dimensions.y, clip.max.y);
+    if (max_x < min_x)
+    {
+        max_x = min_x;
+    }
+    if (max_y < min_y)
+    {
+        max_y = min_y;
+    }
+    return (UIBox){
+        .coords = (Vector2d){min_x, min_y},
+        .dimensions = (Vector2d){max_x - min_x, max_y - min_y}};
 }
 
 const char *GetElementTypeName(UIElementType type)

@@ -40,7 +40,7 @@ size_t memory_allocated = 0.0f;
 Font font = {0};
 Music music = {0};
 Sound fxCoin = {0};
-const int screenWidth = 1600;
+const int screenWidth = 1800;
 const int screenHeight = 900;
 
 //----------------------------------------------------------------------------------

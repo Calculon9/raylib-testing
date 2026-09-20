@@ -1,0 +1,38 @@
+-----------------------------------
+
+// --- Component Definitions ---
+
+typedef struct {
+
+} RotorComponent;
+
+typedef struct {
+
+} GearComponent;
+
+typedef struct {
+    EntityID entity;
+    EntityID destination_portal; // ID of the target portal entity
+} PortalComponent;
+
+// --- Component Stores (Flat Arrays) ---
+
+#define MAX_ENTITIES 1000
+
+typedef struct {
+    RotorComponent data[MAX_ENTITIES];
+
+} RotorStore;
+
+typedef struct {
+    GearComponent data[MAX_ENTITIES];
+
+} GearStore;
+
+typedef struct {
+    PortalComponent data[MAX_ENTITIES];
+
+} PortalStore;
+
+-----------------------------------
+

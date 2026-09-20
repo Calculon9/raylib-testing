@@ -37,52 +37,12 @@ typedef enum
 typedef struct
 {
     UIElement *focused_element;
-    // OBJECT PROPERTIES UI
-    UIElement *state_id_tbox;
-    UIElement *state_slot_tbox;
-    UIElement *state_generation_tbox;
-    String64 *state_id_str;
-    UIElement *state_mass_tbox;
-    String64 *state_mass_str;
-    UIElement *state_restitution_tbox;
-    String64 *state_restitution_str;
-    UIElement *state_friction_tbox;
-    String64 *state_friction_str;
-    UIElement *state_world_restitution_tbox;
-    UIElement *state_world_friction_tbox;
-    UIElement *state_pos_tl_tbox;
-    String64 *state_pos_tl_str;
-    UIElement *state_pos_c_tbox;
-    String64 *state_pos_c_str;
-    UIElement *state_vel_tbox;
-    String64 *state_vel_str;
-    UIElement *state_accel_tbox;
-    String64 *state_accel_str;
-    UIElement *state_moment_tbox;
-    String64 *state_moment_str;
-    UIElement *state_angular_velocity_tbox;
-    String64 *state_angular_velocity_str;
-    UIElement *state_angular_acceleration_tbox;
-    String64 *state_angular_acceleration_str;
-    UIElement *state_health_tbox;
-    String64 *state_health_str;
-    UIElement *state_max_health_tbox;
-    String64 *state_max_health_str;
-    UIElement *state_damage_tbox;
-    String64 *state_damage_str;
-    String64 *state_world_str;
 
     // STATS UI
     String64 *stats_polygs_str;
     String64 *stats_fps_str;
     String64 *stats_ftime_str;
     String64 *stats_mem_str;
-
-    // CELL STATE UI
-    String64 *cell_id_str;
-    String64 *cell_occu_str;
-    String64 *cell_value_str;
-    String64 *cell_fill_str;
 
     // ENTIY EDITOR UI
     // UIElement *edit_id_tbox;

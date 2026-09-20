@@ -9,6 +9,7 @@
 #include "input/drag_interaction.h"
 #include "common/common.h"
 #include "system/ui_system.h"
+#include "system/ui/state_manager_system.h"
 
 // Simple circular buffer queue
 #define COMMAND_QUEUE_CAPACITY 128
@@ -130,6 +131,36 @@ bool EnqueueMoveEntity(EntityId entity_id, int source_world_index,
     return true;
 }
 
+// Enqueue attaching a component to an existing entity.
+bool EnqueueAttachComponent(EntityId entity_id, const EntityComponent *component)
+{
+    if (entity_id == INVALID_ENTITY_ID || !component || component->type == ENTITY_COMPONENT_NONE)
+    {
+        return false;
+    }
+
+    AttachComponentCommand cmd = {
+        .entity_id = entity_id,
+        .component = *component,
+    };
+    return EnqueueCommandWithQueueLog(CMD_ATTACH_COMPONENT, &cmd, sizeof(cmd), "CMD_ATTACH_COMPONENT");
+}
+
+// Enqueue detaching a component from an existing entity.
+bool EnqueueRemoveComponent(EntityId entity_id, EntityComponentType component_type)
+{
+    if (entity_id == INVALID_ENTITY_ID || component_type == ENTITY_COMPONENT_NONE)
+    {
+        return false;
+    }
+
+    RemoveComponentCommand cmd = {
+        .entity_id = entity_id,
+        .component_type = component_type,
+    };
+    return EnqueueCommandWithQueueLog(CMD_REMOVE_COMPONENT, &cmd, sizeof(cmd), "CMD_REMOVE_COMPONENT");
+}
+
 void ProcessCommandQueue(void)
 {
     while (q_count > 0)
@@ -137,40 +168,13 @@ void ProcessCommandQueue(void)
         Command *c = &queue[q_head];
         if (c->type == CMD_CREATE_ENTITY)
         {
-            // New entities always enter the universe's root world first, unworlded.
-            EntityCreateResult creation = {0};
-            if (EntityFactory_Create(&c->data.create_entity, &creation))
+            EntityId spawned_id = EntityFactory_Spawn(&G_Universe.root_world,
+                                                      &c->data.create_entity,
+                                                      G_Universe.root_world.grid_space.object.id);
+            if (spawned_id != INVALID_ENTITY_ID)
             {
-                EntityId spawned_id = AddObjectToWorld(&G_Universe.root_world, creation.entity,
-                                                       G_Universe.root_world.grid_space.object.id);
-                if (spawned_id != INVALID_ENTITY_ID)
-                {
-                    if (creation.component.type != ENTITY_COMPONENT_NONE &&
-                        !EntityRegistry_RegisterComponent(spawned_id, &creation.component))
-                    {
-                        DeregisterEntity(&G_Universe.root_world, spawned_id);
-                        creation.entity->surface.surface_vectors = (LArray){0};
-                        spawned_id = INVALID_ENTITY_ID;
-                    }
-                }
-
-                if (spawned_id != INVALID_ENTITY_ID)
-                {
-                    UIState_SetSelectedObjectById(spawned_id);
-                    LOG_INFO("Processed CMD_CREATE_ENTITY -> spawned id=%d\n", spawned_id);
-                }
-                else
-                {
-                    LArray *vectors = &creation.entity->surface.surface_vectors;
-                    if (vectors->items && vectors->capacity > 0 && vectors->elem_bytes > 0)
-                    {
-                        size_t bytes = (size_t)vectors->capacity * vectors->elem_bytes;
-                        Deallocate(&vectors->items, bytes);
-                    }
-                }
-
-                // The world's object array owns the surface buffer after a successful copy.
-                Deallocate((void **)&creation.entity, sizeof(Newtonoid2d));
+                UIState_SetSelectedObjectById(spawned_id);
+                LOG_INFO("Processed CMD_CREATE_ENTITY -> spawned id=%d\n", spawned_id);
             }
         }
 
@@ -236,9 +240,9 @@ void ProcessCommandQueue(void)
         {
             World2d *source_world = Universe_GetWorld(&G_Universe, c->data.move_entity.source_world_index);
             World2d *destination_world = Universe_GetWorld(&G_Universe, c->data.move_entity.destination_world_index);
-            EntityId moved_id = MoveObjectBetweenWorlds(source_world,destination_world,c->data.move_entity.entity_id,
-                                                         c->data.move_entity.destination_parent_id,
-                                                         c->data.move_entity.destination_coords);
+            EntityId moved_id = MoveObjectBetweenWorlds(source_world, destination_world, c->data.move_entity.entity_id,
+                                                        c->data.move_entity.destination_parent_id,
+                                                        c->data.move_entity.destination_coords);
             if (moved_id != INVALID_ENTITY_ID)
             {
                 Universe_SelectWorld(&G_Universe, c->data.move_entity.destination_world_index);
@@ -263,12 +267,54 @@ void ProcessCommandQueue(void)
             else
             {
                 Newtonoid2d *entity = Universe_GetEntityByID(&G_Universe,
-                                                              c->data.move_entity.entity_id,
-                                                              NULL);
+                                                             c->data.move_entity.entity_id,
+                                                             NULL);
                 if (entity)
                 {
                     entity->collision_mask = c->data.move_entity.original_collision_mask;
                 }
+            }
+        }
+
+        if (c->type == CMD_ATTACH_COMPONENT)
+        {
+            EntityId entity_id = c->data.attach_component.entity_id;
+            EntityComponentType type = c->data.attach_component.component.type;
+            const void *comp_data = NULL;
+            switch (type)
+            {
+            case ENTITY_COMPONENT_ROTOR:
+                comp_data = &c->data.attach_component.component.data.rotor;
+                break;
+            case ENTITY_COMPONENT_GEAR:
+                comp_data = &c->data.attach_component.component.data.gear;
+                break;
+            case ENTITY_COMPONENT_PORTAL:
+                comp_data = &c->data.attach_component.component.data.portal;
+                break;
+            case ENTITY_COMPONENT_RELATION:
+                comp_data = &c->data.attach_component.component.data.relation;
+                break;
+            case ENTITY_COMPONENT_NONE:
+            default:
+                break;
+            }
+
+            if (comp_data && EntityRegistry_AttachComponent(entity_id, type, comp_data))
+            {
+                LOG_INFO("Processed CMD_ATTACH_COMPONENT -> entity_id=%d, type=%d\n", entity_id, type);
+                MarkStateManagerRefreshDirty();
+            }
+        }
+
+        if (c->type == CMD_REMOVE_COMPONENT)
+        {
+            EntityId entity_id = c->data.remove_component.entity_id;
+            EntityComponentType type = c->data.remove_component.component_type;
+            if (EntityRegistry_RemoveComponent(entity_id, type))
+            {
+                LOG_INFO("Processed CMD_REMOVE_COMPONENT -> entity_id=%d, type=%d\n", entity_id, type);
+                MarkStateManagerRefreshDirty();
             }
         }
 

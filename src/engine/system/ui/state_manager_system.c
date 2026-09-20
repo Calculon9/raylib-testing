@@ -1,178 +1,173 @@
 #include "system/ui/state_manager_system.h"
-
+#include <string.h>
 #include "system/command_queue.h"
 #include "system/panel_system.h"
 #include "system/systems.h"
 #include "system/ui_system.h"
+#include "system/utility_system.h"
 #include "system/viewport_system.h"
 #include "ui/ui_constructors.h"
 #include "physics/newtonoid.h"
 #include "math/coordinate_space.h"
 #include "world/universe.h"
+#include "entities/entity_registry.h"
+#include "entities/entity_components.h"
 
-// Module state.
+// ============================================================================
+// Module State
+// ============================================================================
+
 static PanelSystem *state_manager_panel = NULL;
-static int btn_action_delete_entity = BUTTON_ACTION_DELETE_ENTITY;
 
 static Size view_section_size = UI_SIZE_CONTENT;
 static bool state_manager_refresh_dirty = true;
 
-// PHYS view readouts.
-static UIElement *state_rotation_tbox = NULL;
-static UIElement *state_basis_u_tbox = NULL;
-static UIElement *state_basis_v_tbox = NULL;
-static UIElement *state_geometry_center_tbox = NULL;
-static UIElement *state_gameplay_section = NULL;
-
-// Field visibility metadata.
-typedef enum
+// Component button binding: associates a button control with an EntityComponentType.
+typedef struct StateManagerComponentButton
 {
-    STATE_MANAGER_FIELD_VISIBILITY_ALWAYS,
-    STATE_MANAGER_FIELD_VISIBILITY_DAMAGEABLE,
-    STATE_MANAGER_FIELD_VISIBILITY_PROJECTILE,
-} StateManagerFieldVisibilityRule;
+    const char *label;
+    EntityComponentType type;
+    UIElement *button;
+} StateManagerComponentButton;
 
-typedef struct
+// UIElement and String64 references owned by the State Manager panel.
+typedef struct StateManagerUI
 {
-    UIElement **textbox_slot;
-    StateManagerFieldVisibilityRule visibility_rule;
-} StateManagerFieldVisibilitySpec;
+    // Action codes
+    int delete_action;
 
-static const StateManagerFieldVisibilitySpec state_manager_gameplay_field_specs[] = {
-    {&G_UIState.state_health_tbox, STATE_MANAGER_FIELD_VISIBILITY_DAMAGEABLE},
-    {&G_UIState.state_max_health_tbox, STATE_MANAGER_FIELD_VISIBILITY_DAMAGEABLE},
-    {&G_UIState.state_damage_tbox, STATE_MANAGER_FIELD_VISIBILITY_PROJECTILE},
-};
+    // Component toggle buttons
+    StateManagerComponentButton comp_buttons[3];
 
-// Which flag namespace a toggle belongs to.
-typedef enum
-{
-    STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE,
-    STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE,
-    STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS,
-    STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK,
-    STATE_MANAGER_FLAG_CATEGORY_WORLD,
-    STATE_MANAGER_FLAG_CATEGORY_CELL,
-} StateManagerFlagCategory;
+    // Identity readouts
+    UIElement *id_tbox;
+    UIElement *slot_tbox;
+    UIElement *generation_tbox;
+    UIElement *world_tbox;
 
-typedef struct
+    // Physics readouts
+    UIElement *mass_tbox;
+    UIElement *restitution_tbox;
+    UIElement *friction_tbox;
+    UIElement *pos_c_tbox;
+    UIElement *vel_tbox;
+    UIElement *accel_tbox;
+    UIElement *moment_tbox;
+    UIElement *angular_velocity_tbox;
+    UIElement *angular_acceleration_tbox;
+
+    // Geometry readouts
+    UIElement *pos_tl_tbox;
+    UIElement *geometry_center_tbox;
+    UIElement *rotation_tbox;
+    UIElement *basis_u_tbox;
+    UIElement *basis_v_tbox;
+
+    // Gameplay readouts & section
+    UIElement *gameplay_section;
+    UIElement *health_tbox;
+    UIElement *max_health_tbox;
+    UIElement *damage_tbox;
+
+    // Components readouts & section
+    UIElement *components_section;
+    UIElement *comp_portal_cooldown_tbox;
+    String64 *comp_portal_cooldown_str;
+    UIElement *comp_portal_entrant_mask_tbox;
+    String64 *comp_portal_entrant_mask_str;
+    UIElement *comp_relation_type_tbox;
+    String64 *comp_relation_type_str;
+    UIElement *comp_relation_target_tbox;
+    String64 *comp_relation_target_str;
+    UIElement *comp_relation_active_tbox;
+    String64 *comp_relation_active_str;
+
+    // World physics readouts
+    UIElement *world_restitution_tbox;
+    UIElement *world_friction_tbox;
+
+    // Cell readouts
+    String64 *cell_id_str;
+    String64 *cell_occu_str;
+    String64 *cell_value_str;
+    String64 *cell_fill_str;
+} StateManagerUI;
+
+static StateManagerUI s_sm_ui = {0};
+
+// Flag button binding: associates a button control with its display label and underlying bitflag.
+typedef struct StateManagerFlagButton
 {
     const char *label;
     uint32_t flag;
-    StateManagerFlagCategory category;
-} StateManagerFlagSpec;
+    UIElement *button;
+} StateManagerFlagButton;
 
-typedef enum
+// All flag definitions and their bound controls stay together as module state.
+typedef struct StateManagerFlags
 {
-    STATE_MANAGER_FLAG_SOURCE_NONE,
-    STATE_MANAGER_FLAG_SOURCE_ENTITY,
-    STATE_MANAGER_FLAG_SOURCE_WORLD,
-    STATE_MANAGER_FLAG_SOURCE_CELL,
-} StateManagerFlagSourceKind;
+    uint32_t type_flags;
+    StateManagerFlagButton entity_type[5];
+    StateManagerFlagButton entity_attribute[7];
+    StateManagerFlagButton entity_status[3];
+    StateManagerFlagButton collision_mask[5];
+    StateManagerFlagButton world[7];
+    StateManagerFlagButton cell[4];
+} StateManagerFlags;
 
-typedef struct
-{
-    StateManagerFlagSourceKind kind;
-    Newtonoid2d *entity;
-    const World2d *world;
-    const Cell *cell;
-} StateManagerFlagSource;
-
-typedef uint32_t *(*StateManagerFlagTargetFn)(StateManagerFlagSource source);
-
-typedef struct
-{
-    StateManagerFlagSourceKind source_kind;
-    StateManagerFlagTargetFn get_target;
-} StateManagerFlagCategorySpec;
-
-typedef struct
-{
-    StateManagerFlagCategory category;
-    size_t first_spec;
-    size_t first_button;
-    size_t count;
-} StateManagerFlagGroup;
-
-// Field visibility helpers.
-static bool StateManagerObjectMatchesFieldRule(const Newtonoid2d *object,
-                                               StateManagerFieldVisibilityRule rule)
-{
-    if (!object)
-    {
-        return false;
-    }
-
-    switch (rule)
-    {
-        case STATE_MANAGER_FIELD_VISIBILITY_DAMAGEABLE:
-            return (object->attribute_flags & ENTITY_ATTR_FLAG_DAMAGEABLE) != 0;
-        case STATE_MANAGER_FIELD_VISIBILITY_PROJECTILE:
-            return (object->entity_flags & ENTITY_FLAG_PROJECTILE) != 0;
-        case STATE_MANAGER_FIELD_VISIBILITY_ALWAYS:
-        default:
-            return true;
-    }
-}
-
-static void StateManagerSetFieldRowEnabled(UIElement *textbox, bool is_enabled)
-{
-    if (!textbox || !textbox->parent)
-    {
-        return;
-    }
-
-    textbox->parent->is_enabled = is_enabled;
-}
-
-// Flag metadata.
-static const StateManagerFlagSpec state_manager_flag_specs[] = {
-    {"WALL", ENTITY_FLAG_WALL, STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE},
-    {"NEWTONOID", ENTITY_FLAG_NEWTONOID, STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE},
-    {"PROJECTILE", ENTITY_FLAG_PROJECTILE, STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE},
-    {"EFFECT", ENTITY_FLAG_EFFECT, STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE},
-    {"CAMERA", ENTITY_FLAG_CAMERA, STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE},
-
-    {"DAMAGEABLE", ENTITY_ATTR_FLAG_DAMAGEABLE, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
-    {"VELOCITY", ENTITY_ATTR_FLAG_VELOCITY_ALIGNED, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
-    {"AFFECT OWNER", ENTITY_ATTR_FLAG_AFFECT_OWNER, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
-    {"RIGID", ENTITY_ATTR_FLAG_RIGID, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
-    {"POSITION LOCKED", ENTITY_ATTR_FLAG_POSITION_LOCKED, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
-    {"SENSOR", ENTITY_ATTR_FLAG_SENSOR, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
-    {"NO CONTACT RESPONSE", ENTITY_ATTR_FLAG_NO_CONTACT_RESPONSE, STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE},
-
-    {"ALIVE", ENTITY_STATUS_FLAG_ALIVE, STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS},
-    {"SLEEPING", ENTITY_STATUS_FLAG_SLEEPING, STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS},
-    {"CLOCKED", ENTITY_STATUS_FLAG_CLOCKED, STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS},
-
-    {"WALL", ENTITY_FLAG_WALL, STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK},
-    {"NEWTONOID", ENTITY_FLAG_NEWTONOID, STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK},
-    {"PROJECTILE", ENTITY_FLAG_PROJECTILE, STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK},
-    {"EFFECT", ENTITY_FLAG_EFFECT, STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK},
-    {"CAMERA", ENTITY_FLAG_CAMERA, STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK},
-
-    {"ACTIVE", WORLD_FLAG_ACTIVE, STATE_MANAGER_FLAG_CATEGORY_WORLD},
-    {"VISIBLE", WORLD_FLAG_VISIBLE, STATE_MANAGER_FLAG_CATEGORY_WORLD},
-    {"SELECTABLE", WORLD_FLAG_SELECTABLE, STATE_MANAGER_FLAG_CATEGORY_WORLD},
-    {"PHYSICS", WORLD_FLAG_PHYSICS_ENABLED, STATE_MANAGER_FLAG_CATEGORY_WORLD},
-    {"SPAWNS", WORLD_FLAG_SPAWNS_ENABLED, STATE_MANAGER_FLAG_CATEGORY_WORLD},
-    {"LOCKED", WORLD_FLAG_LOCKED, STATE_MANAGER_FLAG_CATEGORY_WORLD},
-    {"DRAG", WORLD_FLAG_DRAGGABLE, STATE_MANAGER_FLAG_CATEGORY_WORLD},
-
-    {"SOLID", CELL_FLAG_SOLID, STATE_MANAGER_FLAG_CATEGORY_CELL},
-    {"WALKABLE", CELL_FLAG_WALKABLE, STATE_MANAGER_FLAG_CATEGORY_CELL},
-    {"HAZARD", CELL_FLAG_HAZARDOUS, STATE_MANAGER_FLAG_CATEGORY_CELL},
-    {"SPAWN", CELL_FLAG_SPAWNABLE, STATE_MANAGER_FLAG_CATEGORY_CELL},
+static StateManagerFlags s_sm_flags = {
+    .type_flags = ENTITY_FLAG_WALL | ENTITY_FLAG_NEWTONOID |
+                  ENTITY_FLAG_PROJECTILE | ENTITY_FLAG_EFFECT | ENTITY_FLAG_CAMERA,
+    .entity_type = {
+        {"WALL", ENTITY_FLAG_WALL, NULL},
+        {"NEWTONOID", ENTITY_FLAG_NEWTONOID, NULL},
+        {"PROJECTILE", ENTITY_FLAG_PROJECTILE, NULL},
+        {"EFFECT", ENTITY_FLAG_EFFECT, NULL},
+        {"CAMERA", ENTITY_FLAG_CAMERA, NULL},
+    },
+    .entity_attribute = {
+        {"DAMAGEABLE", ENTITY_ATTR_FLAG_DAMAGEABLE, NULL},
+        {"VELOCITY", ENTITY_ATTR_FLAG_VELOCITY_ALIGNED, NULL},
+        {"AFFECT OWNER", ENTITY_ATTR_FLAG_AFFECT_OWNER, NULL},
+        {"RIGID", ENTITY_ATTR_FLAG_RIGID, NULL},
+        {"POSITION LOCKED", ENTITY_ATTR_FLAG_POSITION_LOCKED, NULL},
+        {"SENSOR", ENTITY_ATTR_FLAG_SENSOR, NULL},
+        {"NO CONTACT RESPONSE", ENTITY_ATTR_FLAG_NO_CONTACT_RESPONSE, NULL},
+    },
+    .entity_status = {
+        {"ALIVE", ENTITY_STATUS_FLAG_ALIVE, NULL},
+        {"SLEEPING", ENTITY_STATUS_FLAG_SLEEPING, NULL},
+        {"CLOCKED", ENTITY_STATUS_FLAG_CLOCKED, NULL},
+    },
+    .collision_mask = {
+        {"WALL", ENTITY_FLAG_WALL, NULL},
+        {"NEWTONOID", ENTITY_FLAG_NEWTONOID, NULL},
+        {"PROJECTILE", ENTITY_FLAG_PROJECTILE, NULL},
+        {"EFFECT", ENTITY_FLAG_EFFECT, NULL},
+        {"CAMERA", ENTITY_FLAG_CAMERA, NULL},
+    },
+    .world = {
+        {"ACTIVE", WORLD_FLAG_ACTIVE, NULL},
+        {"VISIBLE", WORLD_FLAG_VISIBLE, NULL},
+        {"SELECTABLE", WORLD_FLAG_SELECTABLE, NULL},
+        {"PHYSICS", WORLD_FLAG_PHYSICS_ENABLED, NULL},
+        {"SPAWNS", WORLD_FLAG_SPAWNS_ENABLED, NULL},
+        {"LOCKED", WORLD_FLAG_LOCKED, NULL},
+        {"DRAG", WORLD_FLAG_DRAGGABLE, NULL},
+    },
+    .cell = {
+        {"SOLID", CELL_FLAG_SOLID, NULL},
+        {"WALKABLE", CELL_FLAG_WALKABLE, NULL},
+        {"HAZARD", CELL_FLAG_HAZARDOUS, NULL},
+        {"SPAWN", CELL_FLAG_SPAWNABLE, NULL},
+    },
 };
 
-static UIElement *state_manager_flag_buttons[ARRAY_COUNT(state_manager_flag_specs)] = {0};
-static StateManagerFlagGroup state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_CELL + 1] = {0};
-// Keep every flag button in one contiguous array so refresh groups use stable offsets.
-static size_t state_manager_button_count = 0;
+// ============================================================================
+// Refresh Invalidation
+// ============================================================================
 
-static const uint32_t state_manager_type_flags = ENTITY_FLAG_WALL | ENTITY_FLAG_NEWTONOID |
-                                                 ENTITY_FLAG_PROJECTILE | ENTITY_FLAG_EFFECT | ENTITY_FLAG_CAMERA;
-
+// Mark the State Manager for a refresh on its next draw.
 void MarkStateManagerRefreshDirty(void)
 {
     state_manager_refresh_dirty = true;
@@ -200,205 +195,184 @@ static void HandleSelectionChanged(EntityId selected_object_id,
     MarkStateManagerRefreshDirty();
 }
 
-// Flag target accessors.
-static uint32_t *GetStateManagerEntityTypeTarget(StateManagerFlagSource source)
+// ============================================================================
+// Flag Interaction
+// ============================================================================
+
+// Toggle an exclusive entity type flag on the currently selected object.
+static void HandleEntityTypeFlagClick(UIElement *button)
 {
-    return source.entity ? (uint32_t *)&source.entity->entity_flags : NULL;
-}
-
-static uint32_t *GetStateManagerEntityAttributeTarget(StateManagerFlagSource source)
-{
-    return source.entity ? (uint32_t *)&source.entity->attribute_flags : NULL;
-}
-
-static uint32_t *GetStateManagerEntityStatusTarget(StateManagerFlagSource source)
-{
-    return source.entity ? (uint32_t *)&source.entity->status_flags : NULL;
-}
-
-static uint32_t *GetStateManagerCollisionMaskTarget(StateManagerFlagSource source)
-{
-    return source.entity ? (uint32_t *)&source.entity->collision_mask : NULL;
-}
-
-static uint32_t *GetStateManagerWorldTarget(StateManagerFlagSource source)
-{
-    return source.world ? (uint32_t *)&source.world->flags : NULL;
-}
-
-static uint32_t *GetStateManagerCellTarget(StateManagerFlagSource source)
-{
-    return source.cell ? (uint32_t *)&source.cell->flags : NULL;
-}
-
-// Flag source routing.
-static const StateManagerFlagCategorySpec state_manager_category_specs[] = {
-    [STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE] = {
-        STATE_MANAGER_FLAG_SOURCE_ENTITY, GetStateManagerEntityTypeTarget},
-    [STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE] = {
-        STATE_MANAGER_FLAG_SOURCE_ENTITY, GetStateManagerEntityAttributeTarget},
-    [STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS] = {STATE_MANAGER_FLAG_SOURCE_ENTITY, GetStateManagerEntityStatusTarget},
-    [STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK] = {STATE_MANAGER_FLAG_SOURCE_ENTITY, GetStateManagerCollisionMaskTarget},
-    [STATE_MANAGER_FLAG_CATEGORY_WORLD] = {STATE_MANAGER_FLAG_SOURCE_WORLD, GetStateManagerWorldTarget},
-    [STATE_MANAGER_FLAG_CATEGORY_CELL] = {STATE_MANAGER_FLAG_SOURCE_CELL, GetStateManagerCellTarget},
-};
-
-static const StateManagerFlagCategorySpec *GetStateManagerCategorySpec(StateManagerFlagCategory category)
-{
-    if (category < STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE ||
-        category > STATE_MANAGER_FLAG_CATEGORY_CELL)
-    {
-        return NULL;
-    }
-
-    return &state_manager_category_specs[category];
-}
-
-static bool StateManagerFlag_IsApplicable(StateManagerFlagCategory category, StateManagerFlagSource source)
-{
-    const StateManagerFlagCategorySpec *category_spec = GetStateManagerCategorySpec(category);
-    return category_spec && source.kind == category_spec->source_kind &&
-           category_spec->get_target(source) != NULL;
-}
-
-static uint32_t *StateManagerFlag_GetTarget(StateManagerFlagCategory category, StateManagerFlagSource source)
-{
-    const StateManagerFlagCategorySpec *category_spec = GetStateManagerCategorySpec(category);
-    return category_spec ? category_spec->get_target(source) : NULL;
-}
-
-// Flag controls.
-static void HandleStateManagerFlagClick(UIElement *button)
-{
-    if (!button || !button->data.button.user_data)
-    {
-        return;
-    }
-
-    const StateManagerFlagSpec *spec = (const StateManagerFlagSpec *)button->data.button.user_data;
     Newtonoid2d *object = UIState_GetSelectedObject();
-    World2d *world = Universe_GetSelectedWorld(&G_Universe);
-    Cell *cell = UIState_GetSelectedCell();
-
-    StateManagerFlagSource source = {0};
-    if (object)
-    {
-        source.kind = STATE_MANAGER_FLAG_SOURCE_ENTITY;
-        source.entity = object;
-    }
-    else if (world && spec->category == STATE_MANAGER_FLAG_CATEGORY_WORLD)
-    {
-        source.kind = STATE_MANAGER_FLAG_SOURCE_WORLD;
-        source.world = world;
-    }
-    else if (cell && spec->category == STATE_MANAGER_FLAG_CATEGORY_CELL)
-    {
-        source.kind = STATE_MANAGER_FLAG_SOURCE_CELL;
-        source.cell = cell;
-    }
-
-    if (!StateManagerFlag_IsApplicable(spec->category, source))
+    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->data.button.user_data;
+    if (!object || !spec)
     {
         return;
     }
 
-    uint32_t *target = StateManagerFlag_GetTarget(spec->category, source);
-    if (!target)
+    object->entity_flags &= ~s_sm_flags.type_flags;
+    object->entity_flags |= spec->flag;
+    MarkStateManagerRefreshDirty();
+}
+
+// Toggle an entity attribute flag on the currently selected object.
+static void HandleEntityAttributeFlagClick(UIElement *button)
+{
+    Newtonoid2d *object = UIState_GetSelectedObject();
+    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->data.button.user_data;
+    if (!object || !spec)
     {
         return;
     }
 
-    // Entity-type toggles are exclusive within the type namespace.
-    if (spec->category == STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE)
+    object->attribute_flags ^= spec->flag;
+    MarkStateManagerRefreshDirty();
+}
+
+// Toggle an entity status flag on the currently selected object.
+static void HandleEntityStatusFlagClick(UIElement *button)
+{
+    Newtonoid2d *object = UIState_GetSelectedObject();
+    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->data.button.user_data;
+    if (!object || !spec)
     {
-        *target &= ~state_manager_type_flags;
-        *target |= spec->flag;
+        return;
     }
-    else if (spec->category == STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS &&
-             spec->flag == ENTITY_STATUS_FLAG_SLEEPING && source.entity)
+
+    if (spec->flag == ENTITY_STATUS_FLAG_SLEEPING)
     {
-        if (*target & spec->flag)
+        if (object->status_flags & ENTITY_STATUS_FLAG_SLEEPING)
         {
-            WakeUp(source.entity);
+            WakeUp(object);
         }
         else
         {
-            ApplySleep(source.entity);
+            ApplySleep(object);
         }
-    }
-    else if (*target & spec->flag)
-    {
-        *target &= ~spec->flag;
     }
     else
     {
-        *target |= spec->flag;
+        // The XOR operation equates to a toggling of the flag.
+        object->status_flags ^= spec->flag;
     }
 
     MarkStateManagerRefreshDirty();
 }
 
-static UIElement *CreateStateManagerBoundButton(UIElement *parent, const StateManagerFlagSpec *spec,
-                                                const UIPalette *palette)
+// Toggle a collision mask flag on the currently selected object.
+static void HandleCollisionMaskFlagClick(UIElement *button)
 {
-    return CreateUIButtonDefault(parent, UI_ELEMENT_BUTTON_SIMPLE, spec->label,
-                                 ui_wide_button_size, ui_standard_button_padding,
-                                 palette, HandleStateManagerFlagClick, (void *)spec, NULL);
-}
-
-static void InitStateManagerFlagGroups(void)
-{
-    state_manager_button_count = 0;
-    for (size_t i = 0; i < ARRAY_COUNT(state_manager_flag_buttons); i++)
-    {
-        state_manager_flag_buttons[i] = NULL;
-    }
-
-    for (size_t i = 0; i < ARRAY_COUNT(state_manager_flag_groups); i++)
-    {
-        state_manager_flag_groups[i] = (StateManagerFlagGroup){
-            .category = (StateManagerFlagCategory)i,
-            .first_spec = ARRAY_COUNT(state_manager_flag_specs),
-            .first_button = 0,
-            .count = 0,
-        };
-    }
-
-    for (size_t i = 0; i < ARRAY_COUNT(state_manager_flag_specs); i++)
-    {
-        StateManagerFlagGroup *group = &state_manager_flag_groups[state_manager_flag_specs[i].category];
-        if (group->count == 0)
-        {
-            group->first_spec = i;
-        }
-        group->count++;
-    }
-}
-
-static void CreateStateManagerSectionButtons(UIElement *section, StateManagerFlagGroup *group,
-                                             size_t *button_index)
-{
-    if (!section || !group || !button_index)
+    Newtonoid2d *object = UIState_GetSelectedObject();
+    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->data.button.user_data;
+    if (!object || !spec)
     {
         return;
     }
 
-    group->first_button = *button_index;
-    const StateManagerFlagSpec *specs = state_manager_flag_specs + group->first_spec;
-    for (size_t i = 0; i < group->count; i++)
+    object->collision_mask ^= spec->flag;
+    MarkStateManagerRefreshDirty();
+}
+
+// Toggle a world flag on the currently selected world.
+static void HandleWorldFlagClick(UIElement *button)
+{
+    World2d *world = Universe_GetSelectedWorld(&G_Universe);
+    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->data.button.user_data;
+    if (!world || !spec)
     {
-        if (*button_index >= ARRAY_COUNT(state_manager_flag_buttons))
+        return;
+    }
+
+    world->flags ^= spec->flag;
+    MarkStateManagerRefreshDirty();
+}
+
+// Toggle a cell flag on the currently selected cell.
+static void HandleCellFlagClick(UIElement *button)
+{
+    Cell *cell = UIState_GetSelectedCell();
+    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->data.button.user_data;
+    if (!cell || !spec)
+    {
+        return;
+    }
+
+    cell->flags ^= spec->flag;
+    MarkStateManagerRefreshDirty();
+}
+
+// Toggle attachment of a component on the currently selected object.
+static void HandleComponentToggleClick(UIElement *button)
+{
+    Newtonoid2d *object = UIState_GetSelectedObject();
+    if (!object || object->id == INVALID_ENTITY_ID || !button || !button->data.button.user_data)
+    {
+        return;
+    }
+
+    const StateManagerComponentButton *spec = (const StateManagerComponentButton *)button->data.button.user_data;
+    EntityComponentType type = spec->type;
+
+    if (EntityRegistry_HasComponent(object->id, type))
+    {
+        EnqueueRemoveComponent(object->id, type);
+    }
+    else
+    {
+        EntityComponent comp = {.type = type};
+        switch (type)
         {
+        case ENTITY_COMPONENT_PORTAL:
+            PortalEntity_Initialise(&comp.data.portal, (PortalDestination){INVALID_ENTITY_ID},
+                                    ENTITY_FLAG_NEWTONOID | ENTITY_FLAG_PROJECTILE, 30);
+            break;
+        case ENTITY_COMPONENT_ROTOR:
+            memset(&comp.data.rotor, 0, sizeof(comp.data.rotor));
+            break;
+        case ENTITY_COMPONENT_GEAR:
+            memset(&comp.data.gear, 0, sizeof(comp.data.gear));
+            break;
+        case ENTITY_COMPONENT_RELATION:
+        case ENTITY_COMPONENT_NONE:
+        default:
             return;
         }
-
-        state_manager_flag_buttons[*button_index] = CreateStateManagerBoundButton(
-            section, &specs[i], state_manager_panel->palette);
-        (*button_index)++;
+        EnqueueAttachComponent(object->id, &comp);
     }
 }
 
-// View construction.
+// Create toggle buttons within a section and bind them to their respective flag definitions.
+static void CreateFlagButtons(UIElement *section, StateManagerFlagButton *buttons, size_t count, UIEventHandler click_handler)
+{
+    for (size_t i = 0; i < count; i++)
+    {
+        buttons[i].button = CreateUIButtonDefault(
+            section, UI_ELEMENT_BUTTON_SIMPLE, buttons[i].label,
+            ui_wide_button_size, ui_standard_button_padding,
+            state_manager_panel->palette, click_handler, (void *)&buttons[i], NULL);
+    }
+}
+
+// Update the label and active state for a set of flag buttons based on the current bitmask.
+static void UpdateFlagButtons(StateManagerFlagButton *buttons, size_t count, uint32_t current_flags, bool is_valid)
+{
+    for (size_t i = 0; i < count; i++)
+    {
+        if (!buttons[i].button)
+        {
+            continue;
+        }
+
+        bool enabled = is_valid && ((current_flags & buttons[i].flag) != 0);
+        UpdateString64(buttons[i].button->data.button.label.string,
+                       "%s: %s", buttons[i].label, enabled ? "ON" : "OFF");
+        buttons[i].button->is_enabled = true;
+    }
+}
+
+// ============================================================================
+// View Construction
+// ============================================================================
+
 // Create and register a state-manager view with its requested child layout.
 static View *CreateStateManagerView(int view_id, bool is_draggable, bool is_enabled, Spacing child_spacing)
 {
@@ -420,105 +394,134 @@ static View *CreateStateManagerView(int view_id, bool is_draggable, bool is_enab
 static void InitPhysStateView(void)
 {
     View *physics_view = CreateStateManagerView(
-        STATE_MANAGER_PHYSICS_VIEW, true, true, ui_zero_x_inline_wrap_spacing);
+        STATE_MANAGER_PHYSICS_VIEW, true, true, ui_zero_inline_spacing);
     if (!physics_view)
     {
         return;
     }
+    View_SetScrollableX(physics_view, true);
+
     UIElement *view_cont = physics_view->container;
 
     UIElement *identity_section = CreateViewSection_StackWrap(view_cont, "Identity", view_section_size,
-                                                               state_manager_panel->palette);
+                                                              state_manager_panel->palette);
     const UIFieldSpec identity_specs[] = {
-        {"Id:", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &G_UIState.state_id_tbox, NULL},
-        {"Slot:", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &G_UIState.state_slot_tbox, NULL},
-        {"Generation:", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &G_UIState.state_generation_tbox, NULL},
-        {"World", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, NULL, &G_UIState.state_world_str},
+        {"Id:", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.id_tbox, NULL},
+        {"Slot:", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.slot_tbox, NULL},
+        {"Generation:", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.generation_tbox, NULL},
+        {"World", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.world_tbox, NULL},
     };
-    InitUIFields(identity_section, identity_specs,
-                 ARRAY_COUNT(identity_specs),
+    InitUIFields(identity_section, identity_specs, ARRAY_COUNT(identity_specs),
                  ui_standard_field_padding, state_manager_panel->palette);
 
     UIElement *physics_section = CreateViewSection_StackWrap(view_cont, "Physics", view_section_size,
-                                                              state_manager_panel->palette);
+                                                             state_manager_panel->palette);
     const UIFieldSpec physics_specs[] = {
-        {"Mass", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.state_mass_tbox, NULL},
-        {"Restitution", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.state_restitution_tbox, NULL},
-        {"Friction", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.state_friction_tbox, NULL},
-        {"Anchor", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.state_pos_c_tbox, NULL},
-        {"Vel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.state_vel_tbox, NULL},
-        {"Accel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.state_accel_tbox, NULL},
-        {"Moment", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.state_moment_tbox, NULL},
-        {"AngVel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.state_angular_velocity_tbox, NULL},
-        {"AngAccel", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, &G_UIState.state_angular_acceleration_tbox, NULL},
+        {"Mass", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.mass_tbox, NULL},
+        {"Restitution", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.restitution_tbox, NULL},
+        {"Friction", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.friction_tbox, NULL},
+        {"Anchor", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.pos_c_tbox, NULL},
+        {"Vel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.vel_tbox, NULL},
+        {"Accel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.accel_tbox, NULL},
+        {"Moment", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.moment_tbox, NULL},
+        {"AngVel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.angular_velocity_tbox, NULL},
+        {"AngAccel", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, &s_sm_ui.angular_acceleration_tbox, NULL},
     };
     InitUIFields(physics_section, physics_specs,
                  ARRAY_COUNT(physics_specs),
                  ui_standard_field_padding, state_manager_panel->palette);
 
     UIElement *geometry_section = CreateViewSection_StackWrap(view_cont, "Geometry", view_section_size,
-                                                               state_manager_panel->palette);
+                                                              state_manager_panel->palette);
     const UIFieldSpec geometry_specs[] = {
-        {"Bounds.min", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, VECTOR2D, &G_UIState.state_pos_tl_tbox, NULL},
-        {"Geo.center", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, VECTOR2D, &state_geometry_center_tbox, NULL},
-        {"Rot", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &state_rotation_tbox, NULL},
-        {"Basis u", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &state_basis_u_tbox, NULL},
-        {"Basis v", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &state_basis_v_tbox, NULL},
+        {"Bounds.min", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, VECTOR2D, &s_sm_ui.pos_tl_tbox, NULL},
+        {"Geo.center", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, VECTOR2D, &s_sm_ui.geometry_center_tbox, NULL},
+        {"Rot", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.rotation_tbox, NULL},
+        {"Basis u", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.basis_u_tbox, NULL},
+        {"Basis v", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.basis_v_tbox, NULL},
     };
     InitUIFields(geometry_section, geometry_specs,
                  ARRAY_COUNT(geometry_specs),
                  ui_standard_field_padding, state_manager_panel->palette);
 
     UIElement *gameplay_section = CreateViewSection_StackWrap(view_cont, "Gameplay", view_section_size,
-                                                               state_manager_panel->palette);
-    state_gameplay_section = gameplay_section;
+                                                              state_manager_panel->palette);
+    s_sm_ui.gameplay_section = gameplay_section;
     const UIFieldSpec gameplay_specs[] = {
-        {"Health", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.state_health_tbox, NULL},
-        {"MaxHealth", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.state_max_health_tbox, NULL},
-        {"Damage", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.state_damage_tbox, NULL},
+        {"Health", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.health_tbox, NULL},
+        {"MaxHealth", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.max_health_tbox, NULL},
+        {"Damage", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.damage_tbox, NULL},
     };
     InitUIFields(gameplay_section, gameplay_specs,
                  ARRAY_COUNT(gameplay_specs),
                  ui_standard_field_padding, state_manager_panel->palette);
 
+    // Components section: shows attached components and their properties.
+    UIElement *components_section = CreateViewSection_StackWrap(view_cont, "Components", view_section_size,
+                                                                state_manager_panel->palette);
+    s_sm_ui.components_section = components_section;
+
+    // Component toggle buttons: PORTAL, ROTOR, GEAR
+    s_sm_ui.comp_buttons[0] = (StateManagerComponentButton){"PORTAL", ENTITY_COMPONENT_PORTAL, NULL};
+    s_sm_ui.comp_buttons[1] = (StateManagerComponentButton){"ROTOR", ENTITY_COMPONENT_ROTOR, NULL};
+    s_sm_ui.comp_buttons[2] = (StateManagerComponentButton){"GEAR", ENTITY_COMPONENT_GEAR, NULL};
+
+    for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.comp_buttons); i++)
+    {
+        s_sm_ui.comp_buttons[i].button = CreateUIButtonDefault(
+            components_section, UI_ELEMENT_BUTTON_SIMPLE, s_sm_ui.comp_buttons[i].label,
+            ui_wide_button_size, ui_standard_button_padding,
+            state_manager_panel->palette, HandleComponentToggleClick,
+            (void *)&s_sm_ui.comp_buttons[i], NULL);
+    }
+
+    const UIFieldSpec components_specs[] = {
+        {"Portal Cooldown", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, INT, &s_sm_ui.comp_portal_cooldown_tbox, &s_sm_ui.comp_portal_cooldown_str},
+        {"Portal Mask", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_portal_entrant_mask_tbox, &s_sm_ui.comp_portal_entrant_mask_str},
+        {"Relation Type", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_relation_type_tbox, &s_sm_ui.comp_relation_type_str},
+        {"Relation Target", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_relation_target_tbox, &s_sm_ui.comp_relation_target_str},
+        {"Relation Active", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_relation_active_tbox, &s_sm_ui.comp_relation_active_str},
+    };
+    InitUIFields(components_section, components_specs,
+                 ARRAY_COUNT(components_specs),
+                 ui_standard_field_padding, state_manager_panel->palette);
+
+    s_sm_ui.delete_action = BUTTON_ACTION_DELETE_ENTITY;
     CreateUIButtonDefault(view_cont, UI_ELEMENT_BUTTON_SUBMIT,
                           "DELETE", ui_standard_button_size, ui_standard_button_padding,
                           state_manager_panel->palette, HandleBtnSubmitClick,
-                          &btn_action_delete_entity, NULL);
+                          &s_sm_ui.delete_action, NULL);
 }
 
 static void InitAttributeStateView(void)
 {
     View *attributes_view = CreateStateManagerView(
-        STATE_MANAGER_ATTRIBUTES_VIEW, true, true, ui_zero_x_inline_wrap_spacing);
+        STATE_MANAGER_ATTRIBUTES_VIEW, true, true, ui_zero_inline_spacing);
     if (!attributes_view)
     {
         return;
     }
+    View_SetScrollableX(attributes_view, true);
     UIElement *view_cont = attributes_view->container;
 
     // Customise the View
     UIElement *identity_section = CreateViewSection_StackWrap(view_cont, "Entity", view_section_size,
-                                                               state_manager_panel->palette);
+                                                              state_manager_panel->palette);
     UIElement *attribute_section = CreateViewSection_StackWrap(view_cont, "Attributes", view_section_size,
-                                                                state_manager_panel->palette);
+                                                               state_manager_panel->palette);
     UIElement *status_section = CreateViewSection_StackWrap(view_cont, "Status", view_section_size,
-                                                             state_manager_panel->palette);
+                                                            state_manager_panel->palette);
     UIElement *collision_section = CreateViewSection_StackWrap(view_cont, "Collision", view_section_size,
                                                                state_manager_panel->palette);
 
-    CreateStateManagerSectionButtons(identity_section,
-                                     &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE],
-                                     &state_manager_button_count);
-    CreateStateManagerSectionButtons(attribute_section,
-                                     &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE],
-                                     &state_manager_button_count);
-    CreateStateManagerSectionButtons(status_section,
-                                     &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS],
-                                     &state_manager_button_count);
-    CreateStateManagerSectionButtons(collision_section,
-                                     &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK],
-                                     &state_manager_button_count);
+    CreateFlagButtons(identity_section, s_sm_flags.entity_type,
+                      ARRAY_COUNT(s_sm_flags.entity_type), HandleEntityTypeFlagClick);
+    CreateFlagButtons(attribute_section, s_sm_flags.entity_attribute,
+                      ARRAY_COUNT(s_sm_flags.entity_attribute), HandleEntityAttributeFlagClick);
+    CreateFlagButtons(status_section, s_sm_flags.entity_status,
+                      ARRAY_COUNT(s_sm_flags.entity_status), HandleEntityStatusFlagClick);
+    CreateFlagButtons(collision_section, s_sm_flags.collision_mask,
+                      ARRAY_COUNT(s_sm_flags.collision_mask), HandleCollisionMaskFlagClick);
 }
 
 static void InitWorldStateView(void)
@@ -529,41 +532,43 @@ static void InitWorldStateView(void)
     {
         return;
     }
+    View_SetScrollableX(world_view, true);
 
     UIElement *world_section = CreateViewSection_StackWrap(world_view->container, "World", view_section_size,
-                                                            state_manager_panel->palette);
+                                                           state_manager_panel->palette);
 
     UIElement *world_physics_section = CreateViewSection_StackWrap(
         world_view->container, "Physics", view_section_size, state_manager_panel->palette);
     const UIFieldSpec world_physics_specs[] = {
         {"Restitution", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT,
-         &G_UIState.state_world_restitution_tbox, NULL},
+         &s_sm_ui.world_restitution_tbox, NULL},
         {"Friction", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT,
-         &G_UIState.state_world_friction_tbox, NULL},
+         &s_sm_ui.world_friction_tbox, NULL},
     };
     InitUIFields(world_physics_section, world_physics_specs,
                  ARRAY_COUNT(world_physics_specs),
                  ui_standard_field_padding, state_manager_panel->palette);
 
-    CreateStateManagerSectionButtons(world_section, &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_WORLD],
-                                     &state_manager_button_count);
+    CreateFlagButtons(world_section, s_sm_flags.world,
+                      ARRAY_COUNT(s_sm_flags.world), HandleWorldFlagClick);
 }
 
 static void InitCellStateView(void)
 {
     View *cell_view = CreateStateManagerView(
-        STATE_MANAGER_CELL_STATE_VIEW, true, false, ui_zero_x_inline_wrap_spacing);
+        STATE_MANAGER_CELL_STATE_VIEW, true, false, ui_zero_inline_spacing);
     if (!cell_view)
     {
         return;
     }
+    View_SetScrollableX(cell_view, true);
     UIElement *cell_container = cell_view->container;
 
     const UIFieldSpec cell_specs[] = {
-        {"Index", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &G_UIState.cell_id_str},
-        {"Occu", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &G_UIState.cell_occu_str},
-        {"Value", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &G_UIState.cell_value_str},
-        {"Fill", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &G_UIState.cell_fill_str},
+        {"Index", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &s_sm_ui.cell_id_str},
+        {"Occu", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &s_sm_ui.cell_occu_str},
+        {"Value", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &s_sm_ui.cell_value_str},
+        {"Fill", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &s_sm_ui.cell_fill_str},
     };
 
     UIElement *cell_phys_section = CreateViewSection_StackWrap(cell_container, "Cell", view_section_size,
@@ -575,173 +580,289 @@ static void InitCellStateView(void)
     UIElement *cell_flags_section = CreateViewSection_StackWrap(cell_container, "Flags", view_section_size,
                                                                 state_manager_panel->palette);
 
-    CreateStateManagerSectionButtons(cell_flags_section,
-                                     &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_CELL],
-                                     &state_manager_button_count);
+    CreateFlagButtons(cell_flags_section, s_sm_flags.cell,
+                      ARRAY_COUNT(s_sm_flags.cell), HandleCellFlagClick);
 }
 
-// Resolve the selected object's world for the identity readout.
-static int GetStateManagerObjectWorld(const Newtonoid2d *object)
+// ============================================================================
+// View Refresh
+// ============================================================================
+
+// Refresh gameplay section visibility and row states.
+static void RefreshGameplaySection(const Newtonoid2d *object)
 {
-    if (!object)
-    {
-        return -1;
-    }
+    bool is_damageable = object && object->id != INVALID_ENTITY_ID &&
+                         (object->attribute_flags & ENTITY_ATTR_FLAG_DAMAGEABLE) != 0;
+    bool is_projectile = object && object->id != INVALID_ENTITY_ID &&
+                         (object->entity_flags & ENTITY_FLAG_PROJECTILE) != 0;
 
-    // Look up by stable ID (O(worlds)) instead of scanning every entity by pointer.
-    int world_index = -1;
-    Universe_GetEntityByID(&G_Universe, object->id, &world_index);
-    return world_index;
-}
-
-// Field visibility refresh.
-static void UpdateStateManagerGameplayFieldVisibility(const Newtonoid2d *object)
-{
-    bool any_field_visible = false;
-    for (size_t i = 0; i < ARRAY_COUNT(state_manager_gameplay_field_specs); i++)
+    if (s_sm_ui.gameplay_section)
     {
-        UIElement *textbox = state_manager_gameplay_field_specs[i].textbox_slot
-                                 ? *state_manager_gameplay_field_specs[i].textbox_slot
-                                 : NULL;
-        bool visible = StateManagerObjectMatchesFieldRule(
-            object, state_manager_gameplay_field_specs[i].visibility_rule);
-        StateManagerSetFieldRowEnabled(textbox, visible);
-        any_field_visible |= visible;
-    }
-
-    if (state_gameplay_section)
-    {
-        if (any_field_visible)
+        if (is_damageable || is_projectile)
         {
-            EnableElement(state_gameplay_section);
+            EnableElement(s_sm_ui.gameplay_section);
+            // Toggle Text Field visibility based on a conditional
+            SetParentEnabledState(s_sm_ui.health_tbox,is_damageable);
+            SetParentEnabledState(s_sm_ui.max_health_tbox, is_damageable);
+            SetParentEnabledState(s_sm_ui.damage_tbox, is_projectile);
         }
         else
         {
-            DisableElement(state_gameplay_section);
+            DisableElement(s_sm_ui.gameplay_section);
         }
     }
 }
 
-// Read the current value for a flag button from its selected source.
-static uint32_t GetStateManagerSourceFlags(const StateManagerFlagSpec *spec, StateManagerFlagSource source)
+// Update component section visibility based on attached components and populate their values.
+static void RefreshComponentsSection(const Newtonoid2d *object)
 {
-    uint32_t *target = StateManagerFlag_GetTarget(spec->category, source);
-    return target ? *target : 0;
-}
+    bool is_valid = (object != NULL && object->id != INVALID_ENTITY_ID);
 
-// Refresh the labels and active state for one flag group.
-static void UpdateStateManagerButtonGroup(const StateManagerFlagGroup *group,
-                                          StateManagerFlagSource source)
-{
-    const StateManagerFlagSpec *specs = state_manager_flag_specs + group->first_spec;
-    UIElement **buttons = state_manager_flag_buttons + group->first_button;
-    for (size_t i = 0; i < group->count; i++)
+    if (s_sm_ui.components_section)
     {
-        UIElement *button = buttons[i];
-        if (!button)
+        if (is_valid)
+        {
+            EnableElement(s_sm_ui.components_section);
+        }
+        else
+        {
+            DisableElement(s_sm_ui.components_section);
+            ClearString64(s_sm_ui.comp_portal_cooldown_str);
+            ClearString64(s_sm_ui.comp_portal_entrant_mask_str);
+            ClearString64(s_sm_ui.comp_relation_type_str);
+            ClearString64(s_sm_ui.comp_relation_target_str);
+            ClearString64(s_sm_ui.comp_relation_active_str);
+            return; // No components to populate.
+        }
+    }
+
+    EntityDescription desc = EntityRegistry_Describe(object);
+
+    // Update component toggle button labels: "PORTAL: ON/OFF", "ROTOR: ON/OFF", "GEAR: ON/OFF"
+    for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.comp_buttons); i++)
+    {
+        if (!s_sm_ui.comp_buttons[i].button)
         {
             continue;
         }
-        uint32_t source_flags = GetStateManagerSourceFlags(&specs[i], source);
-        bool enabled = source.kind != STATE_MANAGER_FLAG_SOURCE_NONE &&
-                       (source_flags & specs[i].flag) != 0;
-        UpdateString64(button->data.button.label.string,
-                       "%s: %s", specs[i].label, enabled ? "ON" : "OFF");
-        button->is_enabled = true;
+
+        bool attached = is_valid && (desc.components[s_sm_ui.comp_buttons[i].type] != NULL);
+        UpdateString64(s_sm_ui.comp_buttons[i].button->data.button.label.string,
+                       "%s: %s", s_sm_ui.comp_buttons[i].label, attached ? "ON" : "OFF");
+        s_sm_ui.comp_buttons[i].button->is_enabled = is_valid;
+    }
+
+    // Toggle Portal property field row visibility
+    bool has_portal = (desc.components[ENTITY_COMPONENT_PORTAL] != NULL);
+    SetParentEnabledState(s_sm_ui.comp_portal_cooldown_tbox, has_portal);
+    SetParentEnabledState(s_sm_ui.comp_portal_entrant_mask_tbox, has_portal);
+
+    // Populate portal component fields if attached.
+    PortalEntity *portal = (PortalEntity *)desc.components[ENTITY_COMPONENT_PORTAL];
+    if (portal)
+    {
+        if (s_sm_ui.comp_portal_cooldown_str)
+        {
+            UpdateString64(s_sm_ui.comp_portal_cooldown_str->string, "%d", portal->cooldown_frames);
+        }
+        if (s_sm_ui.comp_portal_entrant_mask_str)
+        {
+            UpdateString64(s_sm_ui.comp_portal_entrant_mask_str->string, "%d", portal->entrant_mask);
+        }
+    }
+    else
+    {
+        ClearString64(s_sm_ui.comp_portal_cooldown_str);
+        ClearString64(s_sm_ui.comp_portal_entrant_mask_str);
+    }
+
+    // Toggle Relation property field row visibility
+    bool has_relation = (desc.components[ENTITY_COMPONENT_RELATION] != NULL);
+    SetParentEnabledState(s_sm_ui.comp_relation_type_tbox, has_relation);
+    SetParentEnabledState(s_sm_ui.comp_relation_target_tbox, has_relation);
+    SetParentEnabledState(s_sm_ui.comp_relation_active_tbox, has_relation);
+
+    // Populate relation component fields if attached.
+    RelationComponent *relation = (RelationComponent *)desc.components[ENTITY_COMPONENT_RELATION];
+    if (relation)
+    {
+        if (s_sm_ui.comp_relation_type_str)
+        {
+            UpdateString64(s_sm_ui.comp_relation_type_str->string, "%s", RelationType_ToString(relation->type));
+        }
+        if (s_sm_ui.comp_relation_target_str)
+        {
+            UpdateString64(s_sm_ui.comp_relation_target_str->string, "%d", relation->target_entity);
+        }
+        if (s_sm_ui.comp_relation_active_str)
+        {
+            UpdateString64(s_sm_ui.comp_relation_active_str->string, "%s", relation->is_active ? "ON" : "OFF");
+        }
+    }
+    else
+    {
+        ClearString64(s_sm_ui.comp_relation_type_str);
+        ClearString64(s_sm_ui.comp_relation_target_str);
+        ClearString64(s_sm_ui.comp_relation_active_str);
     }
 }
 
-// Push the selected object, world, cell, and capability state into the UI.
-void UpdateStateManagerSelectedObject(void)
+// Refresh the PHYS view: identity, physics, geometry, gameplay, and component readouts.
+static void RefreshPhysView(Newtonoid2d *object)
 {
-    Newtonoid2d *object = UIState_GetSelectedObject();
-    World2d *world = Universe_GetSelectedWorld(&G_Universe);
-    UIElement *geometry_textboxes[] = {
-        state_rotation_tbox, state_basis_u_tbox, state_basis_v_tbox, state_geometry_center_tbox};
-
-    if (G_UIState.state_world_str)
-    {
-        int world_index = GetStateManagerObjectWorld(object);
-        if (world_index >= 0)
-        {
-            UpdateString64(G_UIState.state_world_str->string, "%d", world_index);
-        }
-        else
-        {
-            G_UIState.state_world_str->string[0] = '\0';
-        }
-    }
-
+    // Derive identity values for the selected object.
+    int slot = object ? (int)EntityId_GetSlotIndex(object->id) : -1;
+    int generation = object ? (int)EntityId_GetGeneration(object->id) : -1;
+    int world_index = -1;
     if (object)
     {
-        // Pipe the object's current frame values into the Geometry readouts.
+        Universe_GetEntityByID(&G_Universe, object->id, &world_index);
+    }
+    void *world_ptr = (object && world_index >= 0) ? &world_index : NULL;
+
+    // Refresh identity, physics, and gameplay numerical fields.
+    TextboxField state_fields[] = {
+        {s_sm_ui.id_tbox, INT, object ? (void *)&object->id : NULL, 0, NULL},
+        {s_sm_ui.slot_tbox, INT, object ? (void *)&slot : NULL, 0, NULL},
+        {s_sm_ui.generation_tbox, INT, object ? (void *)&generation : NULL, 0, NULL},
+        {s_sm_ui.world_tbox, INT, world_ptr, 0, NULL},
+
+        {s_sm_ui.mass_tbox, FLOAT, object ? (void *)&object->mass : NULL, 2, NULL},
+        {s_sm_ui.restitution_tbox, FLOAT, object ? (void *)&object->restitution : NULL, 2, NULL},
+        {s_sm_ui.friction_tbox, FLOAT, object ? (void *)&object->friction : NULL, 2, NULL},
+        {s_sm_ui.pos_tl_tbox, VECTOR2D, object ? (void *)&object->bounds_origin : NULL, 0, NULL},
+        {s_sm_ui.pos_c_tbox, VECTOR2D, object ? (void *)&object->anchor_position : NULL, 0, NULL},
+        {s_sm_ui.vel_tbox, VECTOR2D, object ? (void *)&object->velocity : NULL, 0, NULL},
+        {s_sm_ui.accel_tbox, VECTOR2D, object ? (void *)&object->acceleration : NULL, 0, NULL},
+        {s_sm_ui.moment_tbox, VECTOR2D, object ? (void *)&object->momentum : NULL, 0, NULL},
+        {s_sm_ui.angular_velocity_tbox, FLOAT, object ? (void *)&object->angular_velocity : NULL, 2, NULL},
+        {s_sm_ui.angular_acceleration_tbox, FLOAT, object ? (void *)&object->angular_acceleration : NULL, 2, NULL},
+
+        {s_sm_ui.health_tbox, FLOAT, object ? (void *)&object->health : NULL, 2, NULL},
+        {s_sm_ui.max_health_tbox, FLOAT, object ? (void *)&object->max_health : NULL, 2, NULL},
+        {s_sm_ui.damage_tbox, FLOAT, object ? (void *)&object->damage : NULL, 2, NULL},
+    };
+    RefreshTextboxFields(state_fields, ARRAY_COUNT(state_fields));
+
+    // Refresh geometry fields, synchronising object rotation when valid.
+    if (object)
+    {
         SyncNewtonoidRotation(object);
         TextboxField geometry_fields[] = {
-            {geometry_textboxes[0], FLOAT, &object->rotation, 3, "N/A"},
-            {geometry_textboxes[1], VECTOR2D, &object->local_axis_x, 0, "N/A"},
-            {geometry_textboxes[2], VECTOR2D, &object->local_axis_y, 0, "N/A"},
-            {geometry_textboxes[3], VECTOR2D, &object->local_geometry_center, 0, "N/A"},
+            {s_sm_ui.rotation_tbox, FLOAT, (void *)&object->rotation, 3, "N/A"},
+            {s_sm_ui.basis_u_tbox, VECTOR2D, (void *)&object->local_axis_x, 0, "N/A"},
+            {s_sm_ui.basis_v_tbox, VECTOR2D, (void *)&object->local_axis_y, 0, "N/A"},
+            {s_sm_ui.geometry_center_tbox, VECTOR2D, (void *)&object->local_geometry_center, 0, "N/A"},
         };
         RefreshTextboxFields(geometry_fields, ARRAY_COUNT(geometry_fields));
     }
     else
     {
         TextboxField geometry_fields[] = {
-            {geometry_textboxes[0], FLOAT, NULL, 0, "N/A"},
-            {geometry_textboxes[1], VECTOR2D, NULL, 0, "N/A"},
-            {geometry_textboxes[2], VECTOR2D, NULL, 0, "N/A"},
-            {geometry_textboxes[3], VECTOR2D, NULL, 0, "N/A"},
+            {s_sm_ui.rotation_tbox, FLOAT, NULL, 0, "N/A"},
+            {s_sm_ui.basis_u_tbox, VECTOR2D, NULL, 0, "N/A"},
+            {s_sm_ui.basis_v_tbox, VECTOR2D, NULL, 0, "N/A"},
+            {s_sm_ui.geometry_center_tbox, VECTOR2D, NULL, 0, "N/A"},
         };
         RefreshTextboxFields(geometry_fields, ARRAY_COUNT(geometry_fields));
     }
 
-    UpdateStateManagerGameplayFieldVisibility(object);
+    // Refresh contextual gameplay and component section visibility.
+    RefreshGameplaySection(object);
+    RefreshComponentsSection(object);
+}
 
-    // World material values belong to the boundary Newtonoid, so WORLD view
-    // edits directly update the object used by container collision response.
+// Refresh the ATTRI view: entity type, attribute, status, and collision mask flag buttons.
+static void RefreshAttributeView(const Newtonoid2d *object)
+{
+    bool is_valid = (object != NULL);
+    uint32_t type_flags = object ? object->entity_flags : 0;
+    uint32_t attr_flags = object ? object->attribute_flags : 0;
+    uint32_t status_flags = object ? object->status_flags : 0;
+    uint32_t mask_flags = object ? object->collision_mask : 0;
+
+    UpdateFlagButtons(s_sm_flags.entity_type, ARRAY_COUNT(s_sm_flags.entity_type),
+                      type_flags, is_valid);
+    UpdateFlagButtons(s_sm_flags.entity_attribute, ARRAY_COUNT(s_sm_flags.entity_attribute),
+                      attr_flags, is_valid);
+    UpdateFlagButtons(s_sm_flags.entity_status, ARRAY_COUNT(s_sm_flags.entity_status),
+                      status_flags, is_valid);
+    UpdateFlagButtons(s_sm_flags.collision_mask, ARRAY_COUNT(s_sm_flags.collision_mask),
+                      mask_flags, is_valid);
+}
+
+// Refresh the WORLD view: world physics material properties and world status flags.
+static void RefreshWorldView(const World2d *world)
+{
+    // World material values belong to the boundary Newtonoid used by container collision response.
     TextboxField world_physics_fields[] = {
-        {G_UIState.state_world_restitution_tbox, FLOAT,
+        {s_sm_ui.world_restitution_tbox, FLOAT,
          world ? (void *)&world->grid_space.object.restitution : NULL, 2, "N/A"},
-        {G_UIState.state_world_friction_tbox, FLOAT,
+        {s_sm_ui.world_friction_tbox, FLOAT,
          world ? (void *)&world->grid_space.object.friction : NULL, 2, "N/A"},
     };
     RefreshTextboxFields(world_physics_fields, ARRAY_COUNT(world_physics_fields));
 
-    StateManagerFlagSource entity_source = {
-        .kind = object ? STATE_MANAGER_FLAG_SOURCE_ENTITY : STATE_MANAGER_FLAG_SOURCE_NONE,
-        .entity = object,
-        .world = NULL,
-        .cell = NULL,
-    };
-    UpdateStateManagerButtonGroup(
-        &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_ENTITY_TYPE], entity_source);
-    UpdateStateManagerButtonGroup(
-        &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_ENTITY_ATTRIBUTE], entity_source);
-    UpdateStateManagerButtonGroup(
-        &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_ENTITY_STATUS], entity_source);
-    UpdateStateManagerButtonGroup(
-        &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_COLLISION_MASK], entity_source);
-
-    StateManagerFlagSource world_source = {
-        .kind = world ? STATE_MANAGER_FLAG_SOURCE_WORLD : STATE_MANAGER_FLAG_SOURCE_NONE,
-        .entity = NULL,
-        .world = world,
-        .cell = NULL,
-    };
-    UpdateStateManagerButtonGroup(
-        &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_WORLD], world_source);
-
-    StateManagerFlagSource cell_source = {
-        .kind = UIState_GetSelectedCell() ? STATE_MANAGER_FLAG_SOURCE_CELL : STATE_MANAGER_FLAG_SOURCE_NONE,
-        .entity = NULL,
-        .world = NULL,
-        .cell = UIState_GetSelectedCell(),
-    };
-    UpdateStateManagerButtonGroup(
-        &state_manager_flag_groups[STATE_MANAGER_FLAG_CATEGORY_CELL], cell_source);
+    UpdateFlagButtons(s_sm_flags.world, ARRAY_COUNT(s_sm_flags.world),
+                      world ? world->flags : 0, world != NULL);
 }
 
-// Public lifecycle.
+// Refresh the CELL view: grid cell state string readouts and cell behaviour flags.
+static void RefreshCellView(const Cell *selected_cell)
+{
+    if (selected_cell)
+    {
+        int index = UIState_GetSelectedCellIndex();
+        int occupancy = selected_cell->occupancy;
+        float value = selected_cell->value;
+        float fill = 0.0f;
+
+        if (s_sm_ui.cell_id_str)
+        {
+            UpdateString64(s_sm_ui.cell_id_str->string, "%d", index);
+        }
+        if (s_sm_ui.cell_occu_str)
+        {
+            UpdateString64(s_sm_ui.cell_occu_str->string, "%d", occupancy);
+        }
+        if (s_sm_ui.cell_value_str)
+        {
+            UpdateString64(s_sm_ui.cell_value_str->string, "%0.1f", value);
+        }
+        if (s_sm_ui.cell_fill_str)
+        {
+            UpdateString64(s_sm_ui.cell_fill_str->string, "%0.1f", fill);
+        }
+    }
+    else
+    {
+        ClearString64(s_sm_ui.cell_id_str);
+        ClearString64(s_sm_ui.cell_occu_str);
+        ClearString64(s_sm_ui.cell_value_str);
+        ClearString64(s_sm_ui.cell_fill_str);
+    }
+
+    UpdateFlagButtons(s_sm_flags.cell, ARRAY_COUNT(s_sm_flags.cell),
+                      selected_cell ? selected_cell->flags : 0, selected_cell != NULL);
+}
+
+// Push the selected object, world, cell, and capability state into the UI views.
+void UpdateStateManagerSelectedObject(void)
+{
+    Newtonoid2d *object = UIState_GetSelectedObject();
+    World2d *world = Universe_GetSelectedWorld(&G_Universe);
+    Cell *cell = UIState_GetSelectedCell();
+
+    RefreshPhysView(object);
+    RefreshAttributeView(object);
+    RefreshWorldView(world);
+    RefreshCellView(cell);
+}
+
+// ============================================================================
+// Module Lifecycle
+// ============================================================================
+
 void InitStateManagerSystem(void)
 {
     const char *labels[] = {"PHYS", "ATTRI", "WORLD", "CELL"};
@@ -760,7 +881,6 @@ void InitStateManagerSystem(void)
                                       (2.0f * ui_standard_container_padding.y);
     view_section_size = UI_SIZE_CONTENT_MAX(0.0f, fmaxf(0.0f, state_manager_view_height));
 
-    InitStateManagerFlagGroups();
     InitPhysStateView();
     InitAttributeStateView();
     InitWorldStateView();
@@ -786,8 +906,13 @@ void DrawStateManagerSystem(void)
 {
     if (state_manager_panel)
     {
-        UpdateStateManagerSelectedObject();
-        state_manager_refresh_dirty = false;
+        Newtonoid2d *object = UIState_GetSelectedObject();
+        // Dynamic entities update continuously; otherwise update when state is marked dirty.
+        if (object || state_manager_refresh_dirty)
+        {
+            UpdateStateManagerSelectedObject();
+            state_manager_refresh_dirty = false;
+        }
         PanelSystem_Draw(state_manager_panel);
     }
 }
@@ -797,9 +922,13 @@ UIElement *GetStateManagerRoot(void)
     return state_manager_panel ? state_manager_panel->root : NULL;
 }
 
-PanelSystem *GetStateManagerPanelSystem(void)
+// Reset all button element references across a flag array.
+static void ResetFlagButtons(StateManagerFlagButton *buttons, size_t count)
 {
-    return state_manager_panel;
+    for (size_t i = 0; i < count; i++)
+    {
+        buttons[i].button = NULL;
+    }
 }
 
 // Destroy the state-manager panel and clear its cached UI references.
@@ -811,51 +940,17 @@ void DestroyStateManagerSystem(void)
     state_manager_panel = NULL;
     PanelSystem_Destroy(panel);
 
-    state_rotation_tbox = NULL;
-    state_basis_u_tbox = NULL;
-    state_basis_v_tbox = NULL;
-    state_geometry_center_tbox = NULL;
-    state_gameplay_section = NULL;
-    state_manager_button_count = 0;
     state_manager_refresh_dirty = true;
-    for (size_t i = 0; i < ARRAY_COUNT(state_manager_flag_buttons); i++)
+    ResetFlagButtons(s_sm_flags.entity_type, ARRAY_COUNT(s_sm_flags.entity_type));
+    ResetFlagButtons(s_sm_flags.entity_attribute, ARRAY_COUNT(s_sm_flags.entity_attribute));
+    ResetFlagButtons(s_sm_flags.entity_status, ARRAY_COUNT(s_sm_flags.entity_status));
+    ResetFlagButtons(s_sm_flags.collision_mask, ARRAY_COUNT(s_sm_flags.collision_mask));
+    ResetFlagButtons(s_sm_flags.world, ARRAY_COUNT(s_sm_flags.world));
+    ResetFlagButtons(s_sm_flags.cell, ARRAY_COUNT(s_sm_flags.cell));
+    for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.comp_buttons); i++)
     {
-        state_manager_flag_buttons[i] = NULL;
+        s_sm_ui.comp_buttons[i].button = NULL;
     }
 
-    G_UIState.state_id_tbox = NULL;
-    G_UIState.state_slot_tbox = NULL;
-    G_UIState.state_generation_tbox = NULL;
-    G_UIState.state_mass_tbox = NULL;
-    G_UIState.state_restitution_tbox = NULL;
-    G_UIState.state_friction_tbox = NULL;
-    G_UIState.state_world_restitution_tbox = NULL;
-    G_UIState.state_world_friction_tbox = NULL;
-    G_UIState.state_pos_tl_tbox = NULL;
-    G_UIState.state_pos_c_tbox = NULL;
-    G_UIState.state_vel_tbox = NULL;
-    G_UIState.state_accel_tbox = NULL;
-    G_UIState.state_moment_tbox = NULL;
-    G_UIState.state_angular_velocity_tbox = NULL;
-    G_UIState.state_angular_acceleration_tbox = NULL;
-    G_UIState.state_health_tbox = NULL;
-    G_UIState.state_max_health_tbox = NULL;
-    G_UIState.state_damage_tbox = NULL;
-    G_UIState.state_id_str = NULL;
-    G_UIState.state_mass_str = NULL;
-    G_UIState.state_pos_tl_str = NULL;
-    G_UIState.state_pos_c_str = NULL;
-    G_UIState.state_vel_str = NULL;
-    G_UIState.state_accel_str = NULL;
-    G_UIState.state_moment_str = NULL;
-    G_UIState.state_angular_velocity_str = NULL;
-    G_UIState.state_angular_acceleration_str = NULL;
-    G_UIState.state_health_str = NULL;
-    G_UIState.state_max_health_str = NULL;
-    G_UIState.state_damage_str = NULL;
-    G_UIState.state_world_str = NULL;
-    G_UIState.cell_id_str = NULL;
-    G_UIState.cell_occu_str = NULL;
-    G_UIState.cell_value_str = NULL;
-    G_UIState.cell_fill_str = NULL;
+    memset(&s_sm_ui, 0, sizeof(s_sm_ui));
 }

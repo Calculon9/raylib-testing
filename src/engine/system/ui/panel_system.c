@@ -1,9 +1,42 @@
+#include "raylib.h"
 #include "system/panel_system.h"
 #include "system/ui_system.h"
 #include "math/affine_space_ops.h"
+#include "system/draw_primitives.h"
 #include "ui/ui_renderer.h"
 #include "ui/ui_constructors.h"
 #include "system/viewport_system.h"
+
+// Draw a compact scrollbar over a scrollable view after its clipped content.
+static void DrawViewScrollbar(const View *view, const UIPalette *palette)
+{
+    if (!view || !view->container || !view->is_scrollable_y || view->max_scroll_y <= 0.0f)
+    {
+        return;
+    }
+
+    UIBox box = view->container->screen_box;
+    const float scrollbar_width = 6.0f;
+    const float inset = 4.0f;
+    float track_height = fmaxf(0.0f, box.dimensions.y - (2.0f * inset));
+    float thumb_height = fmaxf(20.0f, track_height * (box.dimensions.y / view->content_height));
+    thumb_height = fminf(track_height, thumb_height);
+    float travel = fmaxf(0.0f, track_height - thumb_height);
+    float thumb_offset = view->max_scroll_y > 0.0f
+                             ? travel * (view->scroll_y / view->max_scroll_y)
+                             : 0.0f;
+
+    Color track_colour = ToRaylibColor(palette ? palette->container_border : ui_default_palette.container_border);
+    Color thumb_colour = ToRaylibColor(palette ? palette->button_fill : ui_default_palette.button_fill);
+    DrawRectangleRec((Rectangle){box.coords.x + box.dimensions.x - scrollbar_width - inset,
+                                 box.coords.y + inset,
+                                 scrollbar_width,
+                                 track_height}, track_colour);
+    DrawRectangleRec((Rectangle){box.coords.x + box.dimensions.x - scrollbar_width - inset,
+                                 box.coords.y + inset + thumb_offset,
+                                 scrollbar_width,
+                                 thumb_height}, thumb_colour);
+}
 
 void PanelSystem_HandleViewSelected(View *view)
 {
@@ -166,6 +199,14 @@ View *PanelSystem_CreateView(PanelSystem *panel, ViewType view_type)
 
     view->container = container;
     view->type = view_type;
+    view->scroll_x = 0.0f;
+    view->max_scroll_x = 0.0f;
+    view->content_width = 0.0f;
+    view->scroll_y = 0.0f;
+    view->max_scroll_y = 0.0f;
+    view->content_height = 0.0f;
+    view->is_scrollable_x = false;
+    view->is_scrollable_y = false;
     if (!LArray_Push(&panel->views, &view))
     {
         Deallocate((void **)&view, sizeof(View));
@@ -173,6 +214,190 @@ View *PanelSystem_CreateView(PanelSystem *panel, ViewType view_type)
     }
 
     return view;
+}
+
+// Configure horizontal scrollability for a view container.
+void View_SetScrollableX(View *view, bool is_scrollable)
+{
+    if (!view)
+    {
+        return;
+    }
+
+    view->is_scrollable_x = is_scrollable;
+    if (view->container)
+    {
+        view->container->is_scrollable_x = is_scrollable;
+    }
+    if (!is_scrollable)
+    {
+        view->scroll_x = 0.0f;
+        if (view->container)
+        {
+            view->container->scroll_offset.x = 0.0f;
+        }
+    }
+}
+
+// Configure vertical scrollability for a view container.
+void View_SetScrollableY(View *view, bool is_scrollable)
+{
+    if (!view)
+    {
+        return;
+    }
+
+    view->is_scrollable_y = is_scrollable;
+    if (view->container)
+    {
+        view->container->is_scrollable_y = is_scrollable;
+    }
+    if (!is_scrollable)
+    {
+        view->scroll_y = 0.0f;
+        if (view->container)
+        {
+            view->container->scroll_offset.y = 0.0f;
+        }
+    }
+}
+
+// Recompute content height, max scroll bounds, and clamp current scroll offset.
+void View_UpdateScrollBounds(View *view)
+{
+    if (!view || !view->container)
+    {
+        return;
+    }
+
+    // The container's measured_content_size.y stores the total unconstrained height of children.
+    view->content_width = view->container->measured_content_size.x;
+    view->content_height = view->container->measured_content_size.y;
+    float visible_height = view->container->local_box.dimensions.y;
+    float visible_width = view->container->local_box.dimensions.x;
+    view->max_scroll_x = fmaxf(0.0f, view->content_width - visible_width);
+    view->max_scroll_y = fmaxf(0.0f, view->content_height - visible_height);
+
+    // Preserve offset changes made directly to the scrollable container.
+    view->scroll_x = view->container->scroll_offset.x;
+    view->scroll_y = view->container->scroll_offset.y;
+
+    // Clamp current scroll offset to valid bounds [0, max_scroll_y].
+    if (view->scroll_x > view->max_scroll_x)
+    {
+        view->scroll_x = view->max_scroll_x;
+    }
+    if (view->scroll_x < 0.0f)
+    {
+        view->scroll_x = 0.0f;
+    }
+    if (view->scroll_y > view->max_scroll_y)
+    {
+        view->scroll_y = view->max_scroll_y;
+    }
+    if (view->scroll_y < 0.0f)
+    {
+        view->scroll_y = 0.0f;
+    }
+
+    view->container->scroll_offset.x = view->scroll_x;
+    view->container->scroll_offset.y = view->scroll_y;
+}
+
+// Set the horizontal scroll offset directly, clamped to [0, max_scroll_x].
+void View_SetScrollX(View *view, float scroll_x)
+{
+    if (!view)
+    {
+        return;
+    }
+
+    view->scroll_x = scroll_x;
+    if (view->container)
+    {
+        view->container->scroll_offset.x = scroll_x;
+    }
+    View_UpdateScrollBounds(view);
+}
+
+// Scroll the view horizontally by a delta in local units, clamped to [0, max_scroll_x].
+void View_ScrollX(View *view, float delta)
+{
+    if (!view)
+    {
+        return;
+    }
+
+    view->scroll_x += delta;
+    if (view->container)
+    {
+        view->container->scroll_offset.x = view->scroll_x;
+    }
+    View_UpdateScrollBounds(view);
+}
+
+// Retrieve the current horizontal scroll offset.
+float View_GetScrollX(const View *view)
+{
+    return view ? view->scroll_x : 0.0f;
+}
+
+// Set the vertical scroll offset directly, clamped to [0, max_scroll_y].
+void View_SetScrollY(View *view, float scroll_y)
+{
+    if (!view)
+    {
+        return;
+    }
+
+    view->scroll_y = scroll_y;
+    if (view->container)
+    {
+        view->container->scroll_offset.y = scroll_y;
+    }
+    View_UpdateScrollBounds(view);
+}
+
+// Scroll the view vertically by a delta in local units, clamped to [0, max_scroll_y].
+void View_ScrollY(View *view, float delta)
+{
+    if (!view)
+    {
+        return;
+    }
+
+    view->scroll_y += delta;
+    if (view->container)
+    {
+        view->container->scroll_offset.y = view->scroll_y;
+    }
+    View_UpdateScrollBounds(view);
+}
+
+// Retrieve the current vertical scroll offset.
+float View_GetScrollY(const View *view)
+{
+    return view ? view->scroll_y : 0.0f;
+}
+
+// Retrieve the currently active view in a panel system (the first enabled view container).
+View *PanelSystem_GetActiveView(PanelSystem *panel)
+{
+    if (!panel)
+    {
+        return NULL;
+    }
+
+    for (int i = 0; i < panel->views.count; i++)
+    {
+        View *view = *((View **)LArray_Get(&panel->views, i));
+        if (view && view->container && view->container->is_enabled)
+        {
+            return view;
+        }
+    }
+
+    return NULL;
 }
 
 static void UpdatePanelViewSelectorButtons(ViewSelector *selector)
@@ -385,6 +610,16 @@ void PanelSystem_Draw(PanelSystem *panel)
     // Update UI layout to reflect any interactive changes
     UpdateUISpace(panel->root, panel->seed_box);
 
+    // Recompute scroll bounds and clamp based on newly measured content size.
+    for (int i = 0; i < panel->views.count; i++)
+    {
+        View *view = *((View **)LArray_Get(&panel->views, i));
+        if (view && view->is_scrollable_y)
+        {
+            View_UpdateScrollBounds(view);
+        }
+    }
+
     // Apply panel-space basis transformation
     Frame2d panel_basis_frame = panel->space.frame;
     panel_basis_frame.origin_in_parent = ZERO_VECTOR_2D;
@@ -393,6 +628,16 @@ void PanelSystem_Draw(PanelSystem *panel)
                                                             panel_local_to_viewport);
 
     DrawRootUIElement(panel->root, panel->seed_box, panel_local_to_pixel);
+
+    // Scrollbars are drawn after the tree so they remain visible above clipped content.
+    for (int i = 0; i < panel->views.count; i++)
+    {
+        View *view = *((View **)LArray_Get(&panel->views, i));
+        if (view && view->container && view->container->is_enabled)
+        {
+            DrawViewScrollbar(view, panel->palette);
+        }
+    }
 }
 
 Frame2d *PanelSystem_GetSpaceFrame(PanelSystem *panel)

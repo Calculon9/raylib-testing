@@ -29,7 +29,9 @@ UI SYSTEM MODULE
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 void DrawElementBox(UIElement *e);
+void DrawElementBoxClipped(UIElement *e, UIClipRect clip);
 void DrawTextArea(UIElement *e);
+void DrawTextAreaClipped(UIElement *e, UIClipRect clip);
 void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Matrix3x3 M_ui_to_pixel);
 //void UpdateUISystem(int mouse_x, int mouse_y);
 

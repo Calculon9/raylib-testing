@@ -73,6 +73,20 @@ static bool IsDispatchableButton(UIElement *button)
     return UIElement_IsEnabled(button) && IsBtn(button);
 }
 
+// Find the nearest scrollable ancestor under the pointer.
+static UIElement *FindScrollableAncestor(UIElement *target)
+{
+    for (UIElement *element = target; element; element = element->parent)
+    {
+        if (element->is_scrollable_y || element->is_scrollable_x)
+        {
+            return element;
+        }
+    }
+
+    return NULL;
+}
+
 static void ResetTextBuffers(Text_64_IOState *tbox_buffers)
 {
     if (!tbox_buffers)
@@ -207,6 +221,22 @@ void ProcessUIInput(const InputFrame *input, bool cursor_in_region)
     if (target && !target->is_enabled)
     {
         target = NULL;
+    }
+
+    if (input->wheel_delta != 0.0f)
+    {
+        UIElement *scrollable = FindScrollableAncestor(target);
+        if (scrollable)
+        {
+            if (scrollable->is_scrollable_x && !scrollable->is_scrollable_y)
+            {
+                ScrollUIElementX(scrollable, -input->wheel_delta * 0.75f);
+            }
+            else
+            {
+                ScrollUIElementY(scrollable, -input->wheel_delta * 0.75f);
+            }
+        }
     }
 
     HandleHoverItem(target);

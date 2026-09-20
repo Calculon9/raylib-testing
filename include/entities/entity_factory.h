@@ -18,13 +18,16 @@ typedef struct EntityCreateParams
     EntityPreset preset;
 } EntityCreateParams;
 
-typedef struct EntityCreateResult
-{
-    Newtonoid2d *entity;
-    EntityComponent component;
-} EntityCreateResult;
+// Forward declaration of World2d.
+typedef struct World2d World2d;
 
-// Create an entity and any entity-specific state required by its preset.
-bool EntityFactory_Create(const EntityCreateParams *params, EntityCreateResult *out_result);
+// Create an entity with allocated EntityId and attach any preset components.
+// Returns an allocated Newtonoid2d with its ID assigned, or NULL on failure.
+// The caller is responsible for either spawning it into a world or releasing it.
+Newtonoid2d *EntityFactory_Create(const EntityCreateParams *params);
+
+// Create an entity with attached components and register it in the specified world.
+// Returns the allocated EntityId on success, or INVALID_ENTITY_ID on failure.
+EntityId EntityFactory_Spawn(World2d *world, const EntityCreateParams *params, EntityId parent_id);
 
 #endif

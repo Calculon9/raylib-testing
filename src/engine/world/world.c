@@ -11,7 +11,10 @@
 #include "world/world_internal.h"
 #include "world/universe.h"
 #include "physics/physics.h"
-#include "mechanics/portal.h"
+#include "system/entities/relation_system.h"
+#include "system/entities/rotor_system.h"
+#include "system/entities/gear_system.h"
+#include "system/entities/portal_system.h"
 #include "system/job_system.h"
 #include "entities/entity_registry.h"
 
@@ -117,7 +120,12 @@ void UpdateWorld(World2d *world, float delta_time)
     // Run delayed world events first so deletions continue even when no
     // inhabitants remain in the world.
     RunScheduledWorldCmds(scheduled_world_cmds, world);
-    Portal_TickCooldowns(world);
+
+    // Update all systems in order (before physics).
+    RelationSystem_Update(world);  // Validate all relations before systems interpret them
+    RotorSystem_Update(world);
+    GearSystem_Update(world);
+    PortalSystem_Update(world);
 
     int obj_count = objects->count;
     if (obj_count < 1)
