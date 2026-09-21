@@ -12,6 +12,7 @@ typedef enum BindingType
     BINDING_NONE = 0,
     BINDING_INT,
     BINDING_FLOAT,
+    BINDING_VECTOR2D,
     BINDING_STRING,
 } BindingType;
 

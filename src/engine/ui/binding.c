@@ -1,4 +1,5 @@
 #include "ui/binding.h"
+#include "math/cvectors.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -9,6 +10,31 @@ static Binder *AllocBinder()
     Binder *b = (Binder *)AllocateBytes(sizeof(Binder));
     if (b) MemorySet(b, 0, sizeof(Binder));
     return b;
+}
+
+// Parse the vector formats accepted by editable UI fields.
+static bool ParseVector2d(const char *text, Vector2d *out_vector)
+{
+    if (!text || !out_vector)
+    {
+        return false;
+    }
+
+    float parsed_x = 0.0f;
+    float parsed_y = 0.0f;
+    float parsed_magnitude = 0.0f;
+    bool valid_parse =
+        (sscanf(text, "(%f,%f)", &parsed_x, &parsed_y) == 2) ||
+        (sscanf(text, "%f,%f", &parsed_x, &parsed_y) == 2) ||
+        (sscanf(text, "(%f)(%f,%f)", &parsed_magnitude, &parsed_x, &parsed_y) == 3);
+    if (!valid_parse)
+    {
+        return false;
+    }
+
+    out_vector->x = parsed_x;
+    out_vector->y = parsed_y;
+    return true;
 }
 
 Binder *Binder_Create(BindingType type, void *target, ValidatorFn validator, void *user_data)
@@ -35,9 +61,6 @@ bool Binder_ValidateAndWrite(Binder *b, const char *text)
     // If custom validator provided, use it
     if (b->validator)
     {
-        char buf[256];
-        // pass a stack buffer to validator for out_value when needed
-        // Validator contract: if parsing, write to out_value pointer which points to a buffer of sufficient size
         return b->validator(text, b->target, b->user_data);
     }
 
@@ -58,6 +81,17 @@ bool Binder_ValidateAndWrite(Binder *b, const char *text)
         float f = strtof(text, &end);
         if (end == text) return false;
         if (b->target) *(float *)b->target = f;
+        return true;
+    }
+    case BINDING_VECTOR2D:
+    {
+        Vector2d parsed_vector = {0};
+        if (!ParseVector2d(text, &parsed_vector) || !b->target)
+        {
+            return false;
+        }
+
+        *(Vector2d *)b->target = parsed_vector;
         return true;
     }
     case BINDING_STRING:

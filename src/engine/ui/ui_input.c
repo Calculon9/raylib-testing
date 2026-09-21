@@ -8,7 +8,6 @@
 #include "math/cvectors.h"
 #include "camera/camera.h"
 #include "ui/ui_input.h"
-#include "ui/text_region.h"
 #include "system/ui_system.h"
 #include "system/ui/lpanel_system.h"
 #include "system/ui/utility_panel_system.h"
@@ -94,7 +93,7 @@ static void ResetTextBuffers(Text_64_IOState *tbox_buffers)
         return;
     }
 
-    tbox_buffers->input_buffer.string[0] = '\0';
+    tbox_buffers->has_pending_edit = false;
     tbox_buffers->temp_buffer.string[0] = '\0';
 }
 
@@ -106,19 +105,12 @@ static void SnapshotTextBuffers(Text_64_IOState *tbox_buffers, const char *text)
     }
 
     safe_strncpy(tbox_buffers->temp_buffer.string, text, MAX_TEXTBOX_CHARS);
-    tbox_buffers->input_buffer.string[0] = '\0';
+    tbox_buffers->has_pending_edit = false;
 }
 
 static bool HasPendingTextEdit(const Text_64_IOState *tbox_buffers)
 {
-    return tbox_buffers && tbox_buffers->input_buffer.string[0] != '\0';
-}
-
-static bool IsInteractiveTextbox(const UIElement *element)
-{
-    return element &&
-           (element->type == UI_ELEMENT_TEXTBOX_IO ||
-            element->type == UI_ELEMENT_TEXTBOX_SAFE_IO);
+    return tbox_buffers && tbox_buffers->has_pending_edit;
 }
 
 static void ClearTextFocus(Text_64_IOState *tbox_buffers)
@@ -283,7 +275,7 @@ void HandleLeftMouseDown(UIElement *target, Vector2d mouse_coords)
         {
             // Commit pending textbox edits when focus changes; if commit fails,
             // HandleTextCommit reverts using the snapshot buffer.
-            if (G_UIState.focused_element && IsTextbox(G_UIState.focused_element) && HasPendingTextEdit(&tbox_io_buffers))
+            if (G_UIState.focused_element && IsEditableTextbox(G_UIState.focused_element) && HasPendingTextEdit(&tbox_io_buffers))
             {
                 HandleTextCommit(G_UIState.focused_element, &tbox_io_buffers);
             }
@@ -403,44 +395,6 @@ void HandleHoverItem(UIElement *target)
     }
 }
 
-void HandleBtnSwitchClick(UIElement *btn)
-{
-    ToggleElementEnabled(btn->data.button.data_bind); // Toggle the slave's enabled state
-    LOG_INFO("SWITCH CLICK\n");
-}
-
-// A LArray of UIElements needs
-void HandleBtnEnumerateClick(UIElement *btn)
-{
-    LArray *a = btn->data.button.data_bind;
-
-    // Safely extract our custom integer tracker from the void*
-    int *current_index = (int *)btn->data.button.user_data;
-    if (!current_index || !a || a->count == 0)
-        return;
-
-    // Calculate next step using the heap integer
-    int next_index = (*current_index + 1) % a->count;
-    View *curr_view = *((View **)LArray_Get(a, *current_index));
-    View *next_view = *((View **)LArray_Get(a, next_index));
-
-    // UIElement *current_item = *(UIElement **)LArray_Get(a, *current_index);
-    // UIElement *next_item = *(UIElement **)LArray_Get(a, next_index);
-
-    if (curr_view)
-        ToggleElementEnabled(curr_view->container);
-    if (next_view)
-        ToggleElementEnabled(next_view->container);
-
-    // Save the state back directly to that memory address
-    *current_index = next_index;
-
-    // Update the Active View in the global state if this button is associated with a view switch
-    G_UIState.active_panel_view = next_view->type;
-
-    LOG_INFO("ENUMERATE VIEW CLICK\n");
-}
-
 void HandleBtnSubmitClick(UIElement *btn)
 {
     int action = BUTTON_ACTION_NONE;
@@ -549,46 +503,16 @@ void HandleTextCommit(UIElement *element, Text_64_IOState *tbox_buffers)
         return;
     }
 
-    // Require a valid data binding target for commit.
-    if (!element->data.textbox.data_bind && !element->data.textbox.binder)
+    if (!IsEditableTextbox(element) || !element->data.textbox.binder)
     {
         RevertTextChanges(element, tbox_buffers);
         return;
     }
 
-    // These TextBoxes (IO) are interactive so check it's an IO type before doing anything
-    if (IsInteractiveTextbox(element))
+    if (!Binder_ValidateAndWrite(element->data.textbox.binder, element->data.textbox.text.string))
     {
-        // If a Binder is attached, use it (allows validation + conversion)
-        if (element->data.textbox.binder)
-        {
-            bool ok = Binder_ValidateAndWrite(element->data.textbox.binder, element->data.textbox.text.string);
-            if (!ok)
-            {
-                // Validation failed; revert changes
-                RevertTextChanges(element, tbox_buffers);
-                return;
-            }
-        }
-        else
-        {
-            // Get the type of data the textbox is bound to
-            DataType data_type = element->data.textbox.data_type;
-            switch (data_type)
-            {
-            case VECTOR2D:
-                PipelineTextToVector(element->data.textbox.text.string, element->data.textbox.data_bind); // Be sure the data type and data bind are compatible!
-                break;
-            case FLOAT:
-                PipelineTextToFloat(element->data.textbox.text.string, element->data.textbox.data_bind); // Be sure the data type and data bind are compatible!
-                break;
-            case INT:
-                PipelineTextToInt(element->data.textbox.text.string, (int *)element->data.textbox.data_bind);
-                break;
-            default:
-                break;
-            }
-        }
+        RevertTextChanges(element, tbox_buffers);
+        return;
     }
 
     // Clear buffers
@@ -618,7 +542,7 @@ void HandleTextBoxClick(UIElement *clicked)
 
     // Move the cursor to the end of the text string
     // This allows the user to start typing immediately after what's already there
-    if (IsInteractiveTextbox(clicked))
+    if (IsEditableTextbox(clicked))
     {
         int length = strlen(clicked->data.textbox.text.string);
         clicked->data.textbox.cursor_position = length;
@@ -634,7 +558,7 @@ void UpdateTextIO()
         return;
     }
 
-    if (!IsInteractiveTextbox(G_UIState.focused_element))
+    if (!IsEditableTextbox(G_UIState.focused_element))
         return;
 
     char *output_buf = G_UIState.focused_element->data.textbox.text.string;
@@ -657,8 +581,7 @@ void UpdateTextIO()
             output_buf[current_len] = (char)key;
             output_buf[current_len + 1] = '\0';
 
-            // Mirror to your tracking buffer so we know we've started "editing"
-            tbox_io_buffers.input_buffer.string[0] = ' '; // Just a flag to say "not empty"
+            tbox_io_buffers.has_pending_edit = true;
         }
         key = GetCharPressed();
     }
@@ -668,7 +591,10 @@ void UpdateTextIO()
     {
         int len = strlen(output_buf);
         if (len > 0)
+        {
             output_buf[len - 1] = '\0';
+            tbox_io_buffers.has_pending_edit = true;
+        }
     }
 
     // Handle Escape (Cancel/Undo)

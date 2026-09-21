@@ -120,34 +120,16 @@ static void InitRPanelCreateWorldContainer(void)
         rpanel->palette);
 
     const UIFieldSpec create_fields[] = {
-        {"Spawn", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &rpanel_create_spawn_tbox, NULL},
-        {"Resolution", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &rpanel_create_resolution_tbox, NULL},
-        {"Objects", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, INT, &rpanel_create_objects_tbox, NULL},
-        {"Gravity", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &rpanel_create_gravity_tbox, NULL},
-        {"Basis u", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &rpanel_create_basis_u_tbox, NULL},
-        {"Basis v", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &rpanel_create_basis_v_tbox, NULL},
+        {"Spawn", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &rpanel_create_spawn_tbox, NULL, GetNextWorldSpawnOriginPtr()},
+        {"Resolution", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &rpanel_create_resolution_tbox, NULL, GetNextWorldResolutionPtr()},
+        {"Objects", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, INT, &rpanel_create_objects_tbox, NULL, GetNextWorldObjectCountPtr()},
+        {"Gravity", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &rpanel_create_gravity_tbox, NULL, GetNextWorldGravityPtr()},
+        {"Basis u", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &rpanel_create_basis_u_tbox, NULL, GetNextWorldBasisUPtr()},
+        {"Basis v", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &rpanel_create_basis_v_tbox, NULL, GetNextWorldBasisVPtr()},
     };
     InitUIFields(create_world_cont, create_fields,
                  ARRAY_COUNT(create_fields), ui_standard_field_padding,
                  rpanel->palette);
-
-    Vector2d *spawn_origin = GetNextWorldSpawnOriginPtr();
-    BindTextboxData(rpanel_create_spawn_tbox, VECTOR2D, spawn_origin);
-
-    Vector2d *next_res = GetNextWorldResolutionPtr();
-    BindTextboxData(rpanel_create_resolution_tbox, VECTOR2D, next_res);
-
-    Vector2d *basis_u = GetNextWorldBasisUPtr();
-    BindTextboxData(rpanel_create_basis_u_tbox, VECTOR2D, basis_u);
-
-    Vector2d *basis_v = GetNextWorldBasisVPtr();
-    BindTextboxData(rpanel_create_basis_v_tbox, VECTOR2D, basis_v);
-
-    float *next_grav = GetNextWorldGravityPtr();
-    BindTextboxData(rpanel_create_gravity_tbox, FLOAT, next_grav);
-
-    int *next_objects = GetNextWorldObjectCountPtr();
-    BindTextboxData(rpanel_create_objects_tbox, INT, next_objects);
 
     CreateUIButtonDefault(create_world_cont, UI_ELEMENT_BUTTON_SUBMIT,
                           "NEW WORLD", ui_standard_button_size, ui_standard_button_padding,
@@ -206,9 +188,6 @@ void DrawRPanel(void)
     {
         return;
     }
-
-    // Keep UI layout in sync with interactive/manual offset changes.
-    UpdateUISpace(rpanel->root, rpanel->seed_box);
 
     if (rpanel_stats_entities_tbox)
     {

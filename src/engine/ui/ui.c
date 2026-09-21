@@ -705,23 +705,6 @@ UIElement *CreateUIElement(UIElementType type, Size size, Offset parent_offset, 
     return e;
 }
 
-UIElement *CreateBtnUIElementInTree(UIElementType type, Size size, UIElement *parent, Offset parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill)
-{
-    UIElement *btn = CreateUIElementInTree(type, size, parent, parent_offset, padding, colour_border, colour_fill);
-
-    if (!btn)
-        return NULL;
-
-    btn->data.button.on_click = NULL;
-    btn->data.button.slave = NULL;
-    btn->data.button.data_bind = NULL;
-    btn->data.button.user_data = NULL;
-    btn->data.button.font = FONT_BASIC;
-    btn->data.button.label.string[0] = '\0';
-
-    return btn;
-}
-
 UIElement *CreateUIElementInTree(UIElementType type, Size size, UIElement *parent, Offset parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill)
 {
     UIElement *e = CreateUIElement(type, size, parent_offset, padding, colour_border, colour_fill);
@@ -1032,12 +1015,18 @@ bool IsTextbox(UIElement *e)
             e->type == UI_ELEMENT_TEXTBOX_IO);
 }
 
+// Return whether the element accepts keyboard input and commits edited text.
+bool IsEditableTextbox(const UIElement *e)
+{
+    return e && (e->type == UI_ELEMENT_TEXTBOX_IO ||
+                 e->type == UI_ELEMENT_TEXTBOX_SAFE_IO);
+}
+
 bool IsBtn(UIElement *e)
 {
     if (!e)
         return false;
     return (e->type == UI_ELEMENT_BUTTON_SIMPLE ||
-            e->type == UI_ELEMENT_BUTTON_SWITCH ||
             e->type == UI_ELEMENT_BUTTON_ENUMERATE ||
             e->type == UI_ELEMENT_BUTTON_SUBMIT);
 }
@@ -1310,8 +1299,6 @@ const char *GetElementTypeName(UIElementType type)
         return "TEXTBOX_IO";
     case UI_ELEMENT_TEXTBOX_SAFE_IO:
         return "TEXTBOX_SAFE_IO";
-    case UI_ELEMENT_BUTTON_SWITCH:
-        return "BUTTON_SWITCH";
     case UI_ELEMENT_BUTTON_SIMPLE:
         return "BUTTON_SIMPLE";
     case UI_ELEMENT_BUTTON_ENUMERATE:

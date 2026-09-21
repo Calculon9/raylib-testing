@@ -1,12 +1,10 @@
 /**********************************************************************************************
 
  **********************************************************************************************/
-#include <stdio.h>
 #include "math/cvectors.h"
 #include "common/common.h"
 #include "system/draw_primitives.h"
 #include "ui/text_region.h"
-#include "system/ui_system.h"
 #include "raylib.h"
 
 //----------------------------------------------------------------------------------
@@ -17,131 +15,6 @@
 // Functions Definition
 //----------------------------------------------------------------------------------
 void DrawChar(char c, Vector2d origin_coords, int scale, Bitmap_Font font, ColourRgba colour);
-
-// Takes in pixel coord point and determines if they are in the target region
-bool IsFocused(Vector2d pixel_coords, Vector2d *vertices, int vertex_count)
-{
-    // Vector2d *vertices = polygon->vertices.coll.items;
-    return IsPointInPolygon(pixel_coords, vertices, ZERO_VECTOR_2D, vertex_count);
-}
-
-UIElement *CreateTextFieldInTree(Size size, UIElement *parent, Offset parent_offset, Size tbox_size, Vector2d padding, bool label_is_inline, ColourRgba colour_border, ColourRgba colour_fill, Bitmap_Font font)
-{
-    UIElement *tf = CreateUIElementInTree(UI_ELEMENT_TEXTFIELD, size, parent, parent_offset, padding, colour_border, colour_fill);
-    tf->type = UI_ELEMENT_TEXTFIELD;
-
-    UIElement *tl = CreateUIElement(UI_ELEMENT_LABEL, (Size){ZERO_VECTOR_2D, SIZE_PERCENT}, (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ZERO_VECTOR_2D, colour_border, colour_fill);
-    UIElement *tb = CreateUIElement(UI_ELEMENT_TEXTBOX_SAFE_IO, (Size){ZERO_VECTOR_2D, SIZE_PERCENT}, (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ZERO_VECTOR_2D, colour_border, colour_fill);
-    tl->type = UI_ELEMENT_LABEL;
-    tb->type = UI_ELEMENT_TEXTBOX_SAFE_IO;
-    SetUIElementTextVerticalAlignment(tl, UI_TEXT_VERTICAL_ALIGN_CENTRE);
-    SetUIElementTextVerticalAlignment(tb, UI_TEXT_VERTICAL_ALIGN_CENTRE);
-    tl->data.label.font = font;
-    tb->data.textbox.font = font;
-
-    // Determine layout style
-    if (tbox_size.size_mode == SIZE_PERCENT)
-    {
-        if (label_is_inline) // Inline layout
-        {
-            // 1. Percentage-based Inline Layout (e.g., 40% Label, 60% TextBox)
-            tl->size.dimensions.x = 1.0 - tbox_size.dimensions.x; // 40% of parent width
-            tl->size.dimensions.y = 1.0f;                       // 100% of parent height
-            tl->resolved_offset.offset = (Vector2d){0, 0};
-
-            tb->size.dimensions.x = tbox_size.dimensions.x; // 60% of parent width
-            tb->size.dimensions.y = 1.0f;
-            // Offset starts where the label ends (40% mark)
-            // Note: Using percentage for offset requires Resolve function to handle it!
-            tb->resolved_offset.offset = (Vector2d){1.0 - tbox_size.dimensions.x, 0};
-        }
-        else // Stacked Layout: Label top (e.g. 30%), TextBox bottom (70%)
-        {
-
-            tl->size.dimensions.x = 1.0f;
-            tl->size.dimensions.y = 1.0 - tbox_size.dimensions.y;
-            tl->resolved_offset.offset = (Vector2d){0, 0};
-
-            tb->size.dimensions.x = 1.0f;
-            tb->size.dimensions.y = tbox_size.dimensions.y;
-            tb->resolved_offset.offset = (Vector2d){0, 1.0 - tbox_size.dimensions.y};
-        }
-
-        tl->authored_offset = tl->resolved_offset;
-        tb->authored_offset = tb->resolved_offset;
-    }
-
-    AddElementToTree(tl, tf);
-    AddElementToTree(tb, tf);
-
-    return tf;
-}
-
-UIElement *CreateTextFieldContainerInTree(Size size, UIElement *parent, Offset parent_offset, Vector2d padding, Spacing child_spacing, ColourRgba colour_border, ColourRgba colour_fill)
-{
-    UIElement *tc = CreateUIElementInTree(UI_ELEMENT_CONTAINER, size, parent, parent_offset, padding, colour_border, colour_fill);
-    tc->child_spacing = child_spacing;
-    // tc->children = *NewLArray(4, sizeof(UIElement *));
-
-    return tc;
-}
-
-ShortString GetText_TextField(TextField *text_box)
-{
-    ShortString str = {0};
-
-    if (!text_box)
-    {
-        return str;
-    }
-
-    strncpy(str.text, text_box->text_box.text, sizeof(str.text) - 1);
-    str.text[sizeof(str.text) - 1] = '\0';
-
-    return str;
-}
-
-int GetTextWidth(char *text, char font_spacing, char scale)
-{
-    if (text == NULL)
-        return 0;
-
-    int char_count = strlen(text);
-    if (char_count == 0)
-        return 0;
-
-    // In case there was no string termination
-    // If there isn't, strlen will wonder outside the provided text buffer and count the 1st byte outside it as a char!
-    if (text[char_count - 1] != '\0')
-    {
-        char_count--;
-    }
-    Bitmap_Font temp_font = {0};
-    temp_font.scale = scale;
-    temp_font.spacing = font_spacing;
-    int width = char_count * BitmapFont_GetGlyphAdvance(&temp_font);
-    // int width = char_count * ((8 + font_spacing) * scale); (8 * scale) + (scale * font.spacing);
-    //  int width = (char_count * (8 * scale));// + ((char_count - 1) * scale);
-
-    return width;
-}
-
-Vector2d GetTextCenterPos(const char *text, float fontSize, Vector2d origin)
-{
-    // 1. Calculate the center of the specific cell (c, r)
-    // float centerX = origin.x + (c + 0.5f) * u.x + (r + 0.5f) * v.x;
-    // float centerY = origin.y + (c + 0.5f) * u.y + (r + 0.5f) * v.y;
-
-    // // 2. Measure the text dimensions
-    // Vector2d textSize = MeasureTextEx(font, text, fontSize, 1.0f);
-
-    // // 3. Subtract half dimensions to get the starting (top-left) point
-    // Vector2d startPos;
-    // startPos.x = centerX - (textSize.x / 2.0f);
-    // startPos.y = centerY - (textSize.y / 2.0f);
-
-    // return startPos;
-}
 
 // Custom text drawing function that uses our Bitmap_Font and supports scaling and color. Coordinate origin is the top-left corner of the text in pixels.
 float DrawTextCustom(const char *text, Vector2d origin_coords, int scale, Bitmap_Font font, ColourRgba colour)

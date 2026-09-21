@@ -24,30 +24,66 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel, UICl
 void DrawTextArea(UIElement *e);
 void DrawTextAreaClipped(UIElement *e, UIClipRect clip);
 
-static int CountTextRows(const char *text, float available_width, int glyph_advance, int glyph_cell_width, int max_rows)
+// Consume one wrapped text row and optionally copy its characters into a draw buffer.
+static int ConsumeTextRow(const char **text_cursor, float available_width,
+                          int glyph_advance, int glyph_cell_width,
+                          char *row_buffer, size_t row_buffer_capacity,
+                          float *out_row_width)
 {
-    int char_ptr = 0;
-    int row_count = 0;
-
-    while (text && text[char_ptr] != '\0' && row_count < max_rows)
+    if (!text_cursor || !*text_cursor || available_width <= 0.0f ||
+        glyph_advance <= 0 || glyph_cell_width <= 0)
     {
-        float row_width = 0.0f;
-        int row_char_count = 0;
+        return 0;
+    }
 
-        while (text[char_ptr] != '\0' && row_char_count < 255)
+    const char *cursor = *text_cursor;
+    int row_char_count = 0;
+    int max_row_chars = row_buffer ? (int)row_buffer_capacity - 1 : 255;
+    if (max_row_chars <= 0)
+    {
+        return 0;
+    }
+
+    float row_width = 0.0f;
+    while (*cursor != '\0' && row_char_count < max_row_chars)
+    {
+        int char_width = row_char_count == 0 ? glyph_cell_width : glyph_advance;
+        if (row_width + (float)char_width > available_width)
         {
-            int char_width = row_char_count == 0 ? glyph_cell_width : glyph_advance;
-            if (row_width + char_width > available_width)
-            {
-                break;
-            }
-
-            row_width += char_width;
-            char_ptr++;
-            row_char_count++;
+            break;
         }
 
-        if (row_char_count == 0)
+        if (row_buffer)
+        {
+            row_buffer[row_char_count] = *cursor;
+        }
+        row_width += (float)char_width;
+        row_char_count++;
+        cursor++;
+    }
+
+    if (row_buffer)
+    {
+        row_buffer[row_char_count] = '\0';
+    }
+    if (out_row_width)
+    {
+        *out_row_width = row_width;
+    }
+
+    *text_cursor = cursor;
+    return row_char_count;
+}
+
+static int CountTextRows(const char *text, float available_width, int glyph_advance, int glyph_cell_width, int max_rows)
+{
+    const char *text_cursor = text;
+    int row_count = 0;
+
+    while (text_cursor && *text_cursor != '\0' && row_count < max_rows)
+    {
+        if (ConsumeTextRow(&text_cursor, available_width, glyph_advance,
+                           glyph_cell_width, NULL, 0, NULL) == 0)
         {
             break;
         }
@@ -219,33 +255,24 @@ void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
     {
         vertical_offset = fmaxf(0.0f, available_space.y - text_height);
     }
-    int char_ptr = 0;
+    const char *text_cursor = text_ptr;
     int current_row = 0;
     float last_row_x_end = e->screen_box.coords.x;
     bool fully_contained = UIClipRect_ContainsBox(clip, e->screen_box);
 
     // Segmenting and Drawing
     // We'll draw row-by-row to save memory (no need for a massive 2D array)
-    while (text_ptr[char_ptr] != '\0' && current_row < rows_that_fit)
+    while (text_cursor && *text_cursor != '\0' && current_row < rows_that_fit)
     {
         char row_buffer[256] = {0}; // Local buffer for the current line
-        int row_char_count = 0;
-        float current_row_width = 0;
-
-        // Fill the buffer for this row until it's full or text ends
-        while (text_ptr[char_ptr] != '\0' && row_char_count < 255)
+        float current_row_width = 0.0f;
+        int row_char_count = ConsumeTextRow(
+            &text_cursor, available_space.x, glyph_advance, glyph_cell_width,
+            row_buffer, sizeof(row_buffer), &current_row_width);
+        if (row_char_count == 0)
         {
-            char c = text_ptr[char_ptr];
-            int char_width = row_char_count == 0 ? glyph_cell_width : glyph_advance;
-
-            if (current_row_width + (float)char_width > available_space.x)
-                break;
-
-            row_buffer[row_char_count++] = c;
-            current_row_width += (float)char_width;
-            char_ptr++;
+            break;
         }
-        row_buffer[row_char_count] = '\0';
 
         // Draw the row
         Vector2d draw_pos = {
@@ -294,7 +321,7 @@ void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
         current_row++;
     }
 
-    const char *remaining_text = text_ptr + char_ptr;
+    const char *remaining_text = text_cursor;
     if (remaining_text[0] != '\0')
     {
         if (frame_counter.total_frames % 300 == 0)
@@ -310,7 +337,7 @@ void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
         // Place cursor at the end of the last drawn character
         // Note: Subtract 1 from current_row because it was incremented after the last draw
         float adjusted_x = last_row_x_end;
-        float adjusted_y = char_ptr > 0
+        float adjusted_y = text_cursor != text_ptr
                                ? e->screen_box.coords.y + vertical_offset + (float)((current_row - 1) * row_height)
                                : e->screen_box.coords.y + vertical_offset;
         Vector2d cursor_pos = {adjusted_x, adjusted_y};

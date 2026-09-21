@@ -9,7 +9,6 @@
 #include "common/common.h"
 #include "camera/camera.h"
 #include "ui/ui.h"
-#include "ui/text_region.h"
 #include "ui/ui_renderer.h"
 #include "ui/ui_input.h"
 #include "system/ui_system.h"

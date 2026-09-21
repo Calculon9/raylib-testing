@@ -87,8 +87,6 @@ UIElement *GetUtilityPanelRoot(void);
 InputRouteResult UpdateUISystem(const InputFrame *input);
 void DrawUI(void);
 void ProcessUIInput(const InputFrame *input, bool cursor_in_region);
-void HandleBtnSwitchClick(UIElement *target);
-void HandleBtnEnumerateClick(UIElement *btn);
 void HandleBtnSubmitClick(UIElement *btn);
 //----------------------------------------------------------------------------------
 // World Functions Declaration
@@ -102,9 +100,6 @@ void DrawWorldRegion(World2d *world, Camera2d *universe_camera);
 //----------------------------------------------------------------------------------
 // Integration Functions Declaration
 //----------------------------------------------------------------------------------
-bool PipelineTextToVector(char *input_buffer, Vector2d *target_vector);
-bool PipelineTextToFloat(char *input_buffer, float *target_float);
-bool PipelineTextToInt(char *input_buffer, int *target_int);
 void PipelineVectorToText(Vector2d input_vector, char *target_buffer, size_t target_buffer_bytes); //, NewtonProperty object_property);
 void PipelineNumberToText(float input_float, int precision, char *target_buffer, size_t target_buffer_bytes); //, NewtonProperty object_property);
 void BindTextbox(UIElement *textbox, void *data_bind);

@@ -18,8 +18,7 @@ UI SYSTEM MODULE
 
 typedef struct
 {
-    String64 input_buffer;
-    String64 output_buffer;
+    bool has_pending_edit;
     String64 temp_buffer;
 } Text_64_IOState;
 

@@ -224,14 +224,14 @@ void InitLPanelEditView(void)
         lpanel->palette);
 
     const UIFieldSpec edit_specs[] = {
-        {"Vertices", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, INT, &G_UIState.edit_vertice_count_tbox, NULL},
-        {"Width", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_width_tbox, NULL},
-        {"Height", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_height_tbox, NULL},
-        {"Mass", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_mass_tbox, NULL},
-        {"Restitution", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_restitution_tbox, NULL},
-        {"Friction", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_friction_tbox, NULL},
-        {"Anchor", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.edit_pos_c_tbox, NULL},
-        {"Vel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.edit_vel_tbox, NULL},
+        {"Vertices", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, INT, &G_UIState.edit_vertice_count_tbox, NULL, &G_UIState.entity_create_params->physics.vertice_count},
+        {"Width", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_width_tbox, NULL, &G_UIState.entity_create_params->physics.width},
+        {"Height", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_height_tbox, NULL, &G_UIState.entity_create_params->physics.height},
+        {"Mass", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_mass_tbox, NULL, &G_UIState.entity_create_params->physics.mass},
+        {"Restitution", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_restitution_tbox, NULL, &G_UIState.entity_create_params->physics.restitution},
+        {"Friction", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_friction_tbox, NULL, &G_UIState.entity_create_params->physics.friction},
+        {"Anchor", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.edit_pos_c_tbox, NULL, &G_UIState.entity_create_params->physics.anchor_position},
+        {"Vel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.edit_vel_tbox, NULL, &G_UIState.entity_create_params->physics.velocity},
         {"Acc", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.edit_accel_tbox, NULL},
         {"Moment", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.edit_moment_tbox, NULL},
     };
@@ -239,14 +239,6 @@ void InitLPanelEditView(void)
                  ARRAY_COUNT(edit_specs), ui_standard_field_padding,
                  lpanel->palette);
 
-    BindTextboxData(G_UIState.edit_vertice_count_tbox, INT, &G_UIState.entity_create_params->physics.vertice_count);
-    BindTextboxData(G_UIState.edit_width_tbox, FLOAT, &G_UIState.entity_create_params->physics.width);
-    BindTextboxData(G_UIState.edit_height_tbox, FLOAT, &G_UIState.entity_create_params->physics.height);
-    BindTextboxData(G_UIState.edit_mass_tbox, FLOAT, &G_UIState.entity_create_params->physics.mass);
-    BindTextboxData(G_UIState.edit_restitution_tbox, FLOAT, &G_UIState.entity_create_params->physics.restitution);
-    BindTextboxData(G_UIState.edit_friction_tbox, FLOAT, &G_UIState.entity_create_params->physics.friction);
-    BindTextboxData(G_UIState.edit_pos_c_tbox, VECTOR2D, &G_UIState.entity_create_params->physics.anchor_position);
-    BindTextboxData(G_UIState.edit_vel_tbox, VECTOR2D, &G_UIState.entity_create_params->physics.velocity);
     InitEntityCreateDefaults();
 
     CreateUIButtonDefault(lpanel_edit_entity_tcont, UI_ELEMENT_BUTTON_SUBMIT,

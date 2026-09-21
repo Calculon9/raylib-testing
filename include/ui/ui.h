@@ -12,6 +12,9 @@ WORLD MODULE
 #include "system/systems.h"
 #include "ui/binding.h"
 
+#define MAX_TEXTBOX_CHARS (int)sizeof(String64)
+#define MAX_LABEL_CHARS (int)sizeof(String64)
+
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
@@ -33,7 +36,6 @@ typedef enum
     UI_ELEMENT_TEXTFIELD,
     UI_ELEMENT_LABEL,
     UI_ELEMENT_BUTTON_SIMPLE,
-    UI_ELEMENT_BUTTON_SWITCH,
     UI_ELEMENT_BUTTON_ENUMERATE,
     UI_ELEMENT_BUTTON_SUBMIT,
     UI_ELEMENT_HOVER_ITEM,
@@ -148,16 +150,9 @@ typedef struct
 
 typedef struct
 {
-    TextBoxData textbox_data;
-    LabelData label_data;
-} TextFieldlData;
-
-typedef struct
-{
     String64 label;
     Bitmap_Font font;
     UIEventHandler on_click;
-    UIElement *slave;
     void *data_bind;
     void *user_data; // 8-byte magic pointer for ANY custom state
 } ButtonData;
@@ -178,7 +173,6 @@ typedef union
     RootData root;
     TextBoxData textbox;
     LabelData label;
-    TextFieldlData textfield;
     ButtonData button;
     HoverItemData hover_item;
     // UIImageData image;
@@ -276,7 +270,6 @@ typedef struct Pool Pool;
 //----------------------------------------------------------------------------------
 UIElement *CreateUIElement(UIElementType type, Size size, Offset parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill);
 UIElement *CreateUIElementInTree(UIElementType type, Size size, UIElement *parent, Offset parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill);
-UIElement *CreateBtnUIElementInTree(UIElementType type, Size size, UIElement *parent, Offset parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill);
 void GetUIElementVertices(UIElement *e, Vector2d out_vertices[4]);
 bool IsMouseOverElement(UIElement *el, Vector2d mouse_pos);
 bool UI_AABB_Intersects(UIBox a, UIBox b);
@@ -311,6 +304,7 @@ void SetUIElementPool(Pool *pool);
 void SetUIElementTextHorizontalAlignment(UIElement *element, UITextHorizontalAlignment alignment);
 void SetUIElementTextVerticalAlignment(UIElement *element, UITextVerticalAlignment alignment);
 bool IsTextbox(UIElement *e);
+bool IsEditableTextbox(const UIElement *e);
 bool IsBtn(UIElement *e);
 void ToggleElementEnabled(UIElement *element);
 // Scroll a horizontally scrollable element by local coordinate units.

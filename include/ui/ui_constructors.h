@@ -7,7 +7,6 @@ UI CONSTRUCTORS MODULE
 #define UI_CONSTRUCTORS_H
 
 #include "ui/ui.h"
-#include "ui/text_region.h"
 #include "system/ui_system.h"
 
 typedef struct UIFieldSpec
@@ -18,6 +17,7 @@ typedef struct UIFieldSpec
     DataType data_type;
     UIElement **target;
     String64 **text_target;
+    void *data_bind;
 } UIFieldSpec;
 
 UIElement *CreateUILabel(UIElement *parent, const char *text, Size size,

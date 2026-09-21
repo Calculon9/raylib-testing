@@ -1,5 +1,6 @@
 #include "ui/ui_constructors.h"
 
+#include "system/systems.h"
 #include "system/utility_system.h"
 #include "system/ui_system.h"
 
@@ -50,14 +51,61 @@ UIElement *CreateUILabelTitleDefault(UIElement *parent, const char *text,
                          COLOURLESS_RGBA, COLOURLESS_RGBA);
 }
 
+// Build the UIElement-based labelled field used by the shared field constructor.
+static UIElement *CreateLabeledFieldElement(UIElement *parent, Size size,
+                                            Size textbox_size, Vector2d padding,
+                                            ColourRgba border, ColourRgba fill,
+                                            Bitmap_Font font)
+{
+    UIElement *field = CreateUIElementInTree(
+        UI_ELEMENT_TEXTFIELD, size, parent,
+        (Offset){ZERO_VECTOR_2D, OFFSET_FIXED}, padding, border, fill);
+    if (!field)
+    {
+        return NULL;
+    }
+
+    UIElement *label = CreateUIElement(
+        UI_ELEMENT_LABEL, (Size){ZERO_VECTOR_2D, SIZE_PERCENT},
+        (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ZERO_VECTOR_2D, border, fill);
+    UIElement *textbox = CreateUIElement(
+        UI_ELEMENT_TEXTBOX_SAFE_IO, (Size){ZERO_VECTOR_2D, SIZE_PERCENT},
+        (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ZERO_VECTOR_2D, border, fill);
+    if (!label || !textbox)
+    {
+        return NULL;
+    }
+
+    SetUIElementTextVerticalAlignment(label, UI_TEXT_VERTICAL_ALIGN_CENTRE);
+    SetUIElementTextVerticalAlignment(textbox, UI_TEXT_VERTICAL_ALIGN_CENTRE);
+    label->data.label.font = font;
+    textbox->data.textbox.font = font;
+
+    if (textbox_size.size_mode == SIZE_PERCENT)
+    {
+        label->size.dimensions = (Vector2d){1.0f - textbox_size.dimensions.x, 1.0f};
+        label->resolved_offset.offset = ZERO_VECTOR_2D;
+
+        textbox->size.dimensions = (Vector2d){textbox_size.dimensions.x, 1.0f};
+        textbox->resolved_offset.offset = (Vector2d){1.0f - textbox_size.dimensions.x, 0.0f};
+
+        label->authored_offset = label->resolved_offset;
+        textbox->authored_offset = textbox->resolved_offset;
+    }
+
+    AddElementToTree(label, field);
+    AddElementToTree(textbox, field);
+    return field;
+}
+
 UIElement *CreateUILabeledField(UIElement *parent, const char *label_text, UIElementType input_type,
                                 Size row_size, Size textbox_size, Vector2d row_padding,
                                 ColourRgba row_border, ColourRgba row_fill, Vector2d cell_padding, 
                                 ColourRgba cell_border, ColourRgba cell_fill,
                                 Bitmap_Font label_font, Bitmap_Font font)
 {
-    UIElement *tfield = CreateTextFieldInTree(row_size, parent, (Offset){ZERO_VECTOR_2D, OFFSET_FIXED},
-                                              textbox_size, row_padding, true, row_border, row_fill, font);
+    UIElement *tfield = CreateLabeledFieldElement(parent, row_size, textbox_size,
+                                                  row_padding, row_border, row_fill, font);
     if (!tfield)
     {
         return NULL;
@@ -303,6 +351,11 @@ void InitUIFields(UIElement *parent, const UIFieldSpec *specs, size_t count,
         if (specs[i].data_type >= FLOAT && specs[i].data_type <= STRING256)
         {
             input_child->data.textbox.data_type = specs[i].data_type;
+        }
+
+        if (specs[i].data_bind)
+        {
+            BindTextboxData(input_child, specs[i].data_type, specs[i].data_bind);
         }
 
         if (specs[i].target)
