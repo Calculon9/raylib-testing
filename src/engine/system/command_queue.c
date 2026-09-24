@@ -109,7 +109,7 @@ bool EnqueueSelectWorld(int delta)
 
 bool EnqueueMoveEntity(EntityId entity_id, int source_world_index,
                        int destination_world_index, EntityId destination_parent_id,
-                       Vector2d destination_coords, uint32_t original_collision_mask)
+                       Vector2d destination_coords, EntityCollisionLayerFlags original_collision_layers)
 {
     if (entity_id == INVALID_ENTITY_ID || q_count >= COMMAND_QUEUE_CAPACITY)
     {
@@ -122,7 +122,7 @@ bool EnqueueMoveEntity(EntityId entity_id, int source_world_index,
         .destination_world_index = destination_world_index,
         .destination_parent_id = destination_parent_id,
         .destination_coords = destination_coords,
-        .original_collision_mask = original_collision_mask};
+        .original_collision_layers = original_collision_layers};
     if (!EnqueueCommandWithQueueLog(CMD_MOVE_ENTITY, &move, sizeof(move), "CMD_MOVE_ENTITY"))
     {
         return false;
@@ -250,7 +250,7 @@ void ProcessCommandQueue(void)
                 Newtonoid2d *selected_object = UIState_GetSelectedObject();
                 if (selected_object)
                 {
-                    selected_object->collision_mask = c->data.move_entity.original_collision_mask;
+                    selected_object->collision_layers = c->data.move_entity.original_collision_layers;
 
                     DragInteractionState *game_drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
                     if (game_drag_ctx && game_drag_ctx->has_capture &&
@@ -271,7 +271,7 @@ void ProcessCommandQueue(void)
                                                              NULL);
                 if (entity)
                 {
-                    entity->collision_mask = c->data.move_entity.original_collision_mask;
+                    entity->collision_layers = c->data.move_entity.original_collision_layers;
                 }
             }
         }

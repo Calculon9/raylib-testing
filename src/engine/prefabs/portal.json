@@ -1,0 +1,25 @@
+{
+  "name": "Enemy",
+  "components": {
+    "Transform": {
+      "scale": [1, 1]
+    },
+
+    "Collider": {
+      "shape": "rectangle",
+      "size": [32, 48],
+      "layer": 2,
+      "mask": 5
+    },
+
+    "Health": {
+      "maximum": 100
+    },
+
+    "Attributes": {
+      "strength": 10,
+      "defence": 5,
+      "speed": 4
+    }
+  }
+}

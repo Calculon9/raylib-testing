@@ -41,9 +41,9 @@ static bool BuildNewtonoid2d(Newtonoid2d *out_object, ShapeType shape_type,
 //----------------------------------------------------------------------------------
 
 // Configure the metadata shared by all Newtonoid creation paths.
-void Newtonoid_ConfigureMetadata(Newtonoid2d *object, EntityTypeFlags entity_flags,
-                                 EntityTypeFlags collision_mask, EntityAttributeFlags attribute_flags,
-                                 EntityStatusFlags status_flags,
+void Newtonoid_ConfigureMetadata(Newtonoid2d *object, EntityRoleFlags roles,
+                                 EntityCollisionLayerFlags collision_layers, EntityCapabilityFlags capabilities,
+                                 EntityConstraintFlags constraints, EntityStatusFlags status_flags,
                                  ColourRgba line_colour, ColourRgba fill_colour)
 {
    if (!object)
@@ -51,9 +51,10 @@ void Newtonoid_ConfigureMetadata(Newtonoid2d *object, EntityTypeFlags entity_fla
       return;
    }
 
-   object->entity_flags = entity_flags;
-   object->collision_mask = collision_mask;
-   object->attribute_flags = attribute_flags;
+   object->roles = roles;
+   object->collision_layers = collision_layers;
+   object->capabilities = capabilities;
+   object->constraints = constraints;
    object->status_flags = status_flags;
    object->line_colour = line_colour;
    object->fill_colour = fill_colour;
@@ -62,9 +63,9 @@ void Newtonoid_ConfigureMetadata(Newtonoid2d *object, EntityTypeFlags entity_fla
 // Configure the common metadata profile used by ordinary Newtonoid factories.
 static void ConfigureNewtonoidBase(Newtonoid2d *object)
 {
-   Newtonoid_ConfigureMetadata(object, ENTITY_FLAG_NEWTONOID,
-                               ENTITY_FLAG_WALL | ENTITY_FLAG_NEWTONOID | ENTITY_FLAG_PROJECTILE,
-                               ENTITY_ATTR_FLAG_RIGID,
+   Newtonoid_ConfigureMetadata(object, ENTITY_ROLE_NEWTONOID,
+                               COLLISION_LAYER_WALL | COLLISION_LAYER_NEWTONOID | COLLISION_LAYER_PROJECTILE,
+                               ENTITY_CAPABILITY_NONE, ENTITY_CONSTRAINT_RIGID,
                                ENTITY_STATUS_FLAG_ALIVE,
                                COLOUR_LINE_DEFAULT, COLOUR_FILL_DEFAULT);
 }
@@ -84,7 +85,7 @@ void Newtonoid_ConfigureHealth(Newtonoid2d *object, float max_health)
 // Return whether an entity is alive and configured to receive damage.
 bool IsDamageable(const Newtonoid2d *entity)
 {
-   return entity && (entity->attribute_flags & ENTITY_ATTR_FLAG_DAMAGEABLE) != 0 &&
+   return entity && (entity->capabilities & ENTITY_CAPABILITY_DAMAGEABLE) != 0 &&
           entity->max_health > 0.0f && (entity->status_flags & ENTITY_STATUS_FLAG_ALIVE) != 0;
 }
 
@@ -133,7 +134,7 @@ void WakeUp(Newtonoid2d *entity)
 // Align an opted-in entity's rendered geometry with its current velocity vector.
 void Newtonoid_SyncOrientationToVelocity(Newtonoid2d *object)
 {
-   if (!object || !(object->attribute_flags & ENTITY_ATTR_FLAG_VELOCITY_ALIGNED) ||
+   if (!object || !(object->capabilities & ENTITY_CAPABILITY_VELOCITY_ALIGNED) ||
        VectorMagnitude_2d(object->velocity) <= 0.0001f)
    {
       return;
@@ -266,7 +267,8 @@ static bool BuildNewtonoid2d(Newtonoid2d *out_object, ShapeType shape_type,
    out_object->velocity = velocity;
    out_object->acceleration = acceleration;
    out_object->angular_acceleration = 0.0f;
-   out_object->attribute_flags = ENTITY_ATTR_FLAG_NONE;
+   out_object->capabilities = ENTITY_CAPABILITY_NONE;
+   out_object->constraints = ENTITY_CONSTRAINT_NONE;
    out_object->health = 0.0f;
    out_object->max_health = 0.0f;
    out_object->surface = surface;
@@ -488,7 +490,7 @@ void CalcVectors(Newtonoid2d *obj, float delta_time)
       return;
    }
 
-   bool position_locked = (obj->attribute_flags & ENTITY_ATTR_FLAG_POSITION_LOCKED) != 0;
+   bool position_locked = (obj->constraints & ENTITY_CONSTRAINT_POSITION_LOCKED) != 0;
    bool is_sleeping = (obj->status_flags & ENTITY_STATUS_FLAG_SLEEPING) != 0;
 
    // A sleeping body can be woken by an impulse applied since its last update.
@@ -712,9 +714,9 @@ Matrix2x2 UpdateEntityBounds(Newtonoid2d *object, Vector2d out_world_vertices[MA
 //       return;
 //    }
 
-//    object->collision_mask = ENTITY_FLAG_WALL | ENTITY_FLAG_NEWTONOID |
-//                             ENTITY_FLAG_PROJECTILE | ENTITY_FLAG_EFFECT |
-//                             ENTITY_FLAG_CAMERA;
+//    object->collision_layers = COLLISION_LAYER_WALL | COLLISION_LAYER_NEWTONOID |
+//                               COLLISION_LAYER_PROJECTILE | COLLISION_LAYER_EFFECT |
+//                               COLLISION_LAYER_CAMERA;
 // }
 
 // void RotateEntity(Newtonoid2d *entity, float radians)

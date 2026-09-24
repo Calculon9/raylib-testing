@@ -242,14 +242,14 @@ void PhysicsUpdateJob(void *context, int start, int end)
     {
         Newtonoid2d *obj = &newtonoids[index];
 
-        if (!(obj->status_flags & ENTITY_STATUS_FLAG_ALIVE) || (obj->entity_flags & ENTITY_FLAG_EFFECT) || obj->parent_id != space_entity->object.id)
+        if (!(obj->status_flags & ENTITY_STATUS_FLAG_ALIVE) || (obj->roles & ENTITY_ROLE_EFFECT) || obj->parent_id != space_entity->object.id)
             continue;
 
         // Gravity is an environmental acceleration added for this step only;
         // restore authored acceleration afterwards so it is not accumulated
         // repeatedly into the entity's persistent state.
         Vector2d authored_acceleration = obj->acceleration;
-        if (!(obj->attribute_flags & ENTITY_ATTR_FLAG_POSITION_LOCKED))
+        if (!(obj->constraints & ENTITY_CONSTRAINT_POSITION_LOCKED))
         {
             obj->acceleration.y += world->gravity;
         }
@@ -445,7 +445,7 @@ bool CheckForCollision_AABB(Newtonoid2d a, Newtonoid2d b)
 bool EntityIsEligbleForSpatialMap(const Newtonoid2d *entity)
 {
         return entity && (entity->status_flags & ENTITY_STATUS_FLAG_ALIVE) &&
-            !(entity->entity_flags & ENTITY_FLAG_EFFECT);
+            !(entity->roles & ENTITY_ROLE_EFFECT);
 }
 
 // Dispatches interaction behaviour between a sensor trigger volume and an entrant entity.
@@ -510,8 +510,8 @@ bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, 
     // Sensors must still be checked while sleeping because overlap can trigger
     // gameplay behaviour. Ordinary sleeping pairs have no active motion that
     // needs a response, so mark them resolved without running SAT or impulses.
-    bool a_is_sensor = (a->attribute_flags & ENTITY_ATTR_FLAG_SENSOR) != 0;
-    bool b_is_sensor = (b->attribute_flags & ENTITY_ATTR_FLAG_SENSOR) != 0;
+    bool a_is_sensor = (a->capabilities & ENTITY_CAPABILITY_SENSOR) != 0;
+    bool b_is_sensor = (b->capabilities & ENTITY_CAPABILITY_SENSOR) != 0;
     if (!a_is_sensor && !b_is_sensor && (a->status_flags & ENTITY_STATUS_FLAG_SLEEPING) && (b->status_flags & ENTITY_STATUS_FLAG_SLEEPING))
     {
         FlatMapInt_InsertOrUpdate(resolved_collisions, obj_pair_hash_key, 1);
@@ -537,8 +537,8 @@ bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, 
         // Sensor interaction and physical contact are separate capabilities.
         // Only an explicit no-contact flag prevents impulses and projectile
         // collision handling from running after the sensor callback.
-        if ((a->attribute_flags & ENTITY_ATTR_FLAG_NO_CONTACT_RESPONSE) ||
-            (b->attribute_flags & ENTITY_ATTR_FLAG_NO_CONTACT_RESPONSE))
+        if ((a->constraints & ENTITY_CONSTRAINT_NO_CONTACT_RESPONSE) ||
+            (b->constraints & ENTITY_CONSTRAINT_NO_CONTACT_RESPONSE))
         {
             FlatMapInt_InsertOrUpdate(resolved_collisions, obj_pair_hash_key, 1);
             return true;
@@ -547,7 +547,7 @@ bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, 
 
     // Collision masks are a cheap compatibility filter. SAT has already
     // confirmed the polygons overlap, removing broad-phase false positives.
-    if (!(a->collision_mask & b->entity_flags) || !(b->collision_mask & a->entity_flags))
+    if (!(a->collision_layers & b->roles) || !(b->collision_layers & a->roles))
         return false;
 
     ProjectileCollisionResult projectile_result = Projectile_HandleCollision(world, a, b);
@@ -585,7 +585,7 @@ bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, 
     collision_surface.surface_vectors.count = 4;
     Newtonoid2d collision_obj = CreateNewtonoid2d(0.00001f, collision_center, penetrating_entity->velocity,
                                                   penetrating_entity->acceleration, collision_surface);
-    collision_obj.entity_flags = ENTITY_FLAG_EFFECT;
+    collision_obj.roles = ENTITY_ROLE_EFFECT;
     collision_obj.status_flags |= ENTITY_STATUS_FLAG_CLOCKED;
     StickEntity(world, &collision_obj, penetrating_entity);
     EntityId id = AddObjectToWorld(world, &collision_obj, penetrating_entity->id);
@@ -817,8 +817,8 @@ void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container,
     if (!entity || !container || entity->parent_id != container->id)
         return;
 
-    if (!(entity->collision_mask & container->entity_flags) ||
-        !(container->collision_mask & entity->entity_flags))
+    if (!(entity->collision_layers & container->roles) ||
+        !(container->collision_layers & entity->roles))
         return;
 
     // The container's child coordinates are defined from (0,0) to its width and

@@ -41,7 +41,7 @@ typedef struct
     Vector2d velocity;
     Vector2d acceleration;
     Vector2d momentum;
-    uint32_t collision_mask;
+    EntityCollisionLayerFlags collision_layers;
     bool has_snapshot;
 } EntityDragMotionSnapshot;
 
@@ -68,8 +68,8 @@ static void SnapshotDraggedEntityMotion(Newtonoid2d *entity)
     g_drag_motion_snapshot.velocity = entity->velocity;
     g_drag_motion_snapshot.acceleration = entity->acceleration;
     g_drag_motion_snapshot.momentum = entity->momentum;
-    g_drag_motion_snapshot.collision_mask = entity->collision_mask;
-    entity->collision_mask = 0;
+    g_drag_motion_snapshot.collision_layers = entity->collision_layers;
+    entity->collision_layers = COLLISION_LAYER_NONE;
     g_drag_motion_snapshot.has_snapshot = true;
 }
 
@@ -89,7 +89,7 @@ static void RestoreDraggedEntityMotion(Newtonoid2d *entity)
     entity->velocity = g_drag_motion_snapshot.velocity;
     entity->acceleration = g_drag_motion_snapshot.acceleration;
     entity->momentum = g_drag_motion_snapshot.momentum;
-    entity->collision_mask = g_drag_motion_snapshot.collision_mask;
+    entity->collision_layers = g_drag_motion_snapshot.collision_layers;
 
     g_drag_motion_snapshot.entity = NULL;
     g_drag_motion_snapshot.has_snapshot = false;
@@ -486,7 +486,7 @@ static void HandleInterWorldEntityDrag(Newtonoid2d *dragged,
                       destination_world_index,
                       destination_world->grid_space.object.id,
                       current_world_coords,
-                      g_drag_motion_snapshot.collision_mask);
+                      g_drag_motion_snapshot.collision_layers);
 }
 
 // Process pointer drag updates for a captured world entity.
@@ -657,9 +657,9 @@ void CreateAddNewtonoid(int vertice_count, float radius, ShapeBuildType build_ty
 
     if (new_newtonoid.radius > 0.0f)
     {
-        Newtonoid_ConfigureMetadata(&new_newtonoid, ENTITY_FLAG_NEWTONOID,
-                         ENTITY_FLAG_WALL | ENTITY_FLAG_NEWTONOID | ENTITY_FLAG_PROJECTILE,
-                         ENTITY_ATTR_FLAG_RIGID | ENTITY_ATTR_FLAG_DAMAGEABLE,
+        Newtonoid_ConfigureMetadata(&new_newtonoid, ENTITY_ROLE_NEWTONOID,
+                 COLLISION_LAYER_WALL | COLLISION_LAYER_NEWTONOID | COLLISION_LAYER_PROJECTILE,
+                 ENTITY_CAPABILITY_DAMAGEABLE, ENTITY_CONSTRAINT_RIGID,
                          ENTITY_STATUS_FLAG_ALIVE, COLOUR_GAME_INK_RGBA, colour);
         Newtonoid_ConfigureHealth(&new_newtonoid, 3.0f);
         AddObjectToWorld(active_world, &new_newtonoid, active_world->grid_space.object.id);

@@ -23,15 +23,16 @@ static const ProjectileDefinition projectile_definitions[PROJECTILE_TYPE_COUNT] 
         .speed = 8.0f,
         .damage = 1.0f,
         .lifetime_frames = PROJECTILE_DEFAULT_LIFETIME_FRAMES,
-        .collision_mask = ENTITY_FLAG_WALL | ENTITY_FLAG_NEWTONOID,
-        .attribute_flags = ENTITY_ATTR_FLAG_NONE,
+        .collision_layers = COLLISION_LAYER_WALL | COLLISION_LAYER_NEWTONOID,
+        .capabilities = ENTITY_CAPABILITY_NONE,
+        .constraints = ENTITY_CONSTRAINT_NONE,
         .line_colour = COLOUR_GAME_INK_RGBA,
         .fill_colour = COLOUR_GAME_TERRACOTTA_RGBA}};
 
 // Return whether an entity has the projectile type flag.
 bool IsProjectile(const Newtonoid2d *entity)
 {
-    return entity && (entity->entity_flags & ENTITY_FLAG_PROJECTILE) != 0;
+    return entity && (entity->roles & ENTITY_ROLE_PROJECTILE) != 0;
 }
 
 // Return the immutable definition for a projectile type, or NULL when invalid.
@@ -67,7 +68,7 @@ static bool ProjectileCanAffectTarget(const Newtonoid2d *projectile, const Newto
     }
 
     return projectile->owner_id != target->id ||
-           (projectile->attribute_flags & ENTITY_ATTR_FLAG_AFFECT_OWNER) != 0;
+           (projectile->capabilities & ENTITY_CAPABILITY_AFFECT_OWNER) != 0;
 }
 
 // Create a projectile Newtonoid, register it with the world, and schedule its expiry.
@@ -109,9 +110,10 @@ EntityId SpawnProjectile(World2d *world, const ProjectileSpawnParams *params)
     projectile.damage = definition->damage;
     projectile.rotation = VectorRadians_2d(direction);
     SyncNewtonoidRotation(&projectile);
-    Newtonoid_ConfigureMetadata(&projectile, ENTITY_FLAG_PROJECTILE,
-                                definition->collision_mask,
-                                definition->attribute_flags | ENTITY_ATTR_FLAG_VELOCITY_ALIGNED,
+    Newtonoid_ConfigureMetadata(&projectile, ENTITY_ROLE_PROJECTILE,
+                                definition->collision_layers,
+                                definition->capabilities | ENTITY_CAPABILITY_VELOCITY_ALIGNED,
+                                definition->constraints,
                                 ENTITY_STATUS_FLAG_ALIVE | ENTITY_STATUS_FLAG_CLOCKED,
                                 definition->line_colour, definition->fill_colour);
 

@@ -566,16 +566,16 @@ void EntityLifecycle_ApplyAttachedComponent(Newtonoid2d *entity, EntityComponent
     {
     case ENTITY_COMPONENT_PORTAL:
         // Configure portal sensor properties and position lock.
-        entity->attribute_flags |= (ENTITY_ATTR_FLAG_SENSOR |
-                                    ENTITY_ATTR_FLAG_POSITION_LOCKED |
-                                    ENTITY_ATTR_FLAG_NO_CONTACT_RESPONSE);
-        entity->attribute_flags &= ~ENTITY_ATTR_FLAG_DAMAGEABLE;
-        entity->collision_mask = ENTITY_FLAG_NONE;
+        entity->capabilities |= ENTITY_CAPABILITY_SENSOR;
+        entity->constraints |= (ENTITY_CONSTRAINT_POSITION_LOCKED |
+                    ENTITY_CONSTRAINT_NO_CONTACT_RESPONSE);
+        entity->capabilities &= ~ENTITY_CAPABILITY_DAMAGEABLE;
+        entity->collision_layers = COLLISION_LAYER_NONE;
         break;
 
     case ENTITY_COMPONENT_ROTOR:
         // Configure rotor rotation and position lock.
-        entity->attribute_flags |= ENTITY_ATTR_FLAG_POSITION_LOCKED;
+        entity->constraints |= ENTITY_CONSTRAINT_POSITION_LOCKED;
         if (entity->angular_velocity == 0.0f)
         {
             entity->angular_velocity = 2.0f;
@@ -584,7 +584,7 @@ void EntityLifecycle_ApplyAttachedComponent(Newtonoid2d *entity, EntityComponent
 
     case ENTITY_COMPONENT_GEAR:
         // Configure gear rotation and position lock.
-        entity->attribute_flags |= ENTITY_ATTR_FLAG_POSITION_LOCKED;
+        entity->constraints |= ENTITY_CONSTRAINT_POSITION_LOCKED;
         if (entity->angular_velocity == 0.0f)
         {
             entity->angular_velocity = 2.0f;
@@ -610,20 +610,21 @@ void EntityLifecycle_ApplyDetachedComponent(Newtonoid2d *entity, EntityComponent
     {
     case ENTITY_COMPONENT_PORTAL:
         // Revert sensor and no-contact flags, restoring damageable capability.
-        entity->attribute_flags &= ~(ENTITY_ATTR_FLAG_SENSOR | ENTITY_ATTR_FLAG_NO_CONTACT_RESPONSE);
-        entity->attribute_flags |= ENTITY_ATTR_FLAG_DAMAGEABLE;
+        entity->capabilities &= ~ENTITY_CAPABILITY_SENSOR;
+        entity->constraints &= ~ENTITY_CONSTRAINT_NO_CONTACT_RESPONSE;
+        entity->capabilities |= ENTITY_CAPABILITY_DAMAGEABLE;
 
         // Restore standard collision mask if it was cleared by the portal.
-        if (entity->collision_mask == ENTITY_FLAG_NONE)
+        if (entity->collision_layers == COLLISION_LAYER_NONE)
         {
-            entity->collision_mask = ENTITY_FLAG_NEWTONOID | ENTITY_FLAG_PROJECTILE | ENTITY_FLAG_WALL;
+            entity->collision_layers = COLLISION_LAYER_NEWTONOID | COLLISION_LAYER_PROJECTILE | COLLISION_LAYER_WALL;
         }
 
         // Release position lock only if neither rotor nor gear is still attached.
         if (!EntityRegistry_HasComponent(entity->id, ENTITY_COMPONENT_ROTOR) &&
             !EntityRegistry_HasComponent(entity->id, ENTITY_COMPONENT_GEAR))
         {
-            entity->attribute_flags &= ~ENTITY_ATTR_FLAG_POSITION_LOCKED;
+            entity->constraints &= ~ENTITY_CONSTRAINT_POSITION_LOCKED;
         }
         break;
 
@@ -633,7 +634,7 @@ void EntityLifecycle_ApplyDetachedComponent(Newtonoid2d *entity, EntityComponent
         if (!EntityRegistry_HasComponent(entity->id, ENTITY_COMPONENT_PORTAL) &&
             !EntityRegistry_HasComponent(entity->id, ENTITY_COMPONENT_GEAR))
         {
-            entity->attribute_flags &= ~ENTITY_ATTR_FLAG_POSITION_LOCKED;
+            entity->constraints &= ~ENTITY_CONSTRAINT_POSITION_LOCKED;
         }
         break;
 
@@ -643,7 +644,7 @@ void EntityLifecycle_ApplyDetachedComponent(Newtonoid2d *entity, EntityComponent
         if (!EntityRegistry_HasComponent(entity->id, ENTITY_COMPONENT_PORTAL) &&
             !EntityRegistry_HasComponent(entity->id, ENTITY_COMPONENT_ROTOR))
         {
-            entity->attribute_flags &= ~ENTITY_ATTR_FLAG_POSITION_LOCKED;
+            entity->constraints &= ~ENTITY_CONSTRAINT_POSITION_LOCKED;
         }
         break;
 

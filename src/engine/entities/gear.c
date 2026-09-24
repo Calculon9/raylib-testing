@@ -43,7 +43,7 @@ Newtonoid2d *GearEntity_Create(const Newtonoid2dParams *params)
 
     entity->shape_type = SHAPE_GEAR;
     entity->angular_velocity = gear_angular_velocity;
-    entity->attribute_flags |= ENTITY_ATTR_FLAG_POSITION_LOCKED;
+    entity->constraints |= ENTITY_CONSTRAINT_POSITION_LOCKED;
     Newtonoid_ConfigureRestitution(entity, params->restitution);
     Newtonoid_ConfigureFriction(entity, params->friction);
     return entity;

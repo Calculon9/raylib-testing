@@ -6,6 +6,7 @@ NEWTONOID MODULE
 #ifndef NEWTONOID_H
 #define NEWTONOID_H
 #include "common/common.h"
+#include "entities/entity_flags.h"
 #include "math/cvectors.h"
 #include "math/geometry.h"
 #include "memory/cmemory.h"
@@ -13,44 +14,6 @@ NEWTONOID MODULE
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
-
-// Entity Type Flags: Define the broad category or role of an entity (e.g., wall, newtonoid, projectile, effect, camera)
-typedef enum EntityTypeFlags
-{
-    ENTITY_FLAG_NONE = 0,
-    ENTITY_FLAG_WALL = 1 << 1,
-    ENTITY_FLAG_NEWTONOID = 1 << 2,
-    ENTITY_FLAG_PROJECTILE = 1 << 3,
-    ENTITY_FLAG_EFFECT = 1 << 4,
-    ENTITY_FLAG_CAMERA = 1 << 5,
-} EntityTypeFlags;
-
-// Entity Status Flags: Define the current state of an entity (e.g., alive, sleeping, clocked)
-typedef enum EntityStatusFlags
-{
-    ENTITY_STATUS_FLAG_NONE = 0,
-    ENTITY_STATUS_FLAG_ALIVE = 1 << 0,
-    ENTITY_STATUS_FLAG_SLEEPING = 1 << 1,
-    ENTITY_STATUS_FLAG_CLOCKED = 1 << 6,
-} EntityStatusFlags;
-
-// Entity Attribute Flags: Define special properties and behaviors for entities (e.g., damageable, sensor, rigid)
-typedef enum EntityAttributeFlags
-{
-    ENTITY_ATTR_FLAG_NONE = 0,
-    ENTITY_ATTR_FLAG_DAMAGEABLE = 1 << 0,
-    ENTITY_ATTR_FLAG_VELOCITY_ALIGNED = 1 << 1,
-    ENTITY_ATTR_FLAG_AFFECT_OWNER = 1 << 2,
-    ENTITY_ATTR_FLAG_RIGID = 1 << 5,
-    ENTITY_ATTR_FLAG_POSITION_LOCKED = 1 << 6,
-    ENTITY_ATTR_FLAG_SENSOR = 1 << 7, // Generates sensor interaction events when overlap is detected.
-    ENTITY_ATTR_FLAG_NO_CONTACT_RESPONSE = 1 << 8, // Suppresses physical collision impulses.
-} EntityAttributeFlags;
-
-// typedef EntityTypeFlags EntityFlags;
-// typedef EntityTypeFlags EntityTypeFlag;
-// typedef EntityStatusFlags EntityStatusFlag;
-// typedef EntityAttributeFlags EntityAttributeFlag;
 
 // DEFAULT COLOURS
 #define COLOUR_LINE_DEFAULT COLOUR_GAME_INK_RGBA
@@ -102,10 +65,11 @@ typedef struct Newtonoid2d
     ColourRgba fill_colour;  // Fill color
     ShapeType shape_type;    // Shape classification for collision algorithms
     int edge_count;          // Cached edge count
-    EntityTypeFlags entity_flags;        // What AM I? (e.g., LAYER_PROJECTILE)
-    EntityTypeFlags collision_mask;      // What can I HIT? (e.g., LAYER_ENEMY | LAYER_WALL)
-    EntityAttributeFlags attribute_flags; // Persistent gameplay capabilities (e.g., damageable)
-    EntityStatusFlags status_flags;   // Runtime status flags (e.g., FLAG_POISONED)
+    EntityRoleFlags roles;                         // What kind of entity is this?
+    EntityCollisionLayerFlags collision_layers;  // Which entity roles can collide with this entity?
+    EntityCapabilityFlags capabilities;          // Persistent gameplay behaviours this entity supports
+    EntityConstraintFlags constraints;           // Physics restrictions on this entity
+    EntityStatusFlags status_flags;              // Runtime status such as alive or sleeping
     EntityId id;             // Universal entity ID
     EntityId owner_id;        // Entity that created this object, when ownership applies
     float damage;             // Gameplay damage carried by damage-dealing entities
@@ -150,9 +114,11 @@ typedef struct NewtonoidPrimitiveParams
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 
-// Apply the entity flags, collision mask, attribute flags, status flags, and render colours for a Newtonoid.
-void Newtonoid_ConfigureMetadata(Newtonoid2d *object, EntityTypeFlags entity_flags,
-                                 EntityTypeFlags collision_mask, EntityAttributeFlags attribute_flags,
+// Apply roles, collision layers, capabilities, constraints, status, and render colours.
+void Newtonoid_ConfigureMetadata(Newtonoid2d *object, EntityRoleFlags roles,
+                                 EntityCollisionLayerFlags collision_layers,
+                                 EntityCapabilityFlags capabilities,
+                                 EntityConstraintFlags constraints,
                                  EntityStatusFlags status_flags,
                                  ColourRgba line_colour, ColourRgba fill_colour);
 // Set an entity's maximum and current health.

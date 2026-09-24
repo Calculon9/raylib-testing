@@ -1,6 +1,7 @@
 #ifndef COMMAND_QUEUE_H
 #define COMMAND_QUEUE_H
 
+#include "entities/entity_flags.h"
 #include "entities/entity_factory.h"
 #include "system/systems.h"
 
@@ -24,7 +25,7 @@ typedef struct
     int destination_world_index;
     EntityId destination_parent_id;
     Vector2d destination_coords;
-    uint32_t original_collision_mask;
+    EntityCollisionLayerFlags original_collision_layers;
 } MoveEntityCommand;
 
 typedef struct
@@ -62,7 +63,7 @@ bool EnqueueSelectWorld(int delta);
 bool EnqueueDeleteWorld(int world_index);
 bool EnqueueMoveEntity(EntityId entity_id, int source_world_index,
                        int destination_world_index, EntityId destination_parent_id,
-                       Vector2d destination_coords, uint32_t original_collision_mask);
+                       Vector2d destination_coords, EntityCollisionLayerFlags original_collision_layers);
 // Enqueue attaching a component to an existing entity.
 bool EnqueueAttachComponent(EntityId entity_id, const EntityComponent *component);
 // Enqueue detaching a component from an existing entity.

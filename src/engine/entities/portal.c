@@ -25,16 +25,17 @@ Newtonoid2d *PortalEntity_Create(const Newtonoid2dParams *params, PortalEntity *
     }
 
     entity->shape_type = SHAPE_ELLIPSE;
-    entity->collision_mask = ENTITY_FLAG_NONE;
-    entity->attribute_flags &= ~ENTITY_ATTR_FLAG_DAMAGEABLE;
+    entity->collision_layers = COLLISION_LAYER_NONE;
+    entity->capabilities &= ~ENTITY_CAPABILITY_DAMAGEABLE;
     // Mark portal as position-locked and sensor-only: overlap dispatch runs
     // portal mechanics, while the explicit no-response flag skips impulses.
-    entity->attribute_flags |= (ENTITY_ATTR_FLAG_POSITION_LOCKED | ENTITY_ATTR_FLAG_SENSOR | ENTITY_ATTR_FLAG_NO_CONTACT_RESPONSE);
+    entity->constraints |= (ENTITY_CONSTRAINT_POSITION_LOCKED | ENTITY_CONSTRAINT_NO_CONTACT_RESPONSE);
+    entity->capabilities |= ENTITY_CAPABILITY_SENSOR;
     Newtonoid_ConfigureRestitution(entity, params->restitution);
     Newtonoid_ConfigureFriction(entity, params->friction);
 
     PortalDestination destination = {.portal_id = INVALID_ENTITY_ID};
-    if (!PortalEntity_Initialise(out_portal, destination, ENTITY_FLAG_NEWTONOID | ENTITY_FLAG_PROJECTILE,30))
+    if (!PortalEntity_Initialise(out_portal, destination, ENTITY_ROLE_NEWTONOID | ENTITY_ROLE_PROJECTILE, 30))
     {
         ClearLArray(&entity->surface.surface_vectors);
         Deallocate((void **)&entity, sizeof(Newtonoid2d));
@@ -46,7 +47,7 @@ Newtonoid2d *PortalEntity_Create(const Newtonoid2dParams *params, PortalEntity *
 
 // Initialise portal state that is kept outside the general Newtonoid structure.
 bool PortalEntity_Initialise(PortalEntity *portal, PortalDestination destination,
-                             EntityTypeFlags entrant_mask, int cooldown_frames)
+                             EntityRoleFlags entrant_roles, int cooldown_frames)
 {
     if (!portal || cooldown_frames < 0)
     {
@@ -55,7 +56,7 @@ bool PortalEntity_Initialise(PortalEntity *portal, PortalDestination destination
 
     *portal = (PortalEntity){
         .destination = destination,
-        .entrant_mask = entrant_mask,
+        .entrant_roles = entrant_roles,
         .cooldown_frames = cooldown_frames,
         .cooldown_entity_id = INVALID_ENTITY_ID,
         .cooldown_remaining = 0};

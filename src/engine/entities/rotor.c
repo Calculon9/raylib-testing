@@ -43,7 +43,7 @@ Newtonoid2d *RotorEntity_Create(const Newtonoid2dParams *params)
 
     entity->shape_type = SHAPE_ROTOR;
     entity->angular_velocity = rotor_angular_velocity;
-    entity->attribute_flags |= ENTITY_ATTR_FLAG_POSITION_LOCKED;
+    entity->constraints |= ENTITY_CONSTRAINT_POSITION_LOCKED;
     Newtonoid_ConfigureRestitution(entity, params->restitution);
     Newtonoid_ConfigureFriction(entity, params->friction);
     return entity;

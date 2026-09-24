@@ -83,8 +83,8 @@ bool PortalSystem_IsEntityEligible(const PortalEntity *portal, EntityId portal_i
         return false;
     }
 
-    return portal->entrant_mask == ENTITY_FLAG_NONE ||
-           (entity->entity_flags & portal->entrant_mask) != ENTITY_FLAG_NONE;
+    return portal->entrant_roles == ENTITY_ROLE_NONE ||
+           (entity->roles & portal->entrant_roles) != ENTITY_ROLE_NONE;
 }
 
 // Update cooldown state for all portal entities in a world. Called once per frame during system updates.
@@ -170,7 +170,7 @@ PortalTeleportResult PortalSystem_RequestTeleport(Universe *universe, EntityId p
                            destination_world_index,
                            destination_entity->parent_id,
                            destination_coordinates,
-                           entity->collision_mask))
+                           entity->collision_layers))
     {
         return PORTAL_TELEPORT_REJECTED;
     }

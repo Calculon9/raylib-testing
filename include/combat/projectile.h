@@ -6,6 +6,7 @@
 #ifndef PROJECTILE_H
 #define PROJECTILE_H
 
+#include "entities/entity_flags.h"
 #include "physics/newtonoid.h"
 
 typedef struct World2d World2d;
@@ -24,8 +25,9 @@ typedef struct ProjectileDefinition
     float speed;
     float damage;
     int lifetime_frames;
-    EntityTypeFlags collision_mask;
-    EntityAttributeFlags attribute_flags;
+    EntityCollisionLayerFlags collision_layers;
+    EntityCapabilityFlags capabilities;
+    EntityConstraintFlags constraints;
     ColourRgba line_colour;
     ColourRgba fill_colour;
 } ProjectileDefinition;

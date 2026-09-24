@@ -73,8 +73,8 @@ typedef struct StateManagerUI
     UIElement *components_section;
     UIElement *comp_portal_cooldown_tbox;
     String64 *comp_portal_cooldown_str;
-    UIElement *comp_portal_entrant_mask_tbox;
-    String64 *comp_portal_entrant_mask_str;
+    UIElement *comp_portal_entrant_roles_tbox;
+    String64 *comp_portal_entrant_roles_str;
     UIElement *comp_relation_type_tbox;
     String64 *comp_relation_type_str;
     UIElement *comp_relation_target_tbox;
@@ -106,45 +106,48 @@ typedef struct StateManagerFlagButton
 // All flag definitions and their bound controls stay together as module state.
 typedef struct StateManagerFlags
 {
-    uint32_t type_flags;
-    StateManagerFlagButton entity_type[5];
-    StateManagerFlagButton entity_attribute[7];
+    uint32_t role_flags;
+    StateManagerFlagButton entity_role[5];
+    StateManagerFlagButton entity_capability[4];
+    StateManagerFlagButton entity_constraint[3];
     StateManagerFlagButton entity_status[3];
-    StateManagerFlagButton collision_mask[5];
+    StateManagerFlagButton collision_layers[5];
     StateManagerFlagButton world[7];
     StateManagerFlagButton cell[4];
 } StateManagerFlags;
 
 static StateManagerFlags s_sm_flags = {
-    .type_flags = ENTITY_FLAG_WALL | ENTITY_FLAG_NEWTONOID |
-                  ENTITY_FLAG_PROJECTILE | ENTITY_FLAG_EFFECT | ENTITY_FLAG_CAMERA,
-    .entity_type = {
-        {"WALL", ENTITY_FLAG_WALL, NULL},
-        {"NEWTONOID", ENTITY_FLAG_NEWTONOID, NULL},
-        {"PROJECTILE", ENTITY_FLAG_PROJECTILE, NULL},
-        {"EFFECT", ENTITY_FLAG_EFFECT, NULL},
-        {"CAMERA", ENTITY_FLAG_CAMERA, NULL},
+    .role_flags = ENTITY_ROLE_WALL | ENTITY_ROLE_NEWTONOID |
+                  ENTITY_ROLE_PROJECTILE | ENTITY_ROLE_EFFECT | ENTITY_ROLE_CAMERA,
+    .entity_role = {
+        {"WALL", ENTITY_ROLE_WALL, NULL},
+        {"NEWTONOID", ENTITY_ROLE_NEWTONOID, NULL},
+        {"PROJECTILE", ENTITY_ROLE_PROJECTILE, NULL},
+        {"EFFECT", ENTITY_ROLE_EFFECT, NULL},
+        {"CAMERA", ENTITY_ROLE_CAMERA, NULL},
     },
-    .entity_attribute = {
-        {"DAMAGEABLE", ENTITY_ATTR_FLAG_DAMAGEABLE, NULL},
-        {"VELOCITY", ENTITY_ATTR_FLAG_VELOCITY_ALIGNED, NULL},
-        {"AFFECT OWNER", ENTITY_ATTR_FLAG_AFFECT_OWNER, NULL},
-        {"RIGID", ENTITY_ATTR_FLAG_RIGID, NULL},
-        {"POSITION LOCKED", ENTITY_ATTR_FLAG_POSITION_LOCKED, NULL},
-        {"SENSOR", ENTITY_ATTR_FLAG_SENSOR, NULL},
-        {"NO CONTACT RESPONSE", ENTITY_ATTR_FLAG_NO_CONTACT_RESPONSE, NULL},
+    .entity_capability = {
+        {"DAMAGEABLE", ENTITY_CAPABILITY_DAMAGEABLE, NULL},
+        {"VELOCITY", ENTITY_CAPABILITY_VELOCITY_ALIGNED, NULL},
+        {"AFFECT OWNER", ENTITY_CAPABILITY_AFFECT_OWNER, NULL},
+        {"SENSOR", ENTITY_CAPABILITY_SENSOR, NULL},
+    },
+    .entity_constraint = {
+        {"RIGID", ENTITY_CONSTRAINT_RIGID, NULL},
+        {"POSITION LOCKED", ENTITY_CONSTRAINT_POSITION_LOCKED, NULL},
+        {"NO CONTACT RESPONSE", ENTITY_CONSTRAINT_NO_CONTACT_RESPONSE, NULL},
     },
     .entity_status = {
         {"ALIVE", ENTITY_STATUS_FLAG_ALIVE, NULL},
         {"SLEEPING", ENTITY_STATUS_FLAG_SLEEPING, NULL},
         {"CLOCKED", ENTITY_STATUS_FLAG_CLOCKED, NULL},
     },
-    .collision_mask = {
-        {"WALL", ENTITY_FLAG_WALL, NULL},
-        {"NEWTONOID", ENTITY_FLAG_NEWTONOID, NULL},
-        {"PROJECTILE", ENTITY_FLAG_PROJECTILE, NULL},
-        {"EFFECT", ENTITY_FLAG_EFFECT, NULL},
-        {"CAMERA", ENTITY_FLAG_CAMERA, NULL},
+    .collision_layers = {
+        {"WALL", COLLISION_LAYER_WALL, NULL},
+        {"NEWTONOID", COLLISION_LAYER_NEWTONOID, NULL},
+        {"PROJECTILE", COLLISION_LAYER_PROJECTILE, NULL},
+        {"EFFECT", COLLISION_LAYER_EFFECT, NULL},
+        {"CAMERA", COLLISION_LAYER_CAMERA, NULL},
     },
     .world = {
         {"ACTIVE", WORLD_FLAG_ACTIVE, NULL},
@@ -199,7 +202,7 @@ static void HandleSelectionChanged(EntityId selected_object_id,
 // Flag Interaction
 // ============================================================================
 
-// Toggle an exclusive entity type flag on the currently selected object.
+// Toggle the exclusive entity role on the currently selected object.
 static void HandleEntityTypeFlagClick(UIElement *button)
 {
     Newtonoid2d *object = UIState_GetSelectedObject();
@@ -209,13 +212,13 @@ static void HandleEntityTypeFlagClick(UIElement *button)
         return;
     }
 
-    object->entity_flags &= ~s_sm_flags.type_flags;
-    object->entity_flags |= spec->flag;
+    object->roles &= ~s_sm_flags.role_flags;
+    object->roles |= spec->flag;
     MarkStateManagerRefreshDirty();
 }
 
-// Toggle an entity attribute flag on the currently selected object.
-static void HandleEntityAttributeFlagClick(UIElement *button)
+// Toggle an entity capability flag on the currently selected object.
+static void HandleEntityCapabilityFlagClick(UIElement *button)
 {
     Newtonoid2d *object = UIState_GetSelectedObject();
     const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->data.button.user_data;
@@ -224,7 +227,21 @@ static void HandleEntityAttributeFlagClick(UIElement *button)
         return;
     }
 
-    object->attribute_flags ^= spec->flag;
+    object->capabilities ^= spec->flag;
+    MarkStateManagerRefreshDirty();
+}
+
+// Toggle an entity physics constraint on the currently selected object.
+static void HandleEntityConstraintFlagClick(UIElement *button)
+{
+    Newtonoid2d *object = UIState_GetSelectedObject();
+    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->data.button.user_data;
+    if (!object || !spec)
+    {
+        return;
+    }
+
+    object->constraints ^= spec->flag;
     MarkStateManagerRefreshDirty();
 }
 
@@ -268,7 +285,7 @@ static void HandleCollisionMaskFlagClick(UIElement *button)
         return;
     }
 
-    object->collision_mask ^= spec->flag;
+    object->collision_layers ^= spec->flag;
     MarkStateManagerRefreshDirty();
 }
 
@@ -323,7 +340,7 @@ static void HandleComponentToggleClick(UIElement *button)
         {
         case ENTITY_COMPONENT_PORTAL:
             PortalEntity_Initialise(&comp.data.portal, (PortalDestination){INVALID_ENTITY_ID},
-                                    ENTITY_FLAG_NEWTONOID | ENTITY_FLAG_PROJECTILE, 30);
+                                    ENTITY_ROLE_NEWTONOID | ENTITY_ROLE_PROJECTILE, 30);
             break;
         case ENTITY_COMPONENT_ROTOR:
             memset(&comp.data.rotor, 0, sizeof(comp.data.rotor));
@@ -477,7 +494,7 @@ static void InitPhysStateView(void)
 
     const UIFieldSpec components_specs[] = {
         {"Portal Cooldown", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, INT, &s_sm_ui.comp_portal_cooldown_tbox, &s_sm_ui.comp_portal_cooldown_str},
-        {"Portal Mask", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_portal_entrant_mask_tbox, &s_sm_ui.comp_portal_entrant_mask_str},
+        {"Portal Roles", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_portal_entrant_roles_tbox, &s_sm_ui.comp_portal_entrant_roles_str},
         {"Relation Type", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_relation_type_tbox, &s_sm_ui.comp_relation_type_str},
         {"Relation Target", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_relation_target_tbox, &s_sm_ui.comp_relation_target_str},
         {"Relation Active", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_relation_active_tbox, &s_sm_ui.comp_relation_active_str},
@@ -507,21 +524,25 @@ static void InitAttributeStateView(void)
     // Customise the View
     UIElement *identity_section = CreateViewSection_StackWrap(view_cont, "Entity", view_section_size,
                                                               state_manager_panel->palette);
-    UIElement *attribute_section = CreateViewSection_StackWrap(view_cont, "Attributes", view_section_size,
-                                                               state_manager_panel->palette);
+    UIElement *capability_section = CreateViewSection_StackWrap(view_cont, "Capabilities", view_section_size,
+                                                                state_manager_panel->palette);
+    UIElement *constraint_section = CreateViewSection_StackWrap(view_cont, "Constraints", view_section_size,
+                                                                state_manager_panel->palette);
     UIElement *status_section = CreateViewSection_StackWrap(view_cont, "Status", view_section_size,
                                                             state_manager_panel->palette);
     UIElement *collision_section = CreateViewSection_StackWrap(view_cont, "Collision", view_section_size,
                                                                state_manager_panel->palette);
 
-    CreateFlagButtons(identity_section, s_sm_flags.entity_type,
-                      ARRAY_COUNT(s_sm_flags.entity_type), HandleEntityTypeFlagClick);
-    CreateFlagButtons(attribute_section, s_sm_flags.entity_attribute,
-                      ARRAY_COUNT(s_sm_flags.entity_attribute), HandleEntityAttributeFlagClick);
+    CreateFlagButtons(identity_section, s_sm_flags.entity_role,
+                      ARRAY_COUNT(s_sm_flags.entity_role), HandleEntityTypeFlagClick);
+    CreateFlagButtons(capability_section, s_sm_flags.entity_capability,
+                      ARRAY_COUNT(s_sm_flags.entity_capability), HandleEntityCapabilityFlagClick);
+    CreateFlagButtons(constraint_section, s_sm_flags.entity_constraint,
+                      ARRAY_COUNT(s_sm_flags.entity_constraint), HandleEntityConstraintFlagClick);
     CreateFlagButtons(status_section, s_sm_flags.entity_status,
                       ARRAY_COUNT(s_sm_flags.entity_status), HandleEntityStatusFlagClick);
-    CreateFlagButtons(collision_section, s_sm_flags.collision_mask,
-                      ARRAY_COUNT(s_sm_flags.collision_mask), HandleCollisionMaskFlagClick);
+    CreateFlagButtons(collision_section, s_sm_flags.collision_layers,
+                      ARRAY_COUNT(s_sm_flags.collision_layers), HandleCollisionMaskFlagClick);
 }
 
 static void InitWorldStateView(void)
@@ -592,9 +613,9 @@ static void InitCellStateView(void)
 static void RefreshGameplaySection(const Newtonoid2d *object)
 {
     bool is_damageable = object && object->id != INVALID_ENTITY_ID &&
-                         (object->attribute_flags & ENTITY_ATTR_FLAG_DAMAGEABLE) != 0;
+                         (object->capabilities & ENTITY_CAPABILITY_DAMAGEABLE) != 0;
     bool is_projectile = object && object->id != INVALID_ENTITY_ID &&
-                         (object->entity_flags & ENTITY_FLAG_PROJECTILE) != 0;
+                         (object->roles & ENTITY_ROLE_PROJECTILE) != 0;
 
     if (s_sm_ui.gameplay_section)
     {
@@ -628,7 +649,7 @@ static void RefreshComponentsSection(const Newtonoid2d *object)
         {
             DisableElement(s_sm_ui.components_section);
             ClearString64(s_sm_ui.comp_portal_cooldown_str);
-            ClearString64(s_sm_ui.comp_portal_entrant_mask_str);
+            ClearString64(s_sm_ui.comp_portal_entrant_roles_str);
             ClearString64(s_sm_ui.comp_relation_type_str);
             ClearString64(s_sm_ui.comp_relation_target_str);
             ClearString64(s_sm_ui.comp_relation_active_str);
@@ -655,7 +676,7 @@ static void RefreshComponentsSection(const Newtonoid2d *object)
     // Toggle Portal property field row visibility
     bool has_portal = (desc.components[ENTITY_COMPONENT_PORTAL] != NULL);
     SetParentEnabledState(s_sm_ui.comp_portal_cooldown_tbox, has_portal);
-    SetParentEnabledState(s_sm_ui.comp_portal_entrant_mask_tbox, has_portal);
+    SetParentEnabledState(s_sm_ui.comp_portal_entrant_roles_tbox, has_portal);
 
     // Populate portal component fields if attached.
     PortalEntity *portal = (PortalEntity *)desc.components[ENTITY_COMPONENT_PORTAL];
@@ -665,15 +686,15 @@ static void RefreshComponentsSection(const Newtonoid2d *object)
         {
             UpdateString64(s_sm_ui.comp_portal_cooldown_str->string, "%d", portal->cooldown_frames);
         }
-        if (s_sm_ui.comp_portal_entrant_mask_str)
+        if (s_sm_ui.comp_portal_entrant_roles_str)
         {
-            UpdateString64(s_sm_ui.comp_portal_entrant_mask_str->string, "%d", portal->entrant_mask);
+            UpdateString64(s_sm_ui.comp_portal_entrant_roles_str->string, "%d", portal->entrant_roles);
         }
     }
     else
     {
         ClearString64(s_sm_ui.comp_portal_cooldown_str);
-        ClearString64(s_sm_ui.comp_portal_entrant_mask_str);
+        ClearString64(s_sm_ui.comp_portal_entrant_roles_str);
     }
 
     // Toggle Relation property field row visibility
@@ -772,23 +793,26 @@ static void RefreshPhysView(Newtonoid2d *object)
     RefreshComponentsSection(object);
 }
 
-// Refresh the ATTRI view: entity type, attribute, status, and collision mask flag buttons.
+// Refresh the ATTRI view: roles, capabilities, constraints, status, and collision-layer flag buttons.
 static void RefreshAttributeView(const Newtonoid2d *object)
 {
     bool is_valid = (object != NULL);
-    uint32_t type_flags = object ? object->entity_flags : 0;
-    uint32_t attr_flags = object ? object->attribute_flags : 0;
+    uint32_t role_flags = object ? object->roles : 0;
+    uint32_t capability_flags = object ? object->capabilities : 0;
+    uint32_t constraint_flags = object ? object->constraints : 0;
     uint32_t status_flags = object ? object->status_flags : 0;
-    uint32_t mask_flags = object ? object->collision_mask : 0;
+    uint32_t collision_layers = object ? object->collision_layers : 0;
 
-    UpdateFlagButtons(s_sm_flags.entity_type, ARRAY_COUNT(s_sm_flags.entity_type),
-                      type_flags, is_valid);
-    UpdateFlagButtons(s_sm_flags.entity_attribute, ARRAY_COUNT(s_sm_flags.entity_attribute),
-                      attr_flags, is_valid);
+    UpdateFlagButtons(s_sm_flags.entity_role, ARRAY_COUNT(s_sm_flags.entity_role),
+                      role_flags, is_valid);
+    UpdateFlagButtons(s_sm_flags.entity_capability, ARRAY_COUNT(s_sm_flags.entity_capability),
+                      capability_flags, is_valid);
+    UpdateFlagButtons(s_sm_flags.entity_constraint, ARRAY_COUNT(s_sm_flags.entity_constraint),
+                      constraint_flags, is_valid);
     UpdateFlagButtons(s_sm_flags.entity_status, ARRAY_COUNT(s_sm_flags.entity_status),
                       status_flags, is_valid);
-    UpdateFlagButtons(s_sm_flags.collision_mask, ARRAY_COUNT(s_sm_flags.collision_mask),
-                      mask_flags, is_valid);
+    UpdateFlagButtons(s_sm_flags.collision_layers, ARRAY_COUNT(s_sm_flags.collision_layers),
+                      collision_layers, is_valid);
 }
 
 // Refresh the WORLD view: world physics material properties and world status flags.
@@ -941,10 +965,11 @@ void DestroyStateManagerSystem(void)
     PanelSystem_Destroy(panel);
 
     state_manager_refresh_dirty = true;
-    ResetFlagButtons(s_sm_flags.entity_type, ARRAY_COUNT(s_sm_flags.entity_type));
-    ResetFlagButtons(s_sm_flags.entity_attribute, ARRAY_COUNT(s_sm_flags.entity_attribute));
+    ResetFlagButtons(s_sm_flags.entity_role, ARRAY_COUNT(s_sm_flags.entity_role));
+    ResetFlagButtons(s_sm_flags.entity_capability, ARRAY_COUNT(s_sm_flags.entity_capability));
+    ResetFlagButtons(s_sm_flags.entity_constraint, ARRAY_COUNT(s_sm_flags.entity_constraint));
     ResetFlagButtons(s_sm_flags.entity_status, ARRAY_COUNT(s_sm_flags.entity_status));
-    ResetFlagButtons(s_sm_flags.collision_mask, ARRAY_COUNT(s_sm_flags.collision_mask));
+    ResetFlagButtons(s_sm_flags.collision_layers, ARRAY_COUNT(s_sm_flags.collision_layers));
     ResetFlagButtons(s_sm_flags.world, ARRAY_COUNT(s_sm_flags.world));
     ResetFlagButtons(s_sm_flags.cell, ARRAY_COUNT(s_sm_flags.cell));
     for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.comp_buttons); i++)
