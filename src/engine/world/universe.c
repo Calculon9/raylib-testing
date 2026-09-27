@@ -14,6 +14,7 @@ UNIVERSE MODULE
 #include "common/common.h"
 #include "camera/camera.h"
 #include "entities/entity_registry.h"
+#include "entities/health.h"
 
 void DrawNewtonoids(LArray *newtonoids, Matrix3x3 space_to_pixel_mtx);
 
@@ -88,14 +89,12 @@ static void PopulateStarterObjects(World2d *world, int requested_count)
                 6, 0.2f, (ColourRgba){155, 0, 0, 255}, 1.0f,
                 object_coords, velocity, ZERO_VECTOR_2D);
             Newtonoid_ConfigureMetadata(&object, ENTITY_ROLE_NEWTONOID,
-                                         COLLISION_LAYER_NEWTONOID | COLLISION_LAYER_WALL | COLLISION_LAYER_PROJECTILE,
-                                         ENTITY_CAPABILITY_DAMAGEABLE,
-                                         ENTITY_CONSTRAINT_RIGID,
+                                         ENTITY_DEFAULT_COLLISION_ROLE_MASK,
+                                         ENTITY_CAPABILITY_NONE,
+                                         ENTITY_CONSTRAINT_NONE,
                                          ENTITY_STATUS_FLAG_ALIVE,
                                          (ColourRgba){155, 0, 0, 255},
                                          (ColourRgba){155, 0, 0, 255});
-            Newtonoid_ConfigureHealth(&object, 3.0f);
-
             bool overlaps_existing = false;
             Newtonoid2d *existing_objects = (Newtonoid2d *)world->objects.items;
             for (size_t existing_index = 0; existing_index < world->objects.count; existing_index++)
@@ -111,8 +110,28 @@ static void PopulateStarterObjects(World2d *world, int requested_count)
 
             if (!overlaps_existing)
             {
-                AddObjectToWorld(world, &object, world->grid_space.object.id);
-                placed = true;
+                EntityId object_id = EntityRegistry_AllocateId();
+                HealthComponentParams health_params = {.max_health = 3.0f};
+                HealthComponent health = {0};
+                if (object_id != INVALID_ENTITY_ID &&
+                    HealthComponent_Initialise(&health, &health_params) &&
+                    EntityRegistry_AttachHealth(object_id, &health))
+                {
+                    object.id = object_id;
+                    EntityLifecycle_ApplyAttachedComponent(&object, ENTITY_COMPONENT_HEALTH, &health);
+                    if (AddObjectToWorld(world, &object, world->grid_space.object.id) != INVALID_ENTITY_ID)
+                    {
+                        placed = true;
+                    }
+                    else
+                    {
+                        EntityRegistry_ReleaseId(object_id);
+                    }
+                }
+                else if (object_id != INVALID_ENTITY_ID)
+                {
+                    EntityRegistry_ReleaseId(object_id);
+                }
             }
         }
 
@@ -155,7 +174,7 @@ void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_wor
     root_space.space.grid_origin = VectorScale_2d(root_resolution, -0.5f);
     RebuildSpaceCells(&root_space.space);
     root_space.object.id = INVALID_ENTITY_ID;
-    root_space.object.constraints = ENTITY_CONSTRAINT_RIGID;
+    root_space.object.constraints = ENTITY_CONSTRAINT_NONE;
     CreateAndBindWorld(u, root_space, 0.0f, &u->camera.frame, &u->root_world);
     // Pure container: not drawn as a grid, not selectable/draggable, not physics-ticked.
     u->root_world.flags = WORLD_FLAG_ACTIVE;
@@ -179,9 +198,9 @@ int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_co
 
     GridSpace2d space_g = NewGridSpace2d(world_center_in_universe, requested_res, world_basis, fill_colour, line_colour);
     space_g.object.id = INVALID_ENTITY_ID;
-    space_g.object.constraints = ENTITY_CONSTRAINT_RIGID;
+    space_g.object.constraints = ENTITY_CONSTRAINT_NONE;
     space_g.object.status_flags = ENTITY_STATUS_FLAG_ALIVE;
-    space_g.object.collision_layers = COLLISION_LAYER_NEWTONOID | COLLISION_LAYER_PROJECTILE | COLLISION_LAYER_WALL;
+    space_g.object.collision_role_mask = ENTITY_DEFAULT_COLLISION_ROLE_MASK;
     space_g.object.roles = ENTITY_ROLE_WALL;
 
     int new_index = u->world_count;
@@ -212,7 +231,7 @@ int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_co
                                                   cam_local_coords, ZERO_VECTOR_2D, ZERO_VECTOR_2D);
 
     // Camera markers are visual-only entities and therefore do not participate in collisions.
-    Newtonoid_ConfigureMetadata(&cam, ENTITY_ROLE_CAMERA | ENTITY_ROLE_EFFECT, COLLISION_LAYER_NONE,
+    Newtonoid_ConfigureMetadata(&cam, ENTITY_ROLE_CAMERA | ENTITY_ROLE_EFFECT, ENTITY_ROLE_NONE,
                                 ENTITY_CAPABILITY_NONE, ENTITY_CONSTRAINT_NONE,
                                 ENTITY_STATUS_FLAG_ALIVE, camera_marker_colour,
                                 camera_marker_colour);

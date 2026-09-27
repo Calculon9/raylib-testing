@@ -4,7 +4,6 @@ UNIVERSE SYSTEM MODULE
 *
 **********************************************************************************************/
 #include "raylib.h"
-#include "world/universe.h"
 #include "world/universe_renderer.h"
 #include "world/world.h"
 #include "camera/camera.h"

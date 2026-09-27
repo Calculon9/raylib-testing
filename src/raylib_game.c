@@ -17,8 +17,7 @@
 #include "system/screen.h" // NOTE: Declares global (extern) variables and screens functions
 #include "system/systems.h"
 #include "system/ui_system.h"
-#include "world/world.h"
-#include "world/universe.h"
+#include "system/universe_system.h"
 #include "system/viewport_system.h"
 #include "system/ui/rpanel_system.h"
 #include "system/debug_overlay_system.h"
@@ -34,7 +33,7 @@
 // Shared Variables Definition (global)
 // NOTE: Those variables are shared between modules through screens.h
 //----------------------------------------------------------------------------------
-GameScreen currentScreen = LOGO;
+GameScreen currentScreen = GAMEPLAY;
 FrameCounter frame_counter = {0};
 size_t memory_allocated = 0.0f;
 Font font = {0};
@@ -94,22 +93,6 @@ static void InitGameplayDirectScreen(void)
 }
 
 static const ScreenHandler screen_handlers[GAMEPLAY + 1] = {
-    [LOGO] = {
-        .init_direct_fn = InitLogoScreen,
-        .init_transition_fn = InitLogoScreen,
-        .update_fn = UpdateLogoScreen,
-        .draw_fn = DrawLogoScreen,
-        .unload_fn = NULL,
-        .finish_fn = FinishLogoScreen,
-    },
-    [TITLE] = {
-        .init_direct_fn = InitTitleScreen,
-        .init_transition_fn = InitTitleScreen,
-        .update_fn = UpdateTitleScreen,
-        .draw_fn = DrawTitleScreen,
-        .unload_fn = NULL,
-        .finish_fn = FinishTitleScreen,
-    },
     [GAMEPLAY] = {
         .init_direct_fn = InitGameplayDirectScreen,
         .init_transition_fn = InitGameplayScreen,
@@ -120,9 +103,8 @@ static const ScreenHandler screen_handlers[GAMEPLAY + 1] = {
     },
 };
 
+// Screen transitions removed: LOGO and TITLE screens archived (see src/_archived/)
 static const ScreenFinishTransitionRule screen_finish_transition_rules[] = {
-    {LOGO, TITLE, 0, true},
-    {TITLE, GAMEPLAY, 2, false},
 };
 
 static const ScreenHandler *GetScreenHandler(GameScreen screen)

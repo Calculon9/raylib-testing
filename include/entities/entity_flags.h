@@ -1,7 +1,7 @@
 #ifndef ENTITY_FLAGS_H
 #define ENTITY_FLAGS_H
 
-// Roles identify what an entity represents; these are also the names used by prefabs.
+// Roles classify entities; collision masks use the same role bitset.
 typedef enum EntityRoleFlags
 {
     ENTITY_ROLE_NONE = 0,
@@ -12,16 +12,9 @@ typedef enum EntityRoleFlags
     ENTITY_ROLE_CAMERA = 1 << 5,
 } EntityRoleFlags;
 
-// Keep these bit positions aligned with EntityRoleFlags for collision-layer/role checks.
-typedef enum EntityCollisionLayerFlags
-{
-    COLLISION_LAYER_NONE = 0,
-    COLLISION_LAYER_WALL = 1 << 1,
-    COLLISION_LAYER_NEWTONOID = 1 << 2,
-    COLLISION_LAYER_PROJECTILE = 1 << 3,
-    COLLISION_LAYER_EFFECT = 1 << 4,
-    COLLISION_LAYER_CAMERA = 1 << 5,
-} EntityCollisionLayerFlags;
+// Default collision mask for standard entities and solid world boundaries.
+#define ENTITY_DEFAULT_COLLISION_ROLE_MASK \
+    (ENTITY_ROLE_WALL | ENTITY_ROLE_NEWTONOID | ENTITY_ROLE_PROJECTILE)
 
 // Entity runtime state such as alive, sleeping, or clocked.
 typedef enum EntityStatusFlags
@@ -46,7 +39,6 @@ typedef enum EntityCapabilityFlags
 typedef enum EntityConstraintFlags
 {
     ENTITY_CONSTRAINT_NONE = 0,
-    ENTITY_CONSTRAINT_RIGID = 1 << 5,
     ENTITY_CONSTRAINT_POSITION_LOCKED = 1 << 6,
     ENTITY_CONSTRAINT_NO_CONTACT_RESPONSE = 1 << 8,
 } EntityConstraintFlags;

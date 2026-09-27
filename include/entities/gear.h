@@ -18,6 +18,13 @@ typedef struct GearComponent
     unsigned char reserved;
 } GearComponent;
 
+// Configurable gear component values supplied by a prefab or caller.
+typedef struct GearComponentParams
+{
+    // Currently a placeholder; no configurable parameters yet.
+    unsigned char reserved;
+} GearComponentParams;
+
 // Create an allocated gear entity from the supplied creation parameters.
 Newtonoid2d *GearEntity_Create(const Newtonoid2dParams *params);
 

@@ -71,7 +71,8 @@ bool CreateWorld(GridSpace2d space_obj, float gravity, struct Universe *universe
         LOG_ERROR("Cannot create world: entity location registration failed.\n");
         return false;
     }
-    int object_count = *GetNextWorldObjectCountPtr();
+    // Use the creation settings belonging to this universe, not global system state.
+    int object_count = universe->next_object_count;
     if (object_count < 0)
     {
         object_count = 0;

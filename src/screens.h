@@ -73,23 +73,10 @@ extern "C" {            // Prevents name mangling of functions
 #endif
 
 //----------------------------------------------------------------------------------
-// Logo Screen Functions Declaration
-//----------------------------------------------------------------------------------
-void InitLogoScreen(void);
-void UpdateLogoScreen(void);
-void DrawLogoScreen(void);
-int FinishLogoScreen(void);
-
-//----------------------------------------------------------------------------------
-// Title Screen Functions Declaration
-//----------------------------------------------------------------------------------
-void InitTitleScreen(void);
-void UpdateTitleScreen(void);
-void DrawTitleScreen(void);
-int FinishTitleScreen(void);
-
-//----------------------------------------------------------------------------------
 // Gameplay Screen Functions Declaration
+//----------------------------------------------------------------------------------
+// Note: Logo and Title screen functions have been archived in src/_archived/
+// See screen_logo.c and screen_title.c for original raylib template implementations
 //----------------------------------------------------------------------------------
 void InitGameplayScreen(void);
 void UpdateGameplayScreen(void);

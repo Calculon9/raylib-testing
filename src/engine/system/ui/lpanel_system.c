@@ -112,7 +112,7 @@ static void InitEntityCreateDefaults(void)
     }
 
     EntityCreateParams *params = G_UIState.entity_create_params;
-    params->preset = ENTITY_PRESET_STANDARD;
+    params->component_flags = 0;
     params->physics.shape_type = SHAPE_AUTO;
     params->physics.vertice_count = 4;
     params->physics.width = 1.0f;
@@ -122,6 +122,8 @@ static void InitEntityCreateDefaults(void)
     params->physics.friction = 0.5f;
     params->physics.anchor_position = ZERO_VECTOR_2D;
     params->physics.velocity = ZERO_VECTOR_2D;
+    params->portal_params.entrant_roles = ENTITY_ROLE_NEWTONOID | ENTITY_ROLE_PROJECTILE;
+    params->portal_params.cooldown_frames = 30;
 
     WriteTextboxInt(G_UIState.edit_vertice_count_tbox, params->physics.vertice_count);
     WriteTextboxFloat(G_UIState.edit_width_tbox, params->physics.width, 2);
@@ -148,15 +150,8 @@ void InitLPanel()
     InitLPanelStateView();
     InitLPanelEditView();
 
-    // Select the initial view after both panel views have been registered.
-    if (lpanel->selectors.count > 0)
-    {
-        lpanel_view_selector = *((ViewSelector **)LArray_Get(&lpanel->selectors, 0));
-        PanelSystem_SelectView(lpanel_view_selector, 0);
-    }
-
-    // Initial layout update
-    // UpdateUISpace(lpanel->root, lpanel->seed_box);
+    // Finalise: select first view and update layout
+    PanelSystem_FinaliseInit(lpanel, &lpanel_view_selector);
 }
 
 void InitLPanelStateView(void)
@@ -169,9 +164,8 @@ void InitLPanelStateView(void)
         return;
     }
 
-    lpanel_state_view_cont->colour_border = lpanel->palette->container_border;
-    lpanel_state_view_cont->colour_fill = lpanel->palette->container_fill;
-    lpanel_state_view_cont->is_draggable = true;
+    // Apply standard view container styling
+    PanelSystem_StyleViewContainer(lpanel_state_view_cont, lpanel->palette);
 
     // Keep every debug feature in STATE, grouped by the system it visualises.
     const struct

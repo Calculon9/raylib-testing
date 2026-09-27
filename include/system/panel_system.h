@@ -153,4 +153,9 @@ ViewSelector *PanelSystem_CreateStandardViewSelector(PanelSystem *panel,
                                                      const char *labels[], size_t count,
                                                      ViewSelectionCallback callback);
 
+// Finalise panel initialisation: select first view and update UI space.
+// Common routine that reduces boilerplate across lpanel, rpanel, utility panel systems.
+void PanelSystem_FinaliseInit(PanelSystem *panel, ViewSelector **selector_out);
+// Apply standard styling to a view container (border, fill, draggable).
+void PanelSystem_StyleViewContainer(UIElement *container, const UIPalette *palette);
 #endif // PANEL_SYSTEM_H

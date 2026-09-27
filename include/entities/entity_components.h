@@ -5,6 +5,7 @@
 #include "entities/portal.h"
 #include "entities/rotor.h"
 #include "entities/gear.h"
+#include "entities/health.h"
 #include "entities/entity_id.h"
 
 // ============================================================================
@@ -61,11 +62,11 @@ typedef enum EntityComponentType
     ENTITY_COMPONENT_PORTAL = 1,
     ENTITY_COMPONENT_ROTOR = 2,
     ENTITY_COMPONENT_GEAR = 3,
-    ENTITY_COMPONENT_RELATION = 4
+    ENTITY_COMPONENT_RELATION = 4,
+    ENTITY_COMPONENT_HEALTH = 5
 } EntityComponentType;
 
-// Generic type with tagged union for entity creation results. Used by EntityFactory to return components
-// and by command_queue to route components to appropriate registry stores.
+// Runtime component payload used by command_queue to route attachments to registry stores.
 typedef struct EntityComponent
 {
     EntityComponentType type;
@@ -73,8 +74,9 @@ typedef struct EntityComponent
     {
         RotorComponent rotor;
         GearComponent gear;
-        PortalEntity portal;
+        PortalComponent portal;
         RelationComponent relation;
+        HealthComponent health;
     } data;
 } EntityComponent;
 

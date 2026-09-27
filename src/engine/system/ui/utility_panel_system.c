@@ -18,11 +18,11 @@ static void InitUtilityStatsView(void)
         return;
     }
 
-    // Customise the standard view container for the utility statistics layout.
+    // Apply standard view container styling
+    PanelSystem_StyleViewContainer(stats_container, utility_panel->palette);
+
+    // Customise the standard view container size for the utility statistics layout.
     stats_container->size = utility_view_size;
-    stats_container->colour_border = utility_panel->palette->container_border;
-    stats_container->colour_fill = utility_panel->palette->container_fill;
-    stats_container->is_draggable = true;
 
     const UIFieldSpec stats_specs[] = {
         {"Mem", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &G_UIState.stats_mem_str},
@@ -37,8 +37,7 @@ static void InitUtilityStatsView(void)
 
 void InitUtilityPanel(void)
 {
-    utility_panel = PanelSystem_Create(
-        &utility_panel_viewport, 1.0f, (Vector2d){0.1f, 0.1f},
+    utility_panel = PanelSystem_Create(&utility_panel_viewport, 1.0f, (Vector2d){0.1f, 0.1f},
         &ui_default_palette, ui_standard_stack_spacing);
     if (!utility_panel)
     {
@@ -49,7 +48,9 @@ void InitUtilityPanel(void)
     PanelSystem_InitViews(utility_panel, 1);
     PanelSystem_InitRoot(utility_panel);
     InitUtilityStatsView();
-    UpdateUISpace(utility_panel->root, utility_panel->seed_box);
+
+    // Finalise: update layout (no view selector for utility panel)
+    PanelSystem_FinaliseInit(utility_panel, NULL);
 }
 
 // Destroy the utility panel and clear its cached UI references.

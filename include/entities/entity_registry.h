@@ -18,8 +18,8 @@ typedef struct World2d World2d;
 typedef struct
 {
     EntityId id;
-    // Components indexed by EntityComponentType (0-4). NULL if not attached.
-    void *components[ENTITY_COMPONENT_RELATION + 1];
+    // Components indexed by EntityComponentType (0-5). NULL if not attached.
+    void *components[ENTITY_COMPONENT_HEALTH + 1];
 } EntityDescription;
 
 // Initialise the entity ID sequence and component storage.
@@ -119,13 +119,13 @@ bool EntityRegistry_RemoveGear(EntityId entity_id);
 // Component Accessors - Portal Component
 // ============================================================================
 
-// Attach a PortalEntity to an EntityId. Returns false if entity already has a component.
-bool EntityRegistry_AttachPortal(EntityId entity_id, const PortalEntity *portal);
+// Attach a PortalComponent to an EntityId. Returns false if entity already has a component.
+bool EntityRegistry_AttachPortal(EntityId entity_id, const PortalComponent *portal);
 
-// Retrieve the PortalEntity attached to an EntityId, or NULL if not attached.
-PortalEntity *EntityRegistry_GetPortal(EntityId entity_id);
+// Retrieve the PortalComponent attached to an EntityId, or NULL if not attached.
+PortalComponent *EntityRegistry_GetPortal(EntityId entity_id);
 
-// Remove the PortalEntity from an EntityId. Returns false if no portal was attached.
+// Remove the PortalComponent from an EntityId. Returns false if no portal was attached.
 bool EntityRegistry_RemovePortal(EntityId entity_id);
 
 // ============================================================================
@@ -140,5 +140,18 @@ RelationComponent *EntityRegistry_GetRelation(EntityId entity_id);
 
 // Remove the RelationComponent from an EntityId. Returns false if no relation was attached.
 bool EntityRegistry_RemoveRelation(EntityId entity_id);
+
+// ============================================================================
+// Component Accessors - Health Component
+// ============================================================================
+
+// Attach a HealthComponent to an EntityId. Returns false if invalid or already attached.
+bool EntityRegistry_AttachHealth(EntityId entity_id, const HealthComponent *health);
+
+// Retrieve the HealthComponent attached to an EntityId, or NULL if not attached.
+HealthComponent *EntityRegistry_GetHealth(EntityId entity_id);
+
+// Remove the HealthComponent from an EntityId. Returns false if none was attached.
+bool EntityRegistry_RemoveHealth(EntityId entity_id);
 
 #endif

@@ -25,7 +25,7 @@ typedef struct
     int destination_world_index;
     EntityId destination_parent_id;
     Vector2d destination_coords;
-    EntityCollisionLayerFlags original_collision_layers;
+    EntityRoleFlags original_collision_role_mask;
 } MoveEntityCommand;
 
 typedef struct
@@ -63,7 +63,7 @@ bool EnqueueSelectWorld(int delta);
 bool EnqueueDeleteWorld(int world_index);
 bool EnqueueMoveEntity(EntityId entity_id, int source_world_index,
                        int destination_world_index, EntityId destination_parent_id,
-                       Vector2d destination_coords, EntityCollisionLayerFlags original_collision_layers);
+                       Vector2d destination_coords, EntityRoleFlags original_collision_role_mask);
 // Enqueue attaching a component to an existing entity.
 bool EnqueueAttachComponent(EntityId entity_id, const EntityComponent *component);
 // Enqueue detaching a component from an existing entity.

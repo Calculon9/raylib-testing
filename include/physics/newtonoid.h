@@ -65,16 +65,14 @@ typedef struct Newtonoid2d
     ColourRgba fill_colour;  // Fill color
     ShapeType shape_type;    // Shape classification for collision algorithms
     int edge_count;          // Cached edge count
-    EntityRoleFlags roles;                         // What kind of entity is this?
-    EntityCollisionLayerFlags collision_layers;  // Which entity roles can collide with this entity?
+    EntityRoleFlags roles;                         // Semantic roles assigned to this entity
+    EntityRoleFlags collision_role_mask;           // Roles this entity may collide with
     EntityCapabilityFlags capabilities;          // Persistent gameplay behaviours this entity supports
     EntityConstraintFlags constraints;           // Physics restrictions on this entity
     EntityStatusFlags status_flags;              // Runtime status such as alive or sleeping
     EntityId id;             // Universal entity ID
     EntityId owner_id;        // Entity that created this object, when ownership applies
     float damage;             // Gameplay damage carried by damage-dealing entities
-    float health;             // Current health for damageable entities
-    float max_health;         // Maximum health for damageable entities
     EntityId parent_id;      // Parent entity ID (INVALID_ENTITY_ID if root)
 } Newtonoid2d;
 
@@ -90,7 +88,6 @@ typedef struct Newtonoid2dParams
     float radius;
     float width;
     float height;
-    // int edge_count;
     int vertice_count;
     ShapeType shape_type;
     ColourRgba line_colour;
@@ -114,19 +111,13 @@ typedef struct NewtonoidPrimitiveParams
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 
-// Apply roles, collision layers, capabilities, constraints, status, and render colours.
+// Apply roles, collision role mask, capabilities, constraints, status, and render colours.
 void Newtonoid_ConfigureMetadata(Newtonoid2d *object, EntityRoleFlags roles,
-                                 EntityCollisionLayerFlags collision_layers,
+                                 EntityRoleFlags collision_role_mask,
                                  EntityCapabilityFlags capabilities,
                                  EntityConstraintFlags constraints,
                                  EntityStatusFlags status_flags,
                                  ColourRgba line_colour, ColourRgba fill_colour);
-// Set an entity's maximum and current health.
-void Newtonoid_ConfigureHealth(Newtonoid2d *object, float max_health);
-// Return whether an entity can receive damage.
-bool IsDamageable(const Newtonoid2d *entity);
-// Apply damage and return true when the entity becomes dead.
-bool ApplyEntityDamage(Newtonoid2d *entity, float damage);
 // Align an opted-in entity's rendered geometry with its current velocity vector.
 void Newtonoid_SyncOrientationToVelocity(Newtonoid2d *object);
 // Configure an entity's normal collision bounce coefficient, clamped to [0, 1].

@@ -27,7 +27,7 @@ static void FreeAllocatedEntity(Newtonoid2d *entity)
     Deallocate((void **)&entity, sizeof(Newtonoid2d));
 }
 
-// Construct base physics geometry, allocate an ID, and attach preset components.
+// Construct the physics body, allocate an ID, and attach each configured component.
 Newtonoid2d *EntityFactory_Create(const EntityCreateParams *params)
 {
     if (!params)
@@ -42,62 +42,75 @@ Newtonoid2d *EntityFactory_Create(const EntityCreateParams *params)
         return NULL;
     }
 
+    // Create physics body with appropriate geometry (portal, rotor, gear, or standard).
     Newtonoid2d *entity = NULL;
+    if (params->component_flags & CREATION_COMPONENT_PORTAL)
+    {
+        entity = PortalEntity_Create(&params->physics);
+    }
+    else if (params->component_flags & CREATION_COMPONENT_ROTOR)
+    {
+        entity = RotorEntity_Create(&params->physics);
+    }
+    else if (params->component_flags & CREATION_COMPONENT_GEAR)
+    {
+        entity = GearEntity_Create(&params->physics);
+    }
+    else
+    {
+        entity = StandardEntity_Create(&params->physics);
+    }
+
+    if (!entity)
+    {
+        EntityRegistry_ReleaseId(id);
+        return NULL;
+    }
+
+    entity->id = id;
     bool component_attached = true;
 
-    switch (params->preset)
+    // Attach each component and apply its entity-level lifecycle effects.    if (component_attached && (params->component_flags & CREATION_COMPONENT_PORTAL))
     {
-    case ENTITY_PRESET_STANDARD:
-        entity = StandardEntity_Create(&params->physics);
-        if (entity)
+        PortalComponent portal = {0};
+        component_attached = PortalComponent_Initialise(&portal, &params->portal_params) && EntityRegistry_AttachPortal(id, &portal);
+        if (component_attached)
         {
-            entity->id = id;
-        }
-        break;
-
-    case ENTITY_PRESET_ROTOR:
-        entity = RotorEntity_Create(&params->physics);
-        if (entity)
-        {
-            entity->id = id;
-            RotorComponent rotor;
-            memset(&rotor, 0, sizeof(rotor));
-            component_attached = EntityRegistry_AttachRotor(id, &rotor);
-            EntityLifecycle_ApplyAttachedComponent(entity, ENTITY_COMPONENT_ROTOR, &rotor);
-        }
-        break;
-
-    case ENTITY_PRESET_GEAR:
-        entity = GearEntity_Create(&params->physics);
-        if (entity)
-        {
-            entity->id = id;
-            GearComponent gear;
-            memset(&gear, 0, sizeof(gear));
-            component_attached = EntityRegistry_AttachGear(id, &gear);
-            EntityLifecycle_ApplyAttachedComponent(entity, ENTITY_COMPONENT_GEAR, &gear);
-        }
-        break;
-
-    case ENTITY_PRESET_PORTAL:
-    {
-        PortalEntity portal = {0};
-        entity = PortalEntity_Create(&params->physics, &portal);
-        if (entity)
-        {
-            entity->id = id;
-            component_attached = EntityRegistry_AttachPortal(id, &portal);
             EntityLifecycle_ApplyAttachedComponent(entity, ENTITY_COMPONENT_PORTAL, &portal);
         }
-        break;
+    }
+    if (component_attached && (params->component_flags & CREATION_COMPONENT_ROTOR))
+    {
+        RotorComponent rotor = {0};
+        component_attached = EntityRegistry_AttachRotor(id, &rotor);
+        if (component_attached)
+        {
+            EntityLifecycle_ApplyAttachedComponent(entity, ENTITY_COMPONENT_ROTOR, &rotor);
+        }
     }
 
-    default:
-        break;
+    if (component_attached && (params->component_flags & CREATION_COMPONENT_GEAR))
+    {
+        GearComponent gear = {0};
+        component_attached = EntityRegistry_AttachGear(id, &gear);
+        if (component_attached)
+        {
+            EntityLifecycle_ApplyAttachedComponent(entity, ENTITY_COMPONENT_GEAR, &gear);
+        }
     }
 
-    // If physics construction or component attachment failed, roll back the entire creation.
-    if (!entity || !component_attached)
+    if (component_attached && (params->component_flags & CREATION_COMPONENT_HEALTH))
+    {
+        HealthComponent health = {0};
+        component_attached = HealthComponent_Initialise(&health, &params->health_params) &&
+                             EntityRegistry_AttachHealth(id, &health);
+        if (component_attached)
+        {
+            EntityLifecycle_ApplyAttachedComponent(entity, ENTITY_COMPONENT_HEALTH, &health);
+        }
+    }
+
+    if (!component_attached)
     {
         FreeAllocatedEntity(entity);
         EntityRegistry_ReleaseId(id);

@@ -7,6 +7,7 @@
 #include "raylib.h"
 #include "camera/camera.h"
 #include "system/ui_system.h"
+#include "system/universe_system.h"
 #include "world/world.h"
 #include "world/world_internal.h"
 #include "world/universe.h"

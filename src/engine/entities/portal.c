@@ -5,16 +5,17 @@
  **********************************************************************************************/
 #include "entities/portal.h"
 #include "entities/entity_internal.h"
+#include "entities/entity_registry.h"
 
-// Create the physical portal and initialise its portal-specific state.
-Newtonoid2d *PortalEntity_Create(const Newtonoid2dParams *params, PortalEntity *out_portal)
+// Create the physical portal geometry; component initialisation and attachment is handled by the factory.
+Newtonoid2d *PortalEntity_Create(const Newtonoid2dParams *params)
 {
-    if (!out_portal || !Entity_ValidateDimensions(params))
+    if (!Entity_ValidateDimensions(params))
     {
         return NULL;
     }
 
-    // Create the base entity.
+    // Create the base entity with portal-specific geometry.
     Surface2d surface = {0};
     surface.surface_vectors = CreateVertices_Portal((Vector2d){params->width, params->height});
     Newtonoid2d *entity = CreateNewtonoid2d_Allocated(params->mass, params->anchor_position, params->velocity,
@@ -25,46 +26,55 @@ Newtonoid2d *PortalEntity_Create(const Newtonoid2dParams *params, PortalEntity *
     }
 
     entity->shape_type = SHAPE_ELLIPSE;
-    entity->collision_layers = COLLISION_LAYER_NONE;
-    entity->capabilities &= ~ENTITY_CAPABILITY_DAMAGEABLE;
-    // Mark portal as position-locked and sensor-only: overlap dispatch runs
-    // portal mechanics, while the explicit no-response flag skips impulses.
-    entity->constraints |= (ENTITY_CONSTRAINT_POSITION_LOCKED | ENTITY_CONSTRAINT_NO_CONTACT_RESPONSE);
-    entity->capabilities |= ENTITY_CAPABILITY_SENSOR;
     Newtonoid_ConfigureRestitution(entity, params->restitution);
     Newtonoid_ConfigureFriction(entity, params->friction);
-
-    PortalDestination destination = {.portal_id = INVALID_ENTITY_ID};
-    if (!PortalEntity_Initialise(out_portal, destination, ENTITY_ROLE_NEWTONOID | ENTITY_ROLE_PROJECTILE, 30))
-    {
-        ClearLArray(&entity->surface.surface_vectors);
-        Deallocate((void **)&entity, sizeof(Newtonoid2d));
-        return NULL;
-    }
 
     return entity;
 }
 
-// Initialise portal state that is kept outside the general Newtonoid structure.
-bool PortalEntity_Initialise(PortalEntity *portal, PortalDestination destination,
-                             EntityRoleFlags entrant_roles, int cooldown_frames)
+// Initialise portal component state.
+bool PortalComponent_Initialise(PortalComponent *component, const PortalComponentParams *params)
 {
-    if (!portal || cooldown_frames < 0)
+    if (!component || !params || params->cooldown_frames < 0)
     {
         return false;
     }
 
-    *portal = (PortalEntity){
-        .destination = destination,
-        .entrant_roles = entrant_roles,
-        .cooldown_frames = cooldown_frames,
+    *component = (PortalComponent){
+        .owner_id = INVALID_ENTITY_ID,
+        .entrant_roles = params->entrant_roles,
+        .portal_destination_id = INVALID_ENTITY_ID,
+        .cooldown_frames = params->cooldown_frames,
         .cooldown_entity_id = INVALID_ENTITY_ID,
-        .cooldown_remaining = 0};
+        .cooldown_frames_remaining = 0};
     return true;
 }
 
-// Check the identity and timing values required before a portal can be used.
+// Resolve a transient portal view from the base-entity and component registries.
+PortalEntity PortalEntity_GetView(EntityId entity_id)
+{
+    Newtonoid2d *base = EntityRegistry_GetEntity(entity_id);
+    PortalComponent *portal_component = EntityRegistry_GetPortal(entity_id);
+    if (!base || !portal_component)
+    {
+        return (PortalEntity){0};
+    }
+
+    return (PortalEntity){
+        .base = base,
+        .portal_component = portal_component};
+}
+
+// Check the component's configured and mutable cooldown values.
+bool PortalComponent_IsValid(const PortalComponent *component)
+{
+    return component && component->cooldown_frames >= 0 &&
+           component->cooldown_frames_remaining >= 0;
+}
+
+// Check both references in a resolved portal view and its component state.
 bool PortalEntity_IsValid(const PortalEntity *portal)
 {
-    return portal && portal->cooldown_frames >= 0 && portal->cooldown_remaining >= 0;
+    return portal && portal->base &&
+           PortalComponent_IsValid(portal->portal_component);
 }

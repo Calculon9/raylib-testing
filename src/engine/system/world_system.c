@@ -25,6 +25,7 @@
 #include "input/drag_interaction.h"
 #include "combat/projectile.h"
 #include "entities/entity_registry.h"
+#include "entities/health.h"
 
 // World-level defaults used by the gameplay screen and debug spawning controls.
 bool world_grid_debug_labels_enabled = false;
@@ -41,7 +42,7 @@ typedef struct
     Vector2d velocity;
     Vector2d acceleration;
     Vector2d momentum;
-    EntityCollisionLayerFlags collision_layers;
+    EntityRoleFlags collision_role_mask;
     bool has_snapshot;
 } EntityDragMotionSnapshot;
 
@@ -68,8 +69,8 @@ static void SnapshotDraggedEntityMotion(Newtonoid2d *entity)
     g_drag_motion_snapshot.velocity = entity->velocity;
     g_drag_motion_snapshot.acceleration = entity->acceleration;
     g_drag_motion_snapshot.momentum = entity->momentum;
-    g_drag_motion_snapshot.collision_layers = entity->collision_layers;
-    entity->collision_layers = COLLISION_LAYER_NONE;
+    g_drag_motion_snapshot.collision_role_mask = entity->collision_role_mask;
+    entity->collision_role_mask = ENTITY_ROLE_NONE;
     g_drag_motion_snapshot.has_snapshot = true;
 }
 
@@ -89,7 +90,7 @@ static void RestoreDraggedEntityMotion(Newtonoid2d *entity)
     entity->velocity = g_drag_motion_snapshot.velocity;
     entity->acceleration = g_drag_motion_snapshot.acceleration;
     entity->momentum = g_drag_motion_snapshot.momentum;
-    entity->collision_layers = g_drag_motion_snapshot.collision_layers;
+    entity->collision_role_mask = g_drag_motion_snapshot.collision_role_mask;
 
     g_drag_motion_snapshot.entity = NULL;
     g_drag_motion_snapshot.has_snapshot = false;
@@ -486,7 +487,7 @@ static void HandleInterWorldEntityDrag(Newtonoid2d *dragged,
                       destination_world_index,
                       destination_world->grid_space.object.id,
                       current_world_coords,
-                      g_drag_motion_snapshot.collision_layers);
+                      g_drag_motion_snapshot.collision_role_mask);
 }
 
 // Process pointer drag updates for a captured world entity.
@@ -658,11 +659,26 @@ void CreateAddNewtonoid(int vertice_count, float radius, ShapeBuildType build_ty
     if (new_newtonoid.radius > 0.0f)
     {
         Newtonoid_ConfigureMetadata(&new_newtonoid, ENTITY_ROLE_NEWTONOID,
-                 COLLISION_LAYER_WALL | COLLISION_LAYER_NEWTONOID | COLLISION_LAYER_PROJECTILE,
-                 ENTITY_CAPABILITY_DAMAGEABLE, ENTITY_CONSTRAINT_RIGID,
+                 ENTITY_DEFAULT_COLLISION_ROLE_MASK, ENTITY_CAPABILITY_NONE, ENTITY_CONSTRAINT_NONE,
                          ENTITY_STATUS_FLAG_ALIVE, COLOUR_GAME_INK_RGBA, colour);
-        Newtonoid_ConfigureHealth(&new_newtonoid, 3.0f);
-        AddObjectToWorld(active_world, &new_newtonoid, active_world->grid_space.object.id);
+
+        EntityId entity_id = EntityRegistry_AllocateId();
+        HealthComponentParams health_params = {.max_health = 3.0f};
+        HealthComponent health = {0};
+        if (entity_id != INVALID_ENTITY_ID && HealthComponent_Initialise(&health, &health_params) &&
+            EntityRegistry_AttachHealth(entity_id, &health))
+        {
+            new_newtonoid.id = entity_id;
+            EntityLifecycle_ApplyAttachedComponent(&new_newtonoid, ENTITY_COMPONENT_HEALTH, &health);
+            if (AddObjectToWorld(active_world, &new_newtonoid, active_world->grid_space.object.id) == INVALID_ENTITY_ID)
+            {
+                EntityRegistry_ReleaseId(entity_id);
+            }
+        }
+        else if (entity_id != INVALID_ENTITY_ID)
+        {
+            EntityRegistry_ReleaseId(entity_id);
+        }
     }
 }
 

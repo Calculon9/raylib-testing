@@ -5,6 +5,7 @@
  **********************************************************************************************/
 #include "combat/projectile.h"
 #include "common/common.h"
+#include "entities/health.h"
 #include "world/world.h"
 #include "world/world_internal.h"
 
@@ -23,7 +24,7 @@ static const ProjectileDefinition projectile_definitions[PROJECTILE_TYPE_COUNT] 
         .speed = 8.0f,
         .damage = 1.0f,
         .lifetime_frames = PROJECTILE_DEFAULT_LIFETIME_FRAMES,
-        .collision_layers = COLLISION_LAYER_WALL | COLLISION_LAYER_NEWTONOID,
+        .collision_role_mask = ENTITY_ROLE_WALL | ENTITY_ROLE_NEWTONOID,
         .capabilities = ENTITY_CAPABILITY_NONE,
         .constraints = ENTITY_CONSTRAINT_NONE,
         .line_colour = COLOUR_GAME_INK_RGBA,
@@ -111,7 +112,7 @@ EntityId SpawnProjectile(World2d *world, const ProjectileSpawnParams *params)
     projectile.rotation = VectorRadians_2d(direction);
     SyncNewtonoidRotation(&projectile);
     Newtonoid_ConfigureMetadata(&projectile, ENTITY_ROLE_PROJECTILE,
-                                definition->collision_layers,
+                                definition->collision_role_mask,
                                 definition->capabilities | ENTITY_CAPABILITY_VELOCITY_ALIGNED,
                                 definition->constraints,
                                 ENTITY_STATUS_FLAG_ALIVE | ENTITY_STATUS_FLAG_CLOCKED,

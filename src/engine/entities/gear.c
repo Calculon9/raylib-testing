@@ -1,7 +1,6 @@
 #include "entities/gear.h"
 #include "entities/entity_internal.h"
-
-static const float gear_angular_velocity = 2.0f;
+#include "entities/entity_registry.h"
 
 // Validate the tooth count required to generate a gear surface.
 static bool ValidateGearParams(const Newtonoid2dParams *params)
@@ -42,8 +41,7 @@ Newtonoid2d *GearEntity_Create(const Newtonoid2dParams *params)
     }
 
     entity->shape_type = SHAPE_GEAR;
-    entity->angular_velocity = gear_angular_velocity;
-    entity->constraints |= ENTITY_CONSTRAINT_POSITION_LOCKED;
+    EntityLifecycle_ApplyAttachedComponent(entity, ENTITY_COMPONENT_GEAR, NULL);
     Newtonoid_ConfigureRestitution(entity, params->restitution);
     Newtonoid_ConfigureFriction(entity, params->friction);
     return entity;

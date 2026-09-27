@@ -12,6 +12,7 @@
 #include "world/universe.h"
 #include "entities/entity_registry.h"
 #include "entities/entity_components.h"
+#include "entities/health.h"
 
 // ============================================================================
 // Module State
@@ -37,7 +38,7 @@ typedef struct StateManagerUI
     int delete_action;
 
     // Component toggle buttons
-    StateManagerComponentButton comp_buttons[3];
+    StateManagerComponentButton comp_buttons[4];
 
     // Identity readouts
     UIElement *id_tbox;
@@ -109,9 +110,9 @@ typedef struct StateManagerFlags
     uint32_t role_flags;
     StateManagerFlagButton entity_role[5];
     StateManagerFlagButton entity_capability[4];
-    StateManagerFlagButton entity_constraint[3];
+    StateManagerFlagButton entity_constraint[2];
     StateManagerFlagButton entity_status[3];
-    StateManagerFlagButton collision_layers[5];
+    StateManagerFlagButton collision_role_mask[5];
     StateManagerFlagButton world[7];
     StateManagerFlagButton cell[4];
 } StateManagerFlags;
@@ -133,7 +134,6 @@ static StateManagerFlags s_sm_flags = {
         {"SENSOR", ENTITY_CAPABILITY_SENSOR, NULL},
     },
     .entity_constraint = {
-        {"RIGID", ENTITY_CONSTRAINT_RIGID, NULL},
         {"POSITION LOCKED", ENTITY_CONSTRAINT_POSITION_LOCKED, NULL},
         {"NO CONTACT RESPONSE", ENTITY_CONSTRAINT_NO_CONTACT_RESPONSE, NULL},
     },
@@ -142,12 +142,12 @@ static StateManagerFlags s_sm_flags = {
         {"SLEEPING", ENTITY_STATUS_FLAG_SLEEPING, NULL},
         {"CLOCKED", ENTITY_STATUS_FLAG_CLOCKED, NULL},
     },
-    .collision_layers = {
-        {"WALL", COLLISION_LAYER_WALL, NULL},
-        {"NEWTONOID", COLLISION_LAYER_NEWTONOID, NULL},
-        {"PROJECTILE", COLLISION_LAYER_PROJECTILE, NULL},
-        {"EFFECT", COLLISION_LAYER_EFFECT, NULL},
-        {"CAMERA", COLLISION_LAYER_CAMERA, NULL},
+    .collision_role_mask = {
+        {"WALL", ENTITY_ROLE_WALL, NULL},
+        {"NEWTONOID", ENTITY_ROLE_NEWTONOID, NULL},
+        {"PROJECTILE", ENTITY_ROLE_PROJECTILE, NULL},
+        {"EFFECT", ENTITY_ROLE_EFFECT, NULL},
+        {"CAMERA", ENTITY_ROLE_CAMERA, NULL},
     },
     .world = {
         {"ACTIVE", WORLD_FLAG_ACTIVE, NULL},
@@ -285,7 +285,7 @@ static void HandleCollisionMaskFlagClick(UIElement *button)
         return;
     }
 
-    object->collision_layers ^= spec->flag;
+    object->collision_role_mask ^= spec->flag;
     MarkStateManagerRefreshDirty();
 }
 
@@ -339,15 +339,28 @@ static void HandleComponentToggleClick(UIElement *button)
         switch (type)
         {
         case ENTITY_COMPONENT_PORTAL:
-            PortalEntity_Initialise(&comp.data.portal, (PortalDestination){INVALID_ENTITY_ID},
-                                    ENTITY_ROLE_NEWTONOID | ENTITY_ROLE_PROJECTILE, 30);
+        {
+            PortalComponentParams portal_params = {
+                .entrant_roles = ENTITY_ROLE_NEWTONOID | ENTITY_ROLE_PROJECTILE,
+                .cooldown_frames = 30};
+            PortalComponent_Initialise(&comp.data.portal, &portal_params);
             break;
+        }
         case ENTITY_COMPONENT_ROTOR:
             memset(&comp.data.rotor, 0, sizeof(comp.data.rotor));
             break;
         case ENTITY_COMPONENT_GEAR:
             memset(&comp.data.gear, 0, sizeof(comp.data.gear));
             break;
+        case ENTITY_COMPONENT_HEALTH:
+        {
+            HealthComponentParams health_params = {.max_health = 3.0f};
+            if (!HealthComponent_Initialise(&comp.data.health, &health_params))
+            {
+                return;
+            }
+            break;
+        }
         case ENTITY_COMPONENT_RELATION:
         case ENTITY_COMPONENT_NONE:
         default:
@@ -478,10 +491,11 @@ static void InitPhysStateView(void)
                                                                 state_manager_panel->palette);
     s_sm_ui.components_section = components_section;
 
-    // Component toggle buttons: PORTAL, ROTOR, GEAR
+    // Component toggle buttons: PORTAL, ROTOR, GEAR, HEALTH
     s_sm_ui.comp_buttons[0] = (StateManagerComponentButton){"PORTAL", ENTITY_COMPONENT_PORTAL, NULL};
     s_sm_ui.comp_buttons[1] = (StateManagerComponentButton){"ROTOR", ENTITY_COMPONENT_ROTOR, NULL};
     s_sm_ui.comp_buttons[2] = (StateManagerComponentButton){"GEAR", ENTITY_COMPONENT_GEAR, NULL};
+    s_sm_ui.comp_buttons[3] = (StateManagerComponentButton){"HEALTH", ENTITY_COMPONENT_HEALTH, NULL};
 
     for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.comp_buttons); i++)
     {
@@ -541,8 +555,8 @@ static void InitAttributeStateView(void)
                       ARRAY_COUNT(s_sm_flags.entity_constraint), HandleEntityConstraintFlagClick);
     CreateFlagButtons(status_section, s_sm_flags.entity_status,
                       ARRAY_COUNT(s_sm_flags.entity_status), HandleEntityStatusFlagClick);
-    CreateFlagButtons(collision_section, s_sm_flags.collision_layers,
-                      ARRAY_COUNT(s_sm_flags.collision_layers), HandleCollisionMaskFlagClick);
+    CreateFlagButtons(collision_section, s_sm_flags.collision_role_mask,
+                      ARRAY_COUNT(s_sm_flags.collision_role_mask), HandleCollisionMaskFlagClick);
 }
 
 static void InitWorldStateView(void)
@@ -613,7 +627,7 @@ static void InitCellStateView(void)
 static void RefreshGameplaySection(const Newtonoid2d *object)
 {
     bool is_damageable = object && object->id != INVALID_ENTITY_ID &&
-                         (object->capabilities & ENTITY_CAPABILITY_DAMAGEABLE) != 0;
+                         EntityRegistry_GetHealth(object->id) != NULL;
     bool is_projectile = object && object->id != INVALID_ENTITY_ID &&
                          (object->roles & ENTITY_ROLE_PROJECTILE) != 0;
 
@@ -679,7 +693,7 @@ static void RefreshComponentsSection(const Newtonoid2d *object)
     SetParentEnabledState(s_sm_ui.comp_portal_entrant_roles_tbox, has_portal);
 
     // Populate portal component fields if attached.
-    PortalEntity *portal = (PortalEntity *)desc.components[ENTITY_COMPONENT_PORTAL];
+    PortalComponent *portal = (PortalComponent *)desc.components[ENTITY_COMPONENT_PORTAL];
     if (portal)
     {
         if (s_sm_ui.comp_portal_cooldown_str)
@@ -740,6 +754,7 @@ static void RefreshPhysView(Newtonoid2d *object)
         Universe_GetEntityByID(&G_Universe, object->id, &world_index);
     }
     void *world_ptr = (object && world_index >= 0) ? &world_index : NULL;
+    HealthComponent *health = object ? EntityRegistry_GetHealth(object->id) : NULL;
 
     // Refresh identity, physics, and gameplay numerical fields.
     TextboxField state_fields[] = {
@@ -759,8 +774,8 @@ static void RefreshPhysView(Newtonoid2d *object)
         {s_sm_ui.angular_velocity_tbox, FLOAT, object ? (void *)&object->angular_velocity : NULL, 2, NULL},
         {s_sm_ui.angular_acceleration_tbox, FLOAT, object ? (void *)&object->angular_acceleration : NULL, 2, NULL},
 
-        {s_sm_ui.health_tbox, FLOAT, object ? (void *)&object->health : NULL, 2, NULL},
-        {s_sm_ui.max_health_tbox, FLOAT, object ? (void *)&object->max_health : NULL, 2, NULL},
+        {s_sm_ui.health_tbox, FLOAT, health ? (void *)&health->current_health : NULL, 2, NULL},
+        {s_sm_ui.max_health_tbox, FLOAT, health ? (void *)&health->max_health : NULL, 2, NULL},
         {s_sm_ui.damage_tbox, FLOAT, object ? (void *)&object->damage : NULL, 2, NULL},
     };
     RefreshTextboxFields(state_fields, ARRAY_COUNT(state_fields));
@@ -793,7 +808,7 @@ static void RefreshPhysView(Newtonoid2d *object)
     RefreshComponentsSection(object);
 }
 
-// Refresh the ATTRI view: roles, capabilities, constraints, status, and collision-layer flag buttons.
+// Refresh the ATTRI view: roles, capabilities, constraints, status, and collision-role mask buttons.
 static void RefreshAttributeView(const Newtonoid2d *object)
 {
     bool is_valid = (object != NULL);
@@ -801,7 +816,7 @@ static void RefreshAttributeView(const Newtonoid2d *object)
     uint32_t capability_flags = object ? object->capabilities : 0;
     uint32_t constraint_flags = object ? object->constraints : 0;
     uint32_t status_flags = object ? object->status_flags : 0;
-    uint32_t collision_layers = object ? object->collision_layers : 0;
+    uint32_t collision_role_mask = object ? object->collision_role_mask : 0;
 
     UpdateFlagButtons(s_sm_flags.entity_role, ARRAY_COUNT(s_sm_flags.entity_role),
                       role_flags, is_valid);
@@ -811,8 +826,8 @@ static void RefreshAttributeView(const Newtonoid2d *object)
                       constraint_flags, is_valid);
     UpdateFlagButtons(s_sm_flags.entity_status, ARRAY_COUNT(s_sm_flags.entity_status),
                       status_flags, is_valid);
-    UpdateFlagButtons(s_sm_flags.collision_layers, ARRAY_COUNT(s_sm_flags.collision_layers),
-                      collision_layers, is_valid);
+    UpdateFlagButtons(s_sm_flags.collision_role_mask, ARRAY_COUNT(s_sm_flags.collision_role_mask),
+                      collision_role_mask, is_valid);
 }
 
 // Refresh the WORLD view: world physics material properties and world status flags.
@@ -969,7 +984,7 @@ void DestroyStateManagerSystem(void)
     ResetFlagButtons(s_sm_flags.entity_capability, ARRAY_COUNT(s_sm_flags.entity_capability));
     ResetFlagButtons(s_sm_flags.entity_constraint, ARRAY_COUNT(s_sm_flags.entity_constraint));
     ResetFlagButtons(s_sm_flags.entity_status, ARRAY_COUNT(s_sm_flags.entity_status));
-    ResetFlagButtons(s_sm_flags.collision_layers, ARRAY_COUNT(s_sm_flags.collision_layers));
+    ResetFlagButtons(s_sm_flags.collision_role_mask, ARRAY_COUNT(s_sm_flags.collision_role_mask));
     ResetFlagButtons(s_sm_flags.world, ARRAY_COUNT(s_sm_flags.world));
     ResetFlagButtons(s_sm_flags.cell, ARRAY_COUNT(s_sm_flags.cell));
     for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.comp_buttons); i++)

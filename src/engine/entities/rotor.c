@@ -1,7 +1,6 @@
 #include "entities/rotor.h"
 #include "entities/entity_internal.h"
-
-static const float rotor_angular_velocity = 2.0f;
+#include "entities/entity_registry.h"
 
 // Validate the blade count required to generate a rotor surface.
 static bool ValidateRotorParams(const Newtonoid2dParams *params)
@@ -42,8 +41,7 @@ Newtonoid2d *RotorEntity_Create(const Newtonoid2dParams *params)
     }
 
     entity->shape_type = SHAPE_ROTOR;
-    entity->angular_velocity = rotor_angular_velocity;
-    entity->constraints |= ENTITY_CONSTRAINT_POSITION_LOCKED;
+    EntityLifecycle_ApplyAttachedComponent(entity, ENTITY_COMPONENT_ROTOR, NULL);
     Newtonoid_ConfigureRestitution(entity, params->restitution);
     Newtonoid_ConfigureFriction(entity, params->friction);
     return entity;

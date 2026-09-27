@@ -9,26 +9,41 @@
 #include "entities/entity_flags.h"
 #include "physics/newtonoid.h"
 
-typedef struct PortalDestination
+typedef struct PortalComponent
 {
-    EntityId portal_id;
-} PortalDestination;
+    EntityId owner_id;
+    EntityRoleFlags entrant_roles;
+    EntityId portal_destination_id;
+    int cooldown_frames;
+    EntityId cooldown_entity_id;
+    int cooldown_frames_remaining;
+} PortalComponent;
 
-typedef struct PortalEntity
+// Configurable portal component values supplied by a prefab or caller.
+typedef struct PortalComponentParams
 {
-    PortalDestination destination;
     EntityRoleFlags entrant_roles;
     int cooldown_frames;
-    EntityId cooldown_entity_id; // The entity currently on cooldown for this portal.
-    int cooldown_remaining;
+} PortalComponentParams;
+
+// A non-owning view joining a portal's base body and registered component.
+typedef struct PortalEntity
+{
+    Newtonoid2d *base;
+    PortalComponent *portal_component;
 } PortalEntity;
 
-// Create the physical portal and initialise its portal-specific state.
-Newtonoid2d *PortalEntity_Create(const Newtonoid2dParams *params, PortalEntity *out_portal);
+// Create the physical portal geometry; component initialization and attachment is handled by the factory.
+Newtonoid2d *PortalEntity_Create(const Newtonoid2dParams *params);
 
-// Initialise portal-specific state without assigning an entity identity.
-bool PortalEntity_Initialise(PortalEntity *portal, PortalDestination destination,
-                             EntityRoleFlags entrant_roles, int cooldown_frames);
+// Initialise runtime component state from prefab-configurable values.
+bool PortalComponent_Initialise(PortalComponent *component, const PortalComponentParams *params);
+
+// Resolve a transient view from the registry; do not retain across storage changes.
+PortalEntity PortalEntity_GetView(EntityId entity_id);
+
+// Return whether portal component cooldown values are valid.
+bool PortalComponent_IsValid(const PortalComponent *component);
 
 // Return whether the portal state contains the minimum values required by mechanics.
 bool PortalEntity_IsValid(const PortalEntity *portal);

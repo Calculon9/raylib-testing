@@ -724,3 +724,40 @@ ViewSelector *PanelSystem_CreateStandardViewSelector(PanelSystem *panel,
         panel, toggle_cont, ui_standard_selector_button_size,
         labels, count, callback);
 }
+
+/**
+ * Apply standard styling to a view container.
+ * Sets border/fill colours from palette and enables dragging.
+ */
+void PanelSystem_StyleViewContainer(UIElement *container, const UIPalette *palette)
+{
+    if (!container || !palette)
+    {
+        return;
+    }
+
+    container->colour_border = palette->container_border;
+    container->colour_fill = palette->container_fill;
+    container->is_draggable = true;
+}
+
+/**
+ * Selects the first view if available and updates UI space.
+ */
+void PanelSystem_FinaliseInit(PanelSystem *panel, ViewSelector **selector_out)
+{
+    if (!panel)
+    {
+        return;
+    }
+
+    // Select the initial view after all panel views have been registered.
+    if (selector_out && panel->selectors.count > 0)
+    {
+        *selector_out = *((ViewSelector **)LArray_Get(&panel->selectors, 0));
+        PanelSystem_SelectView(*selector_out, 0);
+    }
+
+    // Perform final layout update.
+    UpdateUISpace(panel->root, panel->seed_box);
+}

@@ -6,7 +6,6 @@
 #include "system/systems.h"
 #include "system/ui_system.h"
 #include "system/universe_system.h"
-#include "world/universe.h"
 
 typedef InputRouteResult (*InputRouteHandler)(const InputFrame *input, InputRouteResult prior_result);
 

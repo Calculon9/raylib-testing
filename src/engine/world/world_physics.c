@@ -461,7 +461,7 @@ static void DispatchSensorTrigger(World2d *world, Newtonoid2d *sensor, Newtonoid
     }
 
     // Portal sensor: trigger teleportation to the paired destination portal.
-    PortalEntity *portal_component = EntityRegistry_GetPortal(sensor->id);
+    PortalComponent *portal_component = EntityRegistry_GetPortal(sensor->id);
     if (portal_component)
     {
         PortalSystem_RequestTeleport(world->universe, sensor->id, entrant->id);
@@ -547,7 +547,7 @@ bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, 
 
     // Collision masks are a cheap compatibility filter. SAT has already
     // confirmed the polygons overlap, removing broad-phase false positives.
-    if (!(a->collision_layers & b->roles) || !(b->collision_layers & a->roles))
+    if (!(a->collision_role_mask & b->roles) || !(b->collision_role_mask & a->roles))
         return false;
 
     ProjectileCollisionResult projectile_result = Projectile_HandleCollision(world, a, b);
@@ -817,8 +817,8 @@ void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container,
     if (!entity || !container || entity->parent_id != container->id)
         return;
 
-    if (!(entity->collision_layers & container->roles) ||
-        !(container->collision_layers & entity->roles))
+    if (!(entity->collision_role_mask & container->roles) ||
+        !(container->collision_role_mask & entity->roles))
         return;
 
     // The container's child coordinates are defined from (0,0) to its width and

@@ -35,12 +35,14 @@ ViewportRegion utility_panel_viewport = {0};
 // ============================================================================
 // Viewport Basis Vectors (used by SetViewportSpaceBasis / ResetViewportSpaceBasis)
 // ============================================================================
-static Vector2d lpanel_u = {1, 0};
-static Vector2d lpanel_v = {0, 1};
-static Vector2d rpanel_u = {1, 0};
-static Vector2d rpanel_v = {0, 1};
-static Vector2d entity_panel_u = {1, 0};
-static Vector2d entity_panel_v = {0, 1};
+// Consolidated viewport basis vectors - stores all (u, v) pairs for each viewport space
+static struct {
+    Vector2d u, v;
+} viewport_basis_data[VIEWPORT_SPACE_COUNT] = {
+    [VIEWPORT_SPACE_LPANEL] = {{1, 0}, {0, 1}},
+    [VIEWPORT_SPACE_RPANEL] = {{1, 0}, {0, 1}},
+    [VIEWPORT_SPACE_ENTITY_PANEL] = {{1, 0}, {0, 1}},
+};
 
 typedef struct ViewportBasisPair
 {
@@ -48,10 +50,11 @@ typedef struct ViewportBasisPair
     Vector2d *v;
 } ViewportBasisPair;
 
+// Pointers to basis vector pairs indexed by viewport space
 static const ViewportBasisPair viewport_basis_pairs[VIEWPORT_SPACE_COUNT] = {
-    [VIEWPORT_SPACE_LPANEL] = {&lpanel_u, &lpanel_v},
-    [VIEWPORT_SPACE_RPANEL] = {&rpanel_u, &rpanel_v},
-    [VIEWPORT_SPACE_ENTITY_PANEL] = {&entity_panel_u, &entity_panel_v},
+    [VIEWPORT_SPACE_LPANEL] = {&viewport_basis_data[VIEWPORT_SPACE_LPANEL].u, &viewport_basis_data[VIEWPORT_SPACE_LPANEL].v},
+    [VIEWPORT_SPACE_RPANEL] = {&viewport_basis_data[VIEWPORT_SPACE_RPANEL].u, &viewport_basis_data[VIEWPORT_SPACE_RPANEL].v},
+    [VIEWPORT_SPACE_ENTITY_PANEL] = {&viewport_basis_data[VIEWPORT_SPACE_ENTITY_PANEL].u, &viewport_basis_data[VIEWPORT_SPACE_ENTITY_PANEL].v},
 };
 
 static bool game_viewport_basis_override_enabled = false;
@@ -297,7 +300,7 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
     ConfigureViewportRegion(&lpanel_viewport,
                             ZERO_VECTOR_2D,
                             (Vector2d){floorf(left_panel_ratio * logical_screen.x), logical_screen.y},
-                            lpanel_u, lpanel_v,
+                            viewport_basis_data[VIEWPORT_SPACE_LPANEL].u, viewport_basis_data[VIEWPORT_SPACE_LPANEL].v,
                             (float)ui_pixels_per_unit,
                             &screen_frame);
 
@@ -305,7 +308,7 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
     ConfigureViewportRegion(&rpanel_viewport,
                             (Vector2d){logical_screen.x - lpanel_viewport.resolution.x, 0.0f},
                             logical_screen,
-                            rpanel_u, rpanel_v,
+                            viewport_basis_data[VIEWPORT_SPACE_RPANEL].u, viewport_basis_data[VIEWPORT_SPACE_RPANEL].v,
                             (float)ui_pixels_per_unit,
                             &screen_frame);
 
@@ -324,7 +327,7 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
     ConfigureViewportRegion(&entity_panel_viewport,
                             (Vector2d){0.0f, game_viewport.local_end.y},
                             (Vector2d){logical_screen.x - utility_width, logical_screen.y},
-                            entity_panel_u, entity_panel_v,
+                            viewport_basis_data[VIEWPORT_SPACE_ENTITY_PANEL].u, viewport_basis_data[VIEWPORT_SPACE_ENTITY_PANEL].v,
                             (float)ui_pixels_per_unit,
                             &screen_frame);
 
@@ -332,7 +335,7 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
     ConfigureViewportRegion(&utility_panel_viewport,
                             (Vector2d){logical_screen.x - utility_width, game_viewport.local_end.y},
                             logical_screen,
-                            entity_panel_u, entity_panel_v,
+                            viewport_basis_data[VIEWPORT_SPACE_ENTITY_PANEL].u, viewport_basis_data[VIEWPORT_SPACE_ENTITY_PANEL].v,
                             (float)ui_pixels_per_unit,
                             &screen_frame);
 

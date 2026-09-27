@@ -5,7 +5,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Find active runtime source files relative to this folder
 file(GLOB_RECURSE SOURCE_FILES CONFIGURE_DEPENDS *.c)
 
-# Keep deprecated and generated trees out of the build surface.
+# Keep archived, deprecated, and generated trees out of the build surface.
+list(FILTER SOURCE_FILES EXCLUDE REGEX "/_archived/")
 list(FILTER SOURCE_FILES EXCLUDE REGEX "/DEPRECATED/")
 list(FILTER SOURCE_FILES EXCLUDE REGEX "/CMakeFiles/")
 

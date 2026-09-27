@@ -51,6 +51,7 @@ typedef struct EntityRegistry
     ComponentStore gear_components;
     ComponentStore portal_components;
     ComponentStore relation_components;
+    ComponentStore health_components;
     bool is_initialised;        // Initialisation state flag.
 } EntityRegistry;
 
@@ -275,8 +276,9 @@ void EntityRegistry_Init(void)
     bool component_stores_ready =
         ComponentStore_Init(&registry.rotor_components, sizeof(RotorComponent), 8) &&
         ComponentStore_Init(&registry.gear_components, sizeof(GearComponent), 8) &&
-        ComponentStore_Init(&registry.portal_components, sizeof(PortalEntity), 8) &&
-        ComponentStore_Init(&registry.relation_components, sizeof(RelationComponent), 8);
+        ComponentStore_Init(&registry.portal_components, sizeof(PortalComponent), 8) &&
+        ComponentStore_Init(&registry.relation_components, sizeof(RelationComponent), 8) &&
+        ComponentStore_Init(&registry.health_components, sizeof(HealthComponent), 8);
 
     if (!component_stores_ready)
     {
@@ -285,6 +287,7 @@ void EntityRegistry_Init(void)
         ComponentStore_Clear(&registry.gear_components);
         ComponentStore_Clear(&registry.portal_components);
         ComponentStore_Clear(&registry.relation_components);
+        ComponentStore_Clear(&registry.health_components);
         ClearSlotMap(&registry.id_slots);
         return;
     }
@@ -305,6 +308,7 @@ void EntityRegistry_Shutdown(void)
     ComponentStore_Clear(&registry.gear_components);
     ComponentStore_Clear(&registry.portal_components);
     ComponentStore_Clear(&registry.relation_components);
+    ComponentStore_Clear(&registry.health_components);
     registry.is_initialised = false;
 }
 
@@ -335,7 +339,7 @@ void EntityRegistry_ReleaseId(EntityId entity_id)
     }
 
     // Also remove any attached components before invalidating the ID.
-    for (int type = 1; type <= ENTITY_COMPONENT_RELATION; type++)
+    for (int type = 1; type <= ENTITY_COMPONENT_HEALTH; type++)
     {
         EntityRegistry_RemoveComponent(entity_id, (EntityComponentType)type);
     }
@@ -469,7 +473,7 @@ EntityDescription EntityRegistry_Describe(const Newtonoid2d *object)
     }
 
     desc.id = object->id;
-    for (int type = 1; type <= ENTITY_COMPONENT_RELATION; type++)
+    for (int type = 1; type <= ENTITY_COMPONENT_HEALTH; type++)
     {
         desc.components[type] = EntityRegistry_GetComponent(object->id, (EntityComponentType)type);
     }
@@ -492,13 +496,15 @@ bool EntityRegistry_AttachComponent(EntityId entity_id, EntityComponentType type
     switch (type)
     {
     case ENTITY_COMPONENT_PORTAL:
-        return EntityRegistry_AttachPortal(entity_id, (const PortalEntity *)component_data);
+        return EntityRegistry_AttachPortal(entity_id, (const PortalComponent *)component_data);
     case ENTITY_COMPONENT_ROTOR:
         return EntityRegistry_AttachRotor(entity_id, (const RotorComponent *)component_data);
     case ENTITY_COMPONENT_GEAR:
         return EntityRegistry_AttachGear(entity_id, (const GearComponent *)component_data);
     case ENTITY_COMPONENT_RELATION:
         return EntityRegistry_AttachRelation(entity_id, (const RelationComponent *)component_data);
+    case ENTITY_COMPONENT_HEALTH:
+        return EntityRegistry_AttachHealth(entity_id, (const HealthComponent *)component_data);
     case ENTITY_COMPONENT_NONE:
     default:
         return false;
@@ -518,6 +524,8 @@ void *EntityRegistry_GetComponent(EntityId entity_id, EntityComponentType type)
         return (void *)EntityRegistry_GetGear(entity_id);
     case ENTITY_COMPONENT_RELATION:
         return (void *)EntityRegistry_GetRelation(entity_id);
+    case ENTITY_COMPONENT_HEALTH:
+        return (void *)EntityRegistry_GetHealth(entity_id);
     case ENTITY_COMPONENT_NONE:
     default:
         return NULL;
@@ -537,6 +545,8 @@ bool EntityRegistry_RemoveComponent(EntityId entity_id, EntityComponentType type
         return EntityRegistry_RemoveGear(entity_id);
     case ENTITY_COMPONENT_RELATION:
         return EntityRegistry_RemoveRelation(entity_id);
+    case ENTITY_COMPONENT_HEALTH:
+        return EntityRegistry_RemoveHealth(entity_id);
     case ENTITY_COMPONENT_NONE:
     default:
         return false;
@@ -567,10 +577,8 @@ void EntityLifecycle_ApplyAttachedComponent(Newtonoid2d *entity, EntityComponent
     case ENTITY_COMPONENT_PORTAL:
         // Configure portal sensor properties and position lock.
         entity->capabilities |= ENTITY_CAPABILITY_SENSOR;
-        entity->constraints |= (ENTITY_CONSTRAINT_POSITION_LOCKED |
-                    ENTITY_CONSTRAINT_NO_CONTACT_RESPONSE);
-        entity->capabilities &= ~ENTITY_CAPABILITY_DAMAGEABLE;
-        entity->collision_layers = COLLISION_LAYER_NONE;
+        entity->constraints |= (ENTITY_CONSTRAINT_POSITION_LOCKED | ENTITY_CONSTRAINT_NO_CONTACT_RESPONSE);
+        entity->collision_role_mask = ENTITY_ROLE_NONE;
         break;
 
     case ENTITY_COMPONENT_ROTOR:
@@ -591,6 +599,10 @@ void EntityLifecycle_ApplyAttachedComponent(Newtonoid2d *entity, EntityComponent
         }
         break;
 
+    case ENTITY_COMPONENT_HEALTH:
+        entity->capabilities |= ENTITY_CAPABILITY_DAMAGEABLE;
+        break;
+
     case ENTITY_COMPONENT_RELATION:
     case ENTITY_COMPONENT_NONE:
     default:
@@ -609,15 +621,14 @@ void EntityLifecycle_ApplyDetachedComponent(Newtonoid2d *entity, EntityComponent
     switch (type)
     {
     case ENTITY_COMPONENT_PORTAL:
-        // Revert sensor and no-contact flags, restoring damageable capability.
+        // Revert portal sensor and no-contact flags.
         entity->capabilities &= ~ENTITY_CAPABILITY_SENSOR;
         entity->constraints &= ~ENTITY_CONSTRAINT_NO_CONTACT_RESPONSE;
-        entity->capabilities |= ENTITY_CAPABILITY_DAMAGEABLE;
 
         // Restore standard collision mask if it was cleared by the portal.
-        if (entity->collision_layers == COLLISION_LAYER_NONE)
+        if (entity->collision_role_mask == ENTITY_ROLE_NONE)
         {
-            entity->collision_layers = COLLISION_LAYER_NEWTONOID | COLLISION_LAYER_PROJECTILE | COLLISION_LAYER_WALL;
+            entity->collision_role_mask = ENTITY_DEFAULT_COLLISION_ROLE_MASK;
         }
 
         // Release position lock only if neither rotor nor gear is still attached.
@@ -646,6 +657,10 @@ void EntityLifecycle_ApplyDetachedComponent(Newtonoid2d *entity, EntityComponent
         {
             entity->constraints &= ~ENTITY_CONSTRAINT_POSITION_LOCKED;
         }
+        break;
+
+    case ENTITY_COMPONENT_HEALTH:
+        entity->capabilities &= ~ENTITY_CAPABILITY_DAMAGEABLE;
         break;
 
     case ENTITY_COMPONENT_RELATION:
@@ -773,10 +788,11 @@ bool EntityRegistry_RemoveGear(EntityId entity_id)
 // Component Accessors - Portal Component
 // ============================================================================
 
-// Attach a PortalEntity to an EntityId. Returns false if entity already has a component.
-bool EntityRegistry_AttachPortal(EntityId entity_id, const PortalEntity *portal)
+// Attach a PortalComponent to an EntityId. Returns false if entity already has a component.
+bool EntityRegistry_AttachPortal(EntityId entity_id, const PortalComponent *portal)
 {
-    if (!registry.is_initialised || !portal || !EntityRegistry_IsIdActive(entity_id))
+    if (!registry.is_initialised || !PortalComponent_IsValid(portal) ||
+        !EntityRegistry_IsIdActive(entity_id))
     {
         return false;
     }
@@ -797,18 +813,18 @@ bool EntityRegistry_AttachPortal(EntityId entity_id, const PortalEntity *portal)
     return true;
 }
 
-// Retrieve the PortalEntity attached to an EntityId, or NULL if not attached.
-PortalEntity *EntityRegistry_GetPortal(EntityId entity_id)
+// Retrieve the PortalComponent attached to an EntityId, or NULL if not attached.
+PortalComponent *EntityRegistry_GetPortal(EntityId entity_id)
 {
     if (!registry.is_initialised || !EntityRegistry_IsIdActive(entity_id))
     {
         return NULL;
     }
 
-    return (PortalEntity *)ComponentStore_Get(&registry.portal_components, entity_id);
+    return (PortalComponent *)ComponentStore_Get(&registry.portal_components, entity_id);
 }
 
-// Remove the PortalEntity from an EntityId. Returns false if no portal was attached.
+// Remove the PortalComponent from an EntityId. Returns false if no portal was attached.
 bool EntityRegistry_RemovePortal(EntityId entity_id)
 {
     if (!registry.is_initialised || !EntityRegistry_IsIdActive(entity_id))
@@ -823,17 +839,14 @@ bool EntityRegistry_RemovePortal(EntityId entity_id)
         EntityLifecycle_ApplyDetachedComponent(entity, ENTITY_COMPONENT_PORTAL);
     }
 
-    // Clean up any bidirectional portal links involving this entity.
-    RelationComponent *relation = EntityRegistry_GetRelation(entity_id);
-    if (relation && relation->type == RELATION_PORTAL_LINKED)
+    // Clear the other endpoint's destination before removing this component.
+    PortalComponent *portal = EntityRegistry_GetPortal(entity_id);
+    if (portal && portal->portal_destination_id != INVALID_ENTITY_ID)
     {
-        EntityId target_id = relation->target_entity;
-        EntityRegistry_RemoveRelation(entity_id);
-        RelationComponent *target_relation = EntityRegistry_GetRelation(target_id);
-        if (target_relation && target_relation->type == RELATION_PORTAL_LINKED &&
-            target_relation->target_entity == entity_id)
+        PortalComponent *target = EntityRegistry_GetPortal(portal->portal_destination_id);
+        if (target && target->portal_destination_id == entity_id)
         {
-            EntityRegistry_RemoveRelation(target_id);
+            target->portal_destination_id = INVALID_ENTITY_ID;
         }
     }
 
@@ -880,4 +893,52 @@ bool EntityRegistry_RemoveRelation(EntityId entity_id)
     }
 
     return ComponentStore_Remove(&registry.relation_components, entity_id);
+}
+
+// Attach a HealthComponent to an EntityId and enable its damageable capability.
+bool EntityRegistry_AttachHealth(EntityId entity_id, const HealthComponent *health)
+{
+    if (!registry.is_initialised || !HealthComponent_IsValid(health) ||
+        !EntityRegistry_IsIdActive(entity_id) ||
+        !ComponentStore_Attach(&registry.health_components, entity_id, health))
+    {
+        return false;
+    }
+
+    Newtonoid2d *entity = EntityRegistry_GetEntity(entity_id);
+    if (entity)
+    {
+        EntityLifecycle_ApplyAttachedComponent(entity, ENTITY_COMPONENT_HEALTH, health);
+    }
+
+    return true;
+}
+
+// Retrieve the HealthComponent attached to an EntityId, or NULL if not attached.
+HealthComponent *EntityRegistry_GetHealth(EntityId entity_id)
+{
+    if (!registry.is_initialised || !EntityRegistry_IsIdActive(entity_id))
+    {
+        return NULL;
+    }
+
+    return (HealthComponent *)ComponentStore_Get(&registry.health_components, entity_id);
+}
+
+// Remove a HealthComponent from an EntityId and clear its damageable capability.
+bool EntityRegistry_RemoveHealth(EntityId entity_id)
+{
+    if (!registry.is_initialised || !EntityRegistry_IsIdActive(entity_id) ||
+        !EntityRegistry_GetHealth(entity_id))
+    {
+        return false;
+    }
+
+    Newtonoid2d *entity = EntityRegistry_GetEntity(entity_id);
+    if (entity)
+    {
+        EntityLifecycle_ApplyDetachedComponent(entity, ENTITY_COMPONENT_HEALTH);
+    }
+
+    return ComponentStore_Remove(&registry.health_components, entity_id);
 }

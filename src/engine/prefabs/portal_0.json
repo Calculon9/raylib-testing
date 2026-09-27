@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "name": "",
+  "prefab_id": "portal_0",
+  "preset": "portal",
+  "components": {
+    "portal": {
+      "entrant_roles": ["newtonoid", "projectile"],
+      "cooldown_frames": 30
+    },
+    "physics": {
+      "width": 0.666,
+      "height": 1.0,
+      "mass": 1.0,
+      "restitution": 0.9,
+      "friction": 0.5,
+      "velocity": [0.0, 0.0],
+      "acceleration": [0.0, 0.0]
+    }
+  }
+}

@@ -42,7 +42,7 @@ static bool BuildNewtonoid2d(Newtonoid2d *out_object, ShapeType shape_type,
 
 // Configure the metadata shared by all Newtonoid creation paths.
 void Newtonoid_ConfigureMetadata(Newtonoid2d *object, EntityRoleFlags roles,
-                                 EntityCollisionLayerFlags collision_layers, EntityCapabilityFlags capabilities,
+                                 EntityRoleFlags collision_role_mask, EntityCapabilityFlags capabilities,
                                  EntityConstraintFlags constraints, EntityStatusFlags status_flags,
                                  ColourRgba line_colour, ColourRgba fill_colour)
 {
@@ -52,7 +52,7 @@ void Newtonoid_ConfigureMetadata(Newtonoid2d *object, EntityRoleFlags roles,
    }
 
    object->roles = roles;
-   object->collision_layers = collision_layers;
+   object->collision_role_mask = collision_role_mask;
    object->capabilities = capabilities;
    object->constraints = constraints;
    object->status_flags = status_flags;
@@ -64,42 +64,10 @@ void Newtonoid_ConfigureMetadata(Newtonoid2d *object, EntityRoleFlags roles,
 static void ConfigureNewtonoidBase(Newtonoid2d *object)
 {
    Newtonoid_ConfigureMetadata(object, ENTITY_ROLE_NEWTONOID,
-                               COLLISION_LAYER_WALL | COLLISION_LAYER_NEWTONOID | COLLISION_LAYER_PROJECTILE,
-                               ENTITY_CAPABILITY_NONE, ENTITY_CONSTRAINT_RIGID,
+                               ENTITY_DEFAULT_COLLISION_ROLE_MASK,
+                               ENTITY_CAPABILITY_NONE, ENTITY_CONSTRAINT_NONE,
                                ENTITY_STATUS_FLAG_ALIVE,
                                COLOUR_LINE_DEFAULT, COLOUR_FILL_DEFAULT);
-}
-
-// Set an entity's maximum and current health to the supplied non-negative value.
-void Newtonoid_ConfigureHealth(Newtonoid2d *object, float max_health)
-{
-   if (!object)
-   {
-      return;
-   }
-
-   object->max_health = max_health > 0.0f ? max_health : 0.0f;
-   object->health = object->max_health;
-}
-
-// Return whether an entity is alive and configured to receive damage.
-bool IsDamageable(const Newtonoid2d *entity)
-{
-   return entity && (entity->capabilities & ENTITY_CAPABILITY_DAMAGEABLE) != 0 &&
-          entity->max_health > 0.0f && (entity->status_flags & ENTITY_STATUS_FLAG_ALIVE) != 0;
-}
-
-// Apply damage and clear the alive status when health reaches zero.
-bool ApplyEntityDamage(Newtonoid2d *entity, float damage)
-{
-   if (!IsDamageable(entity) || damage <= 0.0f)
-   {
-      return false;
-   }
-
-   entity->health = 0.0f;
-   entity->status_flags &= ~ENTITY_STATUS_FLAG_ALIVE;
-   return true;
 }
 
 // Put an entity to sleep and clear residual motion so the state is stable.
@@ -269,8 +237,6 @@ static bool BuildNewtonoid2d(Newtonoid2d *out_object, ShapeType shape_type,
    out_object->angular_acceleration = 0.0f;
    out_object->capabilities = ENTITY_CAPABILITY_NONE;
    out_object->constraints = ENTITY_CONSTRAINT_NONE;
-   out_object->health = 0.0f;
-   out_object->max_health = 0.0f;
    out_object->surface = surface;
    RebuildNewtonoidGeometry(out_object);
    out_object->momentum.x = out_object->mass * out_object->velocity.x;
@@ -706,7 +672,7 @@ Matrix2x2 UpdateEntityBounds(Newtonoid2d *object, Vector2d out_world_vertices[MA
 // Legacy Utility Functions - do not delete
 //----------------------------------------------------------------------------------
 
-// Configure an entity to accept collisions with every defined entity category.
+// Configure an entity to accept collisions with every defined entity role.
 // void Newtonoid_ConfigureUniversalCollisionMask(Newtonoid2d *object)
 // {
 //    if (!object)
@@ -714,9 +680,9 @@ Matrix2x2 UpdateEntityBounds(Newtonoid2d *object, Vector2d out_world_vertices[MA
 //       return;
 //    }
 
-//    object->collision_layers = COLLISION_LAYER_WALL | COLLISION_LAYER_NEWTONOID |
-//                               COLLISION_LAYER_PROJECTILE | COLLISION_LAYER_EFFECT |
-//                               COLLISION_LAYER_CAMERA;
+//    object->collision_role_mask = ENTITY_ROLE_WALL | ENTITY_ROLE_NEWTONOID |
+//                                  ENTITY_ROLE_PROJECTILE | ENTITY_ROLE_EFFECT |
+//                                  ENTITY_ROLE_CAMERA;
 // }
 
 // void RotateEntity(Newtonoid2d *entity, float radians)

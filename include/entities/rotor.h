@@ -18,6 +18,13 @@ typedef struct RotorComponent
     unsigned char reserved;
 } RotorComponent;
 
+// Configurable rotor component values supplied by a prefab or caller.
+typedef struct RotorComponentParams
+{
+    // Currently a placeholder; no configurable parameters yet.
+    unsigned char reserved;
+} RotorComponentParams;
+
 // Create an allocated rotor entity from the supplied creation parameters.
 Newtonoid2d *RotorEntity_Create(const Newtonoid2dParams *params);
 

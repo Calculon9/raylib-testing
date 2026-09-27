@@ -25,7 +25,7 @@ typedef struct ProjectileDefinition
     float speed;
     float damage;
     int lifetime_frames;
-    EntityCollisionLayerFlags collision_layers;
+    EntityRoleFlags collision_role_mask;
     EntityCapabilityFlags capabilities;
     EntityConstraintFlags constraints;
     ColourRgba line_colour;

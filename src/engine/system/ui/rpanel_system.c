@@ -2,8 +2,7 @@
 
 #include "system/systems.h"
 #include "system/ui_system.h"
-#include "world/world.h"
-#include "world/universe.h"
+#include "system/universe_system.h"
 #include "system/viewport_system.h"
 #include "ui/ui_constructors.h"
 #include "system/panel_system.h"
@@ -171,15 +170,8 @@ void InitRPanel(void)
     InitRPanelStateView();
     InitRPanelCreateView();
 
-    // Select the initial view after both panel views have been registered.
-    if (rpanel->selectors.count > 0)
-    {
-        rpanel_view_selector = *((ViewSelector **)LArray_Get(&rpanel->selectors, 0));
-        PanelSystem_SelectView(rpanel_view_selector, 0);
-    }
-
-    // Initial layout update
-    UpdateUISpace(rpanel->root, rpanel->seed_box);
+    // Finalise: select first view and update layout
+    PanelSystem_FinaliseInit(rpanel, &rpanel_view_selector);
 }
 
 void DrawRPanel(void)

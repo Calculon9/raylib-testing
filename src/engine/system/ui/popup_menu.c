@@ -1,12 +1,12 @@
 #include "system/ui/popup_menu.h"
 
+#include "entities/entity_prefab.h"
 #include "system/panel_system.h"
 #include "system/command_queue.h"
 #include "system/universe_system.h"
 #include "system/ui_system.h"
 #include "system/viewport_system.h"
 #include "ui/ui_constructors.h"
-#include "world/universe.h"
 #include "world/world_internal.h"
 
 static PanelSystem *popup_menu = NULL;
@@ -28,8 +28,6 @@ static const Size popup_view_selector_size = {{3.75f, 0.5f}, SIZE_FIXED};
 static const Size popup_view_selector_button_size = {{1.875f, 0.5f}, SIZE_FIXED};
 static const Size popup_menu_view_size = {{3.75f, 5.0f}, SIZE_FIXED};
 static const Size popup_create_entity_submenu_size = UI_SIZE_CONTENT;
-static const float popup_portal_width = 0.666f;
-static const float popup_portal_height = 1.0f;
 static const Vector2d popup_view_selector_offset = {0.0f, 0.0f};
 static const Vector2d popup_menu_view_offset = {0.0f, 0.5f};
 static const Vector2d popup_create_entity_submenu_offset = {3.75f, 0.5f};
@@ -43,15 +41,15 @@ static void InitCreateWorldSubmenu(void);
 typedef struct
 {
     ShapeType shape;
-    EntityPreset preset;
+    unsigned int component_flags;
 } PopupCreateAction;
 
-static PopupCreateAction popup_triangle_action = {SHAPE_TRIANGLE, ENTITY_PRESET_STANDARD};
-static PopupCreateAction popup_square_action = {SHAPE_SQUARE, ENTITY_PRESET_STANDARD};
-static PopupCreateAction popup_circle_action = {SHAPE_CIRCLE, ENTITY_PRESET_STANDARD};
-static PopupCreateAction popup_rotor_action = {SHAPE_AUTO, ENTITY_PRESET_ROTOR};
-static PopupCreateAction popup_gear_action = {SHAPE_AUTO, ENTITY_PRESET_GEAR};
-static PopupCreateAction popup_portal_action = {SHAPE_AUTO, ENTITY_PRESET_PORTAL};
+static PopupCreateAction popup_triangle_action = {SHAPE_TRIANGLE, 0};
+static PopupCreateAction popup_square_action = {SHAPE_SQUARE, 0};
+static PopupCreateAction popup_circle_action = {SHAPE_CIRCLE, 0};
+static PopupCreateAction popup_rotor_action = {SHAPE_AUTO, CREATION_COMPONENT_ROTOR};
+static PopupCreateAction popup_gear_action = {SHAPE_AUTO, CREATION_COMPONENT_GEAR};
+static PopupCreateAction popup_portal_action = {SHAPE_AUTO, CREATION_COMPONENT_PORTAL};
 
 typedef struct
 {
@@ -108,20 +106,37 @@ static void HandlePopupCreateClick(UIElement *button)
         return;
     }
 
-    switch (action->preset)
+    // Handle rotor: set vertex count.
+    if (action->component_flags & CREATION_COMPONENT_ROTOR)
     {
-    case ENTITY_PRESET_ROTOR:
         G_UIState.entity_create_params->physics.vertice_count = 4;
-        break;
-    case ENTITY_PRESET_GEAR:
+    }
+    // Handle gear: set vertex count.
+    else if (action->component_flags & CREATION_COMPONENT_GEAR)
+    {
         G_UIState.entity_create_params->physics.vertice_count = 8;
-        break;
-    case ENTITY_PRESET_PORTAL:
-        G_UIState.entity_create_params->physics.vertice_count = MAX_SHAPE_VERTICES;
-        G_UIState.entity_create_params->physics.width = popup_portal_width;
-        G_UIState.entity_create_params->physics.height = popup_portal_height;
-        break;
-    case ENTITY_PRESET_STANDARD:
+    }
+    // Handle portal: load from prefab and return.
+    else if (action->component_flags & CREATION_COMPONENT_PORTAL)
+    {
+        EntityCreateParams portal_params = {0};
+        if (!EntityPrefab_LoadFile("prefabs/portal_0.json", &portal_params))
+        {
+            return;
+        }
+
+        portal_params.physics.anchor_position = popup_spawn_position;
+        if (!EnqueueCreateEntity(&portal_params))
+        {
+            return;
+        }
+
+        HidePopupMenu();
+        return;
+    }
+    // Handle standard entity: set vertex count based on shape.
+    else
+    {
         switch (action->shape)
         {
         case SHAPE_TRIANGLE:
@@ -136,12 +151,11 @@ static void HandlePopupCreateClick(UIElement *button)
         default:
             return;
         }
-        break;
     }
 
     G_UIState.entity_create_params->physics.shape_type =
-        action->preset == ENTITY_PRESET_STANDARD ? action->shape : SHAPE_AUTO;
-    G_UIState.entity_create_params->preset = action->preset;
+        (action->component_flags & (CREATION_COMPONENT_ROTOR | CREATION_COMPONENT_GEAR)) ? SHAPE_AUTO : action->shape;
+    G_UIState.entity_create_params->component_flags = action->component_flags;
     G_UIState.entity_create_params->physics.anchor_position = popup_spawn_position;
     EnqueueCreateEntity(G_UIState.entity_create_params);
     HidePopupMenu();

@@ -4,20 +4,19 @@
  *
  **********************************************************************************************/
 #include "system/entities/portal_system.h"
-#include "system/entities/relation_system.h"
 #include "entities/entity_registry.h"
 #include "system/command_queue.h"
 #include "world/universe.h"
 
 // Return whether this portal is currently suppressing re-entry by an entity.
-static bool PortalSystem_IsOnCooldown(const PortalEntity *portal, EntityId entity_id)
+static bool PortalSystem_IsOnCooldown(const PortalComponent *portal, EntityId entity_id)
 {
-    return portal && portal->cooldown_remaining > 0 &&
+    return portal && portal->cooldown_frames_remaining > 0 &&
            portal->cooldown_entity_id == entity_id;
 }
 
 // Apply one side of a portal pair's cooldown state to the entering entity.
-static void PortalSystem_StartCooldown(PortalEntity *portal, EntityId entity_id)
+static void PortalSystem_StartCooldown(PortalComponent *portal, EntityId entity_id)
 {
     if (!portal)
     {
@@ -25,7 +24,7 @@ static void PortalSystem_StartCooldown(PortalEntity *portal, EntityId entity_id)
     }
 
     portal->cooldown_entity_id = entity_id;
-    portal->cooldown_remaining = portal->cooldown_frames;
+    portal->cooldown_frames_remaining = portal->cooldown_frames;
 }
 
 // Link two registered portal entities so each endpoint resolves the other as destination.
@@ -36,35 +35,35 @@ bool PortalSystem_LinkPair(EntityId first_portal_id, EntityId second_portal_id)
         return false;
     }
 
-    PortalEntity *first_portal = EntityRegistry_GetPortal(first_portal_id);
-    PortalEntity *second_portal = EntityRegistry_GetPortal(second_portal_id);
-    if (!first_portal || !second_portal)
+    PortalEntity first_portal = PortalEntity_GetView(first_portal_id);
+    PortalEntity second_portal = PortalEntity_GetView(second_portal_id);
+    if (!PortalEntity_IsValid(&first_portal) || !PortalEntity_IsValid(&second_portal))
     {
         return false;
     }
 
-    if (!PortalEntity_IsValid(first_portal) || !PortalEntity_IsValid(second_portal))
+    PortalComponent *first_component = first_portal.portal_component;
+    PortalComponent *second_component = second_portal.portal_component;
+
+    if ((first_component->portal_destination_id != INVALID_ENTITY_ID &&
+         first_component->portal_destination_id != second_portal_id) ||
+        (second_component->portal_destination_id != INVALID_ENTITY_ID &&
+         second_component->portal_destination_id != first_portal_id))
     {
         return false;
     }
 
-    // Create bidirectional portal link relations.
-    // First portal links to second, second portal links to first.
-    if (!RelationSystem_Create(first_portal_id, RELATION_PORTAL_LINKED, second_portal_id) ||
-        !RelationSystem_Create(second_portal_id, RELATION_PORTAL_LINKED, first_portal_id))
-    {
-        return false;
-    }
-
-    // Reset cooldowns on both portals.
-    first_portal->cooldown_entity_id = INVALID_ENTITY_ID;
-    second_portal->cooldown_entity_id = INVALID_ENTITY_ID;
-    first_portal->cooldown_remaining = 0;
-    second_portal->cooldown_remaining = 0;
+    // Store the pair on the portal components and reset both cooldowns.
+    first_component->portal_destination_id = second_portal_id;
+    second_component->portal_destination_id = first_portal_id;
+    first_component->cooldown_entity_id = INVALID_ENTITY_ID;
+    second_component->cooldown_entity_id = INVALID_ENTITY_ID;
+    first_component->cooldown_frames_remaining = 0;
+    second_component->cooldown_frames_remaining = 0;
     return true;
 }
 
-// Check the portal and entity rules that are independent of world ownership.
+// Check the portal and entity rules.
 bool PortalSystem_IsEntityEligible(const PortalEntity *portal, EntityId portal_id, const Newtonoid2d *entity)
 {
     if (!PortalEntity_IsValid(portal) || portal_id == INVALID_ENTITY_ID ||
@@ -78,13 +77,13 @@ bool PortalSystem_IsEntityEligible(const PortalEntity *portal, EntityId portal_i
         return false;
     }
 
-    if (EntityRegistry_GetPortal(entity->id) || PortalSystem_IsOnCooldown(portal, entity->id))
+    if (EntityRegistry_GetPortal(entity->id) || PortalSystem_IsOnCooldown(portal->portal_component, entity->id))
     {
         return false;
     }
 
-    return portal->entrant_roles == ENTITY_ROLE_NONE ||
-           (entity->roles & portal->entrant_roles) != ENTITY_ROLE_NONE;
+    return portal->portal_component->entrant_roles == ENTITY_ROLE_NONE ||
+           (entity->roles & portal->portal_component->entrant_roles) != ENTITY_ROLE_NONE;
 }
 
 // Update cooldown state for all portal entities in a world. Called once per frame during system updates.
@@ -99,14 +98,14 @@ void PortalSystem_Update(World2d *world)
     for (int object_index = 0; object_index < world->objects.count; object_index++)
     {
         Newtonoid2d *object = &objects[object_index];
-        PortalEntity *portal = EntityRegistry_GetPortal(object->id);
-        if (!portal || portal->cooldown_remaining <= 0)
+        PortalComponent *portal = EntityRegistry_GetPortal(object->id);
+        if (!portal || portal->cooldown_frames_remaining <= 0)
         {
             continue;
         }
 
-        portal->cooldown_remaining--;
-        if (portal->cooldown_remaining == 0)
+        portal->cooldown_frames_remaining--;
+        if (portal->cooldown_frames_remaining == 0)
         {
             portal->cooldown_entity_id = INVALID_ENTITY_ID;
         }
@@ -116,44 +115,37 @@ void PortalSystem_Update(World2d *world)
 // Validate a portal entry and defer the same-world or cross-world transfer until the command phase.
 PortalTeleportResult PortalSystem_RequestTeleport(Universe *universe, EntityId portal_id, EntityId entity_id)
 {
-    PortalEntity *portal = EntityRegistry_GetPortal(portal_id);
-    if (!universe || !PortalEntity_IsValid(portal))
+    PortalEntity portal = PortalEntity_GetView(portal_id);
+    if (!universe || !PortalEntity_IsValid(&portal))
     {
         return PORTAL_TELEPORT_REJECTED;
     }
 
     int source_world_index = -1;
     Newtonoid2d *entity = Universe_GetEntityByID(universe, entity_id, &source_world_index);
-    if (!PortalSystem_IsEntityEligible(portal, portal_id, entity))
+    if (!PortalSystem_IsEntityEligible(&portal, portal_id, entity))
     {
         return PORTAL_TELEPORT_REJECTED;
     }
 
     int portal_world_index = -1;
-    Newtonoid2d *portal_entity = Universe_GetEntityByID(universe, portal_id, &portal_world_index);
-    if (!portal_entity || portal_world_index != source_world_index)
+    Newtonoid2d *portal_body = Universe_GetEntityByID(universe, portal_id, &portal_world_index);
+    if (!portal_body || portal_world_index != source_world_index)
     {
         return PORTAL_TELEPORT_REJECTED;
     }
 
-    // Query the portal's linked destination via relation.
-    RelationComponent *portal_relation = RelationSystem_GetRelation(portal_id);
-    if (!portal_relation || portal_relation->type != RELATION_PORTAL_LINKED || !portal_relation->is_active)
-    {
-        return PORTAL_TELEPORT_REJECTED;
-    }
-
-    EntityId destination_portal_id = portal_relation->target_entity;
+    EntityId destination_portal_id = portal.portal_component->portal_destination_id;
     if (destination_portal_id == INVALID_ENTITY_ID || destination_portal_id == portal_id)
     {
         return PORTAL_TELEPORT_REJECTED;
     }
 
-    PortalEntity *destination_portal = EntityRegistry_GetPortal(destination_portal_id);
+    PortalEntity destination_portal = PortalEntity_GetView(destination_portal_id);
     int destination_world_index = -1;
     Newtonoid2d *destination_entity = Universe_GetEntityByID(
         universe, destination_portal_id, &destination_world_index);
-    if (!destination_entity || !PortalEntity_IsValid(destination_portal) || PortalSystem_IsOnCooldown(destination_portal, entity_id))
+    if (!destination_entity || !PortalEntity_IsValid(&destination_portal) || PortalSystem_IsOnCooldown(destination_portal.portal_component, entity_id))
     {
         return PORTAL_TELEPORT_REJECTED;
     }
@@ -170,12 +162,12 @@ PortalTeleportResult PortalSystem_RequestTeleport(Universe *universe, EntityId p
                            destination_world_index,
                            destination_entity->parent_id,
                            destination_coordinates,
-                           entity->collision_layers))
+                           entity->collision_role_mask))
     {
         return PORTAL_TELEPORT_REJECTED;
     }
 
-    PortalSystem_StartCooldown(portal, entity_id);
-    PortalSystem_StartCooldown(destination_portal, entity_id);
+    PortalSystem_StartCooldown(portal.portal_component, entity_id);
+    PortalSystem_StartCooldown(destination_portal.portal_component, entity_id);
     return PORTAL_TELEPORT_QUEUED;
 }
