@@ -52,7 +52,7 @@ COMMON MODULE
     #define LOG_INFO(fmt, ...) ((void)0)
 #endif
 
-// 2. Global Math Constants
+// Global Math Constants
 #ifndef PI
     #define PI 3.14159265358979323846f
 #endif

@@ -1,5 +1,5 @@
-#ifndef COMMAND_QUEUE_H
-#define COMMAND_QUEUE_H
+#ifndef COMMAND_SYSTEM_H
+#define COMMAND_SYSTEM_H
 
 #include "entities/entity_flags.h"
 #include "entities/entity_factory.h"
@@ -16,6 +16,17 @@ typedef enum
     CMD_DELETE_WORLD = 6,
     CMD_ATTACH_COMPONENT = 7,
     CMD_REMOVE_COMPONENT = 8,
+    
+    // Toggle actions
+    CMD_TOGGLE_DEBUG_DASHBOARD = 100,
+    CMD_TOGGLE_VIEWPORT_GRID,
+    CMD_TOGGLE_WORLD_GRID,
+    CMD_TOGGLE_WORLD_GRID_LABELS,
+    CMD_TOGGLE_UNIVERSE_GRID_LABELS,
+    CMD_TOGGLE_UI_BORDERS,
+    CMD_TOGGLE_OBJECT_AXES,
+    CMD_TOGGLE_OBJECT_HULL,
+    CMD_TOGGLE_OBJECT_AABB,
 } CommandType;
 
 typedef struct
@@ -55,7 +66,16 @@ typedef struct
     } data;
 } Command;
 
-void InitCommandQueue(void);
+void InitCommandSystem(void);
+
+// Resolve command name strings to CommandType codes.
+// Returns 0 (CMD_NONE) if the command string is not recognised.
+int CommandSystem_ResolveString(const char *cmd_string);
+
+// Execute a command immediately (synchronous)
+void ExecuteCommand(CommandType type, const void *data);
+
+// Enqueue a command for deferred processing (next frame)
 bool EnqueueCreateEntity(const EntityCreateParams *params);
 bool EnqueueDeleteEntity(EntityId entity_id);
 bool EnqueueCreateWorld(void);
@@ -71,4 +91,3 @@ bool EnqueueRemoveComponent(EntityId entity_id, EntityComponentType component_ty
 void ProcessCommandQueue(void);
 
 #endif
-

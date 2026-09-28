@@ -266,6 +266,36 @@ UIElement *CreateUIContainer(UIElement *parent, Size size, Offset offset,
     return cont;
 }
 
+UIElement *CreateViewSection(UIElement *parent, const char *title,
+                            Size section_size, Offset section_offset,
+                            const Spacing *child_spacing,
+                            const UIPalette *palette)
+{
+    // Unified section constructor that accepts explicit offset and spacing.
+    // Allows declarative layout control from XML.
+    if (!child_spacing)
+    {
+        // Default to stacked layout if no spacing provided
+        child_spacing = &ui_standard_stack_spacing;
+    }
+    
+    UIElement *section = CreateUIContainer(
+        parent, section_size, section_offset,
+        ui_standard_container_padding, palette,
+        UI_PALETTE_SURFACE_CONTAINER, *child_spacing, true, true);
+    
+    if (!section)
+    {
+        return NULL;
+    }
+
+    // Use the dark ink used by panel controls for ViewSection edges.
+    section->colour_border = palette ? palette->button_border : ui_default_palette.button_border;
+    CreateUILabelDefault(section, title, ui_standard_button_size,
+                         ui_standard_field_padding, palette);
+    return section;
+}
+
 UIElement *CreateViewSection_Stack(UIElement *parent, const char *title,
                              Size section_size, const UIPalette *palette)
 {

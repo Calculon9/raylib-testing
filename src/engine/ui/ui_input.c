@@ -19,7 +19,7 @@
 #include "system/ui/rpanel_system.h"
 #include "system/ui/popup_menu.h"
 #include "world/universe.h"
-#include "system/command_queue.h"
+#include "system/command_system.h"
 #include "input/drag_interaction.h"
 
 //----------------------------------------------------------------------------------

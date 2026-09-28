@@ -1,6 +1,6 @@
 #include "system/ui/state_manager_system.h"
 #include <string.h>
-#include "system/command_queue.h"
+#include "system/command_system.h"
 #include "system/panel_system.h"
 #include "system/systems.h"
 #include "system/ui_system.h"

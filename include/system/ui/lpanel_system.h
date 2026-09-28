@@ -28,4 +28,8 @@ UIElement* GetLPanelRoot(void);
 // Get the panel system instance.
 struct PanelSystem *GetLPanelSystem(void);
 
+// Handle debug toggle button clicks for the left panel.
+// Called by the UI loader when a toggle-debug-* action is invoked.
+void HandleLPanelDebugToggleClick(UIElement *button);
+
 #endif

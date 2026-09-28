@@ -81,6 +81,10 @@ void PanelSystem_InitRoot(PanelSystem *panel);
 // Initialize the views array
 void PanelSystem_InitViews(PanelSystem *panel, size_t view_count);
 
+// Create a View struct with its container UIElement.
+// Independent of any panel; can be used standalone or registered with a panel later.
+View *View_Create(UIElement *parent, const UIPalette *palette, ViewType type);
+
 // Create a standard view container, allocate its View, register it, and return the panel-owned View.
 View *PanelSystem_CreateView(PanelSystem *panel, ViewType view_type);
 
@@ -152,6 +156,9 @@ PanelSystem *PanelSystem_CreateStandard(ViewportRegion *viewport, size_t view_co
 ViewSelector *PanelSystem_CreateStandardViewSelector(PanelSystem *panel,
                                                      const char *labels[], size_t count,
                                                      ViewSelectionCallback callback);
+
+// View selector button click handler; wires button clicks to view selection.
+void HandlePanelViewSelectorClick(UIElement *button);
 
 // Finalise panel initialisation: select first view and update UI space.
 // Common routine that reduces boilerplate across lpanel, rpanel, utility panel systems.

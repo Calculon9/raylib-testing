@@ -5,7 +5,7 @@
  **********************************************************************************************/
 #include "system/entities/portal_system.h"
 #include "entities/entity_registry.h"
-#include "system/command_queue.h"
+#include "system/command_system.h"
 #include "world/universe.h"
 
 // Return whether this portal is currently suppressing re-entry by an entity.

@@ -1,6 +1,8 @@
 #include "system/ui/lpanel_system.h"
-
+#include "system/ui/ui_loader.h"
+#include "system/command_system.h"
 #include "system/viewport_system.h"
+#include "system/ui/ui_state.h"
 #include "ui/ui.h"
 #include "system/ui_system.h"
 #include "entities/entity_factory.h"
@@ -8,6 +10,8 @@
 #include "ui/ui_constructors.h"
 #include "system/panel_system.h"
 #include "system/systems.h"
+#include <stdint.h>
+#include <string.h>
 
 // ============================================================================
 // Panel System
@@ -63,7 +67,7 @@ static const LPanelDebugToggle lpanel_debug_object_toggles[] = {
     {DEBUG_OBJECT_AABB, "Object AABB"},
 };
 
-static void HandleLPanelDebugToggleClick(UIElement *button)
+static void HandleLPanelDebugToggleClickInternal(UIElement *button)
 {
     if (!button || !button->data.button.user_data)
     {
@@ -74,6 +78,107 @@ static void HandleLPanelDebugToggleClick(UIElement *button)
     ToggleDebug(toggle->id);
     UpdateString64(button->data.button.label.string, "%s: %s", toggle->label,
                    IsDebugEnabled(toggle->id) ? "ON" : "OFF");
+}
+
+// ============================================================================
+// UI Loader Resolvers (Application-Specific)
+// ============================================================================
+
+/**
+ * Resolve data bindings for entity creation UI.
+ * Maps binding strings like "physics.width" to entity_create_params fields.
+ */
+static UIBinding LPanel_ResolveBinding(const char *binding_string, UILoaderContext *ctx)
+{
+    UIBinding binding = {NULL, FLOAT};  // Default: unresolved
+    
+    if (!binding_string || !G_UIState.entity_create_params)
+        return binding;
+    
+    // Parse binding string format: "component.field"
+    const char *dot_pos = strchr(binding_string, '.');
+    if (!dot_pos)
+        return binding;  // Invalid format
+    
+    int component_len = dot_pos - binding_string;
+    const char *field_name = dot_pos + 1;
+    
+    // Handle physics.* bindings for Newtonoid2dParams
+    if (component_len == 7 && !strncmp(binding_string, "physics", 7))
+    {
+        Newtonoid2dParams *physics = &G_UIState.entity_create_params->physics;
+        
+        // Map field names to addresses and types
+        if (!strcmp(field_name, "vertice_count"))
+        {
+            binding.address = &physics->vertice_count;
+            binding.data_type = INT;
+        }
+        else if (!strcmp(field_name, "width"))
+        {
+            binding.address = &physics->width;
+            binding.data_type = FLOAT;
+        }
+        else if (!strcmp(field_name, "height"))
+        {
+            binding.address = &physics->height;
+            binding.data_type = FLOAT;
+        }
+        else if (!strcmp(field_name, "mass"))
+        {
+            binding.address = &physics->mass;
+            binding.data_type = FLOAT;
+        }
+        else if (!strcmp(field_name, "restitution"))
+        {
+            binding.address = &physics->restitution;
+            binding.data_type = FLOAT;
+        }
+        else if (!strcmp(field_name, "friction"))
+        {
+            binding.address = &physics->friction;
+            binding.data_type = FLOAT;
+        }
+        else if (!strcmp(field_name, "radius"))
+        {
+            binding.address = &physics->radius;
+            binding.data_type = FLOAT;
+        }
+        else if (!strcmp(field_name, "anchor_position"))
+        {
+            binding.address = &physics->anchor_position;
+            binding.data_type = VECTOR2D;
+        }
+        else if (!strcmp(field_name, "velocity"))
+        {
+            binding.address = &physics->velocity;
+            binding.data_type = VECTOR2D;
+        }
+        else if (!strcmp(field_name, "acceleration"))
+        {
+            binding.address = &physics->acceleration;
+            binding.data_type = VECTOR2D;
+        }
+        else if (!strcmp(field_name, "momentum"))
+        {
+            binding.address = &physics->momentum;
+            binding.data_type = VECTOR2D;
+        }
+    }
+    // TODO: Add support for other components (portal.*, rotor.*, gear.*, health.*)
+    
+    return binding;
+}
+
+/**
+ * Resolve action strings to command codes (adapter for CommandSystem_ResolveString).
+ * This is a wrapper around the universal command system resolver, allowing application-specific
+ * logic to be added here if needed in the future.
+ */
+static int LPanel_ResolveCommand(const char *cmd_string, UILoaderContext *ctx)
+{
+    (void)ctx;  // Currently unused; provided for future application-specific context
+    return CommandSystem_ResolveString(cmd_string);
 }
 
 // Recalculate the left-panel UI tree immediately for layout debugging.
@@ -137,21 +242,63 @@ static void InitEntityCreateDefaults(void)
 
 void InitLPanel()
 {
-    const char *labels[] = {"STATE", "DRAW"};
-    lpanel = PanelSystem_CreateStandard(&lpanel_viewport, 2, labels, ARRAY_COUNT(labels),
-                                        PanelSystem_HandleViewSelected,
-                                        &ui_default_palette, ui_standard_stack_spacing);
-    if (!lpanel)
+    // Try to load from XML first with application-provided resolvers
+    UIElement *root = UILoader_LoadFromFileWithResolvers(
+        "C:\\Projects\\raylib-testing\\src\\engine\\ui\\components\\lpanel.xml",
+        &ui_default_palette,
+        LPanel_ResolveBinding,
+        LPanel_ResolveCommand,
+        NULL
+    );
+
+    if (root)
     {
+        // XML loaded successfully; extract Views from tree
+        size_t view_count = 0;
+        View **xml_views = UILoader_ExtractViews(root, &view_count);
+        
+        // Create panel infrastructure
+        const char *labels[] = {"STATE", "DRAW"};
+        lpanel = PanelSystem_CreateStandard(&lpanel_viewport, 2, labels, ARRAY_COUNT(labels),
+                                            PanelSystem_HandleViewSelected,
+                                            &ui_default_palette, ui_standard_stack_spacing);
+        if (lpanel)
+        {
+            lpanel->root = root;
+            
+            // Register XML-created Views with panel
+            for (size_t i = 0; i < view_count; i++)
+            {
+                LArray_Push(&lpanel->views, &xml_views[i]);
+            }
+            
+            // Free the array (not the Views, which panel now owns)
+            if (xml_views)
+            {
+                Deallocate((void **)&xml_views, sizeof(View *) * view_count);
+            }
+            
+            PanelSystem_FinaliseInit(lpanel, &lpanel_view_selector);
+        }
         return;
     }
 
-    // Build panel-specific UI
-    InitLPanelStateView();
-    InitLPanelEditView();
+    // Fallback: build panel-specific UI with hardcoded construction
+    // const char *labels[] = {"STATE", "DRAW"};
+    // lpanel = PanelSystem_CreateStandard(&lpanel_viewport, 2, labels, ARRAY_COUNT(labels),
+    //                                     PanelSystem_HandleViewSelected,
+    //                                     &ui_default_palette, ui_standard_stack_spacing);
+    // if (!lpanel)
+    // {
+    //     return;
+    // }
 
-    // Finalise: select first view and update layout
-    PanelSystem_FinaliseInit(lpanel, &lpanel_view_selector);
+    // // Build panel-specific UI
+    // InitLPanelStateView();
+    // InitLPanelEditView();
+
+    // // Finalise: select first view and update layout
+    // PanelSystem_FinaliseInit(lpanel, &lpanel_view_selector);
 }
 
 void InitLPanelStateView(void)
@@ -194,7 +341,7 @@ void InitLPanelStateView(void)
             UpdateString64(label.string, "%s: %s", toggle->label, IsDebugEnabled(toggle->id) ? "ON" : "OFF");
             CreateUIButtonDefault(section, UI_ELEMENT_BUTTON_SIMPLE, label.string,
                                   ui_wide_button_size, ui_standard_button_padding,
-                                  lpanel->palette, HandleLPanelDebugToggleClick, (void *)toggle, NULL);
+                                  lpanel->palette, HandleLPanelDebugToggleClickInternal, (void *)toggle, NULL);
         }
     }
 }

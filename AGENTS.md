@@ -14,6 +14,7 @@ Your job is to complete the requested task autonomously while preserving existin
 - Always add a description for functions.
 - Read code before making changes.
 - Use UK English
+- Look to unify new changes with existing systems & code rather than creating completely separate systems/code if compatible.
 - Make reasonable assumptions based on the repository.
 - Do not repeatedly search the same files.
 - Do not repeat failed actions.

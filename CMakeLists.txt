@@ -36,6 +36,50 @@ FetchContent_MakeAvailable(cjson)
 unset(CMAKE_POLICY_VERSION_MINIMUM)
 target_include_directories(cjson PUBLIC "$<BUILD_INTERFACE:${cjson_SOURCE_DIR}>")
 
+# Mini-XML uses Autotools, so build its upstream library sources directly.
+set(MINI_XML_VERSION 4.0.6)
+FetchContent_Populate(
+    mxml
+    URL https://github.com/michaelrsweet/mxml/releases/download/v${MINI_XML_VERSION}/mxml-${MINI_XML_VERSION}.tar.gz
+    URL_HASH SHA256=ec1af6f7a752f63649ad00cf7355cf36366ccf729658a1a4696270de8bd74854
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+
+include(CheckIncludeFile)
+check_include_file(pthread.h MINI_XML_PTHREAD_HEADER_FOUND)
+if(MINI_XML_PTHREAD_HEADER_FOUND)
+    find_package(Threads REQUIRED)
+endif()
+
+set(MINI_XML_CONFIG_HEADER
+    "#ifndef MXML_CONFIG_H\n#define MXML_CONFIG_H\n\n#define MXML_VERSION \"Mini-XML v${MINI_XML_VERSION}\"\n"
+)
+if(MINI_XML_PTHREAD_HEADER_FOUND AND CMAKE_USE_PTHREADS_INIT)
+    string(APPEND MINI_XML_CONFIG_HEADER "#define HAVE_PTHREAD_H 1\n")
+endif()
+string(APPEND MINI_XML_CONFIG_HEADER "\n#endif\n")
+file(MAKE_DIRECTORY "${mxml_BINARY_DIR}")
+file(WRITE "${mxml_BINARY_DIR}/config.h" "${MINI_XML_CONFIG_HEADER}")
+
+add_library(mxml STATIC
+    "${mxml_SOURCE_DIR}/mxml-attr.c"
+    "${mxml_SOURCE_DIR}/mxml-file.c"
+    "${mxml_SOURCE_DIR}/mxml-get.c"
+    "${mxml_SOURCE_DIR}/mxml-index.c"
+    "${mxml_SOURCE_DIR}/mxml-node.c"
+    "${mxml_SOURCE_DIR}/mxml-options.c"
+    "${mxml_SOURCE_DIR}/mxml-search.c"
+    "${mxml_SOURCE_DIR}/mxml-set.c"
+    "${mxml_SOURCE_DIR}/mxml-private.c"
+)
+target_include_directories(mxml
+    PUBLIC "${mxml_SOURCE_DIR}"
+    PRIVATE "${mxml_BINARY_DIR}"
+)
+target_compile_features(mxml PUBLIC c_std_99)
+if(MINI_XML_PTHREAD_HEADER_FOUND AND CMAKE_USE_PTHREADS_INIT)
+    target_link_libraries(mxml PUBLIC Threads::Threads)
+endif()
 # Our Project
 add_executable(${PROJECT_NAME})
 add_subdirectory(src)
@@ -64,6 +108,7 @@ endif()
 #set(raylib_VERBOSE 1)
 target_link_libraries(${PROJECT_NAME} raylib)
 target_link_libraries(${PROJECT_NAME} cjson)
+target_link_libraries(${PROJECT_NAME} mxml)
 
 # Web Configurations
 if ("${PLATFORM}" STREQUAL "Web")

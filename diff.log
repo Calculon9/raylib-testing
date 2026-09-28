@@ -1676,7 +1676,7 @@ index a1c955d..3256cca 100644
 @@ -12,6 +12,7 @@
  #include "system/job_system.h"
  #include "editor/geometry_editor.h"
- #include "system/command_queue.h"
+ #include "system/command_system.h"
 +#include "system/ui_system.h"
  
  //----------------------------------------------------------------------------------

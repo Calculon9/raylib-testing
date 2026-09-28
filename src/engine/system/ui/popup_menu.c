@@ -2,7 +2,7 @@
 
 #include "entities/entity_prefab.h"
 #include "system/panel_system.h"
-#include "system/command_queue.h"
+#include "system/command_system.h"
 #include "system/universe_system.h"
 #include "system/ui_system.h"
 #include "system/viewport_system.h"

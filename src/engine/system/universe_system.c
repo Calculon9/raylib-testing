@@ -18,7 +18,7 @@ UNIVERSE SYSTEM MODULE
 #include "system/ui_system.h"
 #include "system/ui/state_manager_system.h"
 #include "system/ui/popup_menu.h"
-#include "system/command_queue.h"
+#include "system/command_system.h"
 #include "world/world_internal.h"
 #include "entities/entity_registry.h"
 

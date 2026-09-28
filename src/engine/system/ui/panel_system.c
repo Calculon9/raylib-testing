@@ -172,6 +172,59 @@ void PanelSystem_InitViews(PanelSystem *panel, size_t view_count)
     panel->views = MakeLArray(view_count, sizeof(View *));
 }
 
+// Create a View struct with its container UIElement.
+// The View is independent of any panel system.
+View *View_Create(UIElement *parent, const UIPalette *palette, ViewType type)
+{
+    if (!parent)
+    {
+        return NULL;
+    }
+
+    if (!palette)
+    {
+        palette = &ui_default_palette;
+    }
+
+    // Create container UIElement
+    UIElement *container = CreateUIContainer(
+        parent,
+        ui_fill_container_size,
+        (Offset){{0, 0}, OFFSET_FIXED},
+        ui_standard_container_padding,
+        palette,
+        UI_PALETTE_SURFACE_CONTAINER,
+        ui_standard_stack_spacing,
+        false,  // Not draggable
+        true    // Enabled by default
+    );
+
+    if (!container)
+    {
+        return NULL;
+    }
+
+    // Create View struct wrapping the container
+    View *view = AllocateBytes(sizeof(View));
+    if (!view)
+    {
+        return NULL;
+    }
+
+    view->container = container;
+    view->type = type;
+    view->scroll_x = 0.0f;
+    view->max_scroll_x = 0.0f;
+    view->content_width = 0.0f;
+    view->scroll_y = 0.0f;
+    view->max_scroll_y = 0.0f;
+    view->content_height = 0.0f;
+    view->is_scrollable_x = false;
+    view->is_scrollable_y = false;
+
+    return view;
+}
+
 // Create a visible standard View surface and register it with the panel.
 View *PanelSystem_CreateView(PanelSystem *panel, ViewType view_type)
 {
@@ -424,7 +477,9 @@ static void UpdatePanelViewSelectorButtons(ViewSelector *selector)
     }
 }
 
-static void HandlePanelViewSelectorClick(UIElement *button)
+static void HandlePanelViewSelectorHover(UIElement *item);
+
+void HandlePanelViewSelectorClick(UIElement *button)
 {
     ViewSelector *selector = (ViewSelector *)button->data.button.data_bind;
     if (!selector || !button->data.button.user_data)

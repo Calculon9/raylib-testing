@@ -720,6 +720,15 @@ void AddElementToTree(UIElement *e, UIElement *parent)
     {
         return;
     }
+    
+    // NULL parent indicates this is a root element
+    if (!parent)
+    {
+        e->parent = NULL;
+        e->next_sibling = NULL;
+        return;
+    }
+    
     e->parent = parent;
     e->next_sibling = NULL;
 

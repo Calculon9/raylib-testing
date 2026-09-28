@@ -16,7 +16,7 @@
 #include "world/world_internal.h"
 #include "world/universe.h"
 #include "physics/physics.h"
-#include "system/command_queue.h"
+#include "system/command_system.h"
 #include "system/debug_overlay_system.h"
 #include "system/job_system.h"
 #include "system/systems.h"
@@ -270,8 +270,8 @@ void InitWorldSystem(void)
                    sizeof(*G_UIState.entity_create_params));
     }
     G_UIState.entity_create_params = AllocateBytes(sizeof(EntityCreateParams));
-    extern void InitCommandQueue(void);
-    InitCommandQueue();
+    extern void InitCommandSystem(void);
+    InitCommandSystem();
 }
 
 // Advance every running world, or advance each paused world once when a debug

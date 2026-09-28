@@ -28,6 +28,7 @@
 #include "system/viewport_system.h"
 #include "system/debug_overlay_system.h"
 #include "memory/cmemory.h"
+#include "system/ui/ui_loader.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -326,6 +327,9 @@ int UIState_GetSelectedCellIndex(void)
 void InitUI(void)
 {
     InitUIPalettes();
+
+    // Register XML element builders once before any panels are created
+    UILoader_RegisterDefaultBuilders();
 
     // Init Global UI State
     UIState_SetSelection(NULL, NULL, -1);

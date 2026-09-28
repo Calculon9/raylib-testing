@@ -39,7 +39,8 @@ typedef enum
     UI_ELEMENT_BUTTON_ENUMERATE,
     UI_ELEMENT_BUTTON_SUBMIT,
     UI_ELEMENT_HOVER_ITEM,
-    UI_ELEMENT_IMAGE
+    UI_ELEMENT_IMAGE,
+    UI_ELEMENT_VIEW
 } UIElementType;
 
 // Actions that can be attached to buttons via `user_data` (pointer to int)

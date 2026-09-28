@@ -66,7 +66,7 @@ typedef enum EntityComponentType
     ENTITY_COMPONENT_HEALTH = 5
 } EntityComponentType;
 
-// Runtime component payload used by command_queue to route attachments to registry stores.
+// Runtime component payload used by command_system to route attachments to registry stores.
 typedef struct EntityComponent
 {
     EntityComponentType type;
