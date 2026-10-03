@@ -53,7 +53,8 @@ Never retry the same failed patch more than once.
 
 ## Build System
 
-This project is written in C11.
+This project is written in C11, built with CMake (dependencies fetched via
+`FetchContent`).
 
 Never use:
 - npm
@@ -61,12 +62,19 @@ Never use:
 - pnpm
 - bun
 
-Before building:
+To build (in Kiro / from the terminal), use the CMake presets in
+`CMakePresets.json` with the UCRT64 + Ninja toolchain:
 
-1. Read `.vscode/tasks.json`.
-2. Use the defined VS Code build task.
+```powershell
+cmake --preset debug         # configure
+cmake --build --preset debug # build
+```
 
-Do not invent build commands.
+See `.kiro/steering/build.md` for the full toolchain details.
+
+Note: `.vscode/tasks.json` and `.vscode/launch.json` are for VS Code only. Kiro
+cannot run those tasks, and their MSVC BuildTools paths are not installed on this
+machine. Do not invent build commands; use the presets above.
 
 ---
 
