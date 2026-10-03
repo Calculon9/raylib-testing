@@ -1067,6 +1067,13 @@ void DisposeUIElement(UIElement *e)
         e->data.textbox.binder = NULL;
     }
 
+    // Free any heap binding attached to a button (mirrors the textbox binder cleanup above).
+    // Pool-zeroing guarantees binding == NULL for untouched buttons, so this is a no-op there.
+    if (IsBtn(e) && e->data.button.binding)
+    {
+        Binding_Destroy(&e->data.button.binding);
+    }
+
     // 4. Finally, free the current element
     // Now that children and siblings are gone, it's safe to delete this one
     // If the element points into our static pool, return it to the free list; otherwise free the heap allocation.

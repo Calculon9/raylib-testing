@@ -217,84 +217,36 @@ void RefreshTextboxFields(const TextboxField *fields, size_t count)
         }
 
         BindTextboxData(field->textbox, field->data_type, field->data_bind);
+        // Preserve the focused-skip invariant: never clobber text while the user is typing.
         if (field->textbox->is_focused)
         {
             continue;
         }
 
-        switch (field->data_type)
+        // Route the data->UI read through the symmetric binding core. The source is the bound
+        // address interpreted per the field's data type; the sink is read-only (none). Output
+        // is byte-identical to the previous switch (INT "%d", FLOAT "%.<precision>f",
+        // VECTOR2D "(%.2f,%.2f)"); STRING data types format nothing, matching the old default.
+        Binding binding = {
+            .source = {
+                .kind = BIND_SRC_ADDRESS,
+                .value_type = ResolveBindingType(field->data_type),
+                .address = field->data_bind,
+            },
+            .sink = { .kind = BIND_SINK_NONE },
+            .precision = field->precision,
+        };
+
+        // STRING sources are not formatted today (the old switch had no STRING case); skip them
+        // so a stale/last-good display is preserved exactly as before.
+        if (binding.source.value_type == BIND_STRING)
         {
-        case FLOAT:
-            WriteTextboxFloat(field->textbox, *(float *)field->data_bind, field->precision);
-            break;
-        case INT:
-            WriteTextboxInt(field->textbox, *(int *)field->data_bind);
-            break;
-        case VECTOR2D:
-            WriteTextboxVector(*(Vector2d *)field->data_bind, field->textbox);
-            break;
-        default:
-            break;
+            continue;
         }
+
+        Binding_RefreshText(&binding, field->textbox->data.textbox.text.string, sizeof(String64));
     }
 }
-
-// // Text must be in the following format: "x,y", "(x,y)", "(magnitude)(x,y)".
-// bool PipelineTextToVector(char *input_buffer, Vector2d *target_vector)
-// {
-//     if (!input_buffer || !target_vector)
-//     {
-//         return false;
-//     }
-
-//     float parsed_x = 0.0f;
-//     float parsed_y = 0.0f;
-//     float parsed_mag = 0.0f;
-//     bool valid_parse =
-//         (sscanf(input_buffer, "(%f,%f)", &parsed_x, &parsed_y) == 2) ||
-//         (sscanf(input_buffer, "%f,%f", &parsed_x, &parsed_y) == 2) ||
-//         (sscanf(input_buffer, "(%f)(%f,%f)", &parsed_mag, &parsed_x, &parsed_y) == 3);
-
-//     if (!valid_parse)
-//     {
-//         return false;
-//     }
-
-//     target_vector->x = parsed_x;
-//     target_vector->y = parsed_y;
-//     return true;
-// }
-// bool PipelineTextToInt(char *input_buffer, int *target_int)
-// {
-//     if (!input_buffer || !target_int)
-//         return false;
-
-//     int parsed_value = 0;
-//     if (sscanf(input_buffer, "%d", &parsed_value) == 1)
-//     {
-//         *target_int = parsed_value;
-//         return true;
-//     }
-
-//     return false;
-// }
-// // Text must be in the following format: "y".
-// bool PipelineTextToFloat(char *input_buffer, float *target_float)
-// {
-//     if (!input_buffer || !target_float)
-//     {
-//         return false;
-//     }
-
-//     float parsed_x = 0.0f;
-//     if (sscanf(input_buffer, "%f", &parsed_x) != 1)
-//     {
-//         return false;
-//     }
-
-//     *target_float = parsed_x;
-//     return true;
-// }
 
 // Writes vector components as "(x,y)"
 void PipelineVectorToText(Vector2d input_vector, char *target_buffer, size_t target_buffer_bytes)

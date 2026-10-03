@@ -156,7 +156,8 @@ typedef struct
     UIEventHandler on_click;
     void *data_bind;
     void *user_data; // 8-byte magic pointer for ANY custom state
-    int command;     // Resolved command code (CommandType); 0 (CMD_NONE) when unused.
+    int command;      // Resolved command code (CommandType); 0 (CMD_NONE) when unused.
+    Binding *binding; // optional heap binding for query-source / command-sink buttons; NULL otherwise
 } ButtonData;
 
 typedef struct
