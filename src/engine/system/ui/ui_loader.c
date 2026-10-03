@@ -122,6 +122,27 @@ static bool UILoader_ValidateRequired(mxml_node_t *node, const char *attr_name,
 // ============================================================================
 
 /**
+ * Generic click handler for declarative (XML) command buttons.
+ *
+ * Matches the UIEventHandler signature (void(UIElement *)) that the UI input
+ * dispatcher invokes. Reads the resolved command code stored on the button and
+ * dispatches it through the command system. This is the UI-side adapter between
+ * the one-argument click contract and the command system's (type, data) API.
+ */
+static void UILoader_HandleCommandClick(UIElement *e)
+{
+    if (!e)
+        return;
+
+    // The resolved command code was stored on the element at build time.
+    int command_code = e->data.button.command;
+    if (command_code != 0)
+    {
+        ExecuteCommand((CommandType)command_code, NULL);
+    }
+}
+
+/**
  * Builder for <Button> elements.
  * Attributes: text (required), type (optional: "simple"/"enumerate"/"submit"), action (optional),
  *             size (optional), size-mode (optional)
@@ -146,44 +167,48 @@ static UIElement *BuildButton(mxml_node_t *node, UIElement *parent, const UIPale
     Size size = ui_standard_button_size;
     UILoader_ExtractCommonAttrs(node, NULL, &size, NULL, NULL);
     
-    // Extract action attribute and resolve to CommandType code
-    UIEventHandler handler = NULL;
-    void *user_data = NULL;
+    // Extract action attribute and resolve to a command code. The code is stored
+    // on the element below; the generic UILoader_HandleCommandClick handler reads
+    // it at click time and dispatches through the command system.
+    int command_code = 0;
     const char *action_attr = mxmlElementGetAttr(node, "action");
     if (action_attr && ctx && ctx->resolve_command)
     {
-        int command_code = ctx->resolve_command(action_attr, ctx);
-        
-        // If action resolved to a valid command code, use ExecuteCommand as the handler
-        if (command_code != 0)
-        {
-            handler = (UIEventHandler)ExecuteCommand;
-            user_data = (void *)(intptr_t)command_code;
-        }
-        else
+        command_code = ctx->resolve_command(action_attr, ctx);
+        if (command_code == 0)
         {
             LOADER_WARNING(ctx, "Unrecognised action string");
         }
     }
     else if (action_attr)
     {
-        // Try parsing as direct integer code
+        // No resolver available: try parsing the action as a direct integer code.
         char *endptr;
-        long command_code = strtol(action_attr, &endptr, 10);
-        
-        if (*endptr == '\0' && command_code > 0)
+        long parsed = strtol(action_attr, &endptr, 10);
+
+        if (*endptr == '\0' && parsed > 0)
         {
-            handler = (UIEventHandler)ExecuteCommand;
-            user_data = (void *)(intptr_t)command_code;
+            command_code = (int)parsed;
         }
         else
         {
             LOADER_WARNING(ctx, "Action value not a valid integer");
         }
     }
-    
-    return CreateUIButtonDefault(parent, btn_type, text, size,
-                                ui_standard_button_padding, palette, handler, user_data, NULL);
+
+    // Attach the generic command handler only when an action resolved, buttons without an action remain inert (no handler).
+    UIEventHandler handler = (command_code != 0) ? UILoader_HandleCommandClick : NULL;
+
+    UIElement *button = CreateUIButtonDefault(parent, btn_type, text, size,
+                                              ui_standard_button_padding, palette, handler, NULL, NULL);
+
+    // Store the resolved command code so the generic handler can dispatch it on click.
+    if (button)
+    {
+        button->data.button.command = command_code;
+    }
+
+    return button;
 }
 
 /**
@@ -575,6 +600,14 @@ void UILoader_ExtractCommonAttrs(mxml_node_t *node, char *id_out,
             Vector2d dimensions = UILoader_ParseSizeValues(size_attr);
             SizeMode mode = UILoader_ParseSizeMode(size_mode_attr);
             *size_out = (Size){{dimensions.x, dimensions.y}, mode};
+        }
+        else if (size_mode_attr)
+        {
+            // Honour a size-mode even when no explicit size is given. Modes like
+            // "content", "content_fill", and "fill" derive their dimensions from
+            // children/parent, so zeroed dimensions are correct here.
+            SizeMode mode = UILoader_ParseSizeMode(size_mode_attr);
+            *size_out = (Size){{0.0f, 0.0f}, mode};
         }
         else
         {
