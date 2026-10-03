@@ -151,13 +151,13 @@ typedef struct
 
 typedef struct
 {
-    String64 label;
+    String64 text;         // authored base text (from the XML "text" attribute / constructor arg)
+    String64 display_text; // text actually drawn; equals `text` unless a binding derives it (e.g. "<text>: ON")
     Bitmap_Font font;
     UIEventHandler on_click;
     void *data_bind;
     void *user_data; // 8-byte magic pointer for ANY custom state
-    int command;      // Resolved command code (CommandType); 0 (CMD_NONE) when unused.
-    Binding *binding; // optional heap binding for query-source / command-sink buttons; NULL otherwise
+    Binding *binding; // optional heap binding: command-sink (XML button actions) or query-source display; NULL otherwise
 } ButtonData;
 
 typedef struct
@@ -310,6 +310,13 @@ bool IsTextbox(UIElement *e);
 bool IsEditableTextbox(const UIElement *e);
 bool IsBtn(UIElement *e);
 void ToggleElementEnabled(UIElement *element);
+
+// Refresh a single element's display from its attached binding's source (data -> UI).
+// No-op unless the element is a button with a binding that has a readable source. For a query
+// source it composes the drawn text as "<authored text>: ON/OFF" into display_text, leaving the
+// authored `text` base intact. Pure pull: reads current truth, so it is safe to call every
+// frame and never goes stale. (Textbox read-refresh still uses the RefreshTextboxFields path.)
+void UIElement_RefreshBinding(UIElement *e);
 // Scroll a horizontally scrollable element by local coordinate units.
 void ScrollUIElementX(UIElement *element, float delta);
 // Scroll a vertically scrollable element by local coordinate units.

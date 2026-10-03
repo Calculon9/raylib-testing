@@ -1095,6 +1095,42 @@ void DisposeUIElement(UIElement *e)
     }
 }
 
+// Refresh a single element's display from its attached binding's source (data -> UI).
+// Pure pull: reads current truth each call, so a widget bound to a query (e.g. a debug toggle)
+// never goes stale no matter what changed the underlying state. Does nothing for elements with
+// no binding or a source-less (command-only / sink-only) binding, so it is cheap to call on
+// every element every frame.
+void UIElement_RefreshBinding(UIElement *e)
+{
+    if (!e)
+        return;
+
+    if (IsBtn(e))
+    {
+        const Binding *b = e->data.button.binding;
+        // Only buttons whose binding actually has a readable source derive their text; a plain
+        // command-sink button (no source) keeps the authored text it was built with.
+        if (!b || b->source.kind == BIND_SRC_NONE)
+            return;
+
+        BindingValue value = Binding_ReadSource(&b->source);
+        if (value.type == BIND_NONE)
+            return;
+
+        // Toggle presentation convention: compose "<authored text>: ON/OFF" from the query
+        // result. The authored base lives in `text`; the drawn result goes to `display_text`,
+        // leaving the base intact for the next refresh.
+        bool on = (value.as.i != 0);
+        snprintf(e->data.button.display_text.string, sizeof(e->data.button.display_text.string),
+                 "%s: %s", e->data.button.text.string, on ? "ON" : "OFF");
+        return;
+    }
+
+    // NOTE: textbox read-refresh still flows through the existing RefreshTextboxFields path
+    // (panels call it explicitly). Textboxes do not yet carry a Binding source; migrating them
+    // onto this generic pull is deliberate future work, not part of the trigger pass.
+}
+
 void GetUIElementVertices(UIElement *e, Vector2d out_vertices[4])
 {
     out_vertices[0] = e->screen_box.coords;

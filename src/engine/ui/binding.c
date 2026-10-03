@@ -334,6 +334,19 @@ bool Binding_RefreshText(const Binding *b, char *out, size_t out_bytes)
     return Binding_FormatValue(v, b->precision, out, out_bytes);
 }
 
+// Allocate a heap Binding and copy the caller's value into it. The Binding holds no nested
+// heap pointers, so this is a flat copy; Binding_Destroy performs the matching shallow free.
+Binding *Binding_Create(Binding value)
+{
+    Binding *b = (Binding *)AllocateBytes(sizeof(Binding));
+    if (!b)
+    {
+        return NULL;
+    }
+    *b = value;
+    return b;
+}
+
 // Shallow free of a heap Binding (holds no nested heap pointers) and NULL the caller pointer.
 void Binding_Destroy(Binding **b)
 {

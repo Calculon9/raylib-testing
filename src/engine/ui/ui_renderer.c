@@ -216,7 +216,7 @@ void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
     }
     else if (IsBtn(e))
     {
-        text_ptr = e->data.button.label.string;
+        text_ptr = e->data.button.display_text.string;
         font = e->data.button.font;
     }
     else if (e->type == UI_ELEMENT_HOVER_ITEM)

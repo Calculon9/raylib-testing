@@ -174,7 +174,9 @@ UIElement *CreateUIButton(UIElement *parent, UIElementType type, const char *tex
         return NULL;
     }
 
-    safe_strncpy(btn->data.button.label.string, text, MAX_LABEL_CHARS);
+    // Seed both the authored base text and the drawn text; with no binding they stay equal.
+    safe_strncpy(btn->data.button.text.string, text, MAX_LABEL_CHARS);
+    safe_strncpy(btn->data.button.display_text.string, text, MAX_LABEL_CHARS);
     btn->data.button.font = font;
     SetUIElementTextHorizontalAlignment(btn, UI_TEXT_ALIGN_CENTRE);
     SetUIElementTextVerticalAlignment(btn, UI_TEXT_VERTICAL_ALIGN_CENTRE);

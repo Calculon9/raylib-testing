@@ -152,6 +152,10 @@ bool Binding_Commit(const Binding *b, const char *text);
 // NOTE: focused-skip is the CALLER's responsibility; this fn always formats.
 bool Binding_RefreshText(const Binding *b, char *out, size_t out_bytes);
 
+// Allocate a heap Binding initialised from the given value (symmetric with Binder_Create).
+// Returns NULL on allocation failure. Caller owns the result and must Binding_Destroy it.
+Binding *Binding_Create(Binding value);
+
 // Free a heap-allocated Binding and NULL the caller's pointer (symmetric with Binder_Destroy).
 void Binding_Destroy(Binding **b);
 

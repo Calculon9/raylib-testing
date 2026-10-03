@@ -393,7 +393,7 @@ static void UpdateFlagButtons(StateManagerFlagButton *buttons, size_t count, uin
         }
 
         bool enabled = is_valid && ((current_flags & buttons[i].flag) != 0);
-        UpdateString64(buttons[i].button->data.button.label.string,
+        UpdateString64(buttons[i].button->data.button.display_text.string,
                        "%s: %s", buttons[i].label, enabled ? "ON" : "OFF");
         buttons[i].button->is_enabled = true;
     }
@@ -682,7 +682,7 @@ static void RefreshComponentsSection(const Newtonoid2d *object)
         }
 
         bool attached = is_valid && (desc.components[s_sm_ui.comp_buttons[i].type] != NULL);
-        UpdateString64(s_sm_ui.comp_buttons[i].button->data.button.label.string,
+        UpdateString64(s_sm_ui.comp_buttons[i].button->data.button.display_text.string,
                        "%s: %s", s_sm_ui.comp_buttons[i].label, attached ? "ON" : "OFF");
         s_sm_ui.comp_buttons[i].button->is_enabled = is_valid;
     }

@@ -655,12 +655,33 @@ bool PanelSystem_SelectView(ViewSelector *selector, size_t view_index)
     return true;
 }
 
+// Recursively pull every element's display from its binding source (data -> UI).
+// Rides the per-frame draw traversal that already happens, so the added cost is one binding
+// NULL-check per element plus a format only for the few elements that carry a query source.
+static void PanelSystem_RefreshBindings(UIElement *element)
+{
+    if (!element)
+    {
+        return;
+    }
+
+    UIElement_RefreshBinding(element);
+
+    ForEachChild(element, child)
+    {
+        PanelSystem_RefreshBindings(child);
+    }
+}
+
 void PanelSystem_Draw(PanelSystem *panel)
 {
     if (!panel || !panel->root)
     {
         return;
     }
+
+    // Pull bound widgets up to date from their data sources before laying out / drawing.
+    PanelSystem_RefreshBindings(panel->root);
 
     // Update UI layout to reflect any interactive changes
     UpdateUISpace(panel->root, panel->seed_box);

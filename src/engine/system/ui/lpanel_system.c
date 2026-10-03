@@ -76,7 +76,7 @@ static void HandleLPanelDebugToggleClickInternal(UIElement *button)
 
     const LPanelDebugToggle *toggle = (const LPanelDebugToggle *)button->data.button.user_data;
     ToggleDebug(toggle->id);
-    UpdateString64(button->data.button.label.string, "%s: %s", toggle->label,
+    UpdateString64(button->data.button.display_text.string, "%s: %s", toggle->label,
                    IsDebugEnabled(toggle->id) ? "ON" : "OFF");
 }
 
@@ -240,6 +240,48 @@ static void InitEntityCreateDefaults(void)
     WriteTextboxVectorPair(G_UIState.edit_vel_tbox, params->physics.velocity);
 }
 
+// Query shim matching BindingQueryFn (int(int)). The binding core stays decoupled from the
+// debug subsystem: it only knows "call this fn with this int key". Here the key is a
+// DebugOverlayId, so the shim is a thin, type-clean adapter over IsDebugEnabled.
+static int LPanel_QueryDebugEnabled(int overlay_key)
+{
+    return IsDebugEnabled((DebugOverlayId)overlay_key);
+}
+
+// Attach a query-source to every XML toggle button so its label reflects live overlay state.
+//
+// A toggle button already carries a command-sink binding (built by the loader) whose
+// command_code is a CMD_TOGGLE_* value. We derive the DebugOverlayId from that code using the
+// same offset ExecuteCommand uses, and point the binding's source at the debug query. From then
+// on the per-frame PanelSystem_RefreshBindings pull composes "<text>: ON/OFF" automatically,
+// so the label stays correct whether toggled by this button, another control, or a hotkey.
+static void LPanel_AttachToggleSources(UIElement *element)
+{
+    if (!element)
+    {
+        return;
+    }
+
+    if (IsBtn(element) && element->data.button.binding)
+    {
+        Binding *binding = element->data.button.binding;
+        int code = binding->sink.command_code;
+        if (binding->sink.kind == BIND_SINK_COMMAND &&
+            code >= CMD_TOGGLE_DEBUG_DASHBOARD && code <= CMD_TOGGLE_OBJECT_AABB)
+        {
+            binding->source.kind = BIND_SRC_QUERY;
+            binding->source.value_type = BIND_INT;
+            binding->source.query = LPanel_QueryDebugEnabled;
+            binding->source.query_key = (int)(code - CMD_TOGGLE_DEBUG_DASHBOARD); // -> DebugOverlayId
+        }
+    }
+
+    ForEachChild(element, child)
+    {
+        LPanel_AttachToggleSources(child);
+    }
+}
+
 void InitLPanel()
 {
     // Try to load from XML first with application-provided resolvers
@@ -253,6 +295,9 @@ void InitLPanel()
 
     if (root)
     {
+        // Give toggle buttons a live debug-state source so their ON/OFF labels self-update.
+        LPanel_AttachToggleSources(root);
+
         // XML loaded successfully; extract Views from tree
         size_t view_count = 0;
         View **xml_views = UILoader_ExtractViews(root, &view_count);

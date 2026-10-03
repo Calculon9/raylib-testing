@@ -1,0 +1,48 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 24,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "debug",
+            "displayName": "UCRT64 Ninja Debug",
+            "description": "MSYS2 UCRT64 (gcc) + Ninja. Canonical toolchain for building in Kiro / CLI.",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/Debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_C_COMPILER": "C:/Tools/msys64/ucrt64/bin/cc.exe",
+                "CMAKE_CXX_COMPILER": "C:/Tools/msys64/ucrt64/bin/c++.exe",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            },
+            "environment": {
+                "PATH": "C:/Tools/msys64/ucrt64/bin;$penv{PATH}"
+            }
+        },
+        {
+            "name": "release",
+            "displayName": "UCRT64 Ninja Release",
+            "description": "MSYS2 UCRT64 (gcc) + Ninja, optimised build.",
+            "inherits": "debug",
+            "binaryDir": "${sourceDir}/build/Release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "debug",
+            "displayName": "Build (Debug)",
+            "configurePreset": "debug"
+        },
+        {
+            "name": "release",
+            "displayName": "Build (Release)",
+            "configurePreset": "release"
+        }
+    ]
+}

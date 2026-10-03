@@ -122,24 +122,35 @@ static bool UILoader_ValidateRequired(mxml_node_t *node, const char *attr_name,
 // ============================================================================
 
 /**
+/**
+ * Command-dispatch adapter matching BindingCommandFn (void(int, const void *)).
+ *
+ * The binding core is intentionally free of any command-system dependency: it stores a command
+ * as an opaque int code plus a function pointer. This adapter is the UI-side bridge that casts
+ * the opaque code back to a CommandType and dispatches it. Using a real adapter (rather than
+ * casting ExecuteCommand to the fn-pointer type) keeps the call type-correct.
+ */
+static void UILoader_DispatchCommand(int code, const void *data)
+{
+    ExecuteCommand((CommandType)code, data);
+}
+
+/**
  * Generic click handler for declarative (XML) command buttons.
  *
- * Matches the UIEventHandler signature (void(UIElement *)) that the UI input
- * dispatcher invokes. Reads the resolved command code stored on the button and
- * dispatches it through the command system. This is the UI-side adapter between
- * the one-argument click contract and the command system's (type, data) API.
+ * Matches the UIEventHandler signature (void(UIElement *)) that the UI input dispatcher
+ * invokes. Dispatches the button's command through its attached binding's command-sink,
+ * the same symmetric binding path used for textbox read/write.
  */
 static void UILoader_HandleCommandClick(UIElement *e)
 {
-    if (!e)
+    if (!e || !e->data.button.binding)
         return;
 
-    // The resolved command code was stored on the element at build time.
-    int command_code = e->data.button.command;
-    if (command_code != 0)
-    {
-        ExecuteCommand((CommandType)command_code, NULL);
-    }
+    // A command sink ignores the written value, so a BIND_NONE value is sufficient to trigger
+    // dispatch; Binding_WriteSink routes it to the configured command fn + code.
+    BindingValue none = {0};
+    Binding_WriteSink(&e->data.button.binding->sink, none);
 }
 
 /**
@@ -196,16 +207,26 @@ static UIElement *BuildButton(mxml_node_t *node, UIElement *parent, const UIPale
         }
     }
 
-    // Attach the generic command handler only when an action resolved, buttons without an action remain inert (no handler).
+    // Attach the generic command handler only when an action resolved; buttons without an
+    // action remain inert (no handler).
     UIEventHandler handler = (command_code != 0) ? UILoader_HandleCommandClick : NULL;
 
     UIElement *button = CreateUIButtonDefault(parent, btn_type, text, size,
                                               ui_standard_button_padding, palette, handler, NULL, NULL);
 
-    // Store the resolved command code so the generic handler can dispatch it on click.
-    if (button)
+    // Route the action through the symmetric binding core: a command-sink binding carries the
+    // resolved code and the dispatch adapter, which UILoader_HandleCommandClick fires on click.
+    // The binding is freed by DisposeUIElement's button-binding cleanup.
+    if (button && command_code != 0)
     {
-        button->data.button.command = command_code;
+        Binding command_binding = {
+            .sink = {
+                .kind = BIND_SINK_COMMAND,
+                .command = UILoader_DispatchCommand,
+                .command_code = command_code,
+            },
+        };
+        button->data.button.binding = Binding_Create(command_binding);
     }
 
     return button;
