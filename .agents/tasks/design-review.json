@@ -1,0 +1,48 @@
+{
+  "verdict": "CHANGES_REQUESTED",
+  "findings": [
+    {
+      "id": 1,
+      "severity": "HIGH",
+      "location": "Section 7 (lpanel STABLE migration); lpanel_system.c InitLPanelEditView/edit_specs; lpanel.xml; ui_loader.c BuildTextField",
+      "problem": "Section 7 edits dead code. InitLPanelEditView is only called from commented-out fallback (~lines 342-343); the live path loads lpanel.xml whose DRAW view is commented out, so the edit textboxes are never created and G_UIState.edit_*_tbox stay NULL. RefreshEntityEditorFields is therefore a no-op today, and the attach callback would bind NULL textboxes.",
+      "fix": "Either (a) descope lpanel from this pass and make state_manager damage (section 8, which is live) the sole first proof, demoting lpanel to a documented-pattern note; or (b) add an explicit prerequisite to reinstate the live DRAW view (un-comment lpanel.xml draw_view or the hardcoded InitLPanelEditView call) AND specify how G_UIState.edit_*_tbox get populated, since ui_loader.c performs no id->G_UIState registration. Remove the claim that edit_specs/RefreshEntityEditorFields edits produce the described runtime effect in the current build."
+    },
+    {
+      "id": 2,
+      "severity": "HIGH",
+      "location": "Section 7 (LPanel_OnViewSelected, ClearTextboxBinding); panel_system.c PanelSystem_FinaliseInit (~line 823)",
+      "problem": "PanelSystem_FinaliseInit calls PanelSystem_SelectView(selector, 0), firing on_view_selected for view index 0 (STATE in lpanel), so LPanel_OnViewSelected runs during init and calls ClearTextboxBinding on the edit textboxes. ClearTextboxBinding's NULL contract is unspecified, and the construction-vs-first-callback ordering of G_UIState.edit_*_tbox is not pinned down (they are NULL in the live build).",
+      "fix": "State that ClearTextboxBinding and BindTextboxStable are no-ops on NULL textbox, and add an ordering invariant that the edit textboxes are constructed and their G_UIState.edit_*_tbox pointers assigned before PanelSystem_FinaliseInit runs; otherwise guard the attach/clear accordingly."
+    },
+    {
+      "id": 3,
+      "severity": "MEDIUM",
+      "location": "Section 7 (single-writer claim); ui_system.c RefreshEntityEditorFields / UpdateGlobalUIState (~line 547, ~line 520)",
+      "problem": "The 'only writers are the seed and the pull' claim ignores that RefreshEntityEditorFields runs every frame from UpdateGlobalUIState. For any field present in both a surviving edit_fields[] row and the stable binding, two writers race per frame. Row removal is the only stated enforcement and (per finding 1) has no live effect today.",
+      "fix": "State the enforced rule: a field migrated to a binding MUST have its edit_fields[] row removed in the same change, verifiable by grep that no migrated G_UIState.edit_*_tbox appears in both edit_fields[] and an attach call. Acknowledge RefreshEntityEditorFields is live and per-frame, so the removal is load-bearing."
+    },
+    {
+      "id": 4,
+      "severity": "MEDIUM",
+      "location": "Section 8 (StateManager_QueryDamage); state_manager_system.c RefreshGameplaySection (~line 642)",
+      "problem": "RefreshGameplaySection disables damage_tbox's parent for non-projectile objects via SetParentEnabledState(..., is_projectile). The migrated query keys only on object selection, not is_projectile, and the refresh walk ignores is_enabled, so the pull writes object->damage for any selected object. The design does not analyse this interaction or state the resulting invariant.",
+      "fix": "State explicitly that the is_projectile visibility policy stays owned by RefreshGameplaySection, that the pull still writes into the possibly-disabled textbox (walk ignores is_enabled), and that this matches current behaviour because the old RefreshTextboxFields row also wrote unconditionally for a selected object. If instead BIND_NONE is wanted for non-projectiles, encode is_projectile in StateManager_QueryDamage and update the sample."
+    },
+    {
+      "id": 5,
+      "severity": "NIT",
+      "location": "Section 7 (BindTextboxStable); integration_system.c ResolveBindingType (~line 29)",
+      "problem": "The design asserts reuse of ResolveBindingType without noting it is a static function; reuse is valid only because BindTextboxStable is co-located in the same translation unit.",
+      "fix": "Add a half-sentence: ResolveBindingType is static in integration_system.c, so BindTextboxStable is placed in the same file to reuse it without changing linkage."
+    },
+    {
+      "id": 6,
+      "severity": "NIT",
+      "location": "Section 1 (line references); lpanel_system.c lines 246/274/275",
+      "problem": "Line references for LPanel_QueryDebugEnabled (246), its assignment (274), and query_key (275) were cited as approximate; all were confirmed exact during review.",
+      "fix": "No change required; recorded as confirmed."
+    }
+  ],
+  "reviewDoc": "c:\\Projects\\raylib-testing\\.agents\\tasks\\design-review.md"
+}

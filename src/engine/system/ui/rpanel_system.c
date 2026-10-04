@@ -5,14 +5,14 @@
 #include "system/universe_system.h"
 #include "system/viewport_system.h"
 #include "ui/ui_constructors.h"
-#include "system/panel_system.h"
+#include "system/view_host_system.h"
 #include "system/utility_system.h"
 #include "entities/entity_registry.h"
 
 // ============================================================================
 // Panel System
 // ============================================================================
-static PanelSystem *rpanel = NULL;
+static ViewHostSystem *rpanel = NULL;
 
 // ============================================================================
 // Action Codes
@@ -101,7 +101,7 @@ static void InitRPanelStateWorldContainer(void)
 
 static void InitRPanelStateView(void)
 {
-    View *view = PanelSystem_CreateView(rpanel, RPANEL_STATE_VIEW);
+    View *view = ViewHostSystem_CreateView(rpanel, RPANEL_STATE_VIEW);
     rpanel_state_view_cont = view ? view->container : NULL;
     if (!rpanel_state_view_cont)
     {
@@ -122,13 +122,20 @@ static void InitRPanelCreateWorldContainer(void)
         {"Spawn", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &rpanel_create_spawn_tbox, NULL, GetNextWorldSpawnOriginPtr()},
         {"Resolution", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &rpanel_create_resolution_tbox, NULL, GetNextWorldResolutionPtr()},
         {"Objects", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, INT, &rpanel_create_objects_tbox, NULL, GetNextWorldObjectCountPtr()},
-        {"Gravity", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &rpanel_create_gravity_tbox, NULL, GetNextWorldGravityPtr()},
+        // Gravity migrated to BindTextboxStable; data_bind NULLed so InitUIFields builds no legacy Binder.
+        {"Gravity", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &rpanel_create_gravity_tbox, NULL, NULL},
         {"Basis u", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &rpanel_create_basis_u_tbox, NULL, GetNextWorldBasisUPtr()},
         {"Basis v", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &rpanel_create_basis_v_tbox, NULL, GetNextWorldBasisVPtr()},
     };
     InitUIFields(create_world_cont, create_fields,
                  ARRAY_COUNT(create_fields), ui_standard_field_padding,
                  rpanel->palette);
+
+    // STABLE binding proof: the next-world gravity param is a fixed address, so bind it directly
+    // (source + sink both target that address). This replaces the per-frame RefreshTextboxFields
+    // row removed below, keeping a single writer; the construction data_bind above is NULLed so
+    // there is no legacy Binder carrier.
+    BindTextboxStable(rpanel_create_gravity_tbox, FLOAT, GetNextWorldGravityPtr(), 2);
 
     CreateUIButtonDefault(create_world_cont, UI_ELEMENT_BUTTON_SUBMIT,
                           "NEW WORLD", ui_standard_button_size, ui_standard_button_padding,
@@ -138,7 +145,7 @@ static void InitRPanelCreateWorldContainer(void)
 
 static void InitRPanelCreateView(void)
 {
-    View *view = PanelSystem_CreateView(rpanel, RPANEL_WORLD_CREATE_VIEW);
+    View *view = ViewHostSystem_CreateView(rpanel, RPANEL_WORLD_CREATE_VIEW);
     rpanel_create_view_cont = view ? view->container : NULL;
     if (!rpanel_create_view_cont)
     {
@@ -158,8 +165,8 @@ void InitRPanel(void)
     rpanel_last_world_basis.v.y = 1.0f;
 
     const char *labels[] = {"STATE", "CREATE"};
-    rpanel = PanelSystem_CreateStandard(&rpanel_viewport, 2, labels, ARRAY_COUNT(labels),
-                                        PanelSystem_HandleViewSelected,
+    rpanel = ViewHostSystem_CreateStandard(&rpanel_viewport, 2, labels, ARRAY_COUNT(labels),
+                                        ViewHostSystem_HandleViewSelected,
                                         &ui_default_palette, ui_standard_stack_spacing);
     if (!rpanel)
     {
@@ -171,7 +178,7 @@ void InitRPanel(void)
     InitRPanelCreateView();
 
     // Finalise: select first view and update layout
-    PanelSystem_FinaliseInit(rpanel, &rpanel_view_selector);
+    ViewHostSystem_FinaliseInit(rpanel, &rpanel_view_selector);
 }
 
 void DrawRPanel(void)
@@ -220,7 +227,7 @@ void DrawRPanel(void)
         {rpanel_create_resolution_tbox, VECTOR2D, GetNextWorldResolutionPtr(), 0, NULL},
         {rpanel_create_basis_u_tbox, VECTOR2D, GetNextWorldBasisUPtr(), 0, NULL},
         {rpanel_create_basis_v_tbox, VECTOR2D, GetNextWorldBasisVPtr(), 0, NULL},
-        {rpanel_create_gravity_tbox, FLOAT, GetNextWorldGravityPtr(), 2, NULL},
+        // {rpanel_create_gravity_tbox, FLOAT, GetNextWorldGravityPtr(), 2, NULL}, // MIGRATED to BindTextboxStable
         {rpanel_create_objects_tbox, INT, GetNextWorldObjectCountPtr(), 0, NULL},
     };
     RefreshTextboxFields(create_fields, ARRAY_COUNT(create_fields));
@@ -291,22 +298,22 @@ void DrawRPanel(void)
             WriteTextboxText(rpanel_world_next_id_tbox, "0");
     }
 
-    PanelSystem_Draw(rpanel);
+    ViewHostSystem_Draw(rpanel);
 }
 
 Frame2d *GetRPanelSpaceFrame(void)
 {
-    return PanelSystem_GetSpaceFrame(rpanel);
+    return ViewHostSystem_GetSpaceFrame(rpanel);
 }
 
 bool SetRPanelSpaceBasis(Vector2d basis_u, Vector2d basis_v)
 {
-    return PanelSystem_SetSpaceBasis(rpanel, basis_u, basis_v);
+    return ViewHostSystem_SetSpaceBasis(rpanel, basis_u, basis_v);
 }
 
 void ResetRPanelSpaceBasis(void)
 {
-    PanelSystem_ResetSpaceBasis(rpanel);
+    ViewHostSystem_ResetSpaceBasis(rpanel);
 }
 
 UIElement *GetRPanelRoot(void)
@@ -314,7 +321,7 @@ UIElement *GetRPanelRoot(void)
     return rpanel ? rpanel->root : NULL;
 }
 
-PanelSystem *GetRPanelSystem(void)
+ViewHostSystem *GetRPanelViewHost(void)
 {
     return rpanel;
 }
@@ -322,9 +329,9 @@ PanelSystem *GetRPanelSystem(void)
 // Destroy the right panel and clear its cached UI references.
 void DestroyRPanel(void)
 {
-    PanelSystem *panel = rpanel;
+    ViewHostSystem *panel = rpanel;
     rpanel = NULL;
-    PanelSystem_Destroy(panel);
+    ViewHostSystem_Destroy(panel);
 
     rpanel_toggle_cont = NULL;
     rpanel_state_view_cont = NULL;

@@ -23,6 +23,7 @@
 
 #include "ui/ui.h"
 #include "system/ui_system.h"
+#include "system/view_host_system.h"
 #include <mxml.h>
 
 // Maximum length of an element ID from XML markup
@@ -43,21 +44,46 @@ typedef struct UILoaderContext UILoaderContext;
 // ============================================================================
 
 /**
- * Binding metadata: address and type of a data member to bind a UI element to.
+ * Kind of source a binding= attribute resolved to.
+ * Mirrors BindingSourceKind but stays loader-local so the header does not force
+ * every resolver to adopt the full core enum semantics; the loader maps 1:1.
+ */
+typedef enum {
+    UI_BIND_SRC_NONE = 0,   // unresolved / absent
+    UI_BIND_SRC_ADDRESS,    // *(T*)address
+    UI_BIND_SRC_QUERY,      // query(query_key) -> BindingValue
+} UIBindingSourceKind;
+
+/**
+ * Binding (source) metadata: how a binding= attribute reads its display value.
+ *
+ * CRITICAL LAYOUT CONSTRAINT (design section 1.3): `address` and `data_type` MUST
+ * remain the FIRST TWO members, in that order. The new members (`kind`, `query`,
+ * `query_key`, `value_type`) are APPENDED after `data_type` and must never be moved
+ * before it. LPanel_ResolveBinding initialises its result with the POSITIONAL
+ * initialiser `UIBinding binding = {NULL, FLOAT};` (NULL -> slot 0 `address`,
+ * FLOAT -> slot 1 `data_type`); the appended members value-initialise to zero so
+ * `kind == UI_BIND_SRC_NONE` and `query == NULL`. Reordering would break that init.
  */
 typedef struct {
-    void *address;          // Address of the bound data member
-    DataType data_type;     // Type of the data (INT, FLOAT, VECTOR2D, etc.)
+    void *address;              // slot 0 (unchanged): UI_BIND_SRC_ADDRESS data address
+    DataType data_type;         // slot 1 (unchanged): address deref interpretation
+    UIBindingSourceKind kind;   // appended: which payload is valid; 0 == UI_BIND_SRC_NONE
+    BindingQueryFn query;       // appended: UI_BIND_SRC_QUERY display read fn
+    int query_key;              // appended: UI_BIND_SRC_QUERY opaque key (e.g. DebugOverlayId)
+    BindingValueType value_type;// appended: query advisory value type (query owns the actual type)
 } UIBinding;
 
 /**
  * Binding resolver callback.
- * Resolves a binding string (e.g., "physics.width") to a UIBinding with the
- * actual data address and type. Returns a UIBinding with address=NULL if not resolved.
+ * Resolves a binding string (e.g., "physics.width") to a UIBinding describing an
+ * address source OR a query source. Returns a UIBinding with kind=UI_BIND_SRC_NONE
+ * and address=NULL if not resolved. The signature is unchanged; only the returned
+ * struct grew (additive) - existing address resolvers compile without edits.
  * 
  * @param binding_string XML binding attribute value (e.g., "physics.width")
  * @param ctx Shared loader context
- * @return UIBinding with resolved address and type, or {NULL, ...} if not resolved
+ * @return UIBinding describing the resolved source, or an unresolved UIBinding
  */
 typedef UIBinding (*UIBindingResolver)(const char *binding_string, UILoaderContext *ctx);
 
@@ -77,6 +103,57 @@ typedef UIBinding (*UIBindingResolver)(const char *binding_string, UILoaderConte
 typedef int (*UICommandResolver)(const char *action_string, UILoaderContext *ctx);
 
 /**
+ * Kind of sink an action= attribute resolved to.
+ */
+typedef enum {
+    UI_BIND_SINK_NONE = 0,  // unresolved / absent
+    UI_BIND_SINK_COMMAND,   // command(command_code, NULL)
+    UI_BIND_SINK_CALLBACK,  // write(write_key, value)
+} UIBindingSinkKind;
+
+/**
+ * Widened action (sink) descriptor returned by the action resolver.
+ * Carries a command code OR a callback write, tagged by kind.
+ */
+typedef struct {
+    UIBindingSinkKind kind;     // which payload below is valid
+    int command_code;           // UI_BIND_SINK_COMMAND: CommandType code (0 => none)
+    BindingSinkFn write;        // UI_BIND_SINK_CALLBACK: panel store fn
+    int write_key;              // UI_BIND_SINK_CALLBACK: opaque key
+    BindingValueType value_type;// callback: parse/commit value type
+} UIAction;
+
+/**
+ * Action (sink) resolver callback.
+ * NEW, opt-in: resolves an action= string to a sink descriptor (command OR callback).
+ * Hosts that only need command sinks keep using resolve_command instead; this is an
+ * additive opt-in for hosts that need callback sinks.
+ *
+ * @param action_string XML action attribute value
+ * @param ctx Shared loader context
+ * @return UIAction describing the resolved sink, or an UI_BIND_SINK_NONE action
+ */
+typedef UIAction (*UIActionResolver)(const char *action_string, UILoaderContext *ctx);
+
+// ============================================================================
+// View-Type Resolution
+// ============================================================================
+
+/**
+ * View-type resolver callback.
+ * Resolves a view-type string (e.g. "LPANEL_DRAW_VIEW") to a ViewType code.
+ * Kept as an application-supplied callback so the generic loader never names
+ * application-specific ViewType enum values.
+ *
+ * @param type_string XML type attribute value (e.g. "LPANEL_STATE_VIEW")
+ * @param resolved Output: set true when the string was recognised, false otherwise
+ * @param ctx Shared loader context
+ * @return Resolved ViewType; a defaulted/zero ViewType when unrecognised
+ */
+typedef ViewType (*UIViewTypeResolver)(const char *type_string, bool *resolved,
+                                       UILoaderContext *ctx);
+
+/**
  * Shared context during XML tree parsing.
  * Holds palette reference and callbacks for resolving bindings/actions.
  */
@@ -85,7 +162,9 @@ typedef struct UILoaderContext {
     const UIPalette *palette;       // UI palette for element styling
     const char *source_file;        // Source filename (for debug messages)
     UIBindingResolver resolve_binding;  // Callback to resolve binding strings (can be NULL)
-    UICommandResolver resolve_command;    // Callback to resolve action strings (can be NULL)
+    UICommandResolver resolve_command;    // Callback to resolve action strings (legacy command sink; can be NULL)
+    UIActionResolver resolve_action;      // Callback to resolve action strings to a sink descriptor (opt-in; can be NULL)
+    UIViewTypeResolver resolve_view_type; // Callback to resolve view-type strings (can be NULL)
     void *user_data;                // Optional user data for callbacks
 } UILoaderContext;
 
@@ -130,12 +209,14 @@ typedef struct {
  * @param palette UI palette for element styling (NULL = use default)
  * @param resolve_binding Optional callback to resolve binding strings (can be NULL)
  * @param resolve_command Optional callback to resolve command strings (can be NULL)
+ * @param resolve_view_type Optional callback to resolve view-type strings (can be NULL)
  * @param user_data Optional user data passed to callbacks
  * @return Root UIElement, or NULL on error
  */
 UIElement *UILoader_LoadFromFileWithResolvers(const char *filepath, const UIPalette *palette,
                                                UIBindingResolver resolve_binding,
                                                UICommandResolver resolve_command,
+                                               UIViewTypeResolver resolve_view_type,
                                                void *user_data);
 
 /**
@@ -148,12 +229,14 @@ UIElement *UILoader_LoadFromFileWithResolvers(const char *filepath, const UIPale
  * @param palette UI palette for element styling (NULL = use default)
  * @param resolve_binding Optional callback to resolve binding strings (can be NULL)
  * @param resolve_command Optional callback to resolve command strings (can be NULL)
+ * @param resolve_view_type Optional callback to resolve view-type strings (can be NULL)
  * @param user_data Optional user data passed to callbacks
  * @return Root UIElement, or NULL on error
  */
 UIElement *UILoader_LoadFromStringWithResolvers(const char *xml_string, const UIPalette *palette,
                                                  UIBindingResolver resolve_binding,
                                                  UICommandResolver resolve_command,
+                                                 UIViewTypeResolver resolve_view_type,
                                                  void *user_data);
 
 /**
@@ -243,6 +326,43 @@ void UILoader_RegisterDefaultBuilders(void);
  * @return Allocated array of View pointers, or NULL if no Views found or error
  */
 View **UILoader_ExtractViews(UIElement *root, size_t *out_count);
+
+/**
+ * Build and register a ViewSelector on `host` from the <ViewSelector>/<Option>
+ * metadata captured during the most recent load.
+ *
+ * Resolves each Option's target view id to the index of the matching View in
+ * host->views (two-pass, since Options precede Views in document order),
+ * allocates the ViewSelector plus its buttons[]/view_indices[] arrays, and wires
+ * each enumerate button exactly like ViewHostSystem_CreateViewSelector:
+ *   button->data.button.on_click  = HandleViewHostSelectorClick
+ *   button->data.button.user_data = &selector->view_indices[i]
+ *   button->data.button.data_bind = selector
+ * so Option clicks drive ViewHostSystem_SelectView.
+ *
+ * @param host Host already populated with the extracted Views
+ * @param callback on_view_selected callback for the selector
+ * @return The created selector (also pushed to host->selectors), or NULL on error
+ */
+ViewSelector *UILoader_BuildSelectorFromMarkup(ViewHostSystem *host,
+                                               ViewSelectionCallback callback);
+
+/**
+ * Resolve a View id string to the index of the matching View in host->views,
+ * using the view-id metadata captured during the most recent load.
+ *
+ * @param host Host populated with the extracted Views
+ * @param id_string View id to look up (e.g. "state_view")
+ * @return Index of the matching View, or -1 when unresolved
+ */
+int UILoader_ResolveViewIndexById(ViewHostSystem *host, const char *id_string);
+
+/**
+ * Return the initialView id recorded from the most recent load's <ViewHost>.
+ *
+ * @return The initialView id string, or NULL when none was recorded
+ */
+const char *UILoader_GetInitialViewId(void);
 
 #ifdef __cplusplus
 }

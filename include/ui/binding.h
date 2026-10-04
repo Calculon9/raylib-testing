@@ -87,13 +87,15 @@ typedef enum BindingSourceKind
 } BindingSourceKind;
 
 // Opaque query: caller supplies fn + int key. The layer never interprets the key
-// (e.g. an IsDebugEnabled shim keyed on a DebugOverlayId cast to int).
-typedef int (*BindingQueryFn)(int key);
+// (e.g. an IsDebugEnabled shim keyed on a DebugOverlayId cast to int). The query returns a
+// full BindingValue so a query source may be any type (INT/FLOAT/VECTOR2D/STRING/NONE), not
+// just INT; the query owns the returned type and the core passes it straight through.
+typedef BindingValue (*BindingQueryFn)(int key);
 
 typedef struct BindingSource
 {
     BindingSourceKind kind;
-    BindingValueType value_type; // how to interpret the address / query result
+    BindingValueType value_type; // address: how to interpret the deref; query: advisory only (the query owns the returned type)
     void *address;               // BIND_SRC_ADDRESS: *(T*)address
     BindingQueryFn query;        // BIND_SRC_QUERY: query(key)
     int query_key;               // opaque key for query
@@ -105,21 +107,28 @@ typedef enum BindingSinkKind
     BIND_SINK_NONE = 0,
     BIND_SINK_ADDRESS,
     BIND_SINK_COMMAND,
+    BIND_SINK_CALLBACK, // panel-supplied store for dynamic targets (mirrors BIND_SRC_QUERY)
 } BindingSinkKind;
 
 // Opaque command dispatch: caller supplies fn + int code. The default binding to the
 // command system is provided by the integration/consumer layer, NOT by binding.c.
 typedef void (*BindingCommandFn)(int code, const void *data);
 
+// Opaque write callback: the core hands over a validated BindingValue plus the opaque key.
+// Returns true if the panel stored it, false to reject (caller reverts). Mirrors BindingQueryFn.
+typedef bool (*BindingSinkFn)(int key, BindingValue value);
+
 typedef struct BindingSink
 {
     BindingSinkKind kind;
-    BindingValueType value_type; // address sink: type to write; command sink: ignored
+    BindingValueType value_type; // address sink: type to write; command sink: ignored; callback sink: parse type
     void *address;               // BIND_SINK_ADDRESS: *(T*)address = value
     ValidatorFn validator;       // optional, same contract as the Binder validators
     void *validator_ctx;         // == the old Binder.user_data
     BindingCommandFn command;    // BIND_SINK_COMMAND: command(code, NULL)
     int command_code;            // CommandType code, kept opaque here (0 => no dispatch)
+    BindingSinkFn write;         // BIND_SINK_CALLBACK: write(write_key, value)
+    int write_key;               // opaque key for the write callback
 } BindingSink;
 
 // The whole binding: a display read, a commit write, and the float formatting precision.

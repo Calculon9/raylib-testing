@@ -22,7 +22,7 @@ static bool GeometryEditor_IsEnabled(const World2d *world, const Newtonoid2d *se
     // NULL check here is equivalent to (and far cheaper than) a universe-wide entity scan.
     return world && world->mode == PAUSED &&
            Universe_IsEntityOwnedByWorld(&G_Universe, world, selected_object) &&
-           G_UIState.active_panel_view == LPANEL_DRAW_VIEW;
+           G_UIState.active_view == LPANEL_DRAW_VIEW;
 }
 
 static void RefreshObjectGeometry(World2d *world, Newtonoid2d *object,
@@ -41,7 +41,7 @@ static bool GeometryEditor_TryBeginDrag(World2d *world, Vector2d pixel_coords, N
     {
         LOG_INFO("Geometry editor hit-test skipped: world=%p object=%p mode=%d view=%d\n",
                  (void *)world, (void *)object, world ? world->mode : -1,
-                 G_UIState.active_panel_view);
+                 G_UIState.active_view);
         return false;
     }
 

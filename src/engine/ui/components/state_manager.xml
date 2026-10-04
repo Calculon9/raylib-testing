@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+    <!-- Describes the state-manager panel; mirrors the C construction in           -->
+    <!-- state_manager_system.c. Views: PHYS, ATTRI, WORLD, CELL.                    -->
+    <!--                                                                             -->
+    <!-- IMPORTANT fidelity notes (what IS and ISN'T expressible in markup today):  -->
+    <!--                                                                             -->
+    <!--  * TextField bindings here are DYNAMIC (they target the currently selected -->
+    <!--    entity / world / cell, which changes at runtime and is NULL when nothing -->
+    <!--    is selected). These are NOT static address bindings; they need the       -->
+    <!--    query-source + callback-sink dynamic-binding mechanism (see the C        -->
+    <!--    BindTextboxDynamic / StateManager_QueryDamage proof). The binding= names -->
+    <!--    below are declarative placeholders for an application-supplied resolver;  -->
+    <!--    until that exists, these fields stay driven by the per-frame C refresh.   -->
+    <!--                                                                             -->
+    <!--  * FLAG-BUTTON GRIDS and COMPONENT TOGGLES are NOT yet expressible. The     -->
+    <!--    ATTRI/WORLD/CELL views are largely CreateFlagButtons(...) grids (each a   -->
+    <!--    dynamic ON/OFF toggle bound to a bitflag on the selected object, wired to -->
+    <!--    a specific Handle*FlagClick handler), and the PHYS Components section has -->
+    <!--    PORTAL/ROTOR/GEAR/HEALTH component toggles. The loader has no <FlagButton>-->
+    <!--    / <FlagGrid> tag or flag/component resolver, so those are marked with     -->
+    <!--    placeholder comments below and need a new declarative mechanism (option 3)-->
+    <!--    before this markup can fully replace the C construction.                  -->
+    <!--                                                                             -->
+    <!--  * Read-only (UI_ELEMENT_TEXTBOX_O) vs editable (SAFE_IO) is not expressible;-->
+    <!--    the loader builds every <TextField> as UI_ELEMENT_TEXTBOX_IO.            -->
+    <!--                                                                             -->
+    <!--  * Gameplay/Components section visibility (is_damageable / is_projectile /  -->
+    <!--    has-selection gating in RefreshGameplaySection/RefreshComponentsSection)  -->
+    <!--    stays in the application; markup only declares the sections.             -->
+<ViewHost id="state_manager" layout="stacked" initial-view="phys_view">
+    <ViewSelector id="state_manager_views" type="enumerate">
+        <Option text="PHYS" view="phys_view" />
+        <Option text="ATTRI" view="attri_view" />
+        <Option text="WORLD" view="world_view" />
+        <Option text="CELL" view="cell_view" />
+    </ViewSelector>
+
+    <!-- ================= PHYS view ================= -->
+    <View id="phys_view" type="STATE_MANAGER_PHYSICS_VIEW" scrollable="true">
+        <Section id="identity" title="Identity" layout="stack_wrap">
+            <TextField id="sm_id" label="Id:" type="integer" binding="entity.id" />
+            <TextField id="sm_slot" label="Slot:" type="integer" binding="entity.slot" />
+            <TextField id="sm_generation" label="Generation:" type="integer" binding="entity.generation" />
+            <TextField id="sm_world" label="World" type="integer" binding="entity.world" />
+        </Section>
+
+        <Section id="physics" title="Physics" layout="stack_wrap">
+            <TextField id="sm_mass" label="Mass" type="float" binding="entity.mass" />
+            <TextField id="sm_restitution" label="Restitution" type="float" binding="entity.restitution" />
+            <TextField id="sm_friction" label="Friction" type="float" binding="entity.friction" />
+            <TextField id="sm_anchor" label="Anchor" type="vector2" binding="entity.anchor_position" />
+            <TextField id="sm_vel" label="Vel" type="vector2" binding="entity.velocity" />
+            <TextField id="sm_accel" label="Accel" type="vector2" binding="entity.acceleration" />
+            <TextField id="sm_moment" label="Moment" type="vector2" binding="entity.momentum" />
+            <TextField id="sm_angvel" label="AngVel" type="float" binding="entity.angular_velocity" />
+            <TextField id="sm_angaccel" label="AngAccel" type="float" binding="entity.angular_acceleration" />
+        </Section>
+
+        <Section id="geometry" title="Geometry" layout="stack_wrap">
+            <TextField id="sm_bounds_min" label="Bounds.min" type="vector2" binding="entity.bounds_min" />
+            <TextField id="sm_geo_center" label="Geo.center" type="vector2" binding="entity.geometry_center" />
+            <TextField id="sm_rotation" label="Rot" type="float" binding="entity.rotation" />
+            <TextField id="sm_basis_u" label="Basis u" type="vector2" binding="entity.basis_u" />
+            <TextField id="sm_basis_v" label="Basis v" type="vector2" binding="entity.basis_v" />
+        </Section>
+
+        <Section id="gameplay" title="Gameplay" layout="stack_wrap">
+            <TextField id="sm_health" label="Health" type="float" binding="entity.health" />
+            <TextField id="sm_max_health" label="MaxHealth" type="float" binding="entity.max_health" />
+            <TextField id="sm_damage" label="Damage" type="float" binding="entity.damage" />
+        </Section>
+
+        <Section id="components" title="Components" layout="stack_wrap">
+            <!-- Component toggles PORTAL/ROTOR/GEAR/HEALTH: dynamic component attach/detach -->
+            <!-- on the selected entity (HandleComponentToggleClick). NOT yet declarative;   -->
+            <!-- needs a component-toggle tag + resolver (option 3).                         -->
+            <TextField id="sm_portal_cooldown" label="Portal Cooldown" type="integer" binding="entity.portal.cooldown" />
+            <TextField id="sm_portal_roles" label="Portal Roles" type="integer" binding="entity.portal.entrant_roles" />
+            <TextField id="sm_relation_type" label="Relation Type" type="integer" binding="entity.relation.type" />
+            <TextField id="sm_relation_target" label="Relation Target" type="integer" binding="entity.relation.target" />
+            <TextField id="sm_relation_active" label="Relation Active" type="integer" binding="entity.relation.active" />
+        </Section>
+
+        <Button id="sm_delete" type="submit" text="DELETE" action="delete-entity" size="3.22,0.5" size-mode="fixed" />
+    </View>
+
+    <!-- ================= ATTRI view ================= -->
+    <!-- Entirely flag-button grids: each Section is a CreateFlagButtons(...) grid of -->
+    <!-- dynamic ON/OFF toggles on the selected entity's bitflags. NOT yet declarative -->
+    <!-- (needs a <FlagButton>/<FlagGrid> tag + flag resolver, option 3). The sections -->
+    <!-- and their intended flags are documented here as the target structure.         -->
+    <View id="attri_view" type="STATE_MANAGER_ATTRIBUTES_VIEW" scrollable="true">
+        <Section id="entity_roles" title="Entity" layout="stack_wrap">
+            <!-- FLAG GRID (exclusive role): WALL, NEWTONOID, PROJECTILE, EFFECT, CAMERA -->
+        </Section>
+        <Section id="capabilities" title="Capabilities" layout="stack_wrap">
+            <!-- FLAG GRID: DAMAGEABLE, VELOCITY, AFFECT OWNER, SENSOR -->
+        </Section>
+        <Section id="constraints" title="Constraints" layout="stack_wrap">
+            <!-- FLAG GRID: POSITION LOCKED, NO CONTACT RESPONSE -->
+        </Section>
+        <Section id="status" title="Status" layout="stack_wrap">
+            <!-- FLAG GRID: ALIVE, SLEEPING, CLOCKED -->
+        </Section>
+        <Section id="collision" title="Collision" layout="stack_wrap">
+            <!-- FLAG GRID (collision role mask): WALL, NEWTONOID, PROJECTILE, EFFECT, CAMERA -->
+        </Section>
+    </View>
+
+    <!-- ================= WORLD view ================= -->
+    <!-- Starts disabled (enabled when a world is the active selection context). -->
+    <View id="world_view" type="STATE_MANAGER_WORLD_VIEW" scrollable="true" enabled="false">
+        <Section id="world_flags" title="World" layout="stack_wrap">
+            <!-- FLAG GRID: ACTIVE, VISIBLE, SELECTABLE, PHYSICS, SPAWNS, LOCKED, DRAG -->
+        </Section>
+        <Section id="world_physics" title="Physics" layout="stack_wrap">
+            <TextField id="sm_world_restitution" label="Restitution" type="float" binding="world.restitution" />
+            <TextField id="sm_world_friction" label="Friction" type="float" binding="world.friction" />
+        </Section>
+    </View>
+
+    <!-- ================= CELL view ================= -->
+    <!-- Starts disabled (enabled when a cell is the active selection context). -->
+    <View id="cell_view" type="STATE_MANAGER_CELL_STATE_VIEW" scrollable="true" enabled="false">
+        <Section id="cell_phys" title="Cell" layout="stack_wrap">
+            <TextField id="sm_cell_index" label="Index" type="float" binding="cell.index" />
+            <TextField id="sm_cell_occu" label="Occu" type="float" binding="cell.occupancy" />
+            <TextField id="sm_cell_value" label="Value" type="float" binding="cell.value" />
+            <TextField id="sm_cell_fill" label="Fill" type="float" binding="cell.fill" />
+        </Section>
+        <Section id="cell_flags" title="Flags" layout="stack_wrap">
+            <!-- FLAG GRID: SOLID, WALKABLE, HAZARD, SPAWN -->
+        </Section>
+    </View>
+</ViewHost>

@@ -159,6 +159,9 @@ WORLD MODULE
 //extern Camera2d camera_world;// = {0};
 
 extern bool world_grid_debug_labels_enabled;
+// World grid visibility (view/display setting). Default ON. Owned here; the debug-overlay
+// facade's DEBUG_WORLD_GRID case delegates to this flag.
+extern bool world_grid_overlay_enabled;
 
 // typedef struct {
 //     Texture *texture;

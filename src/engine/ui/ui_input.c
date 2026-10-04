@@ -503,14 +503,36 @@ void HandleTextCommit(UIElement *element, Text_64_IOState *tbox_buffers)
         return;
     }
 
-    if (!IsEditableTextbox(element) || !element->data.textbox.binder)
+    if (!IsEditableTextbox(element))
     {
         RevertTextChanges(element, tbox_buffers);
         return;
     }
 
-    if (!Binder_ValidateAndWrite(element->data.textbox.binder, element->data.textbox.text.string))
+    const char *text = element->data.textbox.text.string;
+
+    if (element->data.textbox.binding)
     {
+        // Migrated path: parse -> validate -> sink-write through the symmetric core. For a stable
+        // address sink with no validator this is byte-identical to the legacy binder commit.
+        if (!Binding_Commit(element->data.textbox.binding, text))
+        {
+            RevertTextChanges(element, tbox_buffers);
+            return;
+        }
+    }
+    else if (element->data.textbox.binder)
+    {
+        // Legacy path for fields not yet migrated. Additive - do not break unmigrated callers.
+        if (!Binder_ValidateAndWrite(element->data.textbox.binder, text))
+        {
+            RevertTextChanges(element, tbox_buffers);
+            return;
+        }
+    }
+    else
+    {
+        // Neither carrier: nothing to commit to (matches the old binder-missing revert).
         RevertTextChanges(element, tbox_buffers);
         return;
     }

@@ -1,0 +1,27 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "severity": "NIT",
+      "title": "Include partition for diagnostics.c is deliberately non-authoritative",
+      "location": "Design section 'Include partition', diagnostics.c includes list",
+      "problem": "Several includes are hedged ('include only if', 'keep whichever are declared here', 'pulled transitively'), delegating the final list to the compiler. Behaviour-neutral, so non-blocking, but camera/camera.h is left as a 'maybe' when it should be plainly omitted (the module reaches G_Universe.camera via universe.h and UpdateCameraFull stays in the facade).",
+      "fix": "State plainly that diagnostics.c does NOT include camera/camera.h; keep the already-correct viewport_system.h, ui/lpanel_system.h, ui/rpanel_system.h, universe_system.h, world/*, ui/cfont.h, ui/text_region.h, and <math.h>/<string.h>/<stdio.h>/<stdarg.h> includes."
+    },
+    {
+      "severity": "NIT",
+      "title": "DrawUniverseDebugOverlays name no longer matches its reduced role",
+      "location": "Group C table and 'public entry points' section 2",
+      "problem": "After the move the function only populates the snapshot via Diagnostics_UpdateSnapshot() and draws nothing, so the name is now a misnomer.",
+      "fix": "Do NOT rename — the public signature must stay unchanged so the two callers compile. Keep the name as-is with the one-line delegate comment already specified. Recorded only to prevent an incidental rename."
+    },
+    {
+      "severity": "NIT",
+      "title": "RefreshViewportForBasisEdit call-site line number is approximate",
+      "location": "'RefreshViewportForBasisEdit placement decision -> Verified callers'",
+      "problem": "The cited call site 'debug_overlay_system.c:833' is near but not exact and will shift as symbols are deleted during the move. The substantive claim (one call site, inside ApplyDebugHotkeyChanges) is correct.",
+      "fix": "Phrase it as 'the sole call site, inside ApplyDebugHotkeyChanges' without the hard line number."
+    }
+  ],
+  "reviewDoc": "c:\\Projects\\raylib-testing\\.agents\\tasks\\diagnostics-extraction-review.md"
+}

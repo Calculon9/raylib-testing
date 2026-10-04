@@ -1,0 +1,18 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "label": "Pre-existing staged rename",
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "detail": "panel_system.{h,c} -> view_host_system.{h,c} are staged (R100, pure renames) in the index from the earlier terminology-rename work, not this task. All four task files (ui_loader.h, ui_loader.c, lpanel_system.c, lpanel.xml) are unstaged and uncommitted. This task introduced no git mutation; the human should be aware the index is non-empty before committing."
+    },
+    {
+      "label": "Bundled adjacent changes",
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "detail": "The toggle-overlay resolution refactor (CommandSystem_ResolveToggleOverlay replacing enum-order arithmetic) and the BindingValue-returning query shim live in lpanel_system.c alongside the view-host work. Correct and necessary to keep the XML-authored STATE toggles building and composing their labels, but noted as scope beyond the strict view-host wiring."
+    }
+  ],
+  "reviewDoc": "c:\\Projects\\raylib-testing\\.agents\\tasks\\xml-viewhost-review.md"
+}

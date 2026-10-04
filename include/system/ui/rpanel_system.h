@@ -7,7 +7,7 @@ RIGHT PANEL SYSTEM MODULE
 #define RPANEL_SYSTEM_H
 
 #include "camera/camera.h"
-#include "system/panel_system.h"
+#include "system/view_host_system.h"
 #include "ui/ui.h"
 
 extern UIBox rpanel_seed_box;
@@ -24,6 +24,6 @@ void ResetRPanelSpaceBasis(void);
 UIElement* GetRPanelRoot(void);
 
 // Get the panel system instance.
-struct PanelSystem *GetRPanelSystem(void);
+struct ViewHostSystem *GetRPanelViewHost(void);
 
 #endif

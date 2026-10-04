@@ -55,3 +55,4 @@ build
 # debug information files
 *.dwo
 
+*.agents/

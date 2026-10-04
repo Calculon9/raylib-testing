@@ -25,6 +25,13 @@ and all creation parameters for new worlds.
 #define UNIVERSE_ROOT_WORLD_INDEX (-2)
 
 //----------------------------------------------------------------------------------
+// View / display settings
+//----------------------------------------------------------------------------------
+// Universe-space grid-label visibility (view/display setting, not debug). Default OFF. Owned by
+// the world layer; the debug-overlay facade's DEBUG_UNIVERSE_GRID_LABELS case delegates here.
+extern bool universe_grid_labels_enabled;
+
+//----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
 typedef struct Universe

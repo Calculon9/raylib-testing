@@ -1,0 +1,46 @@
+{
+  "verdict": "CHANGES_REQUESTED",
+  "findings": [
+    {
+      "id": 1,
+      "severity": "MEDIUM",
+      "title": "State-manager flag-family query guard changes on-screen behaviour vs UpdateFlagButtons",
+      "location": "design section 4.2 (StateManager_QueryEntityCapability and the general per-family rule)",
+      "problem": "The per-family queries guard with `o && o->id != INVALID_ENTITY_ID` and claim this matches UpdateFlagButtons' is_valid. Verified in state_manager_system.c that RefreshAttributeView uses is_valid = (object != NULL) with NO id check for all five entity flag families; only RefreshComponentsSection uses the id-checked term. The design imported the component loop's stricter validity term into the flag-family queries, so a non-NULL object with INVALID_ENTITY_ID would flip from showing its real bitmask to OFF - a silent regression against the 'label value is identical' claim.",
+      "fix": "Make each family's query guard match the term that family uses today: entity flag families guard on `o != NULL` only (no id check); keep `o && o->id != INVALID_ENTITY_ID` only for StateManager_QueryComponentAttached; confirm world/cell queries mirror their current non-NULL gates. Correct the parity sentence in 4.2 accordingly."
+    },
+    {
+      "id": 2,
+      "severity": "NIT",
+      "title": "StateManager_QueryComponentAttached indexes components[] with a cast int without a documented bound",
+      "location": "design section 4.2 (StateManager_QueryComponentAttached)",
+      "problem": "components is sized [ENTITY_COMPONENT_HEALTH + 1] and populated for type in 1..ENTITY_COMPONENT_HEALTH. Current four button types are in range, but the query indexes with any int key handed to it and the invariant is undocumented; an out-of-range key would read out of bounds.",
+      "fix": "Add a bound guard: if ((EntityComponentType)component_type < 1 || > ENTITY_COMPONENT_HEALTH) return BIND_INT 0; document that the key is always a valid EntityComponentType."
+    },
+    {
+      "id": 3,
+      "severity": "NIT",
+      "title": "'Strictly more responsive' omits the per-frame query cost of the pull",
+      "location": "design sections 4.4 and 9",
+      "problem": "Moving ON/OFF labels from dirty-driven to a per-frame pull adds per-button work each frame (UIState_GetSelectedObject per flag button; EntityRegistry_Describe, which loops GetComponent over all types, per component button). Negligible at this count, but 'strictly more responsive' understates that it is also strictly more work.",
+      "fix": "Add a half-sentence acknowledging the per-button per-frame query cost is negligible at this button count."
+    },
+    {
+      "id": 4,
+      "severity": "NIT",
+      "title": "Advisory query-source value_type is not pinned to the actual ON/OFF path",
+      "location": "design sections 1.3 and 2 (query-source branch)",
+      "problem": "UIElement_RefreshBinding composes ON/OFF purely from the returned value's as.i, ignoring the source's advisory value_type. Carrying value_type = BIND_INT into the source descriptor as if it drives the display could mislead the implementer.",
+      "fix": "Note at section 2's query-source branch that toggle ON/OFF depends only on the query's returned as.i; the source value_type is advisory and unused by the button display path."
+    },
+    {
+      "id": 5,
+      "severity": "NIT",
+      "title": "LEGACY block references to deleted symbols should be flagged as all-or-nothing revert",
+      "location": "design section 6 (revert-safety LEGACY block)",
+      "problem": "The fully-commented LEGACY block is inert and does not affect the build (correct), but it references pre-change signatures/locals (old CreateFlagButtons without query param, removed attached local). Un-commenting a single line for a partial revert would not compile against the new signatures - a maintenance footgun.",
+      "fix": "Add a sentence to the LEGACY header stating the revert is all-or-nothing: it restores the pre-change CreateFlagButtons signature and call shape together; individual lines must not be un-commented in isolation."
+    }
+  ],
+  "reviewDoc": "c:\\Projects\\raylib-testing\\.agents\\tasks\\binding-consistency-design-review.md"
+}

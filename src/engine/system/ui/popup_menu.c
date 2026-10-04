@@ -1,7 +1,7 @@
 #include "system/ui/popup_menu.h"
 
 #include "entities/entity_prefab.h"
-#include "system/panel_system.h"
+#include "system/view_host_system.h"
 #include "system/command_system.h"
 #include "system/universe_system.h"
 #include "system/ui_system.h"
@@ -9,7 +9,7 @@
 #include "ui/ui_constructors.h"
 #include "world/world_internal.h"
 
-static PanelSystem *popup_menu = NULL;
+static ViewHostSystem *popup_menu = NULL;
 static UIElement *popup_menu_create_cont = NULL;
 static UIElement *popup_menu_recent_cont = NULL;
 static UIElement *popup_create_entity_submenu_cont = NULL;
@@ -163,7 +163,7 @@ static void HandlePopupCreateClick(UIElement *button)
 
 static void InitCreateView(void)
 {
-    View *view = PanelSystem_CreateView(popup_menu, POPUP_MENU_CREATE_VIEW);
+    View *view = ViewHostSystem_CreateView(popup_menu, POPUP_MENU_CREATE_VIEW);
     popup_menu_create_cont = view ? view->container : NULL;
     if (!popup_menu_create_cont)
     {
@@ -307,7 +307,7 @@ static void InitCreateWorldSubmenu(void)
 
 static void InitRecentView(void)
 {
-    View *view = PanelSystem_CreateView(popup_menu, POPUP_MENU_RECENT_VIEW);
+    View *view = ViewHostSystem_CreateView(popup_menu, POPUP_MENU_RECENT_VIEW);
     popup_menu_recent_cont = view ? view->container : NULL;
     if (!popup_menu_recent_cont)
     {
@@ -343,7 +343,7 @@ static void InitPopupViewSelector(void)
     popup_view_selector_cont->colour_border = popup_menu->palette->container_border;
 
     const char *labels[] = {"CREATE", "RECENT"};
-    popup_view_selector = PanelSystem_CreateHoverViewSelector(
+    popup_view_selector = ViewHostSystem_CreateHoverViewSelector(
         popup_menu, popup_view_selector_cont, popup_view_selector_button_size,
         labels, ARRAY_COUNT(labels), NULL);
 }
@@ -355,26 +355,26 @@ void InitPopupMenu(void)
         return;
     }
 
-    popup_menu = PanelSystem_Create(&game_viewport, 1.0f, ZERO_VECTOR_2D,
+    popup_menu = ViewHostSystem_Create(&game_viewport, 1.0f, ZERO_VECTOR_2D,
                                     &ui_default_palette, popup_menu_root_spacing);
     if (!popup_menu)
     {
         return;
     }
 
-    PanelSystem_InitRoot(popup_menu);
+    ViewHostSystem_InitRoot(popup_menu);
     popup_menu->root->colour_fill = COLOURLESS_RGBA;
     popup_menu->root->is_enabled = false;
 
     // Initialize views array
-    PanelSystem_InitViews(popup_menu, 2);
+    ViewHostSystem_InitViews(popup_menu, 2);
 
     InitCreateEntitySubmenu();
     InitCreateWorldSubmenu();
     InitPopupViewSelector();
     InitCreateView();
     InitRecentView();
-    PanelSystem_SelectView(popup_view_selector, 0);
+    ViewHostSystem_SelectView(popup_view_selector, 0);
 
     UpdateUISpace(popup_menu->root, popup_menu->seed_box);
 }
@@ -440,7 +440,7 @@ void DrawPopupMenu(void)
 {
     if (popup_menu && popup_menu_visible)
     {
-        PanelSystem_Draw(popup_menu);
+        ViewHostSystem_Draw(popup_menu);
     }
 }
 
@@ -449,7 +449,7 @@ UIElement *GetPopupMenuRoot(void)
     return popup_menu ? popup_menu->root : NULL;
 }
 
-PanelSystem *GetPopupMenuSystem(void)
+ViewHostSystem *GetPopupMenuViewHost(void)
 {
     return popup_menu;
 }
@@ -459,9 +459,9 @@ void DestroyPopupMenu(void)
 {
     HidePopupMenu();
 
-    PanelSystem *panel = popup_menu;
+    ViewHostSystem *panel = popup_menu;
     popup_menu = NULL;
-    PanelSystem_Destroy(panel);
+    ViewHostSystem_Destroy(panel);
 
     popup_menu_create_cont = NULL;
     popup_menu_recent_cont = NULL;

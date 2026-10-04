@@ -72,6 +72,13 @@ void InitCommandSystem(void);
 // Returns 0 (CMD_NONE) if the command string is not recognised.
 int CommandSystem_ResolveString(const char *cmd_string);
 
+// Map a CMD_TOGGLE_* command code to its debug-overlay id via an EXPLICIT per-command mapping
+// (no reliance on CMD_TOGGLE_* and DebugOverlayId sharing enum order). The overlay id is returned
+// as a plain int so this header stays free of the debug-overlay type; the caller casts to
+// DebugOverlayId at the dispatch point. Returns true and writes *out_overlay_id for a toggle
+// command; returns false (and leaves *out_overlay_id untouched) for any non-toggle command.
+bool CommandSystem_ResolveToggleOverlay(CommandType type, int *out_overlay_id);
+
 // Execute a command immediately (synchronous)
 void ExecuteCommand(CommandType type, const void *data);
 

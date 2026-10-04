@@ -8,7 +8,7 @@ LEFT PANEL SYSTEM MODULE
 
 #include "math/cvectors.h"
 #include "camera/camera.h"
-#include "system/panel_system.h"
+#include "system/view_host_system.h"
 #include "ui/ui.h"
 
 // Left-panel UI tree state.
@@ -26,7 +26,7 @@ void ResetLPanelSpaceBasis(void);
 UIElement* GetLPanelRoot(void);
 
 // Get the panel system instance.
-struct PanelSystem *GetLPanelSystem(void);
+struct ViewHostSystem *GetLPanelViewHost(void);
 
 // Handle debug toggle button clicks for the left panel.
 // Called by the UI loader when a toggle-debug-* action is invoked.

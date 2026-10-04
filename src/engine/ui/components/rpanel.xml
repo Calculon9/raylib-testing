@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+    <!-- Describes the right panel; mirrors the C construction in rpanel_system.c. -->
+    <!-- Button action attributes use command names resolved by the command system. -->
+    <!-- TextField binding attributes are resolved by an application-supplied binding -->
+    <!-- resolver (see LPanel_ResolveBinding for the pattern); the rpanel resolver maps -->
+    <!-- the world.* names below to GetNextWorld*Ptr()/selected-world fields.           -->
+    <!--                                                                                -->
+    <!-- NOTE on fidelity vs the C version:                                             -->
+    <!--  * The STATE "World Manager" fields are mostly live telemetry refreshed each   -->
+    <!--    frame in DrawRPanel (world index, origin, resolution, objects, next id) and -->
+    <!--    two editable fields (gravity, basis u/v) for the selected world. Declared   -->
+    <!--    here with their labels/types; the per-frame refresh + selected-world edit   -->
+    <!--    wiring stays in the application (same as lpanel's telemetry).               -->
+    <!--  * The loader currently builds every TextField as UI_ELEMENT_TEXTBOX_IO; the C -->
+    <!--    O (output-only) vs SAFE_IO distinction is not yet expressible in markup.     -->
+<ViewHost id="right_panel" layout="stacked" initial-view="state_view">
+    <ViewSelector id="right_panel_views" type="enumerate">
+        <Option text="STATE" view="state_view" />
+        <Option text="CREATE" view="create_view" />
+    </ViewSelector>
+
+    <View id="state_view" type="RPANEL_STATE_VIEW" scrollable="false">
+        <Section id="world_manager" title="World Manager" size="1.0,0.36" size-mode="percent" layout="stack">
+            <TextField id="world_index" label="World" type="float" binding="world.index" />
+            <TextField id="world_origin" label="World origin" type="float" binding="world.origin" />
+            <TextField id="world_resolution" label="Res" type="float" binding="world.resolution" />
+            <TextField id="world_objects" label="Objects" type="float" binding="world.objects" />
+            <TextField id="world_next_id" label="Next id" type="float" binding="world.next_id" />
+            <TextField id="world_gravity" label="Gravity" type="float" binding="world.gravity" />
+            <TextField id="world_basis_u" label="Basis u" type="vector2" binding="world.basis_u" />
+            <TextField id="world_basis_v" label="Basis v" type="vector2" binding="world.basis_v" />
+
+            <Button id="world_prev" type="submit" text="PREV" action="select-world-prev" size="3.22,0.5" size-mode="fixed" />
+            <Button id="world_next" type="submit" text="NEXT" action="select-world-next" size="3.22,0.5" size-mode="fixed" />
+        </Section>
+    </View>
+
+    <View id="create_view" type="RPANEL_WORLD_CREATE_VIEW" scrollable="false" enabled="false">
+        <Section id="world_create" title="World Create" size="1.0,0.32" size-mode="percent" layout="stack">
+            <TextField id="create_spawn" label="Spawn" type="vector2" binding="world.create.spawn" />
+            <TextField id="create_resolution" label="Resolution" type="vector2" binding="world.create.resolution" />
+            <TextField id="create_objects" label="Objects" type="integer" binding="world.create.objects" />
+            <TextField id="create_gravity" label="Gravity" type="float" binding="world.create.gravity" />
+            <TextField id="create_basis_u" label="Basis u" type="vector2" binding="world.create.basis_u" />
+            <TextField id="create_basis_v" label="Basis v" type="vector2" binding="world.create.basis_v" />
+
+            <Button id="create_world" type="submit" text="NEW WORLD" action="create-world" size="3.22,0.5" size-mode="fixed" />
+        </Section>
+    </View>
+</ViewHost>

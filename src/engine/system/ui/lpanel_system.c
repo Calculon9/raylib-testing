@@ -8,7 +8,7 @@
 #include "entities/entity_factory.h"
 #include "system/debug_overlay_system.h"
 #include "ui/ui_constructors.h"
-#include "system/panel_system.h"
+#include "system/view_host_system.h"
 #include "system/systems.h"
 #include <stdint.h>
 #include <string.h>
@@ -16,83 +16,97 @@
 // ============================================================================
 // Panel System
 // ============================================================================
-static PanelSystem *lpanel = NULL;
+static ViewHostSystem *lpanel = NULL;
 
 // ============================================================================
-// Action Codes
+// Panel Selector State
 // ============================================================================
-static int btn_action_create_entity = BUTTON_ACTION_CREATE_ENTITY;
-
-// ============================================================================
-// Visual Style Properties
-// ============================================================================
-static Size debug_section_size = UI_SIZE_CONTENT_FILL;
-
-// ============================================================================
-// UI Element Pointers
-// ============================================================================
-UIElement *lpanel_state_view_cont = {0};
-UIElement *lpanel_edit_view_cont = {0};
-UIElement *lpanel_view_selector_cont = {0};
-UIElement *lpanel_edit_entity_tcont = {0};
+// The STATE view's debug toggles and the DRAW view's edit fields are now authored
+// in lpanel.xml and built by the generic UI loader; the former hard-coded toggle
+// tables and view-container pointers were removed with the imperative builders.
 static ViewSelector *lpanel_view_selector = NULL;
-
-typedef struct
-{
-    DebugOverlayId id;
-    const char *label;
-} LPanelDebugToggle;
-
-static const LPanelDebugToggle lpanel_debug_general_toggles[] = {
-    {DEBUG_DASHBOARD, "Dashboard"},
-};
-
-static const LPanelDebugToggle lpanel_debug_viewport_toggles[] = {
-    {DEBUG_VIEWPORT_GRID, "Viewport Grid"},
-};
-
-static const LPanelDebugToggle lpanel_debug_world_toggles[] = {
-    {DEBUG_WORLD_GRID, "World Grid"},
-    {DEBUG_WORLD_GRID_LABELS, "World Grid Labels"},
-    {DEBUG_UNIVERSE_GRID_LABELS, "Universe Grid Labels"},
-};
-
-static const LPanelDebugToggle lpanel_debug_ui_toggles[] = {
-    {DEBUG_UI_BORDERS, "UI Borders"},
-};
-
-static const LPanelDebugToggle lpanel_debug_object_toggles[] = {
-    {DEBUG_OBJECT_AXES, "Object Axes"},
-    {DEBUG_OBJECT_HULL, "Object Hull"},
-    {DEBUG_OBJECT_AABB, "Object AABB"},
-};
-
-static void HandleLPanelDebugToggleClickInternal(UIElement *button)
-{
-    if (!button || !button->data.button.user_data)
-    {
-        return;
-    }
-
-    const LPanelDebugToggle *toggle = (const LPanelDebugToggle *)button->data.button.user_data;
-    ToggleDebug(toggle->id);
-    UpdateString64(button->data.button.display_text.string, "%s: %s", toggle->label,
-                   IsDebugEnabled(toggle->id) ? "ON" : "OFF");
-}
 
 // ============================================================================
 // UI Loader Resolvers (Application-Specific)
 // ============================================================================
 
+// Forward declaration: the debug query shim is defined lower down (near its historic
+// neighbours) but the debug.* resolver branch below references it.
+static BindingValue LPanel_QueryDebugEnabled(int overlay_key);
+
+/**
+ * Map a toggle binding suffix to its DebugOverlayId.
+ * The app owns these names (the loader stays domain-free). The authored names use three
+ * namespaces that reflect each toggle's TRUE category and state owner (see the ownership
+ * split in object_gizmos / world / universe / ui vs the diagnostics module):
+ *   gizmo.*  -> per-object inspection overlays (axes/hull/aabb), owned by object_gizmos
+ *   view.*   -> view/display settings (grids, grid labels, UI borders)
+ *   debug.*  -> genuine developer diagnostics (the dashboard)
+ * All three still resolve through the DebugOverlayId facade + IsDebugEnabled query (the facade
+ * delegates to the real owners), so this mapping is purely about honest naming, not wiring.
+ * Returns false (and leaves *out untouched) for an unrecognised suffix so the loader can warn.
+ */
+static bool LPanel_ResolveOverlayName(const char *suffix, DebugOverlayId *out)
+{
+    if (!suffix || !out)
+        return false;
+
+    // debug.* (diagnostics)
+    if (!strcmp(suffix, "dashboard"))                 { *out = DEBUG_DASHBOARD;            return true; }
+    // view.* (view/display settings)
+    if (!strcmp(suffix, "viewport-grid"))             { *out = DEBUG_VIEWPORT_GRID;        return true; }
+    if (!strcmp(suffix, "world-grid"))                { *out = DEBUG_WORLD_GRID;           return true; }
+    if (!strcmp(suffix, "world-grid-labels"))         { *out = DEBUG_WORLD_GRID_LABELS;    return true; }
+    if (!strcmp(suffix, "universe-grid-labels"))      { *out = DEBUG_UNIVERSE_GRID_LABELS; return true; }
+    if (!strcmp(suffix, "ui-borders"))                { *out = DEBUG_UI_BORDERS;           return true; }
+    // gizmo.* (object inspection overlays)
+    if (!strcmp(suffix, "object-axes"))               { *out = DEBUG_OBJECT_AXES;          return true; }
+    if (!strcmp(suffix, "object-hull"))               { *out = DEBUG_OBJECT_HULL;          return true; }
+    if (!strcmp(suffix, "object-aabb"))               { *out = DEBUG_OBJECT_AABB;          return true; }
+
+    return false; // Unrecognised overlay name
+}
+
 /**
  * Resolve data bindings for entity creation UI.
- * Maps binding strings like "physics.width" to entity_create_params fields.
+ * Maps binding strings like "physics.width" to entity_create_params fields, and the toggle
+ * namespaces "gizmo.<name>" / "view.<name>" / "debug.<name>" to a live query source over
+ * IsDebugEnabled (the overlay facade delegates to each toggle's real owner).
  */
 static UIBinding LPanel_ResolveBinding(const char *binding_string, UILoaderContext *ctx)
 {
     UIBinding binding = {NULL, FLOAT};  // Default: unresolved
-    
-    if (!binding_string || !G_UIState.entity_create_params)
+
+    if (!binding_string)
+        return binding;
+
+    // Handle the toggle namespaces FIRST (before the physics dot-parse). This branch is
+    // self-contained and does NOT depend on entity_create_params, so it must run even when
+    // entity_create_params is NULL. The three prefixes name the toggle's true category
+    // (gizmo./view./debug.); the suffix after the dot is the overlay name. Each returns a
+    // query source over IsDebugEnabled and returns before the dot-parse logic.
+    const char *suffix = NULL;
+    if      (!strncmp(binding_string, "gizmo.", 6)) suffix = binding_string + 6;
+    else if (!strncmp(binding_string, "view.", 5))  suffix = binding_string + 5;
+    else if (!strncmp(binding_string, "debug.", 6)) suffix = binding_string + 6;
+
+    if (suffix)
+    {
+        DebugOverlayId id;
+        if (LPanel_ResolveOverlayName(suffix, &id))
+        {
+            return (UIBinding){
+                .kind = UI_BIND_SRC_QUERY,
+                .query = LPanel_QueryDebugEnabled, // existing shim, kept
+                .query_key = (int)id,
+                .value_type = BIND_INT,
+            };
+        }
+        // Unknown overlay name -> unresolved (loader warns).
+        return (UIBinding){ .kind = UI_BIND_SRC_NONE };
+    }
+
+    if (!G_UIState.entity_create_params)
         return binding;
     
     // Parse binding string format: "component.field"
@@ -181,6 +195,37 @@ static int LPanel_ResolveCommand(const char *cmd_string, UILoaderContext *ctx)
     return CommandSystem_ResolveString(cmd_string);
 }
 
+/**
+ * Resolve a left-panel view-type string to its ViewType code.
+ * Maps the two lpanel view-type names authored in lpanel.xml; any other string is
+ * reported as unresolved and defaults to the first view type.
+ */
+static ViewType LPanel_ResolveViewType(const char *type_string, bool *resolved, UILoaderContext *ctx)
+{
+    (void)ctx;  // Currently unused; provided for future application-specific context
+
+    if (resolved)
+    {
+        *resolved = true;
+    }
+
+    if (type_string && !strcmp(type_string, "LPANEL_STATE_VIEW"))
+    {
+        return LPANEL_STATE_VIEW;
+    }
+    if (type_string && !strcmp(type_string, "LPANEL_DRAW_VIEW"))
+    {
+        return LPANEL_DRAW_VIEW;
+    }
+
+    // Unrecognised: report failure and default to the first view type.
+    if (resolved)
+    {
+        *resolved = false;
+    }
+    return LPANEL_STATE_VIEW;
+}
+
 // Recalculate the left-panel UI tree immediately for layout debugging.
 static void HandleLPanelUIRefreshClick(UIElement *button)
 {
@@ -201,242 +246,118 @@ static void HandleLPanelUIRefreshClick(UIElement *button)
 // ============================================================================
 // State View Layout
 // ============================================================================s
-// ============================================================================
-// Edit View Layout
-// ============================================================================
-Size create_entity_section_size = UI_SIZE_CONTENT_FILL;
-
-void InitLPanelStateView(void);
-void InitLPanelEditView(void);
-
-static void InitEntityCreateDefaults(void)
+// Query shim matching BindingQueryFn (BindingValue(int)). The binding core stays decoupled
+// from the debug subsystem: it only knows "call this fn with this int key". Here the key is a
+// DebugOverlayId, so the shim is a thin, type-clean adapter over IsDebugEnabled that normalises
+// the on/off state to a canonical 0/1 BindingValue INT (preserving the toggle's ON/OFF display).
+static BindingValue LPanel_QueryDebugEnabled(int overlay_key)
 {
-    if (!G_UIState.entity_create_params)
-    {
-        return;
-    }
-
-    EntityCreateParams *params = G_UIState.entity_create_params;
-    params->component_flags = 0;
-    params->physics.shape_type = SHAPE_AUTO;
-    params->physics.vertice_count = 4;
-    params->physics.width = 1.0f;
-    params->physics.height = 1.0f;
-    params->physics.mass = 1.0f;
-    params->physics.restitution = 0.9f;
-    params->physics.friction = 0.5f;
-    params->physics.anchor_position = ZERO_VECTOR_2D;
-    params->physics.velocity = ZERO_VECTOR_2D;
-    params->portal_params.entrant_roles = ENTITY_ROLE_NEWTONOID | ENTITY_ROLE_PROJECTILE;
-    params->portal_params.cooldown_frames = 30;
-
-    WriteTextboxInt(G_UIState.edit_vertice_count_tbox, params->physics.vertice_count);
-    WriteTextboxFloat(G_UIState.edit_width_tbox, params->physics.width, 2);
-    WriteTextboxFloat(G_UIState.edit_height_tbox, params->physics.height, 2);
-    WriteTextboxFloat(G_UIState.edit_mass_tbox, params->physics.mass, 2);
-    WriteTextboxFloat(G_UIState.edit_restitution_tbox, params->physics.restitution, 2);
-    WriteTextboxFloat(G_UIState.edit_friction_tbox, params->physics.friction, 2);
-    WriteTextboxVectorPair(G_UIState.edit_pos_c_tbox, params->physics.anchor_position);
-    WriteTextboxVectorPair(G_UIState.edit_vel_tbox, params->physics.velocity);
-}
-
-// Query shim matching BindingQueryFn (int(int)). The binding core stays decoupled from the
-// debug subsystem: it only knows "call this fn with this int key". Here the key is a
-// DebugOverlayId, so the shim is a thin, type-clean adapter over IsDebugEnabled.
-static int LPanel_QueryDebugEnabled(int overlay_key)
-{
-    return IsDebugEnabled((DebugOverlayId)overlay_key);
-}
-
-// Attach a query-source to every XML toggle button so its label reflects live overlay state.
-//
-// A toggle button already carries a command-sink binding (built by the loader) whose
-// command_code is a CMD_TOGGLE_* value. We derive the DebugOverlayId from that code using the
-// same offset ExecuteCommand uses, and point the binding's source at the debug query. From then
-// on the per-frame PanelSystem_RefreshBindings pull composes "<text>: ON/OFF" automatically,
-// so the label stays correct whether toggled by this button, another control, or a hotkey.
-static void LPanel_AttachToggleSources(UIElement *element)
-{
-    if (!element)
-    {
-        return;
-    }
-
-    if (IsBtn(element) && element->data.button.binding)
-    {
-        Binding *binding = element->data.button.binding;
-        int code = binding->sink.command_code;
-        if (binding->sink.kind == BIND_SINK_COMMAND &&
-            code >= CMD_TOGGLE_DEBUG_DASHBOARD && code <= CMD_TOGGLE_OBJECT_AABB)
-        {
-            binding->source.kind = BIND_SRC_QUERY;
-            binding->source.value_type = BIND_INT;
-            binding->source.query = LPanel_QueryDebugEnabled;
-            binding->source.query_key = (int)(code - CMD_TOGGLE_DEBUG_DASHBOARD); // -> DebugOverlayId
-        }
-    }
-
-    ForEachChild(element, child)
-    {
-        LPanel_AttachToggleSources(child);
-    }
+    return (BindingValue){ .type = BIND_INT, .as.i = IsDebugEnabled((DebugOverlayId)overlay_key) ? 1 : 0 };
 }
 
 void InitLPanel()
 {
-    // Try to load from XML first with application-provided resolvers
+    // Load the left panel from its authoritative XML markup, supplying the
+    // application-specific binding / command / view-type resolvers.
     UIElement *root = UILoader_LoadFromFileWithResolvers(
         "C:\\Projects\\raylib-testing\\src\\engine\\ui\\components\\lpanel.xml",
         &ui_default_palette,
         LPanel_ResolveBinding,
         LPanel_ResolveCommand,
+        LPanel_ResolveViewType,
         NULL
     );
 
-    if (root)
+    if (!root)
     {
-        // Give toggle buttons a live debug-state source so their ON/OFF labels self-update.
-        LPanel_AttachToggleSources(root);
+        // XML is the single authoritative source; a load failure is an asset/build
+        // error. Leave lpanel NULL (DrawLPanel null-guards) rather than diverging
+        // to a hard-coded panel.
+        LOG_ERROR("InitLPanel: failed to load lpanel.xml; left panel will not render");
+        return;
+    }
 
-        // XML loaded successfully; extract Views from tree
-        size_t view_count = 0;
-        View **xml_views = UILoader_ExtractViews(root, &view_count);
-        
-        // Create panel infrastructure
-        const char *labels[] = {"STATE", "DRAW"};
-        lpanel = PanelSystem_CreateStandard(&lpanel_viewport, 2, labels, ARRAY_COUNT(labels),
-                                            PanelSystem_HandleViewSelected,
-                                            &ui_default_palette, ui_standard_stack_spacing);
-        if (lpanel)
+    // Toggle buttons now carry their live debug-state source declaratively (binding="debug.*"
+    // resolved in BuildButton via LPanel_ResolveBinding), so no C post-pass is needed.
+
+    // Extract the Views from the XML tree; each now carries its correct ViewType
+    // resolved from the XML type= via LPanel_ResolveViewType.
+    size_t view_count = 0;
+    View **xml_views = UILoader_ExtractViews(root, &view_count);
+
+    // Create the host, then build its real root (with a valid coordinate space /
+    // seed box) and re-parent the XML <ViewHost> container under it. The XML tree
+    // drives everything inside the single real root.
+    lpanel = ViewHostSystem_Create(&lpanel_viewport, 1.0f, (Vector2d){0.1f, 0.1f},
+                                   &ui_default_palette, ui_standard_stack_spacing);
+    if (!lpanel)
+    {
+        DisposeUIElement(root);
+        if (xml_views)
         {
-            lpanel->root = root;
-            
-            // Register XML-created Views with panel
-            for (size_t i = 0; i < view_count; i++)
-            {
-                LArray_Push(&lpanel->views, &xml_views[i]);
-            }
-            
-            // Free the array (not the Views, which panel now owns)
-            if (xml_views)
-            {
-                Deallocate((void **)&xml_views, sizeof(View *) * view_count);
-            }
-            
-            PanelSystem_FinaliseInit(lpanel, &lpanel_view_selector);
+            Deallocate((void **)&xml_views, sizeof(View *) * view_count);
         }
         return;
     }
 
-    // Fallback: build panel-specific UI with hardcoded construction
-    // const char *labels[] = {"STATE", "DRAW"};
-    // lpanel = PanelSystem_CreateStandard(&lpanel_viewport, 2, labels, ARRAY_COUNT(labels),
-    //                                     PanelSystem_HandleViewSelected,
-    //                                     &ui_default_palette, ui_standard_stack_spacing);
-    // if (!lpanel)
-    // {
-    //     return;
-    // }
+    ViewHostSystem_InitRoot(lpanel);        // Build the real UI_ELEMENT_ROOT + space + seed_box.
+    AddElementToTree(root, lpanel->root);   // Re-parent XML container under the real root.
+                                            // NEVER lpanel->root = root (the dangling-root bug).
 
-    // // Build panel-specific UI
-    // InitLPanelStateView();
-    // InitLPanelEditView();
-
-    // // Finalise: select first view and update layout
-    // PanelSystem_FinaliseInit(lpanel, &lpanel_view_selector);
-}
-
-void InitLPanelStateView(void)
-{
-    View *view = PanelSystem_CreateView(lpanel, LPANEL_STATE_VIEW);
-    lpanel_state_view_cont = view ? view->container : NULL;
-
-    if (!lpanel_state_view_cont)
+    // Register the XML-created Views with the host.
+    ViewHostSystem_InitViews(lpanel, view_count);
+    for (size_t i = 0; i < view_count; i++)
     {
-        return;
+        LArray_Push(&lpanel->views, &xml_views[i]);
+    }
+    if (xml_views)
+    {
+        // Free the array (not the Views, which the host now owns).
+        Deallocate((void **)&xml_views, sizeof(View *) * view_count);
     }
 
-    // Apply standard view container styling
-    PanelSystem_StyleViewContainer(lpanel_state_view_cont, lpanel->palette);
+    // Build and register the selector from the XML <Option> metadata, wiring each
+    // option button to drive ViewHostSystem_SelectView.
+    lpanel_view_selector = UILoader_BuildSelectorFromMarkup(lpanel, ViewHostSystem_HandleViewSelected);
 
-    // Keep every debug feature in STATE, grouped by the system it visualises.
-    const struct
+    if (lpanel_view_selector)
     {
-        const char *title;
-        const LPanelDebugToggle *toggles;
-        size_t count;
-    } debug_sections[] = {
-        {"General", lpanel_debug_general_toggles, ARRAY_COUNT(lpanel_debug_general_toggles)},
-        {"Viewport", lpanel_debug_viewport_toggles, ARRAY_COUNT(lpanel_debug_viewport_toggles)},
-        {"World", lpanel_debug_world_toggles, ARRAY_COUNT(lpanel_debug_world_toggles)},
-        {"UI", lpanel_debug_ui_toggles, ARRAY_COUNT(lpanel_debug_ui_toggles)},
-        {"Objects", lpanel_debug_object_toggles, ARRAY_COUNT(lpanel_debug_object_toggles)},
-    };
-
-    for (size_t section_index = 0; section_index < ARRAY_COUNT(debug_sections); section_index++)
-    {
-        UIElement *section = CreateViewSection_Stack(
-            lpanel_state_view_cont, debug_sections[section_index].title,
-            debug_section_size, lpanel->palette);
-
-        for (size_t toggle_index = 0; toggle_index < debug_sections[section_index].count; toggle_index++)
+        // Honour ViewHost initialView="state_view" (falling back to the first view),
+        // via the single styling + selection call.
+        int initial = UILoader_ResolveViewIndexById(lpanel, UILoader_GetInitialViewId());
+        if (initial < 0)
         {
-            const LPanelDebugToggle *toggle = &debug_sections[section_index].toggles[toggle_index];
-            String64 label = {0};
-            UpdateString64(label.string, "%s: %s", toggle->label, IsDebugEnabled(toggle->id) ? "ON" : "OFF");
-            CreateUIButtonDefault(section, UI_ELEMENT_BUTTON_SIMPLE, label.string,
-                                  ui_wide_button_size, ui_standard_button_padding,
-                                  lpanel->palette, HandleLPanelDebugToggleClickInternal, (void *)toggle, NULL);
+            initial = 0;
+        }
+        ViewHostSystem_SelectView(lpanel_view_selector, (size_t)initial);
+    }
+    else
+    {
+        // Selector allocation failed. XML view containers default enabled, so
+        // establish single-view visibility manually via the public primitives
+        // (SetPanelActiveView is static and not reachable here). Never call
+        // ViewHostSystem_FinaliseInit (it forces index 0 and fights initialView).
+        for (int i = 0; i < lpanel->views.count; i++)
+        {
+            View *view = *((View **)LArray_Get(&lpanel->views, i));
+            if (!view || !view->container)
+            {
+                continue;
+            }
+            if (i == 0)
+            {
+                EnableElement(view->container);
+            }
+            else
+            {
+                DisableElement(view->container);
+            }
         }
     }
+
+    // Final layout update over the host's valid coordinate space.
+    UpdateUISpace(lpanel->root, lpanel->seed_box);
 }
-
-void InitLPanelEditView(void)
-{
-    // Create View's container & register the View
-    View *view = PanelSystem_CreateView(lpanel, LPANEL_DRAW_VIEW);
-    lpanel_edit_view_cont = view ? view->container : NULL;
-    if (!lpanel_edit_view_cont)
-    {
-        return;
-    }
-
-    // The edit view starts disabled until selected.
-    DisableElement(lpanel_edit_view_cont);
-
-    // Build the editable object controls as a standard stacked ViewSection.
-    lpanel_edit_entity_tcont = CreateViewSection_Stack(
-        lpanel_edit_view_cont, "Object Create", create_entity_section_size,
-        lpanel->palette);
-
-    const UIFieldSpec edit_specs[] = {
-        {"Vertices", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, INT, &G_UIState.edit_vertice_count_tbox, NULL, &G_UIState.entity_create_params->physics.vertice_count},
-        {"Width", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_width_tbox, NULL, &G_UIState.entity_create_params->physics.width},
-        {"Height", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_height_tbox, NULL, &G_UIState.entity_create_params->physics.height},
-        {"Mass", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_mass_tbox, NULL, &G_UIState.entity_create_params->physics.mass},
-        {"Restitution", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_restitution_tbox, NULL, &G_UIState.entity_create_params->physics.restitution},
-        {"Friction", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &G_UIState.edit_friction_tbox, NULL, &G_UIState.entity_create_params->physics.friction},
-        {"Anchor", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.edit_pos_c_tbox, NULL, &G_UIState.entity_create_params->physics.anchor_position},
-        {"Vel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.edit_vel_tbox, NULL, &G_UIState.entity_create_params->physics.velocity},
-        {"Acc", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.edit_accel_tbox, NULL},
-        {"Moment", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &G_UIState.edit_moment_tbox, NULL},
-    };
-    InitUIFields(lpanel_edit_entity_tcont, edit_specs,
-                 ARRAY_COUNT(edit_specs), ui_standard_field_padding,
-                 lpanel->palette);
-
-    InitEntityCreateDefaults();
-
-    CreateUIButtonDefault(lpanel_edit_entity_tcont, UI_ELEMENT_BUTTON_SUBMIT,
-                          "CREATE", ui_standard_button_size, ui_standard_button_padding,
-                          lpanel->palette, HandleBtnSubmitClick,
-                          &btn_action_create_entity, NULL);
-}
-
-// void InitEntityEditorContainer(void)
-// {
-
-// }
 
 void DrawLPanel(void)
 {
@@ -445,22 +366,22 @@ void DrawLPanel(void)
         return;
     }
 
-    PanelSystem_Draw(lpanel);
+    ViewHostSystem_Draw(lpanel);
 }
 
 Frame2d *GetLPanelSpaceFrame(void)
 {
-    return PanelSystem_GetSpaceFrame(lpanel);
+    return ViewHostSystem_GetSpaceFrame(lpanel);
 }
 
 bool SetLPanelSpaceBasis(Vector2d basis_u, Vector2d basis_v)
 {
-    return PanelSystem_SetSpaceBasis(lpanel, basis_u, basis_v);
+    return ViewHostSystem_SetSpaceBasis(lpanel, basis_u, basis_v);
 }
 
 void ResetLPanelSpaceBasis(void)
 {
-    PanelSystem_ResetSpaceBasis(lpanel);
+    ViewHostSystem_ResetSpaceBasis(lpanel);
 }
 
 UIElement *GetLPanelRoot(void)
@@ -468,7 +389,7 @@ UIElement *GetLPanelRoot(void)
     return lpanel ? lpanel->root : NULL;
 }
 
-PanelSystem *GetLPanelSystem(void)
+ViewHostSystem *GetLPanelViewHost(void)
 {
     return lpanel;
 }
@@ -476,14 +397,10 @@ PanelSystem *GetLPanelSystem(void)
 // Destroy the left panel and clear its cached UI references.
 void DestroyLPanel(void)
 {
-    PanelSystem *panel = lpanel;
+    ViewHostSystem *panel = lpanel;
     lpanel = NULL;
-    PanelSystem_Destroy(panel);
+    ViewHostSystem_Destroy(panel);
 
-    lpanel_state_view_cont = NULL;
-    lpanel_edit_view_cont = NULL;
-    lpanel_edit_entity_tcont = NULL;
-    lpanel_view_selector_cont = NULL;
     lpanel_view_selector = NULL;
     G_UIState.lpanel_views = NULL;
 

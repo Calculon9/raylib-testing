@@ -137,8 +137,9 @@ typedef struct
 {
     String64 text;
     DataType data_type;
-    void *data_bind;
-    Binder *binder;
+    void *data_bind;   // retained: legacy path still uses it
+    Binder *binder;    // retained: legacy path still uses it
+    Binding *binding;  // single bidirectional carrier (source=read, sink=write); coexists with legacy data_bind/binder
     Bitmap_Font font;
     int cursor_position;
 } TextBoxData;
@@ -315,7 +316,9 @@ void ToggleElementEnabled(UIElement *element);
 // No-op unless the element is a button with a binding that has a readable source. For a query
 // source it composes the drawn text as "<authored text>: ON/OFF" into display_text, leaving the
 // authored `text` base intact. Pure pull: reads current truth, so it is safe to call every
-// frame and never goes stale. (Textbox read-refresh still uses the RefreshTextboxFields path.)
+// frame and never goes stale. A textbox carrying a readable binding source refreshes via this
+// pull too (skipped while focused so in-progress typing is never overwritten); textboxes without
+// a binding stay on the RefreshTextboxFields path.
 void UIElement_RefreshBinding(UIElement *e);
 // Scroll a horizontally scrollable element by local coordinate units.
 void ScrollUIElementX(UIElement *element, float delta);

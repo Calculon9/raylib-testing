@@ -230,9 +230,7 @@ BindingValue Binding_ReadSource(const BindingSource *src)
         {
             return value; // BIND_NONE
         }
-        value.as.i = src->query(src->query_key);
-        value.type = BIND_INT;
-        return value;
+        return src->query(src->query_key); // query owns the type; core never interprets it
     }
     case BIND_SRC_NONE:
     default:
@@ -292,6 +290,16 @@ bool Binding_WriteSink(const BindingSink *sink, BindingValue value)
         }
         sink->command(sink->command_code, NULL);
         return true;
+    }
+    case BIND_SINK_CALLBACK:
+    {
+        // Hand the validated value to the panel-supplied store; it decides where it lands
+        // right now. The core never learns what the panel does with it. No fn => reject.
+        if (!sink->write)
+        {
+            return false; // no store fn => reject, caller reverts
+        }
+        return sink->write(sink->write_key, value);
     }
     case BIND_SINK_NONE:
     default:

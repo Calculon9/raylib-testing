@@ -1,0 +1,20 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "id": 1,
+      "severity": "NIT",
+      "location": "textbox-binding-design-v2.md sections 1, 8, 9, 11 (line-number citations)",
+      "problem": "Residual line-number drift despite the v2 claim that references were re-verified: LPanel_QueryDebugEnabled def is at line 247 (design says 246); query_key assignment at line 275 (design says 276); rpanel construction gravity row at line 126 (design says 124, which is the Objects row); InitUIFields data_bind block at 389-392 (design says 388-392); state_manager gameplay_specs damage row at 484 (design says ~483); DisposeUIElement frees at ~1063-1067/1071-1074 (design says 1064-1069/1072-1076).",
+      "fix": "Drop exact line numbers and rely on the verbatim anchor quotes (preferred, as the file is on an active branch and will drift), or re-sync the numbers once more. Edits remain unambiguous because every cited row is quoted verbatim and matches source."
+    },
+    {
+      "id": 2,
+      "severity": "NIT",
+      "location": "textbox-binding-design-v2.md section 8 (BindTextboxStable) and section 9 (BindTextboxDynamic)",
+      "problem": "The helpers are described as 'updating in place if one already exists', but Binding_Create always AllocateBytes a fresh heap Binding; calling it while textbox->data.textbox.binding is non-NULL leaks the previous allocation. No live proof hits this (both attach exactly once), but the stated reuse contract is a trap for a future second-attach.",
+      "fix": "Specify the helper body explicitly: if textbox->data.textbox.binding is non-NULL, overwrite its fields in place (*binding = built) instead of calling Binding_Create again; only Binding_Create when the slot is NULL."
+    }
+  ],
+  "reviewDoc": "c:\\Projects\\raylib-testing/.agents/tasks/design-review-v2.md"
+}

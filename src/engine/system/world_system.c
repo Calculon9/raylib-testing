@@ -29,6 +29,12 @@
 
 // World-level defaults used by the gameplay screen and debug spawning controls.
 bool world_grid_debug_labels_enabled = false;
+// World grid visibility (a view/display setting, not a debug flag). The debug-overlay facade's
+// DEBUG_WORLD_GRID case delegates to this owner.
+bool world_grid_overlay_enabled = true;
+// Universe-space grid-label visibility (view/display setting). Default OFF, as before. The
+// debug-overlay facade's DEBUG_UNIVERSE_GRID_LABELS case delegates here.
+bool universe_grid_labels_enabled = false;
 float gravity = 10;
 static ColourRgba polygonoid_line_colour = {194, 105, 83, 255};
 static float polygonoid_radius_default = 1.0f;

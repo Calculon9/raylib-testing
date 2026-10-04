@@ -14,6 +14,7 @@ SYSTEMS MODULE
 #include "system/utility_system.h"
 #include "system/viewport_system.h"
 #include "system/ui/ui_state.h"
+#include "ui/binding.h" // BindingValueType / BindingQueryFn / BindingSinkFn for the textbox binding helpers
 // #include "system/ui_system.h"
 // #include "ui/ui.h"
 
@@ -104,6 +105,15 @@ void PipelineVectorToText(Vector2d input_vector, char *target_buffer, size_t tar
 void PipelineNumberToText(float input_float, int precision, char *target_buffer, size_t target_buffer_bytes); //, NewtonProperty object_property);
 void BindTextbox(UIElement *textbox, void *data_bind);
 void BindTextboxData(UIElement *textbox, DataType type, void *data_bind);
+// Attach a STABLE (fixed-address) bidirectional binding: source and sink both target the same
+// address, interpreted per DataType. No-op on a NULL textbox or an unresolvable DataType.
+void BindTextboxStable(UIElement *textbox, DataType type, void *address, int precision);
+// Attach a DYNAMIC binding driven by a panel-supplied query (read) and callback (write). The
+// panel owns the "which address now / selected / clear-when-none" policy. No-op on NULL textbox.
+void BindTextboxDynamic(UIElement *textbox, BindingValueType type, int precision,
+                        BindingQueryFn query, BindingSinkFn write, int key);
+// Detach and free a textbox's binding and NULL the slot. No-op on NULL textbox or NULL binding.
+void ClearTextboxBinding(UIElement *textbox);
 void BindTextboxGroup(UIElement **textboxes, void **bindings, size_t count);
 void ClearTextbox(UIElement *textbox);
 void ClearAndUnbindTextbox(UIElement *textbox);

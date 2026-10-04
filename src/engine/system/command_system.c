@@ -229,14 +229,39 @@ bool EnqueueRemoveComponent(EntityId entity_id, EntityComponentType component_ty
  * Can be called from UI, hotkeys, scripts, or network messages.
  * Does not use the queue.
  */
+// Explicit CMD_TOGGLE_* -> DebugOverlayId mapping.
+bool CommandSystem_ResolveToggleOverlay(CommandType type, int *out_overlay_id)
+{
+    DebugOverlayId overlay_id;
+    switch (type)
+    {
+    case CMD_TOGGLE_DEBUG_DASHBOARD:      overlay_id = DEBUG_DASHBOARD; break;
+    case CMD_TOGGLE_VIEWPORT_GRID:        overlay_id = DEBUG_VIEWPORT_GRID; break;
+    case CMD_TOGGLE_WORLD_GRID:           overlay_id = DEBUG_WORLD_GRID; break;
+    case CMD_TOGGLE_WORLD_GRID_LABELS:    overlay_id = DEBUG_WORLD_GRID_LABELS; break;
+    case CMD_TOGGLE_UNIVERSE_GRID_LABELS: overlay_id = DEBUG_UNIVERSE_GRID_LABELS; break;
+    case CMD_TOGGLE_UI_BORDERS:           overlay_id = DEBUG_UI_BORDERS; break;
+    case CMD_TOGGLE_OBJECT_AXES:          overlay_id = DEBUG_OBJECT_AXES; break;
+    case CMD_TOGGLE_OBJECT_HULL:          overlay_id = DEBUG_OBJECT_HULL; break;
+    case CMD_TOGGLE_OBJECT_AABB:          overlay_id = DEBUG_OBJECT_AABB; break;
+    default:
+        return false; // not a toggle command
+    }
+
+    if (out_overlay_id)
+    {
+        *out_overlay_id = (int)overlay_id;
+    }
+    return true;
+}
+
 void ExecuteCommand(CommandType type, const void *data)
 {
-    // Debug toggle commands
-    if (type >= CMD_TOGGLE_DEBUG_DASHBOARD && type <= CMD_TOGGLE_OBJECT_AABB)
+    // Debug toggle commands: dispatch via the explicit mapping (no enum-order arithmetic).
+    int overlay_id = 0;
+    if (CommandSystem_ResolveToggleOverlay(type, &overlay_id))
     {
-        // Map command type to DebugOverlayId (offset by 100)
-        DebugOverlayId overlay_id = (DebugOverlayId)(type - CMD_TOGGLE_DEBUG_DASHBOARD);
-        ToggleDebug(overlay_id);
+        ToggleDebug((DebugOverlayId)overlay_id);
         return;
     }
     

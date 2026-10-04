@@ -1,51 +1,51 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Describes the current left panel; runtime construction is in lpanel_system.c. -->
-<!-- Button action attributes use command names resolved by the command system. -->
-<!--<Panel id="left_panel" viewport="lpanel_viewport" scale="1.0" layout="stacked" initialView="state_view">
+    <!-- Describes the current left panel; runtime construction is in lpanel_system.c. -->
+    <!-- Button action attributes use command names resolved by the command system. -->
+<ViewHost id="left_panel" layout="stacked" initial-view="state_view">
     <ViewSelector id="left_panel_views" type="enumerate">
         <Option text="STATE" view="state_view" />
         <Option text="DRAW" view="draw_view" />
-    </ViewSelector>-->
+    </ViewSelector>
 
-<View id="state_view" type="LPANEL_STATE_VIEW" scrollable="false">
-    <Section id="general" title="General" size-mode="content_fill">
-        <Button type="simple" text="Dashboard" action="toggle-debug-dashboard" size="4.65,0.5" size-mode="fixed" />
-    </Section>
+    <View id="state_view" type="LPANEL_STATE_VIEW" scrollable="false">
+        <Section id="general" title="General" size-mode="content_fill">
+            <Button type="simple" text="Dashboard" binding="debug.dashboard" action="toggle-debug-dashboard" size="4.65,0.5" size-mode="fixed" />
+        </Section>
 
-    <Section id="viewport" title="Viewport" size-mode="content_fill">
-        <Button type="simple" text="Viewport Grid" action="toggle-viewport-grid" size="4.65,0.5" size-mode="fixed" />
-    </Section>
+        <Section id="viewport" title="Viewport" size-mode="content_fill">
+            <Button type="simple" text="Viewport Grid" binding="view.viewport-grid" action="toggle-viewport-grid" size="4.65,0.5" size-mode="fixed" />
+        </Section>
 
-    <Section id="world" title="World" size-mode="content_fill">
-        <Button type="simple" text="World Grid" action="toggle-world-grid" size="4.65,0.5" size-mode="fixed" />
-        <Button type="simple" text="World Grid Labels" action="toggle-world-grid-labels" size="4.65,0.5" size-mode="fixed" />
-        <Button type="simple" text="Universe Grid Labels" action="toggle-universe-grid-labels" size="4.65,0.5" size-mode="fixed" />
-    </Section>
+        <Section id="world" title="World" size-mode="content_fill">
+            <Button type="simple" text="World Grid" binding="view.world-grid" action="toggle-world-grid" size="4.65,0.5" size-mode="fixed" />
+            <Button type="simple" text="World Grid Labels" binding="view.world-grid-labels" action="toggle-world-grid-labels" size="4.65,0.5" size-mode="fixed" />
+            <Button type="simple" text="Universe Grid Labels" binding="view.universe-grid-labels" action="toggle-universe-grid-labels" size="4.65,0.5" size-mode="fixed" />
+        </Section>
 
-    <Section id="ui" title="UI" size-mode="content_fill">
-        <Button type="simple" text="UI Borders" action="toggle-ui-borders" size="4.65,0.5" size-mode="fixed" />
-    </Section>
+        <Section id="ui" title="UI" size-mode="content_fill">
+            <Button type="simple" text="UI Borders" binding="view.ui-borders" action="toggle-ui-borders" size="4.65,0.5" size-mode="fixed" />
+        </Section>
 
-    <Section id="objects" title="Objects" size-mode="content_fill">
-        <Button type="simple" text="Object Axes" action="toggle-object-axes" size="4.65,0.5" size-mode="fixed" />
-        <Button type="simple" text="Object Hull" action="toggle-object-hull" size="4.65,0.5" size-mode="fixed" />
-        <Button type="simple" text="Object AABB" action="toggle-object-aabb" size="4.65,0.5" size-mode="fixed" />
-    </Section>
-</View>
+        <Section id="objects" title="Objects" size-mode="content_fill">
+            <Button type="simple" text="Object Axes" binding="gizmo.object-axes" action="toggle-object-axes" size="4.65,0.5" size-mode="fixed" />
+            <Button type="simple" text="Object Hull" binding="gizmo.object-hull" action="toggle-object-hull" size="4.65,0.5" size-mode="fixed" />
+            <Button type="simple" text="Object AABB" binding="gizmo.object-aabb" action="toggle-object-aabb" size="4.65,0.5" size-mode="fixed" />
+        </Section>
+    </View>
 
-<!--<View id="draw_view" type="LPANEL_DRAW_VIEW" scrollable="false">
-    <Section id="object_create" title="Object Create">
-        <TextField id="vertices" label="Vertices" type="integer" binding="physics.vertice_count" default="4" />
-        <TextField id="width" label="Width" type="float" binding="physics.width" default="1.0" />
-        <TextField id="height" label="Height" type="float" binding="physics.height" default="1.0" />
-        <TextField id="mass" label="Mass" type="float" binding="physics.mass" default="1.0" />
-        <TextField id="restitution" label="Restitution" type="float" binding="physics.restitution" default="0.9" />
-        <TextField id="friction" label="Friction" type="float" binding="physics.friction" default="0.5" />
-        <TextField id="anchor" label="Anchor" type="vector2" binding="physics.anchor_position" default="0,0" />
-        <TextField id="velocity" label="Vel" type="vector2" binding="physics.velocity" default="0,0" />
-        <TextField id="acceleration" label="Acc" type="vector2" />
-        <TextField id="moment" label="Moment" type="vector2" />
-        <Button id="create_entity" type="submit" text="CREATE" action="create-entity" size="120,32" size-mode="fixed" />
-    </Section>
-</View>-->
-<!--</Panel>-->
+    <View id="draw_view" type="LPANEL_DRAW_VIEW" scrollable="false">
+        <Section id="object_create" title="Object Create">
+            <TextField id="vertices" label="Vertices" type="integer" binding="physics.vertice_count" default="4" />
+            <TextField id="width" label="Width" type="float" binding="physics.width" default="1.0" />
+            <TextField id="height" label="Height" type="float" binding="physics.height" default="1.0" />
+            <TextField id="mass" label="Mass" type="float" binding="physics.mass" default="1.0" />
+            <TextField id="restitution" label="Restitution" type="float" binding="physics.restitution" default="0.9" />
+            <TextField id="friction" label="Friction" type="float" binding="physics.friction" default="0.5" />
+            <TextField id="anchor" label="Anchor" type="vector2" binding="physics.anchor_position" default="0,0" />
+            <TextField id="velocity" label="Vel" type="vector2" binding="physics.velocity" default="0,0" />
+            <TextField id="acceleration" label="Acc" type="vector2" />
+            <TextField id="moment" label="Moment" type="vector2" />
+            <Button id="create_entity" type="submit" text="CREATE" action="create-entity" size="4.65,0.5" size-mode="fixed" />
+        </Section>
+    </View>
+</ViewHost>

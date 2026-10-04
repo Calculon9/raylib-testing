@@ -1067,6 +1067,14 @@ void DisposeUIElement(UIElement *e)
         e->data.textbox.binder = NULL;
     }
 
+    // Free any heap binding attached to a textbox (mirrors the binder free above and the button
+    // binding free below). Binding_Destroy NULLs the pointer; pool-zeroing defaults untouched
+    // slots to NULL, so this is a no-op for textboxes that were never migrated.
+    if (IsTextbox(e) && e->data.textbox.binding)
+    {
+        Binding_Destroy(&e->data.textbox.binding);
+    }
+
     // Free any heap binding attached to a button (mirrors the textbox binder cleanup above).
     // Pool-zeroing guarantees binding == NULL for untouched buttons, so this is a no-op there.
     if (IsBtn(e) && e->data.button.binding)
@@ -1126,9 +1134,27 @@ void UIElement_RefreshBinding(UIElement *e)
         return;
     }
 
-    // NOTE: textbox read-refresh still flows through the existing RefreshTextboxFields path
-    // (panels call it explicitly). Textboxes do not yet carry a Binding source; migrating them
-    // onto this generic pull is deliberate future work, not part of the trigger pass.
+    if (IsTextbox(e))
+    {
+        const Binding *b = e->data.textbox.binding;
+        // Unbound or source-less textboxes stay on the legacy RefreshTextboxFields path.
+        if (!b || b->source.kind == BIND_SRC_NONE)
+            return;
+
+        // CRITICAL invariant: never overwrite text the user is actively editing. This skip used
+        // to live in RefreshTextboxFields and must be preserved now that the pull drives textboxes.
+        if (e->is_focused)
+            return;
+
+        // Read/display direction: source -> format -> text buffer. A BIND_NONE read (e.g. a
+        // dynamic query returning "nothing selected") leaves the last-good display untouched.
+        Binding_RefreshText(b, e->data.textbox.text.string, sizeof(e->data.textbox.text.string));
+        return;
+    }
+
+    // NOTE: migrated textboxes refresh here via the generic pull (skipped while focused), reached
+    // every frame by ViewHostSystem_RefreshBindings. Textboxes without a binding stay on the explicit
+    // RefreshTextboxFields path that panels call.
 }
 
 void GetUIElementVertices(UIElement *e, Vector2d out_vertices[4])

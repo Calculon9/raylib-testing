@@ -84,7 +84,7 @@ typedef struct
 
     // VIEWS
     LArray *lpanel_views;
-    ViewType active_panel_view;
+    ViewType active_view;
 
     // SELECTION STATE (previously in WorldState)
     EntityId selected_object_id;

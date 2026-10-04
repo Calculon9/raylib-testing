@@ -1,0 +1,27 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "id": 1,
+      "severity": "NIT",
+      "location": "Design \u00a76 (initialView) / \u00a77 step 10",
+      "problem": "UILoader_ResolveViewIndexById's lookup chain is less fully specified than UILoader_BuildSelectorFromMarkup's. It says 'uses the side table / host views' and returns an index (<0 when unresolved) but does not spell out the id -> side-table row -> container pointer -> host->views index chain explicitly.",
+      "fix": "Add one sentence to \u00a76 stating UILoader_ResolveViewIndexById resolves the id through the same side-table container-identity path as \u00a75 step 1, returning a negative sentinel for an unmatched id (mapped to index 0 by \u00a77 step 10)."
+    },
+    {
+      "id": 2,
+      "severity": "NIT",
+      "location": "Design \u00a75 step 4",
+      "problem": "The freshly built selector is left at active_index == count (unselected sentinel) until the mandatory ViewHostSystem_SelectView call. This is safe but not called out as index-safe.",
+      "fix": "Optionally note that UpdatePanelViewSelectorButtons uses active_index only in an equality test (i == active_index), never as an array index, so the count sentinel causes no out-of-bounds access. Matches AllocatePanelViewSelector's existing active_index = count initialisation."
+    },
+    {
+      "id": 3,
+      "severity": "NIT",
+      "location": "Design \u00a75 / Error handling (allocation failure in UILoader_BuildSelectorFromMarkup)",
+      "problem": "The design says to 'mirror AllocatePanelViewSelector's cleanup', but both AllocatePanelViewSelector and DestroyPanelViewSelector are static to view_host_system.c and not callable from ui_loader.c.",
+      "fix": "State explicitly that the loader open-codes the cleanup with the public Deallocate: Deallocate(&buttons, sizeof(UIElement*)*count), Deallocate(&view_indices, sizeof(int)*count), Deallocate(&selector, sizeof(ViewSelector)) \u2014 because DestroyPanelViewSelector is not visible to the loader. Behaviour as described is already correct."
+    }
+  ],
+  "reviewDoc": "c:\\Projects\\raylib-testing\\.agents\\tasks\\xml-viewhost-design-review.md"
+}

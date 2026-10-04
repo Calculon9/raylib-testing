@@ -15,7 +15,7 @@
 #include "system/ui/lpanel_system.h"
 #include "system/ui/rpanel_system.h"
 #include "system/ui/state_manager_system.h"
-#include "system/panel_system.h"
+#include "system/view_host_system.h"
 #include "system/ui/utility_panel_system.h"
 #include "entities/entity_factory.h"
 #include "system/ui/popup_menu.h"
@@ -339,7 +339,7 @@ void InitUI(void)
     InitRPanel();
     InitStateManagerSystem();
     InitPopupMenu();
-    G_UIState.active_panel_view = LPANEL_STATE_VIEW;
+    G_UIState.active_view = LPANEL_STATE_VIEW;
 }
 
 // Tears down every UI tree, panel, transient input state and drag capture.
@@ -543,7 +543,7 @@ void UpdateGlobalUIState()
     // COLLECT & UPDATE EDITING ENTITY PROPERTIES
     // Determine if the Edit View is active.
     EntityCreateParams *params = G_UIState.entity_create_params;
-    bool edit_view_active = G_UIState.active_panel_view == LPANEL_DRAW_VIEW;
+    bool edit_view_active = G_UIState.active_view == LPANEL_DRAW_VIEW;
     RefreshEntityEditorFields(edit_view_active, params);
 }
 

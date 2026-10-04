@@ -7,7 +7,7 @@ POPUP MENU MODULE
 #define POPUP_MENU_H
 
 #include "math/cvectors.h"
-#include "system/panel_system.h"
+#include "system/view_host_system.h"
 #include "ui/ui.h"
 
 void InitPopupMenu(void);
@@ -21,6 +21,6 @@ void DrawPopupMenu(void);
 UIElement *GetPopupMenuRoot(void);
 
 // Get the panel system instance.
-struct PanelSystem *GetPopupMenuSystem(void);
+struct ViewHostSystem *GetPopupMenuViewHost(void);
 
 #endif

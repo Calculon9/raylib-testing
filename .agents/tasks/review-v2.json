@@ -1,0 +1,12 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "severity": "info",
+      "label": "Write-but-not-draw on non-projectile damage",
+      "confidence": "confirmed",
+      "detail": "The PanelSystem_RefreshBindings walk ignores is_enabled, so the damage pull writes object->damage for any selected object even when SetParentEnabledState(..., is_projectile) has parent-disabled the row. This is the design's explicit option (a) and matches the pre-change behaviour (the old state_fields[] row also wrote for any selected object). Not blocking; no action required."
+    }
+  ],
+  "reviewDoc": "c:\\Projects\\raylib-testing\\.agents\\tasks\\review-v2.md"
+}

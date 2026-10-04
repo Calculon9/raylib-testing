@@ -1,7 +1,7 @@
 #include "system/ui/state_manager_system.h"
 #include <string.h>
 #include "system/command_system.h"
-#include "system/panel_system.h"
+#include "system/view_host_system.h"
 #include "system/systems.h"
 #include "system/ui_system.h"
 #include "system/utility_system.h"
@@ -18,7 +18,7 @@
 // Module State
 // ============================================================================
 
-static PanelSystem *state_manager_panel = NULL;
+static ViewHostSystem *state_manager_panel = NULL;
 
 static Size view_section_size = UI_SIZE_CONTENT;
 static bool state_manager_refresh_dirty = true;
@@ -199,6 +199,124 @@ static void HandleSelectionChanged(EntityId selected_object_id,
 }
 
 // ============================================================================
+// Dynamic damage binding (selection policy lives here, not in the generic core)
+// ============================================================================
+
+// DYNAMIC read: the current selection's damage, or BIND_NONE when nothing is selected
+// (clear-when-none policy owned here, so the core never learns what "selected" means). The
+// query keys only on selection, NOT on is_projectile - visibility stays in RefreshGameplaySection.
+static BindingValue StateManager_QueryDamage(int key)
+{
+    (void)key;
+    Newtonoid2d *object = UIState_GetSelectedObject();
+    if (!object || object->id == INVALID_ENTITY_ID)
+    {
+        return (BindingValue){ .type = BIND_NONE };
+    }
+    return (BindingValue){ .type = BIND_FLOAT, .as.f = object->damage };
+}
+
+// DYNAMIC write: store a committed FLOAT into the current selection's damage. Reject (false,
+// caller reverts) when nothing is selected or the value is the wrong type - writing to a
+// stale/absent object is a bug, not a silent no-op.
+static bool StateManager_WriteDamage(int key, BindingValue value)
+{
+    (void)key;
+    Newtonoid2d *object = UIState_GetSelectedObject();
+    if (!object || object->id == INVALID_ENTITY_ID || value.type != BIND_FLOAT)
+    {
+        return false;
+    }
+    object->damage = value.as.f;
+    return true;
+}
+
+// ============================================================================
+// Flag-button display queries (one per family; is-set returning BIND_INT 0/1)
+// ============================================================================
+//
+// These drive the generic refresh walk's "<label>: ON/OFF" composition for the flag/component
+// buttons, replacing the retired UpdateFlagButtons hand-roll. The int key is the flag bit
+// (spec->flag) for the bitmask families, or the EntityComponentType for the component query.
+// Each query owns the clear-when-none policy; the core never learns what "selected" means.
+
+// Is-set query for the exclusive entity ROLE family. Guard is `o != NULL` ONLY, matching
+// RefreshAttributeView's `is_valid = (object != NULL)` term (no id != INVALID_ENTITY_ID term,
+// which would silently flip a non-NULL/INVALID object's display to OFF).
+static BindingValue StateManager_QueryEntityRole(int flag_key)
+{
+    Newtonoid2d *o = UIState_GetSelectedObject();
+    int on = (o && (o->roles & (uint32_t)flag_key)) ? 1 : 0; // no id check (matches RefreshAttributeView)
+    return (BindingValue){ .type = BIND_INT, .as.i = on };
+}
+
+// Is-set query for the entity CAPABILITY family. Guard is `o != NULL` ONLY (matches RefreshAttributeView).
+static BindingValue StateManager_QueryEntityCapability(int flag_key)
+{
+    Newtonoid2d *o = UIState_GetSelectedObject();
+    int on = (o && (o->capabilities & (uint32_t)flag_key)) ? 1 : 0; // no id check (matches RefreshAttributeView)
+    return (BindingValue){ .type = BIND_INT, .as.i = on };
+}
+
+// Is-set query for the entity CONSTRAINT family. Guard is `o != NULL` ONLY (matches RefreshAttributeView).
+static BindingValue StateManager_QueryEntityConstraint(int flag_key)
+{
+    Newtonoid2d *o = UIState_GetSelectedObject();
+    int on = (o && (o->constraints & (uint32_t)flag_key)) ? 1 : 0; // no id check (matches RefreshAttributeView)
+    return (BindingValue){ .type = BIND_INT, .as.i = on };
+}
+
+// Is-set query for the entity STATUS family. Guard is `o != NULL` ONLY (matches RefreshAttributeView).
+static BindingValue StateManager_QueryEntityStatus(int flag_key)
+{
+    Newtonoid2d *o = UIState_GetSelectedObject();
+    int on = (o && (o->status_flags & (uint32_t)flag_key)) ? 1 : 0; // no id check (matches RefreshAttributeView)
+    return (BindingValue){ .type = BIND_INT, .as.i = on };
+}
+
+// Is-set query for the COLLISION role-mask family. Guard is `o != NULL` ONLY (matches RefreshAttributeView).
+static BindingValue StateManager_QueryCollisionMask(int flag_key)
+{
+    Newtonoid2d *o = UIState_GetSelectedObject();
+    int on = (o && (o->collision_role_mask & (uint32_t)flag_key)) ? 1 : 0; // no id check (matches RefreshAttributeView)
+    return (BindingValue){ .type = BIND_INT, .as.i = on };
+}
+
+// Is-set query for the WORLD flag family. Mirrors RefreshWorldView's plain `world != NULL` gate.
+static BindingValue StateManager_QueryWorldFlag(int flag_key)
+{
+    World2d *w = Universe_GetSelectedWorld(&G_Universe);
+    int on = (w && (w->flags & (uint32_t)flag_key)) ? 1 : 0;
+    return (BindingValue){ .type = BIND_INT, .as.i = on };
+}
+
+// Is-set query for the CELL flag family. Mirrors RefreshCellView's plain `selected_cell != NULL` gate.
+static BindingValue StateManager_QueryCellFlag(int flag_key)
+{
+    Cell *c = UIState_GetSelectedCell();
+    int on = (c && (c->flags & (uint32_t)flag_key)) ? 1 : 0;
+    return (BindingValue){ .type = BIND_INT, .as.i = on };
+}
+
+// Attached query for the COMPONENT buttons (NOT a bitmask read). Uses the STRICTER guard
+// `o != NULL && o->id != INVALID_ENTITY_ID` and a bounds guard on the component type, mirroring
+// RefreshComponentsSection. Reads via the SAME expression the retired component label loop used
+// (EntityRegistry_Describe(o).components[type] != NULL), so the ON/OFF display is identical by
+// construction. Key is the EntityComponentType cast to int.
+static BindingValue StateManager_QueryComponentAttached(int component_type)
+{
+    Newtonoid2d *o = UIState_GetSelectedObject();
+    int on = 0;
+    EntityComponentType t = (EntityComponentType)component_type;
+    if (o && o->id != INVALID_ENTITY_ID && t >= 1 && t <= ENTITY_COMPONENT_HEALTH)
+    {
+        EntityDescription desc = EntityRegistry_Describe(o);
+        on = (desc.components[t] != NULL) ? 1 : 0;
+    }
+    return (BindingValue){ .type = BIND_INT, .as.i = on };
+}
+
+// ============================================================================
 // Flag Interaction
 // ============================================================================
 
@@ -371,7 +489,11 @@ static void HandleComponentToggleClick(UIElement *button)
 }
 
 // Create toggle buttons within a section and bind them to their respective flag definitions.
-static void CreateFlagButtons(UIElement *section, StateManagerFlagButton *buttons, size_t count, UIEventHandler click_handler)
+// Each button is given a query-SOURCE Binding (keyed on its flag bit) so the generic refresh
+// walk composes "<label>: ON/OFF"; the sink is left BIND_SINK_NONE because the supplied
+// click_handler (UIEventHandler) owns the write path for these C-built buttons.
+static void CreateFlagButtons(UIElement *section, StateManagerFlagButton *buttons, size_t count,
+                              UIEventHandler click_handler, BindingQueryFn query)
 {
     for (size_t i = 0; i < count; i++)
     {
@@ -379,23 +501,16 @@ static void CreateFlagButtons(UIElement *section, StateManagerFlagButton *button
             section, UI_ELEMENT_BUTTON_SIMPLE, buttons[i].label,
             ui_wide_button_size, ui_standard_button_padding,
             state_manager_panel->palette, click_handler, (void *)&buttons[i], NULL);
-    }
-}
 
-// Update the label and active state for a set of flag buttons based on the current bitmask.
-static void UpdateFlagButtons(StateManagerFlagButton *buttons, size_t count, uint32_t current_flags, bool is_valid)
-{
-    for (size_t i = 0; i < count; i++)
-    {
-        if (!buttons[i].button)
+        // Attach a query SOURCE so the refresh walk owns the ON/OFF label (sink stays NONE).
+        if (buttons[i].button)
         {
-            continue;
+            Binding b = {
+                .source = { .kind = BIND_SRC_QUERY, .value_type = BIND_INT,
+                            .query = query, .query_key = (int)buttons[i].flag },
+            };
+            buttons[i].button->data.button.binding = Binding_Create(b);
         }
-
-        bool enabled = is_valid && ((current_flags & buttons[i].flag) != 0);
-        UpdateString64(buttons[i].button->data.button.display_text.string,
-                       "%s: %s", buttons[i].label, enabled ? "ON" : "OFF");
-        buttons[i].button->is_enabled = true;
     }
 }
 
@@ -406,7 +521,7 @@ static void UpdateFlagButtons(StateManagerFlagButton *buttons, size_t count, uin
 // Create and register a state-manager view with its requested child layout.
 static View *CreateStateManagerView(int view_id, bool is_draggable, bool is_enabled, Spacing child_spacing)
 {
-    View *view = PanelSystem_CreateView(state_manager_panel, view_id);
+    View *view = ViewHostSystem_CreateView(state_manager_panel, view_id);
     UIElement *container = view ? view->container : NULL;
     if (!view)
     {
@@ -486,6 +601,11 @@ static void InitPhysStateView(void)
                  ARRAY_COUNT(gameplay_specs),
                  ui_standard_field_padding, state_manager_panel->palette);
 
+    // DYNAMIC binding proof: damage targets the current selection; the query/callback own the
+    // selection and clear-when-none policy (domain knowledge stays here, not in the core).
+    BindTextboxDynamic(s_sm_ui.damage_tbox, BIND_FLOAT, 2,
+                       StateManager_QueryDamage, StateManager_WriteDamage, 0);
+
     // Components section: shows attached components and their properties.
     UIElement *components_section = CreateViewSection_StackWrap(view_cont, "Components", view_section_size,
                                                                 state_manager_panel->palette);
@@ -504,6 +624,19 @@ static void InitPhysStateView(void)
             ui_wide_button_size, ui_standard_button_padding,
             state_manager_panel->palette, HandleComponentToggleClick,
             (void *)&s_sm_ui.comp_buttons[i], NULL);
+
+        // Attach a query SOURCE keyed on the component TYPE (not a flag bit) so the refresh walk
+        // composes "<label>: ON/OFF". This is a separate site from CreateFlagButtons; its query
+        // parameter does NOT reach these buttons.
+        if (s_sm_ui.comp_buttons[i].button)
+        {
+            Binding b = {
+                .source = { .kind = BIND_SRC_QUERY, .value_type = BIND_INT,
+                            .query = StateManager_QueryComponentAttached,
+                            .query_key = (int)s_sm_ui.comp_buttons[i].type },
+            };
+            s_sm_ui.comp_buttons[i].button->data.button.binding = Binding_Create(b);
+        }
     }
 
     const UIFieldSpec components_specs[] = {
@@ -548,15 +681,20 @@ static void InitAttributeStateView(void)
                                                                state_manager_panel->palette);
 
     CreateFlagButtons(identity_section, s_sm_flags.entity_role,
-                      ARRAY_COUNT(s_sm_flags.entity_role), HandleEntityTypeFlagClick);
+                      ARRAY_COUNT(s_sm_flags.entity_role), HandleEntityTypeFlagClick,
+                      StateManager_QueryEntityRole);
     CreateFlagButtons(capability_section, s_sm_flags.entity_capability,
-                      ARRAY_COUNT(s_sm_flags.entity_capability), HandleEntityCapabilityFlagClick);
+                      ARRAY_COUNT(s_sm_flags.entity_capability), HandleEntityCapabilityFlagClick,
+                      StateManager_QueryEntityCapability);
     CreateFlagButtons(constraint_section, s_sm_flags.entity_constraint,
-                      ARRAY_COUNT(s_sm_flags.entity_constraint), HandleEntityConstraintFlagClick);
+                      ARRAY_COUNT(s_sm_flags.entity_constraint), HandleEntityConstraintFlagClick,
+                      StateManager_QueryEntityConstraint);
     CreateFlagButtons(status_section, s_sm_flags.entity_status,
-                      ARRAY_COUNT(s_sm_flags.entity_status), HandleEntityStatusFlagClick);
+                      ARRAY_COUNT(s_sm_flags.entity_status), HandleEntityStatusFlagClick,
+                      StateManager_QueryEntityStatus);
     CreateFlagButtons(collision_section, s_sm_flags.collision_role_mask,
-                      ARRAY_COUNT(s_sm_flags.collision_role_mask), HandleCollisionMaskFlagClick);
+                      ARRAY_COUNT(s_sm_flags.collision_role_mask), HandleCollisionMaskFlagClick,
+                      StateManager_QueryCollisionMask);
 }
 
 static void InitWorldStateView(void)
@@ -585,7 +723,8 @@ static void InitWorldStateView(void)
                  ui_standard_field_padding, state_manager_panel->palette);
 
     CreateFlagButtons(world_section, s_sm_flags.world,
-                      ARRAY_COUNT(s_sm_flags.world), HandleWorldFlagClick);
+                      ARRAY_COUNT(s_sm_flags.world), HandleWorldFlagClick,
+                      StateManager_QueryWorldFlag);
 }
 
 static void InitCellStateView(void)
@@ -616,7 +755,8 @@ static void InitCellStateView(void)
                                                                 state_manager_panel->palette);
 
     CreateFlagButtons(cell_flags_section, s_sm_flags.cell,
-                      ARRAY_COUNT(s_sm_flags.cell), HandleCellFlagClick);
+                      ARRAY_COUNT(s_sm_flags.cell), HandleCellFlagClick,
+                      StateManager_QueryCellFlag);
 }
 
 // ============================================================================
@@ -673,7 +813,10 @@ static void RefreshComponentsSection(const Newtonoid2d *object)
 
     EntityDescription desc = EntityRegistry_Describe(object);
 
-    // Update component toggle button labels: "PORTAL: ON/OFF", "ROTOR: ON/OFF", "GEAR: ON/OFF"
+    // Keep the per-frame enable state for the component toggle buttons (disabled when there is no
+    // valid selection). The ON/OFF label is now owned by the generic refresh walk via each
+    // button's query-source Binding (StateManager_QueryComponentAttached), so the label write and
+    // its `attached` local were removed from this loop (preserved verbatim in the LEGACY block).
     for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.comp_buttons); i++)
     {
         if (!s_sm_ui.comp_buttons[i].button)
@@ -681,9 +824,6 @@ static void RefreshComponentsSection(const Newtonoid2d *object)
             continue;
         }
 
-        bool attached = is_valid && (desc.components[s_sm_ui.comp_buttons[i].type] != NULL);
-        UpdateString64(s_sm_ui.comp_buttons[i].button->data.button.display_text.string,
-                       "%s: %s", s_sm_ui.comp_buttons[i].label, attached ? "ON" : "OFF");
         s_sm_ui.comp_buttons[i].button->is_enabled = is_valid;
     }
 
@@ -776,7 +916,7 @@ static void RefreshPhysView(Newtonoid2d *object)
 
         {s_sm_ui.health_tbox, FLOAT, health ? (void *)&health->current_health : NULL, 2, NULL},
         {s_sm_ui.max_health_tbox, FLOAT, health ? (void *)&health->max_health : NULL, 2, NULL},
-        {s_sm_ui.damage_tbox, FLOAT, object ? (void *)&object->damage : NULL, 2, NULL},
+        // {s_sm_ui.damage_tbox, FLOAT, object ? (void *)&object->damage : NULL, 2, NULL}, // MIGRATED to BindTextboxDynamic
     };
     RefreshTextboxFields(state_fields, ARRAY_COUNT(state_fields));
 
@@ -809,25 +949,12 @@ static void RefreshPhysView(Newtonoid2d *object)
 }
 
 // Refresh the ATTRI view: roles, capabilities, constraints, status, and collision-role mask buttons.
+// The flag-button ON/OFF labels are now driven by the generic refresh walk via each button's
+// query-source Binding; the five UpdateFlagButtons calls (and their now-dead locals) were removed
+// and preserved verbatim in the LEGACY block.
 static void RefreshAttributeView(const Newtonoid2d *object)
 {
-    bool is_valid = (object != NULL);
-    uint32_t role_flags = object ? object->roles : 0;
-    uint32_t capability_flags = object ? object->capabilities : 0;
-    uint32_t constraint_flags = object ? object->constraints : 0;
-    uint32_t status_flags = object ? object->status_flags : 0;
-    uint32_t collision_role_mask = object ? object->collision_role_mask : 0;
-
-    UpdateFlagButtons(s_sm_flags.entity_role, ARRAY_COUNT(s_sm_flags.entity_role),
-                      role_flags, is_valid);
-    UpdateFlagButtons(s_sm_flags.entity_capability, ARRAY_COUNT(s_sm_flags.entity_capability),
-                      capability_flags, is_valid);
-    UpdateFlagButtons(s_sm_flags.entity_constraint, ARRAY_COUNT(s_sm_flags.entity_constraint),
-                      constraint_flags, is_valid);
-    UpdateFlagButtons(s_sm_flags.entity_status, ARRAY_COUNT(s_sm_flags.entity_status),
-                      status_flags, is_valid);
-    UpdateFlagButtons(s_sm_flags.collision_role_mask, ARRAY_COUNT(s_sm_flags.collision_role_mask),
-                      collision_role_mask, is_valid);
+    (void)object; // selection is read directly by the per-family query fns during the refresh walk
 }
 
 // Refresh the WORLD view: world physics material properties and world status flags.
@@ -842,8 +969,8 @@ static void RefreshWorldView(const World2d *world)
     };
     RefreshTextboxFields(world_physics_fields, ARRAY_COUNT(world_physics_fields));
 
-    UpdateFlagButtons(s_sm_flags.world, ARRAY_COUNT(s_sm_flags.world),
-                      world ? world->flags : 0, world != NULL);
+    // World flag ON/OFF labels are now driven by the generic refresh walk via each button's
+    // query-source Binding; the UpdateFlagButtons call was removed (preserved in the LEGACY block).
 }
 
 // Refresh the CELL view: grid cell state string readouts and cell behaviour flags.
@@ -881,8 +1008,8 @@ static void RefreshCellView(const Cell *selected_cell)
         ClearString64(s_sm_ui.cell_fill_str);
     }
 
-    UpdateFlagButtons(s_sm_flags.cell, ARRAY_COUNT(s_sm_flags.cell),
-                      selected_cell ? selected_cell->flags : 0, selected_cell != NULL);
+    // Cell flag ON/OFF labels are now driven by the generic refresh walk via each button's
+    // query-source Binding; the UpdateFlagButtons call was removed (preserved in the LEGACY block).
 }
 
 // Push the selected object, world, cell, and capability state into the UI views.
@@ -905,7 +1032,7 @@ void UpdateStateManagerSelectedObject(void)
 void InitStateManagerSystem(void)
 {
     const char *labels[] = {"PHYS", "ATTRI", "WORLD", "CELL"};
-    state_manager_panel = PanelSystem_CreateStandard(&entity_panel_viewport, 4,
+    state_manager_panel = ViewHostSystem_CreateStandard(&entity_panel_viewport, 4,
                                                      labels, ARRAY_COUNT(labels),
                                                      NULL, &ui_default_palette,
                                                      ui_standard_stack_spacing);
@@ -929,7 +1056,7 @@ void InitStateManagerSystem(void)
     if (state_manager_panel->selectors.count > 0)
     {
         ViewSelector *view_selector = *((ViewSelector **)LArray_Get(&state_manager_panel->selectors, 0));
-        PanelSystem_SelectView(view_selector, 0);
+        ViewHostSystem_SelectView(view_selector, 0);
     }
 
     // Subscribe once so selection transitions can proactively refresh this panel.
@@ -952,7 +1079,7 @@ void DrawStateManagerSystem(void)
             UpdateStateManagerSelectedObject();
             state_manager_refresh_dirty = false;
         }
-        PanelSystem_Draw(state_manager_panel);
+        ViewHostSystem_Draw(state_manager_panel);
     }
 }
 
@@ -975,9 +1102,9 @@ void DestroyStateManagerSystem(void)
 {
     UIState_SetSelectionChangedCallback(NULL, NULL);
 
-    PanelSystem *panel = state_manager_panel;
+    ViewHostSystem *panel = state_manager_panel;
     state_manager_panel = NULL;
-    PanelSystem_Destroy(panel);
+    ViewHostSystem_Destroy(panel);
 
     state_manager_refresh_dirty = true;
     ResetFlagButtons(s_sm_flags.entity_role, ARRAY_COUNT(s_sm_flags.entity_role));
@@ -994,3 +1121,85 @@ void DestroyStateManagerSystem(void)
 
     memset(&s_sm_ui, 0, sizeof(s_sm_ui));
 }
+
+// === LEGACY (pre-binding-consistency) — retained for easy revert ===
+// See .agents/tasks/binding-consistency-design.md (section 6).
+//
+// REVERT IS ALL-OR-NOTHING: restoring the pre-change behaviour means restoring the old
+// CreateFlagButtons signature/body AND re-adding the UpdateFlagButtons definition + all seven
+// call sites + the component label line together. Do NOT un-comment individual lines in
+// isolation - the live CreateFlagButtons (with its query param + query-source Binding) and the
+// query fns must be removed as a set when reverting. Every line below is an inert // comment.
+//
+// --- 1. Retired UpdateFlagButtons definition (removed from the Flag Interaction section) ---
+//
+// // Update the label and active state for a set of flag buttons based on the current bitmask.
+// static void UpdateFlagButtons(StateManagerFlagButton *buttons, size_t count, uint32_t current_flags, bool is_valid)
+// {
+//     for (size_t i = 0; i < count; i++)
+//     {
+//         if (!buttons[i].button)
+//         {
+//             continue;
+//         }
+//
+//         bool enabled = is_valid && ((current_flags & buttons[i].flag) != 0);
+//         UpdateString64(buttons[i].button->data.button.display_text.string,
+//                        "%s: %s", buttons[i].label, enabled ? "ON" : "OFF");
+//         buttons[i].button->is_enabled = true;
+//     }
+// }
+//
+// --- 2. Old CreateFlagButtons signature/body (BEFORE the query param + query-source Binding) ---
+//
+// // Create toggle buttons within a section and bind them to their respective flag definitions.
+// static void CreateFlagButtons(UIElement *section, StateManagerFlagButton *buttons, size_t count, UIEventHandler click_handler)
+// {
+//     for (size_t i = 0; i < count; i++)
+//     {
+//         buttons[i].button = CreateUIButtonDefault(
+//             section, UI_ELEMENT_BUTTON_SIMPLE, buttons[i].label,
+//             ui_wide_button_size, ui_standard_button_padding,
+//             state_manager_panel->palette, click_handler, (void *)&buttons[i], NULL);
+//     }
+// }
+//
+// --- 3. Removed UpdateFlagButtons(...) call sites (verbatim, with enclosing context) ---
+//
+// From RefreshAttributeView (five calls; the whole body before the migration was):
+// {
+//     bool is_valid = (object != NULL);
+//     uint32_t role_flags = object ? object->roles : 0;
+//     uint32_t capability_flags = object ? object->capabilities : 0;
+//     uint32_t constraint_flags = object ? object->constraints : 0;
+//     uint32_t status_flags = object ? object->status_flags : 0;
+//     uint32_t collision_role_mask = object ? object->collision_role_mask : 0;
+//
+//     UpdateFlagButtons(s_sm_flags.entity_role, ARRAY_COUNT(s_sm_flags.entity_role),
+//                       role_flags, is_valid);
+//     UpdateFlagButtons(s_sm_flags.entity_capability, ARRAY_COUNT(s_sm_flags.entity_capability),
+//                       capability_flags, is_valid);
+//     UpdateFlagButtons(s_sm_flags.entity_constraint, ARRAY_COUNT(s_sm_flags.entity_constraint),
+//                       constraint_flags, is_valid);
+//     UpdateFlagButtons(s_sm_flags.entity_status, ARRAY_COUNT(s_sm_flags.entity_status),
+//                       status_flags, is_valid);
+//     UpdateFlagButtons(s_sm_flags.collision_role_mask, ARRAY_COUNT(s_sm_flags.collision_role_mask),
+//                       collision_role_mask, is_valid);
+// }
+//
+// From RefreshWorldView (one call, after RefreshTextboxFields(world_physics_fields, ...)):
+//     UpdateFlagButtons(s_sm_flags.world, ARRAY_COUNT(s_sm_flags.world),
+//                       world ? world->flags : 0, world != NULL);
+//
+// From RefreshCellView (one call, after the cell string readouts):
+//     UpdateFlagButtons(s_sm_flags.cell, ARRAY_COUNT(s_sm_flags.cell),
+//                       selected_cell ? selected_cell->flags : 0, selected_cell != NULL);
+//
+// --- 4. Removed component label line + its `attached` local (from RefreshComponentsSection) ---
+//     The CURRENT single component loop was (three statements per button); the live loop keeps
+//     only the `is_enabled = is_valid;` write - the two lines below were removed:
+//
+//         bool attached = is_valid && (desc.components[s_sm_ui.comp_buttons[i].type] != NULL);
+//         UpdateString64(s_sm_ui.comp_buttons[i].button->data.button.display_text.string,
+//                        "%s: %s", s_sm_ui.comp_buttons[i].label, attached ? "ON" : "OFF");
+// ============================================================================

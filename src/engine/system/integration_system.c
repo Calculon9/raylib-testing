@@ -75,6 +75,100 @@ void BindTextboxData(UIElement *textbox, DataType type, void *data_bind)
     textbox->data.textbox.data_bind = data_bind;
 }
 
+// Build a STABLE (fixed-address) bidirectional binding: source and sink both target the same
+// address, interpreted per the mapped BindingValueType. No panel function is involved - the
+// address never moves. Validator-free by design (matches the create-field behaviour today).
+// Co-located with BindTextboxData so it can reuse the static ResolveBindingType without changing
+// its linkage. No-op on a NULL textbox or a DataType that resolves to BINDING_NONE.
+void BindTextboxStable(UIElement *textbox, DataType type, void *address, int precision)
+{
+    if (!textbox)
+    {
+        return;
+    }
+
+    BindingValueType value_type = ResolveBindingType(type);
+    if (value_type == BINDING_NONE)
+    {
+        return;
+    }
+
+    Binding built = {
+        .source = {
+            .kind = BIND_SRC_ADDRESS,
+            .value_type = value_type,
+            .address = address,
+        },
+        .sink = {
+            .kind = BIND_SINK_ADDRESS,
+            .value_type = value_type,
+            .address = address,
+        },
+        .precision = precision,
+    };
+
+    // Overwrite an existing binding in place to avoid leaking a live pointer; only allocate when
+    // the slot is empty (mirrors BindTextboxData's binder reuse).
+    if (textbox->data.textbox.binding)
+    {
+        *textbox->data.textbox.binding = built;
+    }
+    else
+    {
+        textbox->data.textbox.binding = Binding_Create(built);
+    }
+}
+
+// Build a DYNAMIC binding: a panel-supplied query drives the display read and a panel-supplied
+// callback stores the committed value. The panel owns all selection / clear-when-none policy;
+// the core only calls the function pointers keyed on the opaque int. No-op on a NULL textbox.
+void BindTextboxDynamic(UIElement *textbox, BindingValueType type, int precision,
+                        BindingQueryFn query, BindingSinkFn write, int key)
+{
+    if (!textbox)
+    {
+        return;
+    }
+
+    Binding built = {
+        .source = {
+            .kind = BIND_SRC_QUERY,
+            .value_type = type,
+            .query = query,
+            .query_key = key,
+        },
+        .sink = {
+            .kind = BIND_SINK_CALLBACK,
+            .value_type = type,
+            .write = write,
+            .write_key = key,
+        },
+        .precision = precision,
+    };
+
+    // Same create-or-overwrite-in-place rule as BindTextboxStable (no leak over a live pointer).
+    if (textbox->data.textbox.binding)
+    {
+        *textbox->data.textbox.binding = built;
+    }
+    else
+    {
+        textbox->data.textbox.binding = Binding_Create(built);
+    }
+}
+
+// Detach and free a textbox's binding, NULLing the slot. No-op on a NULL textbox or a textbox
+// that carries no binding. Provided for completeness; neither live proof needs detach.
+void ClearTextboxBinding(UIElement *textbox)
+{
+    if (!textbox || !textbox->data.textbox.binding)
+    {
+        return;
+    }
+
+    Binding_Destroy(&textbox->data.textbox.binding);
+}
+
 void BindTextboxGroup(UIElement **textboxes, void **bindings, size_t count)
 {
     if (!textboxes || !bindings)

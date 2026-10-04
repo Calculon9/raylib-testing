@@ -5,7 +5,7 @@
 
 #include "system/ui/ui_loader.h"
 #include "system/command_system.h"
-#include "system/panel_system.h"
+#include "system/view_host_system.h"
 #include "ui/ui_constructors.h"
 #include "system/utility_system.h"
 #include "memory/cmemory.h"
@@ -27,10 +27,137 @@
 #define LOADER_ERROR(ctx, msg) UILoader_LogError((ctx), (msg), __func__)
 #define LOADER_LOG(ctx, ...) UILoader_Log((ctx), __func__, __VA_ARGS__)
 
+// Logging helpers (forward-declared so the per-load side-table helpers below, which use the
+// LOADER_WARNING macro, resolve before their definitions appear further down).
+static void UILoader_LogWarning(UILoaderContext *ctx, const char *msg, const char *func);
+static void UILoader_LogError(UILoaderContext *ctx, const char *msg, const char *func);
+static void UILoader_Log(UILoaderContext *ctx, const char *func, const char *format, ...);
+
 static struct {
     UIElementBuilderRegistry entries[MAX_REGISTERED_BUILDERS];
     int count;
 } g_builder_registry = {0};
+
+// ============================================================================
+// Per-Load Markup Side Table
+// ============================================================================
+//
+// The <ViewSelector>/<Option>/<View> intent cannot be fully wired during the
+// single parse pass: Options precede Views in document order and the host's view
+// array does not exist until after the whole tree is built. During parsing the
+// builders therefore record just enough metadata here (per View: its container
+// pointer, resolved ViewType and id; per Option: its button pointer and target
+// view id; plus the selector container and the ViewHost's initialView), and the
+// post-process functions below consume it. The table is loader-internal,
+// fixed-capacity, and cleared at the start of every load so no state leaks
+// between loads.
+
+// Maximum number of Views / Options captured per load.
+#define MAX_LOADED_VIEWS 32
+
+// Captured <View>: links a view container to its resolved type and id.
+typedef struct {
+    UIElement *container;           // The UI_ELEMENT_VIEW container (same pointer View->container holds)
+    ViewType view_type;             // Resolved ViewType from type=
+    char id[MAX_UI_ELEMENT_ID];     // Preserved id= for Option/initialView resolution
+    bool scrollable_y;              // Vertical scrollability from scrollable= (default false)
+} LoadedViewEntry;
+
+// Captured <Option>: links an enumerate button to the View id it targets.
+typedef struct {
+    UIElement *button;              // The enumerate button built for this Option
+    char view_id[MAX_UI_ELEMENT_ID]; // Target View id from view=
+} LoadedOptionEntry;
+
+static struct {
+    LoadedViewEntry views[MAX_LOADED_VIEWS];
+    size_t view_count;
+    LoadedOptionEntry options[MAX_LOADED_VIEWS];
+    size_t option_count;
+    UIElement *selector_cont;                   // The <ViewSelector> toggle-bar container
+    char initial_view_id[MAX_UI_ELEMENT_ID];    // The <ViewHost> initialView attribute
+} g_markup_table = {0};
+
+/**
+ * Reset the per-load markup side table.
+ * Called at the start of every load entry point so no cross-load state leaks.
+ */
+static void UILoader_ResetMarkupTable(void)
+{
+    memset(&g_markup_table, 0, sizeof(g_markup_table));
+}
+
+/**
+ * Record a captured View (container, resolved type, id) in the side table.
+ * Overflow beyond MAX_LOADED_VIEWS is warned and ignored.
+ */
+static void UILoader_RecordView(UILoaderContext *ctx, UIElement *container,
+                                ViewType view_type, const char *id, bool scrollable_y)
+{
+    if (g_markup_table.view_count >= MAX_LOADED_VIEWS)
+    {
+        LOADER_WARNING(ctx, "View table overflow; ignoring excess view");
+        return;
+    }
+
+    LoadedViewEntry *entry = &g_markup_table.views[g_markup_table.view_count++];
+    entry->container = container;
+    entry->view_type = view_type;
+    safe_strncpy(entry->id, id ? id : "", MAX_UI_ELEMENT_ID);
+    entry->scrollable_y = scrollable_y;
+}
+
+/**
+ * Look up the recorded vertical scrollability for a given view container pointer.
+ * Defaults to false if the container is not found in the side table.
+ */
+static bool UILoader_LookupViewScrollable(const UIElement *container)
+{
+    for (size_t i = 0; i < g_markup_table.view_count; i++)
+    {
+        if (g_markup_table.views[i].container == container)
+        {
+            return g_markup_table.views[i].scrollable_y;
+        }
+    }
+    return false;
+}
+
+/**
+ * Record a captured Option (button, target view id) in the side table.
+ * Overflow beyond MAX_LOADED_VIEWS is warned and ignored.
+ */
+static void UILoader_RecordOption(UILoaderContext *ctx, UIElement *button,
+                                  const char *view_id)
+{
+    if (g_markup_table.option_count >= MAX_LOADED_VIEWS)
+    {
+        LOADER_WARNING(ctx, "Option table overflow; ignoring excess option");
+        return;
+    }
+
+    LoadedOptionEntry *entry = &g_markup_table.options[g_markup_table.option_count++];
+    entry->button = button;
+    safe_strncpy(entry->view_id, view_id ? view_id : "", MAX_UI_ELEMENT_ID);
+}
+
+/**
+ * Look up the recorded ViewType for a given view container pointer.
+ * Defaults to the first ViewType (0) with a warning if the container is not found.
+ */
+static ViewType UILoader_LookupViewType(UILoaderContext *ctx, const UIElement *container)
+{
+    for (size_t i = 0; i < g_markup_table.view_count; i++)
+    {
+        if (g_markup_table.views[i].container == container)
+        {
+            return g_markup_table.views[i].view_type;
+        }
+    }
+
+    LOADER_WARNING(ctx, "View container not found in table; defaulting view type");
+    return (ViewType)0;
+}
 
 // ============================================================================
 // Forward Declarations
@@ -154,9 +281,39 @@ static void UILoader_HandleCommandClick(UIElement *e)
 }
 
 /**
+ * Map a loader DataType to the canonical BindingValueType.
+ *
+ * This is the single intentional duplication of integration_system.c's file-static
+ * ResolveBindingType: it keeps the loader self-contained and domain-free (it never
+ * reaches across translation units for the mapping). Used only for an ADDRESS button
+ * source, where the resolver reports a DataType rather than a BindingValueType.
+ */
+static BindingValueType UILoader_MapDataType(DataType type)
+{
+    switch (type)
+    {
+        case INT:       return BIND_INT;
+        case FLOAT:     return BIND_FLOAT;
+        case VECTOR2D:  return BIND_VECTOR2D;
+        case STRING64:
+        case STRING128:
+        case STRING256: return BIND_STRING;
+        default:        return BIND_NONE;
+    }
+}
+
+/**
  * Builder for <Button> elements.
- * Attributes: text (required), type (optional: "simple"/"enumerate"/"submit"), action (optional),
- *             size (optional), size-mode (optional)
+ * Attributes: text (required), type (optional: "simple"/"enumerate"/"submit"),
+ *             binding (optional source), action (optional sink), size (optional),
+ *             size-mode (optional).
+ *
+ * Assembles ONE Binding carrying BOTH halves: a display SOURCE from binding= (resolved
+ * via resolve_binding into an address or query source) and a commit SINK from action=
+ * (resolved via resolve_action, else the legacy resolve_command, else a direct integer
+ * code). A button with only action= is byte-identical to the previous behaviour; a
+ * button with only binding= becomes a read-only live label; a button with neither gets
+ * no Binding and no click handler.
  */
 static UIElement *BuildButton(mxml_node_t *node, UIElement *parent, const UIPalette *palette, UILoaderContext *ctx)
 {
@@ -174,32 +331,110 @@ static UIElement *BuildButton(mxml_node_t *node, UIElement *parent, const UIPale
             btn_type = UI_ELEMENT_BUTTON_SUBMIT;
     }
     
-    // Extract size attribute
+    // Extract size and enabled attributes (enabled defaults to true when absent).
     Size size = ui_standard_button_size;
-    UILoader_ExtractCommonAttrs(node, NULL, &size, NULL, NULL);
-    
-    // Extract action attribute and resolve to a command code. The code is stored
-    // on the element below; the generic UILoader_HandleCommandClick handler reads
-    // it at click time and dispatches through the command system.
-    int command_code = 0;
-    const char *action_attr = mxmlElementGetAttr(node, "action");
-    if (action_attr && ctx && ctx->resolve_command)
+    bool enabled = true;
+    UILoader_ExtractCommonAttrs(node, NULL, &size, NULL, &enabled);
+
+    // Assemble a single Binding carrying both a display source (binding=) and a commit
+    // sink (action=). have_source/have_sink gate whether a Binding is attached and whether
+    // a click handler is wired, preserving today's "sink => handler" rule.
+    Binding b = {0};
+    bool have_source = false;
+    bool have_sink = false;
+
+    // SOURCE from binding= (new). Resolve to an address or query source descriptor.
+    const char *binding_attr = mxmlElementGetAttr(node, "binding");
+    if (binding_attr && ctx && ctx->resolve_binding)
     {
-        command_code = ctx->resolve_command(action_attr, ctx);
-        if (command_code == 0)
+        UIBinding src = ctx->resolve_binding(binding_attr, ctx);
+
+        // Honour the legacy implicit contract: a non-NULL address with kind NONE means an
+        // address source (an unmodified address resolver zero-inits the appended tail).
+        UIBindingSourceKind k = src.kind;
+        if (k == UI_BIND_SRC_NONE && src.address)
+            k = UI_BIND_SRC_ADDRESS;
+
+        if (k == UI_BIND_SRC_ADDRESS && src.address)
+        {
+            b.source.kind = BIND_SRC_ADDRESS;
+            b.source.value_type = UILoader_MapDataType(src.data_type);
+            b.source.address = src.address;
+            have_source = true;
+        }
+        else if (k == UI_BIND_SRC_QUERY && src.query)
+        {
+            b.source.kind = BIND_SRC_QUERY;
+            b.source.value_type = src.value_type; // advisory; query owns the actual type
+            b.source.query = src.query;
+            b.source.query_key = src.query_key;
+            have_source = true;
+        }
+        else
+        {
+            LOADER_WARNING(ctx, "Binding did not resolve");
+        }
+    }
+    else if (binding_attr)
+    {
+        LOADER_WARNING(ctx, "Binding specified but resolver not available");
+    }
+
+    // SINK from action= (existing command path + new opt-in callback path).
+    const char *action_attr = mxmlElementGetAttr(node, "action");
+    if (action_attr && ctx && ctx->resolve_action)
+    {
+        // (1) Opt-in widened sink resolver: command OR callback.
+        UIAction action = ctx->resolve_action(action_attr, ctx);
+        if (action.kind == UI_BIND_SINK_COMMAND && action.command_code != 0)
+        {
+            b.sink.kind = BIND_SINK_COMMAND;
+            b.sink.command = UILoader_DispatchCommand;
+            b.sink.command_code = action.command_code;
+            have_sink = true;
+        }
+        else if (action.kind == UI_BIND_SINK_CALLBACK && action.write)
+        {
+            // Callback sinks also use UILoader_HandleCommandClick; rename deferred - see design section 7.
+            b.sink.kind = BIND_SINK_CALLBACK;
+            b.sink.write = action.write;
+            b.sink.write_key = action.write_key;
+            b.sink.value_type = action.value_type;
+            have_sink = true;
+        }
+        else
+        {
+            LOADER_WARNING(ctx, "Unrecognised action string");
+        }
+    }
+    else if (action_attr && ctx && ctx->resolve_command)
+    {
+        // (2) Legacy command-sink resolver (unchanged path).
+        int command_code = ctx->resolve_command(action_attr, ctx);
+        if (command_code != 0)
+        {
+            b.sink.kind = BIND_SINK_COMMAND;
+            b.sink.command = UILoader_DispatchCommand;
+            b.sink.command_code = command_code;
+            have_sink = true;
+        }
+        else
         {
             LOADER_WARNING(ctx, "Unrecognised action string");
         }
     }
     else if (action_attr)
     {
-        // No resolver available: try parsing the action as a direct integer code.
+        // (3) No resolver available: try parsing the action as a direct integer code.
         char *endptr;
         long parsed = strtol(action_attr, &endptr, 10);
 
         if (*endptr == '\0' && parsed > 0)
         {
-            command_code = (int)parsed;
+            b.sink.kind = BIND_SINK_COMMAND;
+            b.sink.command = UILoader_DispatchCommand;
+            b.sink.command_code = (int)parsed;
+            have_sink = true;
         }
         else
         {
@@ -207,26 +442,25 @@ static UIElement *BuildButton(mxml_node_t *node, UIElement *parent, const UIPale
         }
     }
 
-    // Attach the generic command handler only when an action resolved; buttons without an
-    // action remain inert (no handler).
-    UIEventHandler handler = (command_code != 0) ? UILoader_HandleCommandClick : NULL;
+    // Attach the generic command handler only when a sink exists; a source-only (read-only
+    // label) or action-less button gets no handler, matching today's command-code != 0 rule.
+    UIEventHandler handler = have_sink ? UILoader_HandleCommandClick : NULL;
 
     UIElement *button = CreateUIButtonDefault(parent, btn_type, text, size,
                                               ui_standard_button_padding, palette, handler, NULL, NULL);
 
-    // Route the action through the symmetric binding core: a command-sink binding carries the
-    // resolved code and the dispatch adapter, which UILoader_HandleCommandClick fires on click.
-    // The binding is freed by DisposeUIElement's button-binding cleanup.
-    if (button && command_code != 0)
+    // Apply enabled= (defaults to true).
+    if (button)
     {
-        Binding command_binding = {
-            .sink = {
-                .kind = BIND_SINK_COMMAND,
-                .command = UILoader_DispatchCommand,
-                .command_code = command_code,
-            },
-        };
-        button->data.button.binding = Binding_Create(command_binding);
+        button->is_enabled = enabled;
+    }
+
+    // Attach the assembled Binding when either half resolved. A command/callback sink is
+    // fired by UILoader_HandleCommandClick; a source drives the generic refresh walk.
+    // The binding is freed by DisposeUIElement's button-binding cleanup.
+    if (button && (have_source || have_sink))
+    {
+        button->data.button.binding = Binding_Create(b);
     }
 
     return button;
@@ -242,8 +476,17 @@ static UIElement *BuildLabel(mxml_node_t *node, UIElement *parent, const UIPalet
     if (!text)
         text = "";
     
-    return CreateUILabelDefault(parent, text, ui_standard_control_size,
+    UIElement *label_elem = CreateUILabelDefault(parent, text, ui_standard_control_size,
                                ui_standard_button_padding, palette);
+
+    // Apply enabled= (defaults to true when absent).
+    const char *enabled_attr = mxmlElementGetAttr(node, "enabled");
+    if (label_elem && enabled_attr)
+    {
+        label_elem->is_enabled = strcmp(enabled_attr, "false") != 0;
+    }
+
+    return label_elem;
 }
 
 /**
@@ -301,9 +544,18 @@ static UIElement *BuildTextField(mxml_node_t *node, UIElement *parent, const UIP
         LOADER_WARNING(ctx, "Binding specified but resolver not available");
     }
     
-    return CreateUILabeledFieldDefault(parent, label, field_type,
+    UIElement *field = CreateUILabeledFieldDefault(parent, label, field_type,
                                       ui_standard_control_size,
                                       ui_standard_field_padding, palette);
+
+    // Apply enabled= (defaults to true when absent).
+    const char *enabled_attr = mxmlElementGetAttr(node, "enabled");
+    if (field && enabled_attr)
+    {
+        field->is_enabled = strcmp(enabled_attr, "false") != 0;
+    }
+
+    return field;
 }
 
 /**
@@ -320,17 +572,26 @@ static UIElement *BuildSection(mxml_node_t *node, UIElement *parent,
     if (!title)
         title = "";
     
-    // Extract size and offset attributes
+    // Extract size, offset and enabled attributes (enabled defaults to true).
     Size size = ui_standard_container_size;
     Offset offset = {{0.0f, 0.0f}, OFFSET_FIXED};
-    UILoader_ExtractCommonAttrs(node, NULL, &size, &offset, NULL);
+    bool enabled = true;
+    UILoader_ExtractCommonAttrs(node, NULL, &size, &offset, &enabled);
     
     // Extract layout attribute to determine child spacing
     const char *layout_attr = mxmlElementGetAttr(node, "layout");
     const Spacing *layout = UILoader_ParseLayout(layout_attr);
     
     // Create section with explicit size, offset, and layout
-    return CreateViewSection(parent, title, size, offset, layout, palette);
+    UIElement *section = CreateViewSection(parent, title, size, offset, layout, palette);
+
+    // Apply enabled= (defaults to true).
+    if (section)
+    {
+        section->is_enabled = enabled;
+    }
+
+    return section;
 }
 
 /**
@@ -341,11 +602,22 @@ static UIElement *BuildSection(mxml_node_t *node, UIElement *parent,
 static UIElement *BuildContainer(mxml_node_t *node, UIElement *parent,
                                  const UIPalette *palette, UILoaderContext *ctx)
 {
-    // TODO: Extract size and spacing attributes
-    return CreateUIContainer(parent, ui_standard_container_size, (Offset){{0, 0}, OFFSET_FIXED},
+    // Extract size, offset and layout exactly as BuildSection does, defaulting to
+    // the standard container size when the attributes are absent. This only honours
+    // attributes when present, so it is not a behavioural change for existing
+    // attribute-less <Container> markup.
+    Size size = ui_standard_container_size;
+    Offset offset = {{0.0f, 0.0f}, OFFSET_FIXED};
+    bool enabled = true;
+    UILoader_ExtractCommonAttrs(node, NULL, &size, &offset, &enabled);
+
+    const char *layout_attr = mxmlElementGetAttr(node, "layout");
+    const Spacing *layout = UILoader_ParseLayout(layout_attr);
+
+    return CreateUIContainer(parent, size, offset,
                             ui_standard_container_padding, palette,
-                            UI_PALETTE_SURFACE_CONTAINER, ui_standard_stack_spacing,
-                            false, true);
+                            UI_PALETTE_SURFACE_CONTAINER, *layout,
+                            false, enabled);  // honour enabled= (defaults to true)
 }
 
 /**
@@ -359,14 +631,46 @@ static UIElement *BuildContainer(mxml_node_t *node, UIElement *parent,
 static UIElement *BuildView(mxml_node_t *node, UIElement *parent,
                             const UIPalette *palette, UILoaderContext *ctx)
 {
-    // Extract view attributes
+    // Extract view attributes. The id is preserved so Options and the ViewHost's
+    // initialView can resolve to this View's index after the tree is built. The
+    // enabled flag defaults to true when the attribute is absent.
     char view_id[MAX_UI_ELEMENT_ID] = {0};
-    UILoader_ExtractCommonAttrs(node, view_id, NULL, NULL, NULL);
+    bool enabled = true;
+    UILoader_ExtractCommonAttrs(node, view_id, NULL, NULL, &enabled);
     
     const char *view_type_str = mxmlElementGetAttr(node, "type");
     const char *scrollable_attr = mxmlElementGetAttr(node, "scrollable");
+    // Honour scrollable= when present (default false); applied to the View struct
+    // in UILoader_CollectViewContainers once the View wrapper exists.
     bool is_scrollable = scrollable_attr && strcmp(scrollable_attr, "true") == 0;
-    
+
+    // Honour layout= for the view's child spacing (defaults to stack when absent).
+    const char *layout_attr = mxmlElementGetAttr(node, "layout");
+    const Spacing *layout = UILoader_ParseLayout(layout_attr);
+
+    // Resolve the type= string to a ViewType through the application-supplied
+    // resolver. The generic loader never names application ViewType enums, so an
+    // absent resolver or an unrecognised string defaults to the first ViewType (0)
+    // with a warning.
+    ViewType view_type = (ViewType)0;
+    if (view_type_str && ctx && ctx->resolve_view_type)
+    {
+        bool resolved = false;
+        ViewType resolved_type = ctx->resolve_view_type(view_type_str, &resolved, ctx);
+        if (resolved)
+        {
+            view_type = resolved_type;
+        }
+        else
+        {
+            LOADER_WARNING(ctx, "Unrecognised view type");
+        }
+    }
+    else if (view_type_str)
+    {
+        LOADER_WARNING(ctx, "View type specified but resolver not available");
+    }
+
     LOADER_LOG(ctx, "Creating View: id=%s, type=%s, scrollable=%s",
                view_id, view_type_str ? view_type_str : "<none>",
                is_scrollable ? "true" : "false");
@@ -379,18 +683,20 @@ static UIElement *BuildView(mxml_node_t *node, UIElement *parent,
         ui_standard_container_padding,
         palette,
         UI_PALETTE_SURFACE_CONTAINER,
-        ui_standard_stack_spacing,
+        *layout,          // honour layout= (defaults to stack)
         false,
-        true
+        enabled           // honour enabled= (defaults to true)
     );
     
     if (container)
     {
         container->type = UI_ELEMENT_VIEW;  // Mark for post-processor
+        // Record the resolved type, id and scrollability against this exact container
+        // pointer so UILoader_CollectViewContainers can stamp the correct View->type
+        // and scroll flag, and the post-process pass can resolve Option/initialView
+        // ids to view indices.
+        UILoader_RecordView(ctx, container, view_type, view_id, is_scrollable);
     }
-    
-    LOADER_LOG(ctx, "Created View container: id=%s, type=%s",
-               view_id, view_type_str ? view_type_str : "<none>");
     
     return container;
 }
@@ -403,32 +709,35 @@ static UIElement *BuildView(mxml_node_t *node, UIElement *parent,
 static UIElement *BuildViewSelector(mxml_node_t *node, UIElement *parent,
                                     const UIPalette *palette, UILoaderContext *ctx)
 {
-    // TODO: Create a button group container for view selection
-    // Parse Option children and create buttons for each
-    return CreateUIContainer(parent, ui_standard_selector_container_size,
-                            (Offset){{0, 0}, OFFSET_FIXED},
-                            ui_standard_button_padding, palette,
-                            UI_PALETTE_SURFACE_CONTAINER, ui_standard_inline_spacing,
-                            false, true);
-}
+    // Build the toggle-bar container, mirroring the styling of
+    // ViewHostSystem_CreateStandardViewSelector (transparent surface, container
+    // border colour, zero inline spacing). The Option children become enumerate
+    // buttons; the actual ViewSelector struct is allocated later by
+    // UILoader_BuildSelectorFromMarkup once all Views are known.
+    const char *type_attr = mxmlElementGetAttr(node, "type");
+    if (type_attr && strcmp(type_attr, "enumerate") != 0)
+    {
+        // Only "enumerate" selectors are wired; "hover" is reserved for later.
+        LOADER_WARNING(ctx, "Unrecognised view selector type; defaulting to enumerate");
+    }
 
-/**
- * Builder for <Panel> elements (root container).
- * Attributes: id (optional), layout (optional)
- * Children (ViewSelector, Views) are added.
- * 
- * When parent is NULL, this Panel is a root element (e.g., loaded from XML file).
- * The UI constructor should handle NULL parent gracefully for root elements.
- */
-static UIElement *BuildPanel(mxml_node_t *node, UIElement *parent,
-                             const UIPalette *palette, UILoaderContext *ctx)
-{
-    // TODO: Extract panel-specific attributes
-    // Pass parent as-is; NULL indicates root element, non-NULL indicates nested panel
-    return CreateUIContainer(parent, ui_fill_container_size, (Offset){{0, 0}, OFFSET_FIXED},
-                            ui_standard_container_padding, palette,
-                            UI_PALETTE_SURFACE_CONTAINER, ui_standard_stack_spacing,
-                            false, true);
+    bool enabled = true;
+    UILoader_ExtractCommonAttrs(node, NULL, NULL, NULL, &enabled);
+
+    UIElement *toggle_cont = CreateUIContainer(
+        parent, ui_standard_selector_container_size,
+        (Offset){{0.0f, 0.0f}, OFFSET_FIXED}, ZERO_VECTOR_2D,
+        palette, UI_PALETTE_SURFACE_TRANSPARENT,
+        ui_zero_inline_spacing, false, enabled);  // honour enabled= (defaults to true)
+
+    if (toggle_cont)
+    {
+        toggle_cont->colour_border = palette->container_border;
+        // Record the selector container so the post-process pass can locate it.
+        g_markup_table.selector_cont = toggle_cont;
+    }
+
+    return toggle_cont;
 }
 
 /**
@@ -441,12 +750,75 @@ static UIElement *BuildOption(mxml_node_t *node, UIElement *parent,
     const char *text = mxmlElementGetAttr(node, "text");
     if (!text)
         text = "";
-    
-    // TODO: Extract view attribute for tab switching
-    return CreateUIButtonDefault(parent, UI_ELEMENT_BUTTON_ENUMERATE, text,
-                                ui_standard_selector_button_size,
-                                ui_standard_button_padding, palette,
-                                NULL, NULL, NULL);
+
+    // The target View id is recorded for later index resolution. The click
+    // handler / data_bind / user_data are intentionally left NULL here: they are
+    // wired by UILoader_BuildSelectorFromMarkup once the ViewSelector and its
+    // view_indices backing array exist.
+    const char *view_attr = mxmlElementGetAttr(node, "view");
+    if (!view_attr || view_attr[0] == '\0')
+    {
+        LOADER_WARNING(ctx, "Option missing view target");
+    }
+
+    UIElement *button = CreateUIButtonDefault(parent, UI_ELEMENT_BUTTON_ENUMERATE, text,
+                                             ui_standard_selector_button_size,
+                                             ui_standard_button_padding, palette,
+                                             NULL, NULL, NULL);
+
+    if (button)
+    {
+        // Apply enabled= (defaults to true when absent).
+        const char *enabled_attr = mxmlElementGetAttr(node, "enabled");
+        if (enabled_attr)
+        {
+            button->is_enabled = strcmp(enabled_attr, "false") != 0;
+        }
+        UILoader_RecordOption(ctx, button, view_attr);
+    }
+
+    return button;
+}
+
+/**
+ * Builder for <ViewHost> elements (root of a multi-view panel markup).
+ * Attributes: id (optional), layout (optional: "stacked"/"stack"/...),
+ *             initial-view (optional), enabled (optional, default true).
+ *
+ * Produces a plain fill-size container (NOT a UI_ELEMENT_ROOT) that becomes the
+ * content host re-parented under the real ViewHostSystem root in InitLPanel. The
+ * viewport and scale are deliberately NOT expressed in markup: they are
+ * application-specific and supplied by the application (InitLPanel), keeping the
+ * generic loader free of viewport knowledge. The initial-view id is recorded for
+ * the application to resolve to a view index.
+ */
+static UIElement *BuildViewHost(mxml_node_t *node, UIElement *parent,
+                                const UIPalette *palette, UILoaderContext *ctx)
+{
+    // Extract the host id (documentation / future lookup), enabled flag and layout spacing.
+    char host_id[MAX_UI_ELEMENT_ID] = {0};
+    bool enabled = true;
+    UILoader_ExtractCommonAttrs(node, host_id, NULL, NULL, &enabled);
+
+    const char *layout_attr = mxmlElementGetAttr(node, "layout");
+    const Spacing *layout = UILoader_ParseLayout(layout_attr);
+
+    // Record the initial-view attribute so InitLPanel can resolve it to an index.
+    const char *initial_view = mxmlElementGetAttr(node, "initial-view");
+    safe_strncpy(g_markup_table.initial_view_id, initial_view ? initial_view : "",
+                 MAX_UI_ELEMENT_ID);
+
+    LOADER_LOG(ctx, "Creating ViewHost: id=%s, initial-view=%s",
+               host_id, initial_view ? initial_view : "<none>");
+
+    // A plain fill-size container; the real UI_ELEMENT_ROOT is built by
+    // ViewHostSystem_InitRoot in InitLPanel and this container is re-parented under
+    // it. parent is NULL at the document root.
+    return CreateUIContainer(parent, ui_fill_container_size,
+                             (Offset){{0, 0}, OFFSET_FIXED},
+                             ui_standard_container_padding, palette,
+                             UI_PALETTE_SURFACE_CONTAINER, *layout,
+                             false, enabled);  // honour enabled= (defaults to true)
 }
 
 // ============================================================================
@@ -456,7 +828,7 @@ static UIElement *BuildOption(mxml_node_t *node, UIElement *parent,
 void UILoader_RegisterDefaultBuilders(void)
 {
     // Register all built-in element type builders
-    UILoader_RegisterBuilder("Panel", BuildPanel);
+    UILoader_RegisterBuilder("ViewHost", BuildViewHost);
     UILoader_RegisterBuilder("ViewSelector", BuildViewSelector);
     UILoader_RegisterBuilder("Option", BuildOption);
     UILoader_RegisterBuilder("View", BuildView);
@@ -523,6 +895,11 @@ static const Spacing *UILoader_ParseLayout(const char *layout_str)
         return &ui_standard_stack_spacing;  // Default
     
     if (!strcmp(layout_str, "stack"))
+        return &ui_standard_stack_spacing;
+    else if (!strcmp(layout_str, "stacked"))
+        // Alias of "stack". This is a GLOBAL alias in the shared layout parser, so
+        // layout="stacked" now resolves for every element that reads layout=
+        // (previously it silently defaulted to stack anyway).
         return &ui_standard_stack_spacing;
     else if (!strcmp(layout_str, "stack_wrap"))
         return &ui_standard_stack_wrap_spacing;
@@ -721,7 +1098,10 @@ UIElement *UILoader_LoadFromFile(const char *filepath, const UIPalette *palette)
         LOADER_ERROR(NULL, "File path is NULL");
         return NULL;
     }
-    
+
+    // Clear per-load markup metadata before parsing a fresh tree.
+    UILoader_ResetMarkupTable();
+
     mxml_node_t *tree = mxmlLoadFilename(NULL, NULL, filepath);
     if (!tree)
     {
@@ -767,7 +1147,10 @@ UIElement *UILoader_LoadFromString(const char *xml_string, const UIPalette *pale
         LOADER_ERROR(NULL, "XML string is NULL");
         return NULL;
     }
-    
+
+    // Clear per-load markup metadata before parsing a fresh tree.
+    UILoader_ResetMarkupTable();
+
     mxml_node_t *tree = mxmlLoadString(NULL, NULL, xml_string);
     if (!tree)
     {
@@ -811,7 +1194,8 @@ UIElement *UILoader_LoadFromString(const char *xml_string, const UIPalette *pale
 // ============================================================================
 
 UIElement *UILoader_LoadFromFileWithResolvers(const char *filepath, const UIPalette *palette, UIBindingResolver resolve_binding,
-                                               UICommandResolver resolve_command, void *user_data)
+                                               UICommandResolver resolve_command, UIViewTypeResolver resolve_view_type,
+                                               void *user_data)
 {
     LOADER_LOG(NULL, "Loading UI from file: %s", filepath);
     
@@ -820,7 +1204,10 @@ UIElement *UILoader_LoadFromFileWithResolvers(const char *filepath, const UIPale
         LOADER_ERROR(NULL, "File path is NULL");
         return NULL;
     }
-    
+
+    // Clear per-load markup metadata before parsing a fresh tree.
+    UILoader_ResetMarkupTable();
+
     mxml_node_t *tree = mxmlLoadFilename(NULL, NULL, filepath);
     if (!tree)
     {
@@ -848,6 +1235,7 @@ UIElement *UILoader_LoadFromFileWithResolvers(const char *filepath, const UIPale
         .source_file = filepath,
         .resolve_binding = resolve_binding,
         .resolve_command = resolve_command,
+        .resolve_view_type = resolve_view_type,
         .user_data = user_data,
     };
     
@@ -860,6 +1248,7 @@ UIElement *UILoader_LoadFromFileWithResolvers(const char *filepath, const UIPale
 UIElement *UILoader_LoadFromStringWithResolvers(const char *xml_string, const UIPalette *palette,
                                                  UIBindingResolver resolve_binding,
                                                  UICommandResolver resolve_command,
+                                                 UIViewTypeResolver resolve_view_type,
                                                  void *user_data)
 {
     if (!xml_string)
@@ -867,7 +1256,10 @@ UIElement *UILoader_LoadFromStringWithResolvers(const char *xml_string, const UI
         LOADER_ERROR(NULL, "XML string is NULL");
         return NULL;
     }
-    
+
+    // Clear per-load markup metadata before parsing a fresh tree.
+    UILoader_ResetMarkupTable();
+
     mxml_node_t *tree = mxmlLoadString(NULL, NULL, xml_string);
     if (!tree)
     {
@@ -895,6 +1287,7 @@ UIElement *UILoader_LoadFromStringWithResolvers(const char *xml_string, const UI
         .source_file = "<string>",
         .resolve_binding = resolve_binding,
         .resolve_command = resolve_command,
+        .resolve_view_type = resolve_view_type,
         .user_data = user_data,
     };
     
@@ -933,7 +1326,12 @@ static void UILoader_CollectViewContainers(UIElement *elem, View ***views_array,
         if (view)
         {
             view->container = elem;
-            view->type = LPANEL_STATE_VIEW;  // Default; could be extended to parse from attributes
+            // Resolve the correct ViewType recorded during parsing (BuildView) by
+            // looking the container pointer up in the per-load side table. The
+            // container pointer stored there is this exact `elem` (no copy), so the
+            // lookup is a direct pointer match. Defaults to the first ViewType with
+            // a warning if the container is somehow absent.
+            view->type = UILoader_LookupViewType(NULL, elem);
             view->scroll_x = 0.0f;
             view->max_scroll_x = 0.0f;
             view->content_width = 0.0f;
@@ -941,7 +1339,10 @@ static void UILoader_CollectViewContainers(UIElement *elem, View ***views_array,
             view->max_scroll_y = 0.0f;
             view->content_height = 0.0f;
             view->is_scrollable_x = false;
-            view->is_scrollable_y = false;
+            // Apply the recorded scrollable= flag (vertical) from the markup, syncing
+            // the container flag the same way View_SetScrollableY does.
+            view->is_scrollable_y = UILoader_LookupViewScrollable(elem);
+            elem->is_scrollable_y = view->is_scrollable_y;
             
             (*views_array)[(*count)++] = view;
         }
@@ -970,4 +1371,140 @@ View **UILoader_ExtractViews(UIElement *root, size_t *out_count)
 
     *out_count = count;
     return views;
+}
+
+// ============================================================================
+// Post-Load Processing: Selector / View-Index Resolution
+// ============================================================================
+
+/**
+ * Find the index in host->views of the View whose source container has the given
+ * id, using the per-load side table. Returns -1 when no View matches.
+ *
+ * The side-table view-container pointers are identical to host->views[k]->container
+ * (UILoader_CollectViewContainers stores the exact tree pointer without copying),
+ * so this is a direct pointer-keyed id comparison. An id-less View (empty recorded
+ * id) can never match a non-empty id_string.
+ */
+int UILoader_ResolveViewIndexById(ViewHostSystem *host, const char *id_string)
+{
+    if (!host || !id_string || id_string[0] == '\0')
+    {
+        return -1;
+    }
+
+    for (int k = 0; k < host->views.count; k++)
+    {
+        View *view = *((View **)LArray_Get(&host->views, k));
+        if (!view)
+        {
+            continue;
+        }
+
+        // Find the side-table row for this view's container, then compare its id.
+        for (size_t t = 0; t < g_markup_table.view_count; t++)
+        {
+            if (g_markup_table.views[t].container == view->container)
+            {
+                if (!strcmp(g_markup_table.views[t].id, id_string))
+                {
+                    return k;
+                }
+                break;  // Container matched but id did not; no other row shares it.
+            }
+        }
+    }
+
+    return -1;
+}
+
+/**
+ * Return the initialView id recorded from the most recent load's <ViewHost>, or
+ * NULL when none was recorded.
+ */
+const char *UILoader_GetInitialViewId(void)
+{
+    return g_markup_table.initial_view_id[0] != '\0' ? g_markup_table.initial_view_id : NULL;
+}
+
+/**
+ * Build and register a ViewSelector on `host` from the captured <Option> metadata.
+ *
+ * Each Option's target view id is resolved to the index of the matching View in
+ * host->views; unmatched targets default to index 0 with a warning. The selector's
+ * buttons[]/view_indices[] arrays are allocated with the exact element sizes used
+ * by the C-built path so DestroyPanelViewSelector's frees stay correct, and each
+ * enumerate button is wired exactly like ViewHostSystem_CreateViewSelector so
+ * clicks drive ViewHostSystem_SelectView. Styling / initial selection is left to
+ * the single ViewHostSystem_SelectView call the application makes afterwards.
+ */
+ViewSelector *UILoader_BuildSelectorFromMarkup(ViewHostSystem *host,
+                                               ViewSelectionCallback callback)
+{
+    if (!host || g_markup_table.option_count == 0)
+    {
+        return NULL;
+    }
+
+    size_t count = g_markup_table.option_count;
+
+    // Allocate the selector and its backing arrays. Element sizes match
+    // AllocatePanelViewSelector so DestroyPanelViewSelector frees them correctly.
+    ViewSelector *selector = AllocateBytes(sizeof(ViewSelector));
+    if (!selector)
+    {
+        return NULL;
+    }
+
+    selector->buttons = AllocateBytes(sizeof(UIElement *) * count);
+    selector->view_indices = AllocateBytes(sizeof(int) * count);
+    if (!selector->buttons || !selector->view_indices)
+    {
+        // Mirror AllocatePanelViewSelector's cleanup on partial allocation failure.
+        Deallocate((void **)&selector->buttons, sizeof(UIElement *) * count);
+        Deallocate((void **)&selector->view_indices, sizeof(int) * count);
+        Deallocate((void **)&selector, sizeof(ViewSelector));
+        return NULL;
+    }
+
+    selector->panel = host;
+    selector->count = count;
+    selector->active_index = count;  // Unselected sentinel; overwritten by SelectView.
+    selector->on_view_selected = callback;
+
+    // Resolve each Option to a view index and wire its button.
+    for (size_t i = 0; i < count; i++)
+    {
+        LoadedOptionEntry *option = &g_markup_table.options[i];
+
+        // Resolve the Option's target view id to a view index; default to 0 + warn.
+        int index = UILoader_ResolveViewIndexById(host, option->view_id);
+        if (index < 0)
+        {
+            LOADER_WARNING(NULL, "Option view target did not resolve; defaulting to first view");
+            index = 0;
+        }
+
+        selector->buttons[i] = option->button;
+        selector->view_indices[i] = index;  // Resolved index (NOT a trivial 0..count-1).
+
+        // Wire the enumerate button exactly like ViewHostSystem_CreateViewSelector.
+        if (option->button)
+        {
+            option->button->data.button.on_click = HandleViewHostSelectorClick;
+            option->button->data.button.user_data = &selector->view_indices[i];
+            option->button->data.button.data_bind = selector;
+        }
+    }
+
+    // Register the selector so the host owns it (and frees it on destroy).
+    if (!LArray_Push(&host->selectors, &selector))
+    {
+        Deallocate((void **)&selector->buttons, sizeof(UIElement *) * count);
+        Deallocate((void **)&selector->view_indices, sizeof(int) * count);
+        Deallocate((void **)&selector, sizeof(ViewSelector));
+        return NULL;
+    }
+
+    return selector;
 }

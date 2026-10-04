@@ -14,6 +14,7 @@
 #include "system/systems.h"
 #include "world/world.h"
 #include "world/world_internal.h"
+#include "world/object_gizmos.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -145,7 +146,7 @@ static int BuildConvexHull(Vector2d *vertices, int vertices_count, Vector2d *out
 static void DrawNewtonoidHull(const Vector2d *world_vertices, int vertices_count,
                               Matrix3x3 space_to_pixel_mtx)
 {
-    if (!world_vertices || vertices_count < 3 || !IsDebugEnabled(DEBUG_OBJECT_HULL))
+    if (!world_vertices || vertices_count < 3 || !IsGizmoEnabled(GIZMO_HULL))
     {
         return;
     }
@@ -168,7 +169,7 @@ static void DrawNewtonoidHull(const Vector2d *world_vertices, int vertices_count
 // Draw the tight world-space axis-aligned bounds used by the broad phase.
 static void DrawNewtonoidAABB(const Newtonoid2d *newtonoid, Matrix3x3 space_to_pixel_mtx)
 {
-    if (!newtonoid || !IsDebugEnabled(DEBUG_OBJECT_AABB))
+    if (!newtonoid || !IsGizmoEnabled(GIZMO_AABB))
     {
         return;
     }
@@ -366,7 +367,7 @@ void DrawRotatedObjectVertices(Vector2d *local_vertices, int vertices_count, Vec
 
 static void DrawNewtonoidAxes(const Newtonoid2d *newtonoid, Matrix3x3 space_to_pixel_mtx)
 {
-    if (!newtonoid || !IsDebugEnabled(DEBUG_OBJECT_AXES))
+    if (!newtonoid || !IsGizmoEnabled(GIZMO_AXES))
     {
         return;
     }

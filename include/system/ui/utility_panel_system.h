@@ -1,7 +1,7 @@
 #ifndef UTILITY_PANEL_SYSTEM_H
 #define UTILITY_PANEL_SYSTEM_H
 
-#include "system/panel_system.h"
+#include "system/view_host_system.h"
 #include "ui/ui.h"
 
 void InitUtilityPanel(void);
@@ -11,6 +11,6 @@ void DrawUtilityPanel(void);
 UIElement *GetUtilityPanelRoot(void);
 
 // Get the panel system instance.
-struct PanelSystem *GetUtilityPanelSystem(void);
+struct ViewHostSystem *GetUtilityPanelViewHost(void);
 
 #endif

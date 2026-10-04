@@ -1,5 +1,5 @@
 #include "raylib.h"
-#include "system/panel_system.h"
+#include "system/view_host_system.h"
 #include "system/ui_system.h"
 #include "math/affine_space_ops.h"
 #include "system/draw_primitives.h"
@@ -38,18 +38,18 @@ static void DrawViewScrollbar(const View *view, const UIPalette *palette)
                                  thumb_height}, thumb_colour);
 }
 
-void PanelSystem_HandleViewSelected(View *view)
+void ViewHostSystem_HandleViewSelected(View *view)
 {
     if (view)
     {
-        G_UIState.active_panel_view = view->type;
+        G_UIState.active_view = view->type;
     }
 }
 
-PanelSystem *PanelSystem_Create(ViewportRegion *viewport, float scale, Vector2d padding,
+ViewHostSystem *ViewHostSystem_Create(ViewportRegion *viewport, float scale, Vector2d padding,
                                 const UIPalette *palette, Spacing root_child_spacing)
 {
-    PanelSystem *panel = (PanelSystem *)AllocateBytes(sizeof(PanelSystem));
+    ViewHostSystem *panel = (ViewHostSystem *)AllocateBytes(sizeof(ViewHostSystem));
     if (!panel)
     {
         return NULL;
@@ -89,7 +89,7 @@ static void DestroyPanelViewSelector(ViewSelector *selector)
     Deallocate((void **)&selector, sizeof(ViewSelector));
 }
 
-void PanelSystem_Destroy(PanelSystem *panel)
+void ViewHostSystem_Destroy(ViewHostSystem *panel)
 {
     if (!panel)
     {
@@ -100,7 +100,7 @@ void PanelSystem_Destroy(PanelSystem *panel)
     DisposeUIElement(panel->root);
     panel->root = NULL;
 
-    // Every registered view is allocated by PanelSystem_CreateView.
+    // Every registered view is allocated by ViewHostSystem_CreateView.
     for (int view_index = 0; view_index < panel->views.count; view_index++)
     {
         View *view = *((View **)LArray_Get(&panel->views, view_index));
@@ -114,13 +114,13 @@ void PanelSystem_Destroy(PanelSystem *panel)
         DestroyPanelViewSelector(selector);
     }
 
-    // Both arrays are embedded in PanelSystem, so release only their buffers.
+    // Both arrays are embedded in ViewHostSystem, so release only their buffers.
     ClearLArray(&panel->views);
     ClearLArray(&panel->selectors);
-    Deallocate((void **)&panel, sizeof(PanelSystem));
+    Deallocate((void **)&panel, sizeof(ViewHostSystem));
 }
 
-void PanelSystem_InitRoot(PanelSystem *panel)
+void ViewHostSystem_InitRoot(ViewHostSystem *panel)
 {
     if (!panel || !panel->viewport)
     {
@@ -162,7 +162,7 @@ void PanelSystem_InitRoot(PanelSystem *panel)
     panel->seed_box.dimensions = resolution;
 }
 
-void PanelSystem_InitViews(PanelSystem *panel, size_t view_count)
+void ViewHostSystem_InitViews(ViewHostSystem *panel, size_t view_count)
 {
     if (!panel)
     {
@@ -226,7 +226,7 @@ View *View_Create(UIElement *parent, const UIPalette *palette, ViewType type)
 }
 
 // Create a visible standard View surface and register it with the panel.
-View *PanelSystem_CreateView(PanelSystem *panel, ViewType view_type)
+View *ViewHostSystem_CreateView(ViewHostSystem *panel, ViewType view_type)
 {
     if (!panel || !panel->root)
     {
@@ -434,7 +434,7 @@ float View_GetScrollY(const View *view)
 }
 
 // Retrieve the currently active view in a panel system (the first enabled view container).
-View *PanelSystem_GetActiveView(PanelSystem *panel)
+View *ViewHostSystem_GetActiveView(ViewHostSystem *panel)
 {
     if (!panel)
     {
@@ -479,7 +479,7 @@ static void UpdatePanelViewSelectorButtons(ViewSelector *selector)
 
 static void HandlePanelViewSelectorHover(UIElement *item);
 
-void HandlePanelViewSelectorClick(UIElement *button)
+void HandleViewHostSelectorClick(UIElement *button)
 {
     ViewSelector *selector = (ViewSelector *)button->data.button.data_bind;
     if (!selector || !button->data.button.user_data)
@@ -487,7 +487,7 @@ void HandlePanelViewSelectorClick(UIElement *button)
         return;
     }
 
-    PanelSystem_SelectView(selector, (size_t)*((int *)button->data.button.user_data));
+    ViewHostSystem_SelectView(selector, (size_t)*((int *)button->data.button.user_data));
 }
 
 static void HandlePanelViewSelectorHover(UIElement *item)
@@ -498,10 +498,10 @@ static void HandlePanelViewSelectorHover(UIElement *item)
         return;
     }
 
-    PanelSystem_SelectView(selector, (size_t)*((int *)item->data.hover_item.user_data));
+    ViewHostSystem_SelectView(selector, (size_t)*((int *)item->data.hover_item.user_data));
 }
 
-static ViewSelector *AllocatePanelViewSelector(PanelSystem *panel, const char *labels[], size_t count,
+static ViewSelector *AllocatePanelViewSelector(ViewHostSystem *panel, const char *labels[], size_t count,
                                                 ViewSelectionCallback on_view_selected)
 {
     ViewSelector *selector = AllocateBytes(sizeof(ViewSelector));
@@ -534,7 +534,7 @@ static ViewSelector *AllocatePanelViewSelector(PanelSystem *panel, const char *l
     return selector;
 }
 
-static bool SetPanelActiveView(PanelSystem *panel, size_t view_index)
+static bool SetPanelActiveView(ViewHostSystem *panel, size_t view_index)
 {
     if (!panel || view_index >= panel->views.count)
     {
@@ -560,7 +560,7 @@ static bool SetPanelActiveView(PanelSystem *panel, size_t view_index)
     return true;
 }
 
-ViewSelector *PanelSystem_CreateViewSelector(PanelSystem *panel, UIElement *parent, Size button_size, const char *labels[],
+ViewSelector *ViewHostSystem_CreateViewSelector(ViewHostSystem *panel, UIElement *parent, Size button_size, const char *labels[],
                                              size_t count, ViewSelectionCallback on_view_selected)
 {
     if (!panel || !parent || !labels || count == 0)
@@ -584,7 +584,7 @@ ViewSelector *PanelSystem_CreateViewSelector(PanelSystem *panel, UIElement *pare
     {
         selector->buttons[i] = CreateUIButtonDefault(
             parent, UI_ELEMENT_BUTTON_ENUMERATE, labels[i], button_size,
-            ui_standard_button_padding, panel->palette, HandlePanelViewSelectorClick,
+            ui_standard_button_padding, panel->palette, HandleViewHostSelectorClick,
             &selector->view_indices[i], selector);
         if (!selector->buttons[i])
         {
@@ -596,7 +596,7 @@ ViewSelector *PanelSystem_CreateViewSelector(PanelSystem *panel, UIElement *pare
     return selector;
 }
 
-ViewSelector *PanelSystem_CreateHoverViewSelector(PanelSystem *panel, UIElement *parent,
+ViewSelector *ViewHostSystem_CreateHoverViewSelector(ViewHostSystem *panel, UIElement *parent,
                                                   Size item_size, const char *labels[],
                                                   size_t count,
                                                   ViewSelectionCallback on_view_selected)
@@ -636,7 +636,7 @@ ViewSelector *PanelSystem_CreateHoverViewSelector(PanelSystem *panel, UIElement 
     return selector;
 }
 
-bool PanelSystem_SelectView(ViewSelector *selector, size_t view_index)
+bool ViewHostSystem_SelectView(ViewSelector *selector, size_t view_index)
 {
     if (!selector || view_index >= selector->count || !SetPanelActiveView(selector->panel, view_index))
     {
@@ -658,7 +658,7 @@ bool PanelSystem_SelectView(ViewSelector *selector, size_t view_index)
 // Recursively pull every element's display from its binding source (data -> UI).
 // Rides the per-frame draw traversal that already happens, so the added cost is one binding
 // NULL-check per element plus a format only for the few elements that carry a query source.
-static void PanelSystem_RefreshBindings(UIElement *element)
+static void ViewHostSystem_RefreshBindings(UIElement *element)
 {
     if (!element)
     {
@@ -669,11 +669,11 @@ static void PanelSystem_RefreshBindings(UIElement *element)
 
     ForEachChild(element, child)
     {
-        PanelSystem_RefreshBindings(child);
+        ViewHostSystem_RefreshBindings(child);
     }
 }
 
-void PanelSystem_Draw(PanelSystem *panel)
+void ViewHostSystem_Draw(ViewHostSystem *panel)
 {
     if (!panel || !panel->root)
     {
@@ -681,7 +681,7 @@ void PanelSystem_Draw(PanelSystem *panel)
     }
 
     // Pull bound widgets up to date from their data sources before laying out / drawing.
-    PanelSystem_RefreshBindings(panel->root);
+    ViewHostSystem_RefreshBindings(panel->root);
 
     // Update UI layout to reflect any interactive changes
     UpdateUISpace(panel->root, panel->seed_box);
@@ -716,7 +716,7 @@ void PanelSystem_Draw(PanelSystem *panel)
     }
 }
 
-Frame2d *PanelSystem_GetSpaceFrame(PanelSystem *panel)
+Frame2d *ViewHostSystem_GetSpaceFrame(ViewHostSystem *panel)
 {
     if (!panel)
     {
@@ -726,7 +726,7 @@ Frame2d *PanelSystem_GetSpaceFrame(PanelSystem *panel)
     return &panel->space.frame;
 }
 
-bool PanelSystem_SetSpaceBasis(PanelSystem *panel, Vector2d u, Vector2d v)
+bool ViewHostSystem_SetSpaceBasis(ViewHostSystem *panel, Vector2d u, Vector2d v)
 {
     if (!panel)
     {
@@ -744,7 +744,7 @@ bool PanelSystem_SetSpaceBasis(PanelSystem *panel, Vector2d u, Vector2d v)
     return true;
 }
 
-void PanelSystem_ResetSpaceBasis(PanelSystem *panel)
+void ViewHostSystem_ResetSpaceBasis(ViewHostSystem *panel)
 {
     if (!panel)
     {
@@ -756,31 +756,31 @@ void PanelSystem_ResetSpaceBasis(PanelSystem *panel)
     panel->basis_override_v = ZERO_VECTOR_2D;
 }
 
-PanelSystem *PanelSystem_CreateStandard(ViewportRegion *viewport, size_t view_count,
+ViewHostSystem *ViewHostSystem_CreateStandard(ViewportRegion *viewport, size_t view_count,
                                         const char *selector_labels[], size_t selector_label_count,
                                         ViewSelectionCallback selector_callback,
                                         const UIPalette *palette, Spacing root_child_spacing)
 {
-    PanelSystem *panel = PanelSystem_Create(viewport, 1.0f, (Vector2d){0.1f, 0.1f},
+    ViewHostSystem *panel = ViewHostSystem_Create(viewport, 1.0f, (Vector2d){0.1f, 0.1f},
                                             palette, root_child_spacing);
     if (!panel)
     {
         return NULL;
     }
 
-    PanelSystem_InitViews(panel, view_count);
-    PanelSystem_InitRoot(panel);
+    ViewHostSystem_InitViews(panel, view_count);
+    ViewHostSystem_InitRoot(panel);
 
     if (selector_labels && selector_label_count > 0)
     {
-        PanelSystem_CreateStandardViewSelector(
+        ViewHostSystem_CreateStandardViewSelector(
             panel, selector_labels, selector_label_count, selector_callback);
     }
 
     return panel;
 }
 
-ViewSelector *PanelSystem_CreateStandardViewSelector(PanelSystem *panel,
+ViewSelector *ViewHostSystem_CreateStandardViewSelector(ViewHostSystem *panel,
                                                      const char *labels[], size_t count,
                                                      ViewSelectionCallback callback)
 {
@@ -796,7 +796,7 @@ ViewSelector *PanelSystem_CreateStandardViewSelector(PanelSystem *panel,
         ui_zero_inline_spacing, false, true);
     toggle_cont->colour_border = panel->palette->container_border;
 
-    return PanelSystem_CreateViewSelector(
+    return ViewHostSystem_CreateViewSelector(
         panel, toggle_cont, ui_standard_selector_button_size,
         labels, count, callback);
 }
@@ -805,7 +805,7 @@ ViewSelector *PanelSystem_CreateStandardViewSelector(PanelSystem *panel,
  * Apply standard styling to a view container.
  * Sets border/fill colours from palette and enables dragging.
  */
-void PanelSystem_StyleViewContainer(UIElement *container, const UIPalette *palette)
+void ViewHostSystem_StyleViewContainer(UIElement *container, const UIPalette *palette)
 {
     if (!container || !palette)
     {
@@ -820,7 +820,7 @@ void PanelSystem_StyleViewContainer(UIElement *container, const UIPalette *palet
 /**
  * Selects the first view if available and updates UI space.
  */
-void PanelSystem_FinaliseInit(PanelSystem *panel, ViewSelector **selector_out)
+void ViewHostSystem_FinaliseInit(ViewHostSystem *panel, ViewSelector **selector_out)
 {
     if (!panel)
     {
@@ -831,7 +831,7 @@ void PanelSystem_FinaliseInit(PanelSystem *panel, ViewSelector **selector_out)
     if (selector_out && panel->selectors.count > 0)
     {
         *selector_out = *((ViewSelector **)LArray_Get(&panel->selectors, 0));
-        PanelSystem_SelectView(*selector_out, 0);
+        ViewHostSystem_SelectView(*selector_out, 0);
     }
 
     // Perform final layout update.

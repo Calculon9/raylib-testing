@@ -1,7 +1,7 @@
 #ifndef STATE_MANAGER_SYSTEM_H
 #define STATE_MANAGER_SYSTEM_H
 
-#include "system/panel_system.h"
+#include "system/view_host_system.h"
 #include "ui/ui.h"
 
 void InitStateManagerSystem(void);
@@ -13,6 +13,6 @@ void MarkStateManagerRefreshDirty(void);
 void UpdateStateManagerSelectedObject(void);
 
 // Get the panel system instance.
-struct PanelSystem *GetStateManagerPanelSystem(void);
+struct ViewHostSystem *GetStateManagerViewHost(void);
 
 #endif
