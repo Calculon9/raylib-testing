@@ -1,6 +1,7 @@
 #include "system/ui/state_manager_system.h"
 #include <string.h>
 #include "system/command_system.h"
+#include "system/ui/ui_loader.h"
 #include "system/view_host_system.h"
 #include "system/systems.h"
 #include "system/ui_system.h"
@@ -20,7 +21,6 @@
 
 static ViewHostSystem *state_manager_panel = NULL;
 
-static Size view_section_size = UI_SIZE_CONTENT;
 static bool state_manager_refresh_dirty = true;
 
 // Component button binding: associates a button control with an EntityComponentType.
@@ -165,6 +165,68 @@ static StateManagerFlags s_sm_flags = {
         {"SPAWN", CELL_FLAG_SPAWNABLE, NULL},
     },
 };
+
+// ============================================================================
+// UI Loader Resolvers (Application-Specific)
+// ============================================================================
+
+// Resolve a state-manager view-type string to its ViewType code. Mirrors
+// LPanel_ResolveViewType: the application owns the enum names so the loader stays
+// domain-free. An Unrecognised string reports failure and defaults to the first view.
+static ViewType StateManager_ResolveViewType(const char *type_string, bool *resolved,
+                                             UILoaderContext *ctx)
+{
+    (void)ctx; // Currently unused; provided for future application-specific context.
+
+    if (resolved)
+    {
+        *resolved = true;
+    }
+
+    if (type_string && !strcmp(type_string, "STATE_MANAGER_PHYSICS_VIEW"))
+    {
+        return STATE_MANAGER_PHYSICS_VIEW;
+    }
+    if (type_string && !strcmp(type_string, "STATE_MANAGER_ATTRIBUTES_VIEW"))
+    {
+        return STATE_MANAGER_ATTRIBUTES_VIEW;
+    }
+    if (type_string && !strcmp(type_string, "STATE_MANAGER_WORLD_VIEW"))
+    {
+        return STATE_MANAGER_WORLD_VIEW;
+    }
+    if (type_string && !strcmp(type_string, "STATE_MANAGER_CELL_STATE_VIEW"))
+    {
+        return STATE_MANAGER_CELL_STATE_VIEW;
+    }
+
+    // Unrecognised: report failure and default to the first state-manager view.
+    if (resolved)
+    {
+        *resolved = false;
+    }
+    return STATE_MANAGER_PHYSICS_VIEW;
+}
+
+// Resolve action strings to command codes (adapter for CommandSystem_ResolveString).
+// Supplied to the loader for parity with lpanel and to future-proof a declarative command
+// button; no Stage-1 button uses it (DELETE is wired in C - see StateManager_RegisterElements).
+static int StateManager_ResolveCommand(const char *cmd_string, UILoaderContext *ctx)
+{
+    (void)ctx; // Currently unused; provided for future application-specific context.
+    return CommandSystem_ResolveString(cmd_string);
+}
+
+// Resolve data bindings for the state-manager fields.
+// STAGE 1: field values stay driven by the per-frame C refresh (RefreshPhysView etc.), so no
+// field value is bound here yet. Returns UI_BIND_SRC_NONE for every name. Stage 2 fills this
+// in (query + optional write) for entity.* / world.* / cell.* names.
+static UIBinding StateManager_ResolveBinding(const char *binding_string, UILoaderContext *ctx)
+{
+    (void)binding_string;
+    (void)ctx;
+    return (UIBinding){ .kind = UI_BIND_SRC_NONE };
+}
 
 // ============================================================================
 // Refresh Invalidation
@@ -488,23 +550,56 @@ static void HandleComponentToggleClick(UIElement *button)
     }
 }
 
-// Create toggle buttons within a section and bind them to their respective flag definitions.
-// Each button is given a query-SOURCE Binding (keyed on its flag bit) so the generic refresh
-// walk composes "<label>: ON/OFF"; the sink is left BIND_SINK_NONE because the supplied
-// click_handler (UIEventHandler) owns the write path for these C-built buttons.
-static void CreateFlagButtons(UIElement *section, StateManagerFlagButton *buttons, size_t count,
-                              UIEventHandler click_handler, BindingQueryFn query)
+// ============================================================================
+// Element id-registration + wiring (post-load)
+// ============================================================================
+
+// Per-family id tables for the flag buttons. Order MUST match the s_sm_flags.<family>
+// index order so each acquired button lines up with its StateManagerFlagButton entry.
+static const char *sm_role_ids[5]  = {"sm_role_wall", "sm_role_newtonoid", "sm_role_projectile",
+                                      "sm_role_effect", "sm_role_camera"};
+static const char *sm_cap_ids[4]   = {"sm_cap_damageable", "sm_cap_velocity",
+                                      "sm_cap_affect_owner", "sm_cap_sensor"};
+static const char *sm_con_ids[2]   = {"sm_con_position_locked", "sm_con_no_contact_response"};
+static const char *sm_status_ids[3] = {"sm_status_alive", "sm_status_sleeping", "sm_status_clocked"};
+static const char *sm_coll_ids[5]  = {"sm_coll_wall", "sm_coll_newtonoid", "sm_coll_projectile",
+                                      "sm_coll_effect", "sm_coll_camera"};
+static const char *sm_world_ids[7] = {"sm_world_active", "sm_world_visible", "sm_world_selectable",
+                                      "sm_world_physics", "sm_world_spawns", "sm_world_locked",
+                                      "sm_world_drag"};
+static const char *sm_cell_ids[4]  = {"sm_cell_solid", "sm_cell_walkable", "sm_cell_hazard",
+                                      "sm_cell_spawn"};
+
+// Look up an element by id in the loaded tree, logging (and tolerating) a miss. The Refresh*
+// helpers null-guard every pointer, so a missing id degrades to an inert field, not a crash.
+static UIElement *StateManager_Find(UIElement *root, const char *id)
+{
+    UIElement *element = UILoader_FindById(root, id);
+    if (!element)
+    {
+        LOG_ERROR("StateManager: id '%s' not found in markup", id);
+    }
+    return element;
+}
+
+// Wire a family of flag buttons acquired from the loaded tree: store the element into each
+// buttons[i].button, attach the C click handler + user_data, and re-attach the query SOURCE
+// Binding (keyed on the flag bit) so the generic refresh walk composes "<label>: ON/OFF".
+// Reproduces CreateFlagButtons' wiring verbatim, now on id-acquired buttons.
+static void StateManager_WireFlags(UIElement *root, StateManagerFlagButton *buttons,
+                                   const char **ids, size_t count,
+                                   UIEventHandler handler, BindingQueryFn query)
 {
     for (size_t i = 0; i < count; i++)
     {
-        buttons[i].button = CreateUIButtonDefault(
-            section, UI_ELEMENT_BUTTON_SIMPLE, buttons[i].label,
-            ui_wide_button_size, ui_standard_button_padding,
-            state_manager_panel->palette, click_handler, (void *)&buttons[i], NULL);
-
-        // Attach a query SOURCE so the refresh walk owns the ON/OFF label (sink stays NONE).
+        buttons[i].button = StateManager_Find(root, ids[i]);
         if (buttons[i].button)
         {
+            buttons[i].button->data.button.on_click  = handler;
+            buttons[i].button->data.button.user_data = (void *)&buttons[i];
+
+            // Query SOURCE restores the "<label>: ON/OFF" display (sink stays NONE; the handler
+            // owns the write path).
             Binding b = {
                 .source = { .kind = BIND_SRC_QUERY, .value_type = BIND_INT,
                             .query = query, .query_key = (int)buttons[i].flag },
@@ -514,122 +609,119 @@ static void CreateFlagButtons(UIElement *section, StateManagerFlagButton *button
     }
 }
 
-// ============================================================================
-// View Construction
-// ============================================================================
-
-// Create and register a state-manager view with its requested child layout.
-static View *CreateStateManagerView(int view_id, bool is_draggable, bool is_enabled, Spacing child_spacing)
+// Re-acquire every UIElement* the per-frame C refresh and the C click handlers need, from the
+// loaded tree, and wire the C-owned clicks (flags / component toggles / DELETE). Any id that
+// fails to resolve is logged and left NULL; the Refresh* helpers null-guard every pointer.
+static void StateManager_RegisterElements(UIElement *root)
 {
-    View *view = ViewHostSystem_CreateView(state_manager_panel, view_id);
-    UIElement *container = view ? view->container : NULL;
-    if (!view)
+    // --- Identity / physics / geometry / gameplay textboxes (ALL re-acquired in Stage 1) ---
+    s_sm_ui.id_tbox         = StateManager_Find(root, "sm_id");
+    s_sm_ui.slot_tbox       = StateManager_Find(root, "sm_slot");
+    s_sm_ui.generation_tbox = StateManager_Find(root, "sm_generation");
+    s_sm_ui.world_tbox      = StateManager_Find(root, "sm_world");
+
+    s_sm_ui.mass_tbox                 = StateManager_Find(root, "sm_mass");
+    s_sm_ui.restitution_tbox          = StateManager_Find(root, "sm_restitution");
+    s_sm_ui.friction_tbox             = StateManager_Find(root, "sm_friction");
+    s_sm_ui.pos_c_tbox                = StateManager_Find(root, "sm_anchor");
+    s_sm_ui.vel_tbox                  = StateManager_Find(root, "sm_vel");
+    s_sm_ui.accel_tbox                = StateManager_Find(root, "sm_accel");
+    s_sm_ui.moment_tbox               = StateManager_Find(root, "sm_moment");
+    s_sm_ui.angular_velocity_tbox     = StateManager_Find(root, "sm_angvel");
+    s_sm_ui.angular_acceleration_tbox = StateManager_Find(root, "sm_angaccel");
+
+    s_sm_ui.pos_tl_tbox          = StateManager_Find(root, "sm_bounds_min");
+    s_sm_ui.geometry_center_tbox = StateManager_Find(root, "sm_geo_center");
+    s_sm_ui.rotation_tbox        = StateManager_Find(root, "sm_rotation");
+    s_sm_ui.basis_u_tbox         = StateManager_Find(root, "sm_basis_u");
+    s_sm_ui.basis_v_tbox         = StateManager_Find(root, "sm_basis_v");
+
+    s_sm_ui.health_tbox     = StateManager_Find(root, "sm_health");
+    s_sm_ui.max_health_tbox = StateManager_Find(root, "sm_max_health");
+
+    // Damage is NOT refresh-driven: its only value source is a C dynamic binding (query + write).
+    // Re-issue the EXISTING C binding here (carved out of the moved InitPhysStateView body) so
+    // the field keeps its value source and commit path - reproducing current C behaviour.
+    s_sm_ui.damage_tbox = StateManager_Find(root, "sm_damage");
+    if (s_sm_ui.damage_tbox)
     {
-        return NULL;
+        BindTextboxDynamic(s_sm_ui.damage_tbox, BIND_FLOAT, 2,
+                           StateManager_QueryDamage, StateManager_WriteDamage, 0);
     }
 
-    container->child_spacing = child_spacing;
-    container->is_draggable = is_draggable;
-    container->is_enabled = is_enabled;
+    // --- Sections whose visibility the refresh toggles ---
+    s_sm_ui.gameplay_section   = StateManager_Find(root, "gameplay");
+    s_sm_ui.components_section = StateManager_Find(root, "components");
 
-    return view;
-}
-
-// Build the four StateManager views and their sections.
-static void InitPhysStateView(void)
-{
-    View *physics_view = CreateStateManagerView(
-        STATE_MANAGER_PHYSICS_VIEW, true, true, ui_zero_inline_spacing);
-    if (!physics_view)
+    // --- Component property textboxes + their String64 display buffers ---
+    // The String64 is the inline data.textbox.text buffer the field draws; the former
+    // UIFieldSpec out-param captured exactly that address.
+    s_sm_ui.comp_portal_cooldown_tbox = StateManager_Find(root, "sm_portal_cooldown");
+    if (s_sm_ui.comp_portal_cooldown_tbox)
     {
-        return;
+        s_sm_ui.comp_portal_cooldown_str = &s_sm_ui.comp_portal_cooldown_tbox->data.textbox.text;
     }
-    View_SetScrollableX(physics_view, true);
+    s_sm_ui.comp_portal_entrant_roles_tbox = StateManager_Find(root, "sm_portal_roles");
+    if (s_sm_ui.comp_portal_entrant_roles_tbox)
+    {
+        s_sm_ui.comp_portal_entrant_roles_str = &s_sm_ui.comp_portal_entrant_roles_tbox->data.textbox.text;
+    }
+    s_sm_ui.comp_relation_type_tbox = StateManager_Find(root, "sm_relation_type");
+    if (s_sm_ui.comp_relation_type_tbox)
+    {
+        s_sm_ui.comp_relation_type_str = &s_sm_ui.comp_relation_type_tbox->data.textbox.text;
+    }
+    s_sm_ui.comp_relation_target_tbox = StateManager_Find(root, "sm_relation_target");
+    if (s_sm_ui.comp_relation_target_tbox)
+    {
+        s_sm_ui.comp_relation_target_str = &s_sm_ui.comp_relation_target_tbox->data.textbox.text;
+    }
+    s_sm_ui.comp_relation_active_tbox = StateManager_Find(root, "sm_relation_active");
+    if (s_sm_ui.comp_relation_active_tbox)
+    {
+        s_sm_ui.comp_relation_active_str = &s_sm_ui.comp_relation_active_tbox->data.textbox.text;
+    }
 
-    UIElement *view_cont = physics_view->container;
+    // --- WORLD physics textboxes ---
+    s_sm_ui.world_restitution_tbox = StateManager_Find(root, "sm_world_restitution");
+    s_sm_ui.world_friction_tbox    = StateManager_Find(root, "sm_world_friction");
 
-    UIElement *identity_section = CreateViewSection_StackWrap(view_cont, "Identity", view_section_size,
-                                                              state_manager_panel->palette);
-    const UIFieldSpec identity_specs[] = {
-        {"Id:", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.id_tbox, NULL},
-        {"Slot:", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.slot_tbox, NULL},
-        {"Generation:", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.generation_tbox, NULL},
-        {"World", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.world_tbox, NULL},
-    };
-    InitUIFields(identity_section, identity_specs, ARRAY_COUNT(identity_specs),
-                 ui_standard_field_padding, state_manager_panel->palette);
+    // --- CELL string readouts (acquire the owning textbox, then its inline display String64) ---
+    UIElement *cell_index_tbox = StateManager_Find(root, "sm_cell_index");
+    if (cell_index_tbox)
+    {
+        s_sm_ui.cell_id_str = &cell_index_tbox->data.textbox.text;
+    }
+    UIElement *cell_occu_tbox = StateManager_Find(root, "sm_cell_occu");
+    if (cell_occu_tbox)
+    {
+        s_sm_ui.cell_occu_str = &cell_occu_tbox->data.textbox.text;
+    }
+    UIElement *cell_value_tbox = StateManager_Find(root, "sm_cell_value");
+    if (cell_value_tbox)
+    {
+        s_sm_ui.cell_value_str = &cell_value_tbox->data.textbox.text;
+    }
+    UIElement *cell_fill_tbox = StateManager_Find(root, "sm_cell_fill");
+    if (cell_fill_tbox)
+    {
+        s_sm_ui.cell_fill_str = &cell_fill_tbox->data.textbox.text;
+    }
 
-    UIElement *physics_section = CreateViewSection_StackWrap(view_cont, "Physics", view_section_size,
-                                                             state_manager_panel->palette);
-    const UIFieldSpec physics_specs[] = {
-        {"Mass", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.mass_tbox, NULL},
-        {"Restitution", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.restitution_tbox, NULL},
-        {"Friction", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.friction_tbox, NULL},
-        {"Anchor", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.pos_c_tbox, NULL},
-        {"Vel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.vel_tbox, NULL},
-        {"Accel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.accel_tbox, NULL},
-        {"Moment", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.moment_tbox, NULL},
-        {"AngVel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.angular_velocity_tbox, NULL},
-        {"AngAccel", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, &s_sm_ui.angular_acceleration_tbox, NULL},
-    };
-    InitUIFields(physics_section, physics_specs,
-                 ARRAY_COUNT(physics_specs),
-                 ui_standard_field_padding, state_manager_panel->palette);
-
-    UIElement *geometry_section = CreateViewSection_StackWrap(view_cont, "Geometry", view_section_size,
-                                                              state_manager_panel->palette);
-    const UIFieldSpec geometry_specs[] = {
-        {"Bounds.min", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, VECTOR2D, &s_sm_ui.pos_tl_tbox, NULL},
-        {"Geo.center", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, VECTOR2D, &s_sm_ui.geometry_center_tbox, NULL},
-        {"Rot", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.rotation_tbox, NULL},
-        {"Basis u", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.basis_u_tbox, NULL},
-        {"Basis v", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.basis_v_tbox, NULL},
-    };
-    InitUIFields(geometry_section, geometry_specs,
-                 ARRAY_COUNT(geometry_specs),
-                 ui_standard_field_padding, state_manager_panel->palette);
-
-    UIElement *gameplay_section = CreateViewSection_StackWrap(view_cont, "Gameplay", view_section_size,
-                                                              state_manager_panel->palette);
-    s_sm_ui.gameplay_section = gameplay_section;
-    const UIFieldSpec gameplay_specs[] = {
-        {"Health", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.health_tbox, NULL},
-        {"MaxHealth", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.max_health_tbox, NULL},
-        {"Damage", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.damage_tbox, NULL},
-    };
-    InitUIFields(gameplay_section, gameplay_specs,
-                 ARRAY_COUNT(gameplay_specs),
-                 ui_standard_field_padding, state_manager_panel->palette);
-
-    // DYNAMIC binding proof: damage targets the current selection; the query/callback own the
-    // selection and clear-when-none policy (domain knowledge stays here, not in the core).
-    BindTextboxDynamic(s_sm_ui.damage_tbox, BIND_FLOAT, 2,
-                       StateManager_QueryDamage, StateManager_WriteDamage, 0);
-
-    // Components section: shows attached components and their properties.
-    UIElement *components_section = CreateViewSection_StackWrap(view_cont, "Components", view_section_size,
-                                                                state_manager_panel->palette);
-    s_sm_ui.components_section = components_section;
-
-    // Component toggle buttons: PORTAL, ROTOR, GEAR, HEALTH
-    s_sm_ui.comp_buttons[0] = (StateManagerComponentButton){"PORTAL", ENTITY_COMPONENT_PORTAL, NULL};
-    s_sm_ui.comp_buttons[1] = (StateManagerComponentButton){"ROTOR", ENTITY_COMPONENT_ROTOR, NULL};
-    s_sm_ui.comp_buttons[2] = (StateManagerComponentButton){"GEAR", ENTITY_COMPONENT_GEAR, NULL};
-    s_sm_ui.comp_buttons[3] = (StateManagerComponentButton){"HEALTH", ENTITY_COMPONENT_HEALTH, NULL};
-
+    // --- Component toggle buttons (labels/types set in C; only .button re-acquired + wired) ---
+    s_sm_ui.comp_buttons[0] = (StateManagerComponentButton){"PORTAL", ENTITY_COMPONENT_PORTAL, StateManager_Find(root, "sm_comp_portal")};
+    s_sm_ui.comp_buttons[1] = (StateManagerComponentButton){"ROTOR",  ENTITY_COMPONENT_ROTOR,  StateManager_Find(root, "sm_comp_rotor")};
+    s_sm_ui.comp_buttons[2] = (StateManagerComponentButton){"GEAR",   ENTITY_COMPONENT_GEAR,   StateManager_Find(root, "sm_comp_gear")};
+    s_sm_ui.comp_buttons[3] = (StateManagerComponentButton){"HEALTH", ENTITY_COMPONENT_HEALTH, StateManager_Find(root, "sm_comp_health")};
     for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.comp_buttons); i++)
     {
-        s_sm_ui.comp_buttons[i].button = CreateUIButtonDefault(
-            components_section, UI_ELEMENT_BUTTON_SIMPLE, s_sm_ui.comp_buttons[i].label,
-            ui_wide_button_size, ui_standard_button_padding,
-            state_manager_panel->palette, HandleComponentToggleClick,
-            (void *)&s_sm_ui.comp_buttons[i], NULL);
-
-        // Attach a query SOURCE keyed on the component TYPE (not a flag bit) so the refresh walk
-        // composes "<label>: ON/OFF". This is a separate site from CreateFlagButtons; its query
-        // parameter does NOT reach these buttons.
         if (s_sm_ui.comp_buttons[i].button)
         {
+            s_sm_ui.comp_buttons[i].button->data.button.on_click  = HandleComponentToggleClick;
+            s_sm_ui.comp_buttons[i].button->data.button.user_data = (void *)&s_sm_ui.comp_buttons[i];
+
+            // Re-attach the component query SOURCE (keyed on component TYPE) so the refresh walk
+            // composes "<label>: ON/OFF" exactly as the former construction loop did.
             Binding b = {
                 .source = { .kind = BIND_SRC_QUERY, .value_type = BIND_INT,
                             .query = StateManager_QueryComponentAttached,
@@ -639,129 +731,34 @@ static void InitPhysStateView(void)
         }
     }
 
-    const UIFieldSpec components_specs[] = {
-        {"Portal Cooldown", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, INT, &s_sm_ui.comp_portal_cooldown_tbox, &s_sm_ui.comp_portal_cooldown_str},
-        {"Portal Roles", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_portal_entrant_roles_tbox, &s_sm_ui.comp_portal_entrant_roles_str},
-        {"Relation Type", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_relation_type_tbox, &s_sm_ui.comp_relation_type_str},
-        {"Relation Target", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_relation_target_tbox, &s_sm_ui.comp_relation_target_str},
-        {"Relation Active", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_relation_active_tbox, &s_sm_ui.comp_relation_active_str},
-    };
-    InitUIFields(components_section, components_specs,
-                 ARRAY_COUNT(components_specs),
-                 ui_standard_field_padding, state_manager_panel->palette);
+    // --- Flag buttons: acquire + wire handler + user_data + query SOURCE per family ---
+    StateManager_WireFlags(root, s_sm_flags.entity_role,         sm_role_ids,   5, HandleEntityTypeFlagClick,       StateManager_QueryEntityRole);
+    StateManager_WireFlags(root, s_sm_flags.entity_capability,   sm_cap_ids,    4, HandleEntityCapabilityFlagClick, StateManager_QueryEntityCapability);
+    StateManager_WireFlags(root, s_sm_flags.entity_constraint,   sm_con_ids,    2, HandleEntityConstraintFlagClick, StateManager_QueryEntityConstraint);
+    StateManager_WireFlags(root, s_sm_flags.entity_status,       sm_status_ids, 3, HandleEntityStatusFlagClick,     StateManager_QueryEntityStatus);
+    StateManager_WireFlags(root, s_sm_flags.collision_role_mask, sm_coll_ids,   5, HandleCollisionMaskFlagClick,    StateManager_QueryCollisionMask);
+    StateManager_WireFlags(root, s_sm_flags.world,               sm_world_ids,  7, HandleWorldFlagClick,            StateManager_QueryWorldFlag);
+    StateManager_WireFlags(root, s_sm_flags.cell,                sm_cell_ids,   4, HandleCellFlagClick,             StateManager_QueryCellFlag);
 
+    // --- DELETE: C-wired (deferred, world-guarded delete); no action= in the XML ---
     s_sm_ui.delete_action = BUTTON_ACTION_DELETE_ENTITY;
-    CreateUIButtonDefault(view_cont, UI_ELEMENT_BUTTON_SUBMIT,
-                          "DELETE", ui_standard_button_size, ui_standard_button_padding,
-                          state_manager_panel->palette, HandleBtnSubmitClick,
-                          &s_sm_ui.delete_action, NULL);
-}
-
-static void InitAttributeStateView(void)
-{
-    View *attributes_view = CreateStateManagerView(
-        STATE_MANAGER_ATTRIBUTES_VIEW, true, true, ui_zero_inline_spacing);
-    if (!attributes_view)
+    UIElement *del = StateManager_Find(root, "sm_delete");
+    if (del)
     {
-        return;
+        del->data.button.on_click  = HandleBtnSubmitClick;
+        del->data.button.user_data = &s_sm_ui.delete_action;
     }
-    View_SetScrollableX(attributes_view, true);
-    UIElement *view_cont = attributes_view->container;
-
-    // Customise the View
-    UIElement *identity_section = CreateViewSection_StackWrap(view_cont, "Entity", view_section_size,
-                                                              state_manager_panel->palette);
-    UIElement *capability_section = CreateViewSection_StackWrap(view_cont, "Capabilities", view_section_size,
-                                                                state_manager_panel->palette);
-    UIElement *constraint_section = CreateViewSection_StackWrap(view_cont, "Constraints", view_section_size,
-                                                                state_manager_panel->palette);
-    UIElement *status_section = CreateViewSection_StackWrap(view_cont, "Status", view_section_size,
-                                                            state_manager_panel->palette);
-    UIElement *collision_section = CreateViewSection_StackWrap(view_cont, "Collision", view_section_size,
-                                                               state_manager_panel->palette);
-
-    CreateFlagButtons(identity_section, s_sm_flags.entity_role,
-                      ARRAY_COUNT(s_sm_flags.entity_role), HandleEntityTypeFlagClick,
-                      StateManager_QueryEntityRole);
-    CreateFlagButtons(capability_section, s_sm_flags.entity_capability,
-                      ARRAY_COUNT(s_sm_flags.entity_capability), HandleEntityCapabilityFlagClick,
-                      StateManager_QueryEntityCapability);
-    CreateFlagButtons(constraint_section, s_sm_flags.entity_constraint,
-                      ARRAY_COUNT(s_sm_flags.entity_constraint), HandleEntityConstraintFlagClick,
-                      StateManager_QueryEntityConstraint);
-    CreateFlagButtons(status_section, s_sm_flags.entity_status,
-                      ARRAY_COUNT(s_sm_flags.entity_status), HandleEntityStatusFlagClick,
-                      StateManager_QueryEntityStatus);
-    CreateFlagButtons(collision_section, s_sm_flags.collision_role_mask,
-                      ARRAY_COUNT(s_sm_flags.collision_role_mask), HandleCollisionMaskFlagClick,
-                      StateManager_QueryCollisionMask);
-}
-
-static void InitWorldStateView(void)
-{
-    View *world_view = CreateStateManagerView(
-        STATE_MANAGER_WORLD_VIEW, true, false, ui_zero_x_inline_wrap_spacing);
-    if (!world_view)
-    {
-        return;
-    }
-    View_SetScrollableX(world_view, true);
-
-    UIElement *world_section = CreateViewSection_StackWrap(world_view->container, "World", view_section_size,
-                                                           state_manager_panel->palette);
-
-    UIElement *world_physics_section = CreateViewSection_StackWrap(
-        world_view->container, "Physics", view_section_size, state_manager_panel->palette);
-    const UIFieldSpec world_physics_specs[] = {
-        {"Restitution", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT,
-         &s_sm_ui.world_restitution_tbox, NULL},
-        {"Friction", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT,
-         &s_sm_ui.world_friction_tbox, NULL},
-    };
-    InitUIFields(world_physics_section, world_physics_specs,
-                 ARRAY_COUNT(world_physics_specs),
-                 ui_standard_field_padding, state_manager_panel->palette);
-
-    CreateFlagButtons(world_section, s_sm_flags.world,
-                      ARRAY_COUNT(s_sm_flags.world), HandleWorldFlagClick,
-                      StateManager_QueryWorldFlag);
-}
-
-static void InitCellStateView(void)
-{
-    View *cell_view = CreateStateManagerView(
-        STATE_MANAGER_CELL_STATE_VIEW, true, false, ui_zero_inline_spacing);
-    if (!cell_view)
-    {
-        return;
-    }
-    View_SetScrollableX(cell_view, true);
-    UIElement *cell_container = cell_view->container;
-
-    const UIFieldSpec cell_specs[] = {
-        {"Index", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &s_sm_ui.cell_id_str},
-        {"Occu", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &s_sm_ui.cell_occu_str},
-        {"Value", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &s_sm_ui.cell_value_str},
-        {"Fill", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &s_sm_ui.cell_fill_str},
-    };
-
-    UIElement *cell_phys_section = CreateViewSection_StackWrap(cell_container, "Cell", view_section_size,
-                                                               state_manager_panel->palette);
-    InitUIFields(cell_phys_section, cell_specs,
-                 ARRAY_COUNT(cell_specs),
-                 ui_standard_field_padding, state_manager_panel->palette);
-
-    UIElement *cell_flags_section = CreateViewSection_StackWrap(cell_container, "Flags", view_section_size,
-                                                                state_manager_panel->palette);
-
-    CreateFlagButtons(cell_flags_section, s_sm_flags.cell,
-                      ARRAY_COUNT(s_sm_flags.cell), HandleCellFlagClick,
-                      StateManager_QueryCellFlag);
 }
 
 // ============================================================================
 // View Refresh
 // ============================================================================
+// (The imperative view builders InitPhysStateView / InitAttributeStateView /
+// InitWorldStateView / InitCellStateView, plus CreateStateManagerView and
+// CreateFlagButtons, were retired in Stage 1 of the XML migration: the views now
+// come from state_manager.xml and the pointers/handlers are re-acquired in
+// StateManager_RegisterElements. Their bodies are preserved verbatim in the LEGACY
+// block at the bottom of this file for easy revert.)
 
 // Refresh gameplay section visibility and row states.
 static void RefreshGameplaySection(const Newtonoid2d *object)
@@ -1031,40 +1028,112 @@ void UpdateStateManagerSelectedObject(void)
 
 void InitStateManagerSystem(void)
 {
-    const char *labels[] = {"PHYS", "ATTRI", "WORLD", "CELL"};
-    state_manager_panel = ViewHostSystem_CreateStandard(&entity_panel_viewport, 4,
-                                                     labels, ARRAY_COUNT(labels),
-                                                     NULL, &ui_default_palette,
-                                                     ui_standard_stack_spacing);
-    if (!state_manager_panel)
-        return;
-
-    // Match section measurement to the view height left after the selector and container padding.
-    float state_manager_view_height = (float)state_manager_panel->space.rows -
-                                      (2.0f * state_manager_panel->default_padding.y) -
-                                      ui_standard_selector_button_size.dimensions.y -
-                                      state_manager_panel->root_child_spacing.spacing.y -
-                                      (2.0f * ui_standard_container_padding.y);
-    view_section_size = UI_SIZE_CONTENT_MAX(0.0f, fmaxf(0.0f, state_manager_view_height));
-
-    InitPhysStateView();
-    InitAttributeStateView();
-    InitWorldStateView();
-    InitCellStateView();
-
-    // Select the initial view after all state-manager views have been registered.
-    if (state_manager_panel->selectors.count > 0)
+    // 1) Load the authoritative markup with the state-manager resolvers (mirrors InitLPanel).
+    UIElement *root = UILoader_LoadFromFileWithResolvers(
+        "C:\\Projects\\raylib-testing\\src\\engine\\ui\\components\\state_manager.xml",
+        &ui_default_palette,
+        StateManager_ResolveBinding,
+        StateManager_ResolveCommand,
+        StateManager_ResolveViewType,
+        NULL);
+    if (!root)
     {
-        ViewSelector *view_selector = *((ViewSelector **)LArray_Get(&state_manager_panel->selectors, 0));
-        ViewHostSystem_SelectView(view_selector, 0);
+        // XML is the single authoritative source; a load failure is an asset/build error.
+        LOG_ERROR("InitStateManagerSystem: failed to load state_manager.xml; panel will not render");
+        return;
     }
 
-    // Subscribe once so selection transitions can proactively refresh this panel.
+    // 2) Extract the Views (each carries its ViewType from type= via StateManager_ResolveViewType).
+    size_t view_count = 0;
+    View **xml_views = UILoader_ExtractViews(root, &view_count);
+
+    // 3) Build the host against the entity panel viewport, then build the real root and re-parent
+    //    the XML container under it. Scale 1.0f / padding {0.1,0.1} are adopted from InitLPanel;
+    //    UpdateUISpace (step 10) re-lays-out the panel over the valid viewport space afterwards.
+    state_manager_panel = ViewHostSystem_Create(&entity_panel_viewport, 1.0f,
+                                                (Vector2d){0.1f, 0.1f},
+                                                &ui_default_palette, ui_standard_stack_spacing);
+    if (!state_manager_panel)
+    {
+        DisposeUIElement(root);
+        if (xml_views)
+        {
+            Deallocate((void **)&xml_views, sizeof(View *) * view_count);
+        }
+        return;
+    }
+
+    ViewHostSystem_InitRoot(state_manager_panel);      // Real UI_ELEMENT_ROOT + space + seed_box.
+    AddElementToTree(root, state_manager_panel->root); // Re-parent; NEVER panel->root = root.
+
+    // 4) Register the XML Views with the host.
+    ViewHostSystem_InitViews(state_manager_panel, view_count);
+    for (size_t i = 0; i < view_count; i++)
+    {
+        LArray_Push(&state_manager_panel->views, &xml_views[i]);
+    }
+    if (xml_views)
+    {
+        // Free the array (not the Views, which the host now owns).
+        Deallocate((void **)&xml_views, sizeof(View *) * view_count);
+    }
+
+    // 5) Build the selector from the XML <Option> metadata.
+    ViewSelector *view_selector =
+        UILoader_BuildSelectorFromMarkup(state_manager_panel, ViewHostSystem_HandleViewSelected);
+
+    // 6) Honour initial-view="phys_view" (fall back to the first view).
+    if (view_selector)
+    {
+        int initial = UILoader_ResolveViewIndexById(state_manager_panel, UILoader_GetInitialViewId());
+        if (initial < 0)
+        {
+            initial = 0;
+        }
+        ViewHostSystem_SelectView(view_selector, (size_t)initial);
+    }
+    else
+    {
+        // Selector allocation failed: establish single-view visibility manually, mirroring the
+        // lpanel fallback (never ViewHostSystem_FinaliseInit, which forces index 0).
+        for (int i = 0; i < state_manager_panel->views.count; i++)
+        {
+            View *view = *((View **)LArray_Get(&state_manager_panel->views, i));
+            if (!view || !view->container)
+            {
+                continue;
+            }
+            if (i == 0)
+            {
+                EnableElement(view->container);
+            }
+            else
+            {
+                DisableElement(view->container);
+            }
+        }
+    }
+
+    // 7) Horizontal-scroll parity. The loader's scrollable= drives VERTICAL scroll; the former C
+    //    views used View_SetScrollableX(view, true). Re-assert horizontal scroll on every view to
+    //    preserve the former behaviour (no vertical scroll is introduced).
+    for (int i = 0; i < state_manager_panel->views.count; i++)
+    {
+        View *view = *((View **)LArray_Get(&state_manager_panel->views, i));
+        if (view)
+        {
+            View_SetScrollableX(view, true);
+        }
+    }
+
+    // 8) ID-REGISTRATION + WIRING PASS: re-acquire every pointer the C refresh/handlers need.
+    StateManager_RegisterElements(root);
+
+    // 9) Subscribe once so selection transitions can proactively refresh this panel.
     UIState_SetSelectionChangedCallback(HandleSelectionChanged, NULL);
 
-    // First frame should always render initialised state-manager values.
+    // 10) First frame should always render initialised state-manager values; final layout update.
     MarkStateManagerRefreshDirty();
-
     UpdateUISpace(state_manager_panel->root, state_manager_panel->seed_box);
 }
 
@@ -1202,4 +1271,312 @@ void DestroyStateManagerSystem(void)
 //         bool attached = is_valid && (desc.components[s_sm_ui.comp_buttons[i].type] != NULL);
 //         UpdateString64(s_sm_ui.comp_buttons[i].button->data.button.display_text.string,
 //                        "%s: %s", s_sm_ui.comp_buttons[i].label, attached ? "ON" : "OFF");
+// ============================================================================
+
+// === LEGACY (pre-xml-migration stage 1) — retained for easy revert; all-or-nothing ===
+// Stage 1 of the state-manager XML migration (.agents/tasks/statemgr-stage1-design.md):
+// InitStateManagerSystem now LOADS state_manager.xml (mirroring InitLPanel) and re-acquires
+// every element pointer / wires every C click in StateManager_RegisterElements. The imperative
+// builders below (CreateStateManagerView, CreateFlagButtons, and the four Init*StateView bodies,
+// plus the old InitStateManagerSystem view_section_size recompute) were removed from live code.
+//
+// REVERT IS ALL-OR-NOTHING: restoring the pre-migration behaviour means restoring these
+// imperative builders AND reverting the state_manager.xml flesh-out/strip AND removing the id
+// pass (StateManager_RegisterElements) + the XML-loading InitStateManagerSystem together. Do NOT
+// un-comment individual lines in isolation. Every line below is an inert // comment.
+//
+// CARVE-OUT: the damage BindTextboxDynamic(... StateManager_QueryDamage, StateManager_WriteDamage
+// ...) call that lived inside InitPhysStateView is NOT retired here - it is re-issued LIVE in
+// StateManager_RegisterElements (the damage field's only value source in Stage 1), and its
+// query/write helpers stay live. It is therefore shown below as a comment marking where it was.
+//
+// --- Old module-level view_section_size recompute (from the former InitStateManagerSystem) ---
+//
+// // Match section measurement to the view height left after the selector and container padding.
+// float state_manager_view_height = (float)state_manager_panel->space.rows -
+//                                   (2.0f * state_manager_panel->default_padding.y) -
+//                                   ui_standard_selector_button_size.dimensions.y -
+//                                   state_manager_panel->root_child_spacing.spacing.y -
+//                                   (2.0f * ui_standard_container_padding.y);
+// view_section_size = UI_SIZE_CONTENT_MAX(0.0f, fmaxf(0.0f, state_manager_view_height));
+//
+// --- CreateStateManagerView (no remaining caller once the builders are gone) ---
+//
+// // Create and register a state-manager view with its requested child layout.
+// static View *CreateStateManagerView(int view_id, bool is_draggable, bool is_enabled, Spacing child_spacing)
+// {
+//     View *view = ViewHostSystem_CreateView(state_manager_panel, view_id);
+//     UIElement *container = view ? view->container : NULL;
+//     if (!view)
+//     {
+//         return NULL;
+//     }
+//
+//     container->child_spacing = child_spacing;
+//     container->is_draggable = is_draggable;
+//     container->is_enabled = is_enabled;
+//
+//     return view;
+// }
+//
+// --- CreateFlagButtons (flag buttons now come from markup, wired in the id pass) ---
+//
+// // Create toggle buttons within a section and bind them to their respective flag definitions.
+// // Each button is given a query-SOURCE Binding (keyed on its flag bit) so the generic refresh
+// // walk composes "<label>: ON/OFF"; the sink is left BIND_SINK_NONE because the supplied
+// // click_handler (UIEventHandler) owns the write path for these C-built buttons.
+// static void CreateFlagButtons(UIElement *section, StateManagerFlagButton *buttons, size_t count,
+//                               UIEventHandler click_handler, BindingQueryFn query)
+// {
+//     for (size_t i = 0; i < count; i++)
+//     {
+//         buttons[i].button = CreateUIButtonDefault(
+//             section, UI_ELEMENT_BUTTON_SIMPLE, buttons[i].label,
+//             ui_wide_button_size, ui_standard_button_padding,
+//             state_manager_panel->palette, click_handler, (void *)&buttons[i], NULL);
+//
+//         // Attach a query SOURCE so the refresh walk owns the ON/OFF label (sink stays NONE).
+//         if (buttons[i].button)
+//         {
+//             Binding b = {
+//                 .source = { .kind = BIND_SRC_QUERY, .value_type = BIND_INT,
+//                             .query = query, .query_key = (int)buttons[i].flag },
+//             };
+//             buttons[i].button->data.button.binding = Binding_Create(b);
+//         }
+//     }
+// }
+//
+// --- InitPhysStateView (whole body; the damage BindTextboxDynamic is carved out, see above) ---
+//
+// // Build the four StateManager views and their sections.
+// static void InitPhysStateView(void)
+// {
+//     View *physics_view = CreateStateManagerView(
+//         STATE_MANAGER_PHYSICS_VIEW, true, true, ui_zero_inline_spacing);
+//     if (!physics_view)
+//     {
+//         return;
+//     }
+//     View_SetScrollableX(physics_view, true);
+//
+//     UIElement *view_cont = physics_view->container;
+//
+//     UIElement *identity_section = CreateViewSection_StackWrap(view_cont, "Identity", view_section_size,
+//                                                               state_manager_panel->palette);
+//     const UIFieldSpec identity_specs[] = {
+//         {"Id:", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.id_tbox, NULL},
+//         {"Slot:", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.slot_tbox, NULL},
+//         {"Generation:", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.generation_tbox, NULL},
+//         {"World", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.world_tbox, NULL},
+//     };
+//     InitUIFields(identity_section, identity_specs, ARRAY_COUNT(identity_specs),
+//                  ui_standard_field_padding, state_manager_panel->palette);
+//
+//     UIElement *physics_section = CreateViewSection_StackWrap(view_cont, "Physics", view_section_size,
+//                                                              state_manager_panel->palette);
+//     const UIFieldSpec physics_specs[] = {
+//         {"Mass", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.mass_tbox, NULL},
+//         {"Restitution", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.restitution_tbox, NULL},
+//         {"Friction", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.friction_tbox, NULL},
+//         {"Anchor", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.pos_c_tbox, NULL},
+//         {"Vel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.vel_tbox, NULL},
+//         {"Accel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.accel_tbox, NULL},
+//         {"Moment", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.moment_tbox, NULL},
+//         {"AngVel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.angular_velocity_tbox, NULL},
+//         {"AngAccel", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, &s_sm_ui.angular_acceleration_tbox, NULL},
+//     };
+//     InitUIFields(physics_section, physics_specs,
+//                  ARRAY_COUNT(physics_specs),
+//                  ui_standard_field_padding, state_manager_panel->palette);
+//
+//     UIElement *geometry_section = CreateViewSection_StackWrap(view_cont, "Geometry", view_section_size,
+//                                                               state_manager_panel->palette);
+//     const UIFieldSpec geometry_specs[] = {
+//         {"Bounds.min", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, VECTOR2D, &s_sm_ui.pos_tl_tbox, NULL},
+//         {"Geo.center", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, VECTOR2D, &s_sm_ui.geometry_center_tbox, NULL},
+//         {"Rot", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.rotation_tbox, NULL},
+//         {"Basis u", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.basis_u_tbox, NULL},
+//         {"Basis v", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.basis_v_tbox, NULL},
+//     };
+//     InitUIFields(geometry_section, geometry_specs,
+//                  ARRAY_COUNT(geometry_specs),
+//                  ui_standard_field_padding, state_manager_panel->palette);
+//
+//     UIElement *gameplay_section = CreateViewSection_StackWrap(view_cont, "Gameplay", view_section_size,
+//                                                               state_manager_panel->palette);
+//     s_sm_ui.gameplay_section = gameplay_section;
+//     const UIFieldSpec gameplay_specs[] = {
+//         {"Health", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.health_tbox, NULL},
+//         {"MaxHealth", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.max_health_tbox, NULL},
+//         {"Damage", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.damage_tbox, NULL},
+//     };
+//     InitUIFields(gameplay_section, gameplay_specs,
+//                  ARRAY_COUNT(gameplay_specs),
+//                  ui_standard_field_padding, state_manager_panel->palette);
+//
+//     // CARVED OUT (re-issued LIVE in StateManager_RegisterElements, NOT retired here):
+//     // // DYNAMIC binding proof: damage targets the current selection; the query/callback own the
+//     // // selection and clear-when-none policy (domain knowledge stays here, not in the core).
+//     // BindTextboxDynamic(s_sm_ui.damage_tbox, BIND_FLOAT, 2,
+//     //                    StateManager_QueryDamage, StateManager_WriteDamage, 0);
+//
+//     // Components section: shows attached components and their properties.
+//     UIElement *components_section = CreateViewSection_StackWrap(view_cont, "Components", view_section_size,
+//                                                                 state_manager_panel->palette);
+//     s_sm_ui.components_section = components_section;
+//
+//     // Component toggle buttons: PORTAL, ROTOR, GEAR, HEALTH
+//     s_sm_ui.comp_buttons[0] = (StateManagerComponentButton){"PORTAL", ENTITY_COMPONENT_PORTAL, NULL};
+//     s_sm_ui.comp_buttons[1] = (StateManagerComponentButton){"ROTOR", ENTITY_COMPONENT_ROTOR, NULL};
+//     s_sm_ui.comp_buttons[2] = (StateManagerComponentButton){"GEAR", ENTITY_COMPONENT_GEAR, NULL};
+//     s_sm_ui.comp_buttons[3] = (StateManagerComponentButton){"HEALTH", ENTITY_COMPONENT_HEALTH, NULL};
+//
+//     for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.comp_buttons); i++)
+//     {
+//         s_sm_ui.comp_buttons[i].button = CreateUIButtonDefault(
+//             components_section, UI_ELEMENT_BUTTON_SIMPLE, s_sm_ui.comp_buttons[i].label,
+//             ui_wide_button_size, ui_standard_button_padding,
+//             state_manager_panel->palette, HandleComponentToggleClick,
+//             (void *)&s_sm_ui.comp_buttons[i], NULL);
+//
+//         // Attach a query SOURCE keyed on the component TYPE (not a flag bit) so the refresh walk
+//         // composes "<label>: ON/OFF". This is a separate site from CreateFlagButtons; its query
+//         // parameter does NOT reach these buttons.
+//         if (s_sm_ui.comp_buttons[i].button)
+//         {
+//             Binding b = {
+//                 .source = { .kind = BIND_SRC_QUERY, .value_type = BIND_INT,
+//                             .query = StateManager_QueryComponentAttached,
+//                             .query_key = (int)s_sm_ui.comp_buttons[i].type },
+//             };
+//             s_sm_ui.comp_buttons[i].button->data.button.binding = Binding_Create(b);
+//         }
+//     }
+//
+//     const UIFieldSpec components_specs[] = {
+//         {"Portal Cooldown", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, INT, &s_sm_ui.comp_portal_cooldown_tbox, &s_sm_ui.comp_portal_cooldown_str},
+//         {"Portal Roles", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_portal_entrant_roles_tbox, &s_sm_ui.comp_portal_entrant_roles_str},
+//         {"Relation Type", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_relation_type_tbox, &s_sm_ui.comp_relation_type_str},
+//         {"Relation Target", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_relation_target_tbox, &s_sm_ui.comp_relation_target_str},
+//         {"Relation Active", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_relation_active_tbox, &s_sm_ui.comp_relation_active_str},
+//     };
+//     InitUIFields(components_section, components_specs,
+//                  ARRAY_COUNT(components_specs),
+//                  ui_standard_field_padding, state_manager_panel->palette);
+//
+//     s_sm_ui.delete_action = BUTTON_ACTION_DELETE_ENTITY;
+//     CreateUIButtonDefault(view_cont, UI_ELEMENT_BUTTON_SUBMIT,
+//                           "DELETE", ui_standard_button_size, ui_standard_button_padding,
+//                           state_manager_panel->palette, HandleBtnSubmitClick,
+//                           &s_sm_ui.delete_action, NULL);
+// }
+//
+// --- InitAttributeStateView (whole body) ---
+//
+// static void InitAttributeStateView(void)
+// {
+//     View *attributes_view = CreateStateManagerView(
+//         STATE_MANAGER_ATTRIBUTES_VIEW, true, true, ui_zero_inline_spacing);
+//     if (!attributes_view)
+//     {
+//         return;
+//     }
+//     View_SetScrollableX(attributes_view, true);
+//     UIElement *view_cont = attributes_view->container;
+//
+//     // Customise the View
+//     UIElement *identity_section = CreateViewSection_StackWrap(view_cont, "Entity", view_section_size,
+//                                                               state_manager_panel->palette);
+//     UIElement *capability_section = CreateViewSection_StackWrap(view_cont, "Capabilities", view_section_size,
+//                                                                 state_manager_panel->palette);
+//     UIElement *constraint_section = CreateViewSection_StackWrap(view_cont, "Constraints", view_section_size,
+//                                                                 state_manager_panel->palette);
+//     UIElement *status_section = CreateViewSection_StackWrap(view_cont, "Status", view_section_size,
+//                                                             state_manager_panel->palette);
+//     UIElement *collision_section = CreateViewSection_StackWrap(view_cont, "Collision", view_section_size,
+//                                                                state_manager_panel->palette);
+//
+//     CreateFlagButtons(identity_section, s_sm_flags.entity_role,
+//                       ARRAY_COUNT(s_sm_flags.entity_role), HandleEntityTypeFlagClick,
+//                       StateManager_QueryEntityRole);
+//     CreateFlagButtons(capability_section, s_sm_flags.entity_capability,
+//                       ARRAY_COUNT(s_sm_flags.entity_capability), HandleEntityCapabilityFlagClick,
+//                       StateManager_QueryEntityCapability);
+//     CreateFlagButtons(constraint_section, s_sm_flags.entity_constraint,
+//                       ARRAY_COUNT(s_sm_flags.entity_constraint), HandleEntityConstraintFlagClick,
+//                       StateManager_QueryEntityConstraint);
+//     CreateFlagButtons(status_section, s_sm_flags.entity_status,
+//                       ARRAY_COUNT(s_sm_flags.entity_status), HandleEntityStatusFlagClick,
+//                       StateManager_QueryEntityStatus);
+//     CreateFlagButtons(collision_section, s_sm_flags.collision_role_mask,
+//                       ARRAY_COUNT(s_sm_flags.collision_role_mask), HandleCollisionMaskFlagClick,
+//                       StateManager_QueryCollisionMask);
+// }
+//
+// --- InitWorldStateView (whole body) ---
+//
+// static void InitWorldStateView(void)
+// {
+//     View *world_view = CreateStateManagerView(
+//         STATE_MANAGER_WORLD_VIEW, true, false, ui_zero_x_inline_wrap_spacing);
+//     if (!world_view)
+//     {
+//         return;
+//     }
+//     View_SetScrollableX(world_view, true);
+//
+//     UIElement *world_section = CreateViewSection_StackWrap(world_view->container, "World", view_section_size,
+//                                                            state_manager_panel->palette);
+//
+//     UIElement *world_physics_section = CreateViewSection_StackWrap(
+//         world_view->container, "Physics", view_section_size, state_manager_panel->palette);
+//     const UIFieldSpec world_physics_specs[] = {
+//         {"Restitution", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT,
+//          &s_sm_ui.world_restitution_tbox, NULL},
+//         {"Friction", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT,
+//          &s_sm_ui.world_friction_tbox, NULL},
+//     };
+//     InitUIFields(world_physics_section, world_physics_specs,
+//                  ARRAY_COUNT(world_physics_specs),
+//                  ui_standard_field_padding, state_manager_panel->palette);
+//
+//     CreateFlagButtons(world_section, s_sm_flags.world,
+//                       ARRAY_COUNT(s_sm_flags.world), HandleWorldFlagClick,
+//                       StateManager_QueryWorldFlag);
+// }
+//
+// --- InitCellStateView (whole body) ---
+//
+// static void InitCellStateView(void)
+// {
+//     View *cell_view = CreateStateManagerView(
+//         STATE_MANAGER_CELL_STATE_VIEW, true, false, ui_zero_inline_spacing);
+//     if (!cell_view)
+//     {
+//         return;
+//     }
+//     View_SetScrollableX(cell_view, true);
+//     UIElement *cell_container = cell_view->container;
+//
+//     const UIFieldSpec cell_specs[] = {
+//         {"Index", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &s_sm_ui.cell_id_str},
+//         {"Occu", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &s_sm_ui.cell_occu_str},
+//         {"Value", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &s_sm_ui.cell_value_str},
+//         {"Fill", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &s_sm_ui.cell_fill_str},
+//     };
+//
+//     UIElement *cell_phys_section = CreateViewSection_StackWrap(cell_container, "Cell", view_section_size,
+//                                                                state_manager_panel->palette);
+//     InitUIFields(cell_phys_section, cell_specs,
+//                  ARRAY_COUNT(cell_specs),
+//                  ui_standard_field_padding, state_manager_panel->palette);
+//
+//     UIElement *cell_flags_section = CreateViewSection_StackWrap(cell_container, "Flags", view_section_size,
+//                                                                 state_manager_panel->palette);
+//
+//     CreateFlagButtons(cell_flags_section, s_sm_flags.cell,
+//                       ARRAY_COUNT(s_sm_flags.cell), HandleCellFlagClick,
+//                       StateManager_QueryCellFlag);
+// }
 // ============================================================================

@@ -71,8 +71,14 @@ typedef enum
     SIZE_PERCENT, // Use a percentage of the parent's content area (0.0 to 1.0)
     SIZE_FILL,    // Take up all remaining space
     SIZE_CONTENT, // Size to fit enabled children and padding
-    SIZE_CONTENT_FILL, // Fit content height while filling the parent's width
-    SIZE_CONTENT_MAX // Fit content, capped by the authored dimensions
+    // "Hug" modes size one axis to content and fill the parent on the other. The suffix names
+    // the HUGGED (content-driven) axis; the un-named axis fills the parent.
+    SIZE_HUG_HEIGHT, // Height hugs content, width fills the parent
+    SIZE_HUG_WIDTH,  // Width hugs content, height fills the parent
+    SIZE_CONTENT_MAX, // Fit content, capped by the authored dimensions
+    // Deprecated alias retained for existing call sites/markup: identical to SIZE_HUG_HEIGHT
+    // (content drives height, parent fills width). Prefer SIZE_HUG_HEIGHT in new code.
+    SIZE_CONTENT_FILL = SIZE_HUG_HEIGHT
 } SizeMode;
 
 typedef enum
@@ -116,7 +122,10 @@ typedef struct
 } Size;
 
 #define UI_SIZE_CONTENT ((Size){{0.0f, 0.0f}, SIZE_CONTENT})
-#define UI_SIZE_CONTENT_FILL ((Size){{0.0f, 0.0f}, SIZE_CONTENT_FILL})
+#define UI_SIZE_HUG_HEIGHT ((Size){{0.0f, 0.0f}, SIZE_HUG_HEIGHT})
+#define UI_SIZE_HUG_WIDTH ((Size){{0.0f, 0.0f}, SIZE_HUG_WIDTH})
+// Deprecated alias of UI_SIZE_HUG_HEIGHT, kept for existing call sites.
+#define UI_SIZE_CONTENT_FILL UI_SIZE_HUG_HEIGHT
 #define UI_SIZE_CONTENT_MAX(max_width, max_height) ((Size){{(max_width), (max_height)}, SIZE_CONTENT_MAX})
 
 typedef struct
@@ -225,6 +234,11 @@ typedef struct UIElement
     UIElement *parent;
     UIElement *first_child;
     UIElement *next_sibling;
+
+    // id= from markup, empty when absent; used by UILoader_FindById for a generic,
+    // domain-free lookup. Byte-identical to MAX_UI_ELEMENT_ID (declared via the
+    // String64 size so ui.h need not include ui_loader.h, which would be circular).
+    char id[(int)sizeof(String64)];
 } UIElement;
 
 // Traverse a UI element's children in sibling order.

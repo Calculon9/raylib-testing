@@ -59,11 +59,19 @@ typedef enum {
  *
  * CRITICAL LAYOUT CONSTRAINT (design section 1.3): `address` and `data_type` MUST
  * remain the FIRST TWO members, in that order. The new members (`kind`, `query`,
- * `query_key`, `value_type`) are APPENDED after `data_type` and must never be moved
- * before it. LPanel_ResolveBinding initialises its result with the POSITIONAL
- * initialiser `UIBinding binding = {NULL, FLOAT};` (NULL -> slot 0 `address`,
- * FLOAT -> slot 1 `data_type`); the appended members value-initialise to zero so
- * `kind == UI_BIND_SRC_NONE` and `query == NULL`. Reordering would break that init.
+ * `query_key`, `value_type`, `write`, `write_key`) are APPENDED after `data_type`
+ * and must never be moved before it. LPanel_ResolveBinding initialises its result
+ * with the POSITIONAL initialiser `UIBinding binding = {NULL, FLOAT};` (NULL ->
+ * slot 0 `address`, FLOAT -> slot 1 `data_type`); ALL appended members
+ * value-initialise to zero so `kind == UI_BIND_SRC_NONE`, `query == NULL`,
+ * `write == NULL`, and `write_key == 0`. Reordering would break that init.
+ *
+ * The optional dynamic WRITE sink (`write` + `write_key`) is appended strictly
+ * after the existing tail (0.2): a resolver that returns a query SOURCE plus a
+ * non-NULL `write` makes a `<TextField>` an editable field that commits on ENTER
+ * through a BIND_SINK_CALLBACK. Existing address resolvers (e.g. the `{NULL, FLOAT}`
+ * one) leave `write == NULL` and so remain read-only, unchanged. The resolver
+ * typedef signature is NOT changed; only the returned struct grows (additive).
  */
 typedef struct {
     void *address;              // slot 0 (unchanged): UI_BIND_SRC_ADDRESS data address
@@ -72,6 +80,8 @@ typedef struct {
     BindingQueryFn query;       // appended: UI_BIND_SRC_QUERY display read fn
     int query_key;              // appended: UI_BIND_SRC_QUERY opaque key (e.g. DebugOverlayId)
     BindingValueType value_type;// appended: query advisory value type (query owns the actual type)
+    BindingSinkFn write;        // appended (0.2): optional dynamic write callback (NULL => read-only)
+    int write_key;              // appended (0.2): opaque key for the write callback
 } UIBinding;
 
 /**
@@ -363,6 +373,20 @@ int UILoader_ResolveViewIndexById(ViewHostSystem *host, const char *id_string);
  * @return The initialView id string, or NULL when none was recorded
  */
 const char *UILoader_GetInitialViewId(void);
+
+/**
+ * Find the first element at or below `root` whose id= equals `id`.
+ *
+ * Depth-first, pre-order, first-match-wins tree walk (mirrors the
+ * UILoader_CollectViewContainers recursion). Domain-free: compares only the
+ * generic UIElement.id string, so it works on any UIElement tree and names no
+ * application concept. Duplicate ids are not diagnosed (first in pre-order wins).
+ *
+ * @param root Root UIElement to search at and below (may be NULL)
+ * @param id   The id string to match (NULL or empty => no match)
+ * @return The matching element, or NULL when root/id is NULL/empty or no match
+ */
+UIElement *UILoader_FindById(UIElement *root, const char *id);
 
 #ifdef __cplusplus
 }

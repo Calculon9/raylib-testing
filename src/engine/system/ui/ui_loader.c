@@ -491,7 +491,21 @@ static UIElement *BuildLabel(mxml_node_t *node, UIElement *parent, const UIPalet
 
 /**
  * Builder for <TextField> elements.
- * Attributes: label (required), type (integer/float/vector2), binding (optional), default (optional)
+ * Attributes: label (required), type (integer/float/vector2), binding (optional source,
+ *             optionally a dynamic write sink), io (optional: "readonly"/"safe"/"raw"),
+ *             size (optional "w,h"), size-mode (optional), offset (optional "x,y"),
+ *             offset-mode (optional "fixed"/"percent"), enabled (optional).
+ * size/size-mode and offset/offset-mode default to ui_standard_control_size and a zero
+ * fixed offset when absent, so attribute-less markup is unchanged.
+ *
+ * Resolves binding= through ctx->resolve_binding and ATTACHES the result to the created
+ * textbox (0.1): an address source becomes a read-only live label (BIND_SRC_ADDRESS, no
+ * sink - see design section 1 sink policy); a query source becomes a live display
+ * (BIND_SRC_QUERY) that, when the resolver also returns a non-NULL write, becomes editable
+ * via a BIND_SINK_CALLBACK (0.2). This mirrors BindTextboxStable / BindTextboxDynamic in
+ * integration_system.c. The io= attribute (0.4) selects the textbox IO type, defaulting to
+ * UI_ELEMENT_TEXTBOX_IO so existing markup is byte-for-byte unchanged. The loader stays
+ * domain-free: it only ever handles function pointers, opaque int keys, and generic types.
  */
 static UIElement *BuildTextField(mxml_node_t *node, UIElement *parent, const UIPalette *palette, UILoaderContext *ctx)
 {
@@ -500,10 +514,9 @@ static UIElement *BuildTextField(mxml_node_t *node, UIElement *parent, const UIP
         label = "";
     
     const char *type_attr = mxmlElementGetAttr(node, "type");
-    UIElementType field_type = UI_ELEMENT_TEXTBOX_IO;
     DataType data_type = FLOAT;  // Default data type
     
-    // Map type attribute to UIElementType and DataType
+    // Map type attribute to the DataType the field parses/formats with.
     if (type_attr)
     {
         if (!strcmp(type_attr, "integer"))
@@ -519,34 +532,129 @@ static UIElement *BuildTextField(mxml_node_t *node, UIElement *parent, const UIP
             data_type = VECTOR2D;
         }
     }
-    
-    // Extract binding and resolve to data address
-    void *data_bind = NULL;
+
+    // 0.4 - Map io= to the textbox IO type. Absent => UI_ELEMENT_TEXTBOX_IO (raw), the exact
+    // value hardcoded before this stage, so existing <TextField> markup builds unchanged.
+    // An unrecognised value falls back to raw and warns (consistent with BuildViewSelector).
+    UIElementType field_type = UI_ELEMENT_TEXTBOX_IO;
+    const char *io_attr = mxmlElementGetAttr(node, "io");
+    if (io_attr)
+    {
+        if (!strcmp(io_attr, "readonly"))
+            field_type = UI_ELEMENT_TEXTBOX_O;
+        else if (!strcmp(io_attr, "safe"))
+            field_type = UI_ELEMENT_TEXTBOX_SAFE_IO;
+        else if (!strcmp(io_attr, "raw"))
+            field_type = UI_ELEMENT_TEXTBOX_IO;
+        else
+            LOADER_WARNING(ctx, "Unrecognised io value");
+    }
+
+    // 0.1/0.2 - Resolve binding= and assemble a single Binding, mirroring BuildButton's
+    // source logic exactly. A source (address or query) drives the live display via the
+    // per-frame refresh walk; an optional query-paired write callback makes the field
+    // editable (commit-on-ENTER through Binding_Commit).
+    Binding b = {0};
+    bool have_source = false;
+    bool have_sink = false;
+
     const char *binding_attr = mxmlElementGetAttr(node, "binding");
     if (binding_attr && ctx && ctx->resolve_binding)
     {
-        UIBinding binding = ctx->resolve_binding(binding_attr, ctx);
-        data_bind = binding.address;
-        // Use resolved data_type if binding was found
-        if (binding.address)
+        UIBinding src = ctx->resolve_binding(binding_attr, ctx);
+
+        // Honour the legacy implicit contract: a non-NULL address with kind NONE means an
+        // address source (an unmodified address resolver zero-inits the appended tail).
+        UIBindingSourceKind k = src.kind;
+        if (k == UI_BIND_SRC_NONE && src.address)
+            k = UI_BIND_SRC_ADDRESS;
+
+        if (k == UI_BIND_SRC_ADDRESS && src.address)
         {
-            data_type = binding.data_type;
+            // Address source: read-only live label. Interpret the deref via the loader's
+            // DataType -> BindingValueType map. An unmapped DataType (BIND_NONE) attaches
+            // nothing and warns, mirroring BindTextboxStable's BINDING_NONE early-out.
+            BindingValueType vt = UILoader_MapDataType(src.data_type);
+            if (vt == BIND_NONE)
+            {
+                LOADER_WARNING(ctx, "Binding did not resolve");
+            }
+            else
+            {
+                b.source.kind = BIND_SRC_ADDRESS;
+                b.source.value_type = vt;
+                b.source.address = src.address;
+                data_type = src.data_type; // keep parse/format in step with the source
+                have_source = true;
+            }
+        }
+        else if (k == UI_BIND_SRC_QUERY && src.query)
+        {
+            // Query source: live display driven by the query fn. The query owns the real
+            // type; value_type is advisory.
+            b.source.kind = BIND_SRC_QUERY;
+            b.source.value_type = src.value_type;
+            b.source.query = src.query;
+            b.source.query_key = src.query_key;
+            have_source = true;
         }
         else
         {
-            // Warn if binding did not resolve
             LOADER_WARNING(ctx, "Binding did not resolve");
+        }
+
+        // 0.2 - Optional dynamic WRITE sink. When the resolver returns a non-NULL write,
+        // complete the dynamic shape (BindTextboxDynamic) on the SAME Binding: the field
+        // commits on ENTER through this callback. The sink's parse type is the source's
+        // advisory value_type (a dynamic field reads and writes one type). When write is
+        // NULL (every existing resolver, incl. lpanel's {NULL, FLOAT}) no sink is attached
+        // and the field stays read-only, exactly as the source-only path leaves it.
+        if (src.write)
+        {
+            b.sink.kind = BIND_SINK_CALLBACK;
+            b.sink.value_type = src.value_type;
+            b.sink.write = src.write;
+            b.sink.write_key = src.write_key;
+            have_sink = true;
         }
     }
     else if (binding_attr)
     {
-        // Binding specified but no resolver available
+        // Binding specified but no resolver available.
         LOADER_WARNING(ctx, "Binding specified but resolver not available");
     }
     
+    // Honour authored size=/size-mode= and offset=/offset-mode= when present, so a field's
+    // dimensions and position are controllable from markup. Absent attributes fall back to
+    // the standard control size and a zero (fixed) offset, matching the previous behaviour.
+    Size field_size = ui_standard_control_size;
+    Offset field_offset = {{0.0f, 0.0f}, OFFSET_FIXED};
+    UILoader_ExtractCommonAttrs(node, NULL, &field_size, &field_offset, NULL);
+
     UIElement *field = CreateUILabeledFieldDefault(parent, label, field_type,
-                                      ui_standard_control_size,
+                                      field_size,
                                       ui_standard_field_padding, palette);
+
+    // Apply the authored offset to the field row. Both authored_ and resolved_offset are set
+    // so the layout pass starts from the authored position (mirrors CreateUILabeledField's
+    // treatment of its own child offsets).
+    if (field)
+    {
+        field->authored_offset = field_offset;
+        field->resolved_offset = field_offset;
+    }
+
+    // Attach the assembled Binding when a source OR a sink resolved (mirrors BuildButton's
+    // have_source || have_sink gate). CreateUILabeledFieldDefault returns the input child
+    // (the textbox itself), so field->data.textbox is the live union member. The precision
+    // uses the documented default sentinel (0). The binding is freed by DisposeUIElement's
+    // textbox cleanup, the same path that frees BindTextboxStable/Dynamic bindings.
+    if (field && (have_source || have_sink))
+    {
+        b.precision = 0;
+        field->data.textbox.data_type = data_type; // parse/format agrees with the source
+        field->data.textbox.binding = Binding_Create(b);
+    }
 
     // Apply enabled= (defaults to true when absent).
     const char *enabled_attr = mxmlElementGetAttr(node, "enabled");
@@ -560,9 +668,9 @@ static UIElement *BuildTextField(mxml_node_t *node, UIElement *parent, const UIP
 
 /**
  * Builder for <Section> elements.
- * Attributes: title (required), id (optional), size (optional), size-mode (optional),
- *             layout (optional: "stack"/"stack_wrap"/"inline_wrap"), 
- *             offset (optional), offset-mode (optional)
+ * Attributes: title (required), id (optional), size (optional "w,h"), size-mode (optional),
+ *             layout (optional: "stack"/"stack_wrap"/"inline_wrap"),
+ *             offset (optional "x,y"), offset-mode (optional "fixed"/"percent")
  * Children are added to the section's container.
  */
 static UIElement *BuildSection(mxml_node_t *node, UIElement *parent,
@@ -909,25 +1017,43 @@ static const Spacing *UILoader_ParseLayout(const char *layout_str)
     return &ui_standard_stack_spacing;  // Default
 }
 
-// Helper: Parse SizeMode from string (e.g., "fixed", "fill", "content_fill")
+// Helper: Parse SizeMode from string (e.g., "fixed", "fill", "hug_width", "hug_height")
 static SizeMode UILoader_ParseSizeMode(const char *mode_str)
 {
     if (!mode_str)
         return SIZE_CONTENT;  // Default
-    
-    if (!strcmp(mode_str, "fixed"))
+
+    // Normalise hyphenated attribute values (e.g. "content-fill") to the
+    // underscore form the comparisons below expect. We copy into a local
+    // buffer so the caller's string is never mutated; any value longer than
+    // the buffer simply falls through to the default, which is acceptable.
+    char norm[32];
+    size_t i = 0;
+    for (; mode_str[i] != '\0' && i < sizeof(norm) - 1; ++i)
+        norm[i] = (mode_str[i] == '-') ? '_' : mode_str[i];
+    norm[i] = '\0';
+
+    if (!strcmp(norm, "fixed"))
         return SIZE_FIXED;
-    else if (!strcmp(mode_str, "percent"))
+    else if (!strcmp(norm, "percent"))
         return SIZE_PERCENT;
-    else if (!strcmp(mode_str, "fill"))
+    else if (!strcmp(norm, "fill"))
         return SIZE_FILL;
-    else if (!strcmp(mode_str, "content"))
+    else if (!strcmp(norm, "content"))
         return SIZE_CONTENT;
-    else if (!strcmp(mode_str, "content_fill"))
-        return SIZE_CONTENT_FILL;
-    else if (!strcmp(mode_str, "content_max"))
+    else if (!strcmp(norm, "hug_height"))
+        return SIZE_HUG_HEIGHT; // height hugs content, width fills the parent
+    else if (!strcmp(norm, "hug_width"))
+        return SIZE_HUG_WIDTH;  // width hugs content, height fills the parent
+    // Deprecated aliases retained for existing markup: "content_fill"/"content_fill_height"
+    // map to SIZE_HUG_HEIGHT, "content_fill_width" maps to SIZE_HUG_WIDTH.
+    else if (!strcmp(norm, "content_fill") || !strcmp(norm, "content_fill_height"))
+        return SIZE_HUG_HEIGHT;
+    else if (!strcmp(norm, "content_fill_width"))
+        return SIZE_HUG_WIDTH;
+    else if (!strcmp(norm, "content_max"))
         return SIZE_CONTENT_MAX;
-    
+
     return SIZE_CONTENT;  // Default
 }
 
@@ -1002,31 +1128,51 @@ void UILoader_ExtractCommonAttrs(mxml_node_t *node, char *id_out,
         else if (size_mode_attr)
         {
             // Honour a size-mode even when no explicit size is given. Modes like
-            // "content", "content_fill", and "fill" derive their dimensions from
+            // "content", "hug_width"/"hug_height", and "fill" derive their dimensions from
             // children/parent, so zeroed dimensions are correct here.
             SizeMode mode = UILoader_ParseSizeMode(size_mode_attr);
             *size_out = (Size){{0.0f, 0.0f}, mode};
         }
         else
         {
-            *size_out = ui_standard_button_size;  // Default
+            // Neither size= nor size-mode= given: leave *size_out as the caller supplied it,
+            // so each builder's own default (e.g. ui_standard_control_size for a TextField,
+            // ui_standard_button_size for a Button) is preserved rather than overridden.
         }
     }
     
-    // Extract offset (x, y) and offset-type
+    // Extract offset and offset-mode. The preferred syntax mirrors size=: a single
+    // offset="x,y" (a lone "offset=v" applies to both axes) plus offset-mode="fixed|percent".
+    // The older x=/y=/offset-type= attributes remain accepted as a fallback so existing
+    // markup keeps working; the unified attributes win when both are present.
     if (offset_out)
     {
+        float x = 0.0f, y = 0.0f;
+
+        // Fallback: legacy per-axis x=/y=.
         const char *x_attr = mxmlElementGetAttr(node, "x");
         const char *y_attr = mxmlElementGetAttr(node, "y");
-        const char *offset_type_attr = mxmlElementGetAttr(node, "offset-type");
-        
-        float x = 0.0f, y = 0.0f;
         if (x_attr)
             sscanf(x_attr, "%f", &x);
         if (y_attr)
             sscanf(y_attr, "%f", &y);
-        
-        OffsetMode mode = UILoader_ParseOffsetMode(offset_type_attr);
+
+        // Preferred: unified offset="x,y" (reuses the size value parser for identical
+        // "x,y" / single-value-for-both semantics). Overrides the legacy attributes.
+        const char *offset_attr = mxmlElementGetAttr(node, "offset");
+        if (offset_attr)
+        {
+            Vector2d parsed = UILoader_ParseSizeValues(offset_attr);
+            x = parsed.x;
+            y = parsed.y;
+        }
+
+        // offset-mode= is preferred; offset-type= is the legacy spelling.
+        const char *offset_mode_attr = mxmlElementGetAttr(node, "offset-mode");
+        if (!offset_mode_attr)
+            offset_mode_attr = mxmlElementGetAttr(node, "offset-type");
+
+        OffsetMode mode = UILoader_ParseOffsetMode(offset_mode_attr);
         *offset_out = (Offset){{x, y}, mode};
     }
     
@@ -1070,7 +1216,13 @@ static UIElement *UILoader_ParseElementNode(mxml_node_t *node, UIElement *parent
         // Builder returned NULL; may have logged its own errors
         return NULL;
     }
-    
+
+    // 0.3 - Stamp id= on EVERY built element at this single generic choke point, so the
+    // app can later hand any element back by id via UILoader_FindById. This is independent
+    // of the <View>/<Option> side-table recording (still needed for index resolution).
+    const char *id_attr = mxmlElementGetAttr(node, "id");
+    safe_strncpy(elem->id, id_attr ? id_attr : "", MAX_UI_ELEMENT_ID);
+
     // Recursively parse children
     for (mxml_node_t *child = mxmlGetFirstChild(node); child; child = mxmlGetNextSibling(child))
     {
@@ -1425,6 +1577,35 @@ int UILoader_ResolveViewIndexById(ViewHostSystem *host, const char *id_string)
 const char *UILoader_GetInitialViewId(void)
 {
     return g_markup_table.initial_view_id[0] != '\0' ? g_markup_table.initial_view_id : NULL;
+}
+
+/**
+ * Find the first element at or below `root` whose id= equals `id`.
+ *
+ * Depth-first, pre-order, first-match-wins walk mirroring the
+ * UILoader_CollectViewContainers recursion. Domain-free: it compares only the
+ * generic UIElement.id, so it works on any UIElement tree. Returns NULL when
+ * root/id is NULL/empty or no element matches.
+ */
+UIElement *UILoader_FindById(UIElement *root, const char *id)
+{
+    // Guard NULL root and a NULL/empty id; an empty id can never name an element.
+    if (!root || !id || id[0] == '\0')
+        return NULL;
+
+    // Pre-order: test this element before descending so the first match wins.
+    if (strcmp(root->id, id) == 0)
+        return root;
+
+    // Recurse over children, returning the first non-NULL hit.
+    ForEachChild(root, child)
+    {
+        UIElement *found = UILoader_FindById(child, id);
+        if (found)
+            return found;
+    }
+
+    return NULL;
 }
 
 /**

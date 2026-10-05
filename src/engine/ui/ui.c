@@ -44,7 +44,8 @@ static float ResolveMeasurementWidth(const UIElement *element, float parent_cont
     case SIZE_PERCENT:
         return fmaxf(0.0f, parent_content_width * element->size.dimensions.x);
     case SIZE_FILL:
-    case SIZE_CONTENT_FILL:
+    case SIZE_HUG_HEIGHT: // width fills parent (height hugs content)
+    case SIZE_HUG_WIDTH:  // width hugs content; measured against the parent's width
     case SIZE_CONTENT:
         return fmaxf(0.0f, parent_content_width);
     case SIZE_CONTENT_MAX:
@@ -56,6 +57,35 @@ static float ResolveMeasurementWidth(const UIElement *element, float parent_cont
     case SIZE_FIXED:
     default:
         return fmaxf(0.0f, element->size.dimensions.x);
+    }
+}
+
+// Resolve the height available to an element during the measurement pass.
+// Mirrors ResolveMeasurementWidth: modes that fill the parent on the vertical
+// axis (SIZE_FILL, SIZE_HUG_WIDTH) take the parent's available height,
+// which lets stacked-wrap measurement know where to break columns. Content-driven
+// vertical modes return the parent height only as an upper bound for wrapping; the
+// final box height for those is still derived from measured content elsewhere.
+static float ResolveMeasurementHeight(const UIElement *element, float parent_content_height)
+{
+    if (!element)
+    {
+        return 0.0f;
+    }
+
+    switch (element->size.size_mode)
+    {
+    case SIZE_PERCENT:
+        return fmaxf(0.0f, parent_content_height * element->size.dimensions.y);
+    case SIZE_FILL:
+    case SIZE_HUG_WIDTH: // height fills the parent (width hugs content)
+        return fmaxf(0.0f, parent_content_height);
+    case SIZE_FIXED:
+        return fmaxf(0.0f, element->size.dimensions.y);
+    default:
+        // Content-driven vertical modes: fall back to the parent height as the
+        // available space (used only as a wrap bound, never to force a size).
+        return fmaxf(0.0f, parent_content_height);
     }
 }
 
@@ -74,8 +104,9 @@ static Vector2d ResolveMeasuredChildSize(const UIElement *child, float parent_co
             parent_content_width * child->size.dimensions.x,
             child->size.dimensions.y};
     case SIZE_FILL:
-    case SIZE_CONTENT_FILL:
+    case SIZE_HUG_HEIGHT: // width fills parent, height hugs content
         return (Vector2d){parent_content_width, child->measured_content_size.y};
+    case SIZE_HUG_WIDTH: // width hugs content, height filled during arrangement
     case SIZE_CONTENT:
     case SIZE_CONTENT_MAX:
         return child->measured_content_size;
@@ -139,7 +170,7 @@ static Vector2d MeasureInlineWrapContent(UIElement *element, float content_width
 }
 
 // Measure stacked children into vertical columns constrained by the content height.
-static Vector2d MeasureStackedWrapContent(UIElement *element, float content_width)
+static Vector2d MeasureStackedWrapContent(UIElement *element, float content_width, float content_height)
 {
     if (!element)
     {
@@ -148,12 +179,25 @@ static Vector2d MeasureStackedWrapContent(UIElement *element, float content_widt
 
     float spacing_x = element->child_spacing.spacing.x;
     float spacing_y = element->child_spacing.spacing.y;
+
+    // Determine the height at which columns wrap. Two sources feed this:
+    //  * SIZE_CONTENT_MAX uses its authored height (known at measure time), and
+    //  * fill-height modes (SIZE_FILL, SIZE_HUG_WIDTH) use the content
+    //    height handed down from the parent, so measurement wraps into the same
+    //    number of columns the distribute pass will produce against the real box.
+    // Any other mode leaves the limit unbounded (single column, as before).
     float column_height_limit = FLT_MAX;
     if (element->size.size_mode == SIZE_CONTENT_MAX &&
         element->size.dimensions.y > 0.0f)
     {
         column_height_limit = fmaxf(0.0f, element->size.dimensions.y -
                                               (2.0f * element->padding.y));
+    }
+    else if ((element->size.size_mode == SIZE_HUG_WIDTH ||
+              element->size.size_mode == SIZE_FILL) &&
+             content_height > 0.0f && content_height < FLT_MAX)
+    {
+        column_height_limit = fmaxf(0.0f, content_height);
     }
 
     float measured_width = 0.0f;
@@ -194,8 +238,10 @@ static Vector2d MeasureStackedWrapContent(UIElement *element, float content_widt
     return (Vector2d){measured_width, measured_height};
 }
 
-// Measure a subtree using the width available from its parent.
-static Vector2d MeasureElementContent(UIElement *element, float parent_content_width)
+// Measure a subtree using the width (and available height) handed down by its parent.
+// The height flows alongside the width so stacked-wrap sections can wrap columns at the
+// same boundary the distribute pass uses, instead of always measuring a single column.
+static Vector2d MeasureElementContent(UIElement *element, float parent_content_width, float parent_content_height)
 {
     if (!element)
     {
@@ -203,7 +249,9 @@ static Vector2d MeasureElementContent(UIElement *element, float parent_content_w
     }
 
     float element_width = ResolveMeasurementWidth(element, parent_content_width);
+    float element_height = ResolveMeasurementHeight(element, parent_content_height);
     float content_width = fmaxf(0.0f, element_width - (2.0f * element->padding.x));
+    float content_height = fmaxf(0.0f, element_height - (2.0f * element->padding.y));
     Vector2d measured = ZERO_VECTOR_2D;
     float spacing_x = element->child_spacing.spacing.x;
     float spacing_y = element->child_spacing.spacing.y;
@@ -212,7 +260,8 @@ static Vector2d MeasureElementContent(UIElement *element, float parent_content_w
     ForEachEnabledChild(element, child)
     {
         float child_width = ResolveMeasurementWidth(child, content_width);
-        child->measured_content_size = MeasureElementContent(child, child_width);
+        float child_height = ResolveMeasurementHeight(child, content_height);
+        child->measured_content_size = MeasureElementContent(child, child_width, child_height);
         Vector2d child_size = ResolveMeasuredChildSize(child, content_width);
 
         if (element->child_spacing.spacing_type == SPACING_INLINE)
@@ -250,7 +299,7 @@ static Vector2d MeasureElementContent(UIElement *element, float parent_content_w
     }
     else if (element->child_spacing.spacing_type == SPACING_STACKED_WRAP)
     {
-        measured = MeasureStackedWrapContent(element, content_width);
+        measured = MeasureStackedWrapContent(element, content_width, content_height);
     }
     // else if (element->child_spacing.spacing_type == SPACING_STACKED_SMART_WRAP)
     // {
@@ -325,7 +374,9 @@ static float ResolveChildHeight(const UIElement *child, float content_area_h, fl
         return 0.0f;
     }
 
-    if (child->size.size_mode == SIZE_FILL)
+    // SIZE_FILL and SIZE_HUG_WIDTH both fill the parent on the vertical axis.
+    if (child->size.size_mode == SIZE_FILL ||
+        child->size.size_mode == SIZE_HUG_WIDTH)
     {
         return fmaxf(0.0f, fill_height);
     }
@@ -335,8 +386,9 @@ static float ResolveChildHeight(const UIElement *child, float content_area_h, fl
         return content_area_h * child->size.dimensions.y;
     }
 
+    // SIZE_HUG_HEIGHT drives its height from content (width fills the parent).
     if (child->size.size_mode == SIZE_CONTENT ||
-        child->size.size_mode == SIZE_CONTENT_FILL ||
+        child->size.size_mode == SIZE_HUG_HEIGHT ||
         child->size.size_mode == SIZE_CONTENT_MAX)
     {
         return child->measured_content_size.y;
@@ -364,9 +416,16 @@ static Vector2d ResolveChildSizeFixed(const UIElement *child, Vector2d content_a
                           fmaxf(0.0f, content_area_local.y - consumed_fixed_y)};
     }
 
-    if (child->size.size_mode == SIZE_CONTENT_FILL)
+    // SIZE_HUG_HEIGHT: width fills the parent, height hugs content.
+    if (child->size.size_mode == SIZE_HUG_HEIGHT)
     {
         return (Vector2d){content_area_local.x, child->measured_content_size.y};
+    }
+
+    // SIZE_HUG_WIDTH (mirror): width hugs content, height fills the parent.
+    if (child->size.size_mode == SIZE_HUG_WIDTH)
+    {
+        return (Vector2d){child->measured_content_size.x, content_area_local.y};
     }
 
     if (child->size.size_mode == SIZE_CONTENT ||
@@ -506,12 +565,15 @@ static void DistributeChildrenInline(UIElement *parent, Vector2d content_area_lo
         {
             child_width = child->measured_content_size.x;
         }
-        else if (child->size.size_mode == SIZE_CONTENT_FILL)
+        else if (child->size.size_mode == SIZE_HUG_HEIGHT)
         {
+            // Width fills the parent (height hugs content elsewhere).
             child_width = content_area_local.x;
         }
-        else if (child->size.size_mode == SIZE_CONTENT_MAX)
+        else if (child->size.size_mode == SIZE_HUG_WIDTH ||
+                 child->size.size_mode == SIZE_CONTENT_MAX)
         {
+            // Width hugs content.
             child_width = child->measured_content_size.x;
         }
         else
@@ -865,7 +927,7 @@ void UI_LayoutSubtree(UIElement *e, UIBox parent_box)
     if (!e)
         return;
 
-    e->measured_content_size = MeasureElementContent(e, parent_box.dimensions.x);
+    e->measured_content_size = MeasureElementContent(e, parent_box.dimensions.x, parent_box.dimensions.y);
     LayoutSubtree(e, parent_box);
 }
 
@@ -1220,10 +1282,17 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box)
     {
         box.dimensions = element->measured_content_size;
     }
-    else if (element->size.size_mode == SIZE_CONTENT_FILL)
+    else if (element->size.size_mode == SIZE_HUG_HEIGHT)
     {
+        // Width fills the parent's content area; height hugs content.
         box.dimensions.x = fmaxf(0.0f, content_area_w - adj_offset_x);
         box.dimensions.y = element->measured_content_size.y;
+    }
+    else if (element->size.size_mode == SIZE_HUG_WIDTH)
+    {
+        // Mirror: width hugs content; height fills the parent's content area.
+        box.dimensions.x = element->measured_content_size.x;
+        box.dimensions.y = fmaxf(0.0f, content_area_h - adj_offset_y);
     }
     else if (element->size.size_mode == SIZE_CONTENT_MAX)
     {
