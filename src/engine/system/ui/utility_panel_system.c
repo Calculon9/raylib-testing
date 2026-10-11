@@ -7,7 +7,7 @@
 #include "ui/ui_constructors.h"
 
 static ViewHostSystem *utility_panel = NULL;
-static Size utility_view_size = {{1.0f, 1.0f}, SIZE_PERCENT};
+static Size utility_view_size = {{1.0f, 1.0f}, AXIS_PERCENT, AXIS_PERCENT};
 
 static void InitUtilityStatsView(void)
 {

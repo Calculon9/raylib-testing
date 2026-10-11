@@ -65,21 +65,15 @@ typedef enum
     SPACING_OVERLAYED
 } SpacingType;
 
+// Per-axis sizing mode. Each axis of an element resolves independently via one of these.
 typedef enum
 {
-    SIZE_FIXED,   // Use the literal pixel width
-    SIZE_PERCENT, // Use a percentage of the parent's content area (0.0 to 1.0)
-    SIZE_FILL,    // Take up all remaining space
-    SIZE_CONTENT, // Size to fit enabled children and padding
-    // "Hug" modes size one axis to content and fill the parent on the other. The suffix names
-    // the HUGGED (content-driven) axis; the un-named axis fills the parent.
-    SIZE_HUG_HEIGHT, // Height hugs content, width fills the parent
-    SIZE_HUG_WIDTH,  // Width hugs content, height fills the parent
-    SIZE_CONTENT_MAX, // Fit content, capped by the authored dimensions
-    // Deprecated alias retained for existing call sites/markup: identical to SIZE_HUG_HEIGHT
-    // (content drives height, parent fills width). Prefer SIZE_HUG_HEIGHT in new code.
-    SIZE_CONTENT_FILL = SIZE_HUG_HEIGHT
-} SizeMode;
+    AXIS_FIXED,   // Authored literal from Size.dimensions on this axis (world units).
+    AXIS_PERCENT, // Size.dimensions on this axis is a 0..1 fraction of the parent content extent.
+    AXIS_FILL,    // Take all remaining parent content extent on this axis (dimensions ignored).
+    AXIS_HUG      // Shrink to fit children + padding on this axis. If Size.dimensions on this
+                  // axis > 0 it is a MAX cap; if 0/absent the hug is uncapped.
+} AxisSizeMode;
 
 typedef enum
 {
@@ -115,18 +109,24 @@ typedef struct
     OffsetMode offset_mode;
 } Offset;
 
+// Element size: one authored dimension pair plus an independent mode per axis.
 typedef struct
 {
-    Vector2d dimensions;
-    SizeMode size_mode;
+    Vector2d dimensions;   // Per-axis authored value; meaning depends on that axis's mode.
+    AxisSizeMode width_mode;
+    AxisSizeMode height_mode;
 } Size;
 
-#define UI_SIZE_CONTENT ((Size){{0.0f, 0.0f}, SIZE_CONTENT})
-#define UI_SIZE_HUG_HEIGHT ((Size){{0.0f, 0.0f}, SIZE_HUG_HEIGHT})
-#define UI_SIZE_HUG_WIDTH ((Size){{0.0f, 0.0f}, SIZE_HUG_WIDTH})
-// Deprecated alias of UI_SIZE_HUG_HEIGHT, kept for existing call sites.
-#define UI_SIZE_CONTENT_FILL UI_SIZE_HUG_HEIGHT
-#define UI_SIZE_CONTENT_MAX(max_width, max_height) ((Size){{(max_width), (max_height)}, SIZE_CONTENT_MAX})
+// Convenience constructors. The hug-cap variant encodes the cap in dimensions.
+#define UI_SIZE_FIXED(w, h)   ((Size){{(w), (h)}, AXIS_FIXED,   AXIS_FIXED})
+#define UI_SIZE_PERCENT(w, h) ((Size){{(w), (h)}, AXIS_PERCENT, AXIS_PERCENT})
+#define UI_SIZE_FILL          ((Size){{0.0f, 0.0f}, AXIS_FILL,  AXIS_FILL})
+#define UI_SIZE_HUG           ((Size){{0.0f, 0.0f}, AXIS_HUG,   AXIS_HUG})   // old SIZE_CONTENT (uncapped both axes)
+// Documents the capped-hug authoring form (old SIZE_CONTENT_MAX): dimensions is the per-axis cap.
+#define UI_SIZE_HUG_CAPPED(w, h) ((Size){{(w), (h)}, AXIS_HUG,  AXIS_HUG})
+// Mixed hug/fill. The suffix names the HUGGED axis; the other axis fills the parent.
+#define UI_SIZE_HUG_WIDTH     ((Size){{0.0f, 0.0f}, AXIS_HUG,   AXIS_FILL})  // old SIZE_HUG_WIDTH
+#define UI_SIZE_HUG_HEIGHT    ((Size){{0.0f, 0.0f}, AXIS_FILL,  AXIS_HUG})   // old SIZE_HUG_HEIGHT / SIZE_CONTENT_FILL
 
 typedef struct
 {

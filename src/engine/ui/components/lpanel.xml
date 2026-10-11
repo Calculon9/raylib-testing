@@ -8,33 +8,33 @@
     </ViewSelector>
 
     <View id="state_view" type="LPANEL_STATE_VIEW" scrollable="false">
-        <Section id="general" title="General" size-mode="hug_height">
-            <Button type="simple" text="Dashboard" binding="debug.dashboard" action="toggle-debug-dashboard" size="4.65,0.5" size-mode="fixed" />
+        <Section id="general" title="General" width="fill" height="hug">
+            <Button type="simple" text="Dashboard" binding="debug.dashboard" action="toggle-debug-dashboard" size="4.65,0.5" width="fixed" height="fixed" />
         </Section>
 
-        <Section id="viewport" title="Viewport" size-mode="hug_height">
-            <Button type="simple" text="Viewport Grid" binding="view.viewport-grid" action="toggle-viewport-grid" size="4.65,0.5" size-mode="fixed" />
+        <Section id="viewport" title="Viewport" width="fill" height="hug">
+            <Button type="simple" text="Viewport Grid" binding="view.viewport-grid" action="toggle-viewport-grid" size="4.65,0.5" width="fixed" height="fixed" />
         </Section>
 
-        <Section id="world" title="World" size-mode="hug_height">
-            <Button type="simple" text="World Grid" binding="view.world-grid" action="toggle-world-grid" size="4.65,0.5" size-mode="fixed" />
-            <Button type="simple" text="World Grid Labels" binding="view.world-grid-labels" action="toggle-world-grid-labels" size="4.65,0.5" size-mode="fixed" />
-            <Button type="simple" text="Universe Grid Labels" binding="view.universe-grid-labels" action="toggle-universe-grid-labels" size="4.65,0.5" size-mode="fixed" />
+        <Section id="world" title="World" width="fill" height="hug">
+            <Button type="simple" text="World Grid" binding="view.world-grid" action="toggle-world-grid" size="4.65,0.5" width="fixed" height="fixed" />
+            <Button type="simple" text="World Grid Labels" binding="view.world-grid-labels" action="toggle-world-grid-labels" size="4.65,0.5" width="fixed" height="fixed" />
+            <Button type="simple" text="Universe Grid Labels" binding="view.universe-grid-labels" action="toggle-universe-grid-labels" size="4.65,0.5" width="fixed" height="fixed" />
         </Section>
 
-        <Section id="ui" title="UI" size-mode="hug_height">
-            <Button type="simple" text="UI Borders" binding="view.ui-borders" action="toggle-ui-borders" size="4.65,0.5" size-mode="fixed" />
+        <Section id="ui" title="UI" width="fill" height="hug">
+            <Button type="simple" text="UI Borders" binding="view.ui-borders" action="toggle-ui-borders" size="4.65,0.5" width="fixed" height="fixed" />
         </Section>
 
-        <Section id="objects" title="Objects" size-mode="hug_height">
-            <Button type="simple" text="Object Axes" binding="gizmo.object-axes" action="toggle-object-axes" size="4.65,0.5" size-mode="fixed" />
-            <Button type="simple" text="Object Hull" binding="gizmo.object-hull" action="toggle-object-hull" size="4.65,0.5" size-mode="fixed" />
-            <Button type="simple" text="Object AABB" binding="gizmo.object-aabb" action="toggle-object-aabb" size="4.65,0.5" size-mode="fixed" />
+        <Section id="objects" title="Objects" width="fill" height="hug">
+            <Button type="simple" text="Object Axes" binding="gizmo.object-axes" action="toggle-object-axes" size="4.65,0.5" width="fixed" height="fixed" />
+            <Button type="simple" text="Object Hull" binding="gizmo.object-hull" action="toggle-object-hull" size="4.65,0.5" width="fixed" height="fixed" />
+            <Button type="simple" text="Object AABB" binding="gizmo.object-aabb" action="toggle-object-aabb" size="4.65,0.5" width="fixed" height="fixed" />
         </Section>
     </View>
 
     <View id="draw_view" type="LPANEL_DRAW_VIEW" scrollable="false">
-        <Section id="object_create" title="Object Create" size-mode="hug_height">
+        <Section id="object_create" title="Object Create" width="fill" height="hug">
             <TextField id="vertices" label="Vertices" type="integer" binding="physics.vertice_count" default="4" />
             <TextField id="width" label="Width" type="float" binding="physics.width" default="1.0" />
             <TextField id="height" label="Height" type="float" binding="physics.height" default="1.0" />
@@ -45,7 +45,7 @@
             <TextField id="velocity" label="Vel" type="vector2" binding="physics.velocity" default="0,0" />
             <TextField id="acceleration" label="Acc" type="vector2" />
             <TextField id="moment" label="Moment" type="vector2" />
-            <Button id="create_entity" type="submit" text="CREATE" action="create-entity" size="4.65,0.5" size-mode="fixed" />
+            <Button id="create_entity" type="submit" text="CREATE" action="create-entity" size="4.65,0.5" width="fixed" height="fixed" />
         </Section>
     </View>
 </ViewHost>

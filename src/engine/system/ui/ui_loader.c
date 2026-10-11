@@ -306,7 +306,7 @@ static BindingValueType UILoader_MapDataType(DataType type)
  * Builder for <Button> elements.
  * Attributes: text (required), type (optional: "simple"/"enumerate"/"submit"),
  *             binding (optional source), action (optional sink), size (optional),
- *             size-mode (optional).
+ *             width/height (optional per-axis mode "fixed|percent|fill|hug").
  *
  * Assembles ONE Binding carrying BOTH halves: a display SOURCE from binding= (resolved
  * via resolve_binding into an address or query source) and a commit SINK from action=
@@ -315,7 +315,8 @@ static BindingValueType UILoader_MapDataType(DataType type)
  * button with only binding= becomes a read-only live label; a button with neither gets
  * no Binding and no click handler.
  */
-static UIElement *BuildButton(mxml_node_t *node, UIElement *parent, const UIPalette *palette, UILoaderContext *ctx)
+static UIBuildResult BuildButton(mxml_node_t *node, UIElement *parent, const UIPalette *palette,
+                                 UILoaderContext *ctx, UICommonAttrs *common)
 {
     const char *text = mxmlElementGetAttr(node, "text");
     if (!text)
@@ -330,11 +331,6 @@ static UIElement *BuildButton(mxml_node_t *node, UIElement *parent, const UIPale
         else if (!strcmp(type_attr, "submit"))
             btn_type = UI_ELEMENT_BUTTON_SUBMIT;
     }
-    
-    // Extract size and enabled attributes (enabled defaults to true when absent).
-    Size size = ui_standard_button_size;
-    bool enabled = true;
-    UILoader_ExtractCommonAttrs(node, NULL, &size, NULL, &enabled);
 
     // Assemble a single Binding carrying both a display source (binding=) and a commit
     // sink (action=). have_source/have_sink gate whether a Binding is attached and whether
@@ -446,14 +442,11 @@ static UIElement *BuildButton(mxml_node_t *node, UIElement *parent, const UIPale
     // label) or action-less button gets no handler, matching today's command-code != 0 rule.
     UIEventHandler handler = have_sink ? UILoader_HandleCommandClick : NULL;
 
-    UIElement *button = CreateUIButtonDefault(parent, btn_type, text, size,
+    // Size comes from the common pass (seeded with ui_standard_button_size). The button does
+    // not take an offset constructor arg, so offset stays applied POST by the skeleton
+    // (offset_consumed left false); enabled is applied POST by the skeleton too.
+    UIElement *button = CreateUIButtonDefault(parent, btn_type, text, common->size,
                                               ui_standard_button_padding, palette, handler, NULL, NULL);
-
-    // Apply enabled= (defaults to true).
-    if (button)
-    {
-        button->is_enabled = enabled;
-    }
 
     // Attach the assembled Binding when either half resolved. A command/callback sink is
     // fired by UILoader_HandleCommandClick; a source drives the generic refresh walk.
@@ -463,39 +456,39 @@ static UIElement *BuildButton(mxml_node_t *node, UIElement *parent, const UIPale
         button->data.button.binding = Binding_Create(b);
     }
 
-    return button;
+    // Single-element builder: control == outer (bind_target NULL). The skeleton stamps
+    // id/enabled/offset on the button and recurses children into it, exactly as before.
+    return (UIBuildResult){ .element = button };
 }
 
 /**
  * Builder for <Label> elements.
  * Attributes: text (required)
  */
-static UIElement *BuildLabel(mxml_node_t *node, UIElement *parent, const UIPalette *palette, UILoaderContext *ctx)
+static UIBuildResult BuildLabel(mxml_node_t *node, UIElement *parent, const UIPalette *palette,
+                                UILoaderContext *ctx, UICommonAttrs *common)
 {
     const char *text = mxmlElementGetAttr(node, "text");
     if (!text)
         text = "";
-    
-    UIElement *label_elem = CreateUILabelDefault(parent, text, ui_standard_control_size,
+
+    // Size comes from the common pass (seeded with ui_standard_control_size). Offset is
+    // applied POST by the skeleton (not consumed) and enabled by the skeleton too.
+    UIElement *label_elem = CreateUILabelDefault(parent, text, common->size,
                                ui_standard_button_padding, palette);
 
-    // Apply enabled= (defaults to true when absent).
-    const char *enabled_attr = mxmlElementGetAttr(node, "enabled");
-    if (label_elem && enabled_attr)
-    {
-        label_elem->is_enabled = strcmp(enabled_attr, "false") != 0;
-    }
-
-    return label_elem;
+    // Single-element builder: control == outer. id/offset/enabled/size land on the label.
+    return (UIBuildResult){ .element = label_elem };
 }
 
 /**
  * Builder for <TextField> elements.
  * Attributes: label (required), type (integer/float/vector2), binding (optional source,
  *             optionally a dynamic write sink), io (optional: "readonly"/"safe"/"raw"),
- *             size (optional "w,h"), size-mode (optional), offset (optional "x,y"),
+ *             size (optional "w,h"), width/height (optional per-axis mode
+ *             "fixed|percent|fill|hug"), offset (optional "x,y"),
  *             offset-mode (optional "fixed"/"percent"), enabled (optional).
- * size/size-mode and offset/offset-mode default to ui_standard_control_size and a zero
+ * size/width/height and offset/offset-mode default to ui_standard_control_size and a zero
  * fixed offset when absent, so attribute-less markup is unchanged.
  *
  * Resolves binding= through ctx->resolve_binding and ATTACHES the result to the created
@@ -507,37 +500,34 @@ static UIElement *BuildLabel(mxml_node_t *node, UIElement *parent, const UIPalet
  * UI_ELEMENT_TEXTBOX_IO so existing markup is byte-for-byte unchanged. The loader stays
  * domain-free: it only ever handles function pointers, opaque int keys, and generic types.
  */
-static UIElement *BuildTextField(mxml_node_t *node, UIElement *parent, const UIPalette *palette, UILoaderContext *ctx)
+/**
+ * Map a <TextField>/<Textbox> type= attribute to the DataType the field parses/formats with.
+ * Absent/unrecognised => FLOAT (the historic default), matching the pre-refactor behaviour.
+ */
+static DataType UILoader_ParseFieldDataType(const char *type_attr)
 {
-    const char *label = mxmlElementGetAttr(node, "label");
-    if (!label)
-        label = "";
-    
-    const char *type_attr = mxmlElementGetAttr(node, "type");
-    DataType data_type = FLOAT;  // Default data type
-    
-    // Map type attribute to the DataType the field parses/formats with.
     if (type_attr)
     {
         if (!strcmp(type_attr, "integer"))
-        {
-            data_type = INT;
-        }
+            return INT;
         else if (!strcmp(type_attr, "float"))
-        {
-            data_type = FLOAT;
-        }
+            return FLOAT;
         else if (!strcmp(type_attr, "vector2"))
-        {
-            data_type = VECTOR2D;
-        }
+            return VECTOR2D;
     }
+    return FLOAT;  // Default data type
+}
 
-    // 0.4 - Map io= to the textbox IO type. Absent => UI_ELEMENT_TEXTBOX_IO (raw), the exact
-    // value hardcoded before this stage, so existing <TextField> markup builds unchanged.
-    // An unrecognised value falls back to raw and warns (consistent with BuildViewSelector).
+/**
+ * Map a <TextField>/<Textbox> io= attribute to the textbox IO element type.
+ * Absent => UI_ELEMENT_TEXTBOX_IO (raw), the exact value hardcoded before the common-builder
+ * refactor, so existing markup builds unchanged. An unrecognised value falls back to raw and
+ * warns (consistent with BuildViewSelector). Shared by BuildTextField and BuildTextbox so the
+ * two stay in lockstep.
+ */
+static UIElementType UILoader_ParseFieldIoType(UILoaderContext *ctx, const char *io_attr)
+{
     UIElementType field_type = UI_ELEMENT_TEXTBOX_IO;
-    const char *io_attr = mxmlElementGetAttr(node, "io");
     if (io_attr)
     {
         if (!strcmp(io_attr, "readonly"))
@@ -549,14 +539,30 @@ static UIElement *BuildTextField(mxml_node_t *node, UIElement *parent, const UIP
         else
             LOADER_WARNING(ctx, "Unrecognised io value");
     }
+    return field_type;
+}
 
-    // 0.1/0.2 - Resolve binding= and assemble a single Binding, mirroring BuildButton's
-    // source logic exactly. A source (address or query) drives the live display via the
-    // per-frame refresh walk; an optional query-paired write callback makes the field
-    // editable (commit-on-ENTER through Binding_Commit).
-    Binding b = {0};
-    bool have_source = false;
-    bool have_sink = false;
+/**
+ * Resolve a binding= attribute and assemble the textbox source/sink into `b`.
+ *
+ * Shared verbatim by BuildTextField and BuildTextbox so the two never drift. A source
+ * (address or query) drives the live display via the per-frame refresh walk; an optional
+ * query-paired write callback makes the field editable (commit-on-ENTER through
+ * Binding_Commit). Mirrors BuildButton's source logic exactly.
+ *
+ * @param node          XML element node to read binding= from
+ * @param ctx           Loader context (supplies resolve_binding; may be NULL)
+ * @param b             Output Binding to populate (source/sink written in place)
+ * @param have_source   Output: set true when a display source resolved
+ * @param have_sink     Output: set true when a dynamic write sink resolved
+ * @param data_type     In/out: parse/format DataType, overwritten to match an address source
+ */
+static void UILoader_AssembleTextboxBinding(mxml_node_t *node, UILoaderContext *ctx,
+                                            Binding *b, bool *have_source, bool *have_sink,
+                                            DataType *data_type)
+{
+    *have_source = false;
+    *have_sink = false;
 
     const char *binding_attr = mxmlElementGetAttr(node, "binding");
     if (binding_attr && ctx && ctx->resolve_binding)
@@ -581,22 +587,22 @@ static UIElement *BuildTextField(mxml_node_t *node, UIElement *parent, const UIP
             }
             else
             {
-                b.source.kind = BIND_SRC_ADDRESS;
-                b.source.value_type = vt;
-                b.source.address = src.address;
-                data_type = src.data_type; // keep parse/format in step with the source
-                have_source = true;
+                b->source.kind = BIND_SRC_ADDRESS;
+                b->source.value_type = vt;
+                b->source.address = src.address;
+                *data_type = src.data_type; // keep parse/format in step with the source
+                *have_source = true;
             }
         }
         else if (k == UI_BIND_SRC_QUERY && src.query)
         {
             // Query source: live display driven by the query fn. The query owns the real
             // type; value_type is advisory.
-            b.source.kind = BIND_SRC_QUERY;
-            b.source.value_type = src.value_type;
-            b.source.query = src.query;
-            b.source.query_key = src.query_key;
-            have_source = true;
+            b->source.kind = BIND_SRC_QUERY;
+            b->source.value_type = src.value_type;
+            b->source.query = src.query;
+            b->source.query_key = src.query_key;
+            *have_source = true;
         }
         else
         {
@@ -611,11 +617,11 @@ static UIElement *BuildTextField(mxml_node_t *node, UIElement *parent, const UIP
         // and the field stays read-only, exactly as the source-only path leaves it.
         if (src.write)
         {
-            b.sink.kind = BIND_SINK_CALLBACK;
-            b.sink.value_type = src.value_type;
-            b.sink.write = src.write;
-            b.sink.write_key = src.write_key;
-            have_sink = true;
+            b->sink.kind = BIND_SINK_CALLBACK;
+            b->sink.value_type = src.value_type;
+            b->sink.write = src.write;
+            b->sink.write_key = src.write_key;
+            *have_sink = true;
         }
     }
     else if (binding_attr)
@@ -623,138 +629,209 @@ static UIElement *BuildTextField(mxml_node_t *node, UIElement *parent, const UIP
         // Binding specified but no resolver available.
         LOADER_WARNING(ctx, "Binding specified but resolver not available");
     }
-    
-    // Honour authored size=/size-mode= and offset=/offset-mode= when present, so a field's
-    // dimensions and position are controllable from markup. Absent attributes fall back to
-    // the standard control size and a zero (fixed) offset, matching the previous behaviour.
-    Size field_size = ui_standard_control_size;
-    Offset field_offset = {{0.0f, 0.0f}, OFFSET_FIXED};
-    UILoader_ExtractCommonAttrs(node, NULL, &field_size, &field_offset, NULL);
+}
 
-    UIElement *field = CreateUILabeledFieldDefault(parent, label, field_type,
-                                      field_size,
+static UIBuildResult BuildTextField(mxml_node_t *node, UIElement *parent, const UIPalette *palette,
+                                    UILoaderContext *ctx, UICommonAttrs *common)
+{
+    const char *label = mxmlElementGetAttr(node, "label");
+    if (!label)
+        label = "";
+
+    // Map type= to the parse/format DataType and io= to the textbox IO element type (shared
+    // with BuildTextbox so the two primitives stay in lockstep).
+    DataType data_type = UILoader_ParseFieldDataType(mxmlElementGetAttr(node, "type"));
+    UIElementType field_type = UILoader_ParseFieldIoType(ctx, mxmlElementGetAttr(node, "io"));
+
+    // 0.1/0.2 - Resolve binding= and assemble a single Binding (shared helper).
+    Binding b = {0};
+    bool have_source = false;
+    bool have_sink = false;
+    UILoader_AssembleTextboxBinding(node, ctx, &b, &have_source, &have_sink, &data_type);
+
+    // Size comes from the common pass (seeded with ui_standard_control_size) and is passed as
+    // the ROW size. CreateUILabeledFieldDefault builds the UI_ELEMENT_TEXTFIELD row with a
+    // label child and a textbox child and returns the TEXTBOX child (its public return is
+    // relied upon by InitUIFields, so it is left unchanged). The row is the OUTER element the
+    // <TextField> tag represents; the textbox is the inner CONTROL.
+    UIElement *textbox = CreateUILabeledFieldDefault(parent, label, field_type,
+                                      common->size,
                                       ui_standard_field_padding, palette);
+    if (!textbox)
+        return (UIBuildResult){ NULL };
 
-    // Apply the authored offset to the field row. Both authored_ and resolved_offset are set
-    // so the layout pass starts from the authored position (mirrors CreateUILabeledField's
-    // treatment of its own child offsets).
-    if (field)
-    {
-        field->authored_offset = field_offset;
-        field->resolved_offset = field_offset;
-    }
+    // Derive the row (UI_ELEMENT_TEXTFIELD) as the textbox's parent. CreateLabeledFieldElement
+    // always AddElementToTree(textbox, field) before returning, so parent is non-NULL on
+    // success; null-check defensively anyway.
+    UIElement *row = textbox->parent;
+    if (!row)
+        return (UIBuildResult){ NULL };
 
-    // Attach the assembled Binding when a source OR a sink resolved (mirrors BuildButton's
-    // have_source || have_sink gate). CreateUILabeledFieldDefault returns the input child
-    // (the textbox itself), so field->data.textbox is the live union member. The precision
-    // uses the documented default sentinel (0). The binding is freed by DisposeUIElement's
-    // textbox cleanup, the same path that frees BindTextboxStable/Dynamic bindings.
-    if (field && (have_source || have_sink))
+    // Attach the assembled Binding + data_type to the CONTROL (textbox) explicitly when a
+    // source OR a sink resolved (mirrors BuildButton's have_source || have_sink gate). The row
+    // is a container and has no meaningful data.textbox, so all data/binding writes target the
+    // textbox. The precision uses the documented default sentinel (0). The binding is freed by
+    // DisposeUIElement's textbox cleanup, as for BindTextboxStable/Dynamic bindings.
+    if (have_source || have_sink)
     {
         b.precision = 0;
-        field->data.textbox.data_type = data_type; // parse/format agrees with the source
-        field->data.textbox.binding = Binding_Create(b);
+        textbox->data.textbox.data_type = data_type; // parse/format agrees with the source
+        textbox->data.textbox.binding = Binding_Create(b);
     }
 
-    // Apply enabled= (defaults to true when absent).
-    const char *enabled_attr = mxmlElementGetAttr(node, "enabled");
-    if (field && enabled_attr)
+    // id-on-control (design section 7): stamp common.id onto the TEXTBOX (control) here so
+    // FindById(id) returns the textbox exactly as external code (StateManager) expects. The
+    // skeleton skips id-stamping for composites (control != outer), so the row carries no id.
+    safe_strncpy(textbox->id, common->id, MAX_UI_ELEMENT_ID);
+
+    // Return the ROW as outer and the TEXTBOX as the control. The skeleton applies
+    // offset/enabled to the ROW and recurses children into it, so the textbox KEEPS its
+    // constructor-authored {0.38,0} OFFSET_PERCENT and its AXIS_PERCENT split - the fix that
+    // makes the label visible again. enabled= is applied POST by the skeleton on the row.
+    return (UIBuildResult){ .element = row, .bind_target = textbox };
+}
+
+/**
+ * Builder for <Textbox> elements (standalone input primitive).
+ * Attributes: type (integer/float/vector2), io (optional: "readonly"/"safe"/"raw"),
+ *             binding (optional source, optionally a dynamic write sink), size (optional
+ *             "w,h"), width/height (optional per-axis mode), offset (optional),
+ *             offset-mode (optional), enabled (optional).
+ *
+ * Constructs a BARE textbox - the SAME UI_ELEMENT_TEXTBOX_* control <TextField> uses
+ * internally - with NO label and NO row wrapper, parented straight under `parent`. It is a
+ * SINGLE-element builder (control == outer), so id/offset/enabled/size land on the textbox
+ * naturally and its binding/data_type target it. io=/type=/binding= are read exactly as
+ * BuildTextField does (shared helpers) so the two primitives stay in lockstep.
+ */
+static UIBuildResult BuildTextbox(mxml_node_t *node, UIElement *parent, const UIPalette *palette,
+                                  UILoaderContext *ctx, UICommonAttrs *common)
+{
+    if (!palette)
+        palette = &ui_default_palette;
+
+    // Map type= and io= via the shared helpers (identical mapping to BuildTextField).
+    DataType data_type = UILoader_ParseFieldDataType(mxmlElementGetAttr(node, "type"));
+    UIElementType field_type = UILoader_ParseFieldIoType(ctx, mxmlElementGetAttr(node, "io"));
+
+    // Resolve binding= and assemble the Binding using the SAME helper as BuildTextField.
+    Binding b = {0};
+    bool have_source = false;
+    bool have_sink = false;
+    UILoader_AssembleTextboxBinding(node, ctx, &b, &have_source, &have_sink, &data_type);
+
+    // Derive the input-cell palette colours, mirroring how CreateUILabeledFieldDefault styles
+    // the row's textbox child, so a standalone <Textbox> looks like a field input cell.
+    ColourRgba input_border;
+    ColourRgba input_fill;
+    UIPalette_GetSurfaceColours(palette, UI_PALETTE_SURFACE_INPUT, &input_border, &input_fill);
+
+    // Construct a bare textbox under `parent`, mirroring how CreateLabeledFieldElement makes
+    // its textbox child (same UI_ELEMENT_TEXTBOX_* type) but with NO row and NO percent split.
+    // Size comes from the common pass (seeded with ui_standard_control_size); offset is applied
+    // POST by the skeleton (offset_consumed left false) so a zero fixed offset is the default.
+    UIElement *textbox = CreateUIElementInTree(field_type, common->size, parent,
+                                               (Offset){ZERO_VECTOR_2D, OFFSET_FIXED},
+                                               ui_standard_field_padding,
+                                               input_border, input_fill);
+    if (!textbox)
+        return (UIBuildResult){ NULL };
+
+    // Match the row child's cosmetics: medium font in the palette's text colour and
+    // vertically-centred text.
+    textbox->data.textbox.font = FONT_MEDIUM_WITH_COLOUR(palette->text);
+    SetUIElementTextVerticalAlignment(textbox, UI_TEXT_VERTICAL_ALIGN_CENTRE);
+
+    // Attach the Binding + data_type to the textbox (which IS outer here, so the data lands on
+    // the live union member and FindById returns this element naturally).
+    if (have_source || have_sink)
     {
-        field->is_enabled = strcmp(enabled_attr, "false") != 0;
+        b.precision = 0;
+        textbox->data.textbox.data_type = data_type;
+        textbox->data.textbox.binding = Binding_Create(b);
     }
 
-    return field;
+    // Single-element builder: control == outer. id/offset/enabled/size land on the textbox.
+    return (UIBuildResult){ .element = textbox };
 }
 
 /**
  * Builder for <Section> elements.
- * Attributes: title (required), id (optional), size (optional "w,h"), size-mode (optional),
+ * Attributes: title (required), id (optional), size (optional "w,h"),
+ *             width/height (optional per-axis mode "fixed|percent|fill|hug"),
  *             layout (optional: "stack"/"stack_wrap"/"inline_wrap"),
  *             offset (optional "x,y"), offset-mode (optional "fixed"/"percent")
  * Children are added to the section's container.
  */
-static UIElement *BuildSection(mxml_node_t *node, UIElement *parent,
-                               const UIPalette *palette, UILoaderContext *ctx)
+static UIBuildResult BuildSection(mxml_node_t *node, UIElement *parent,
+                                  const UIPalette *palette, UILoaderContext *ctx,
+                                  UICommonAttrs *common)
 {
     const char *title = mxmlElementGetAttr(node, "title");
     if (!title)
         title = "";
-    
-    // Extract size, offset and enabled attributes (enabled defaults to true).
-    Size size = ui_standard_container_size;
-    Offset offset = {{0.0f, 0.0f}, OFFSET_FIXED};
-    bool enabled = true;
-    UILoader_ExtractCommonAttrs(node, NULL, &size, &offset, &enabled);
-    
-    // Extract layout attribute to determine child spacing
-    const char *layout_attr = mxmlElementGetAttr(node, "layout");
-    const Spacing *layout = UILoader_ParseLayout(layout_attr);
-    
-    // Create section with explicit size, offset, and layout
-    UIElement *section = CreateViewSection(parent, title, size, offset, layout, palette);
 
-    // Apply enabled= (defaults to true).
-    if (section)
-    {
-        section->is_enabled = enabled;
-    }
+    // Size, offset and layout all come from the common pass (size seeded with
+    // ui_standard_container_size). The offset is passed into CreateViewSection, so mark it
+    // consumed and let the skeleton skip the post-apply (exactly-once offset). enabled is
+    // applied POST by the skeleton.
+    UIElement *section = CreateViewSection(parent, title, common->size, common->offset,
+                                           common->layout, palette);
+    common->offset_consumed = true;
 
-    return section;
+    // Single-element builder: control == outer (offset consumed at construct time).
+    return (UIBuildResult){ .element = section };
 }
 
 /**
  * Builder for <Container> elements.
- * Attributes: size (optional), spacing (optional)
+ * Attributes: size (optional "w,h"), width/height (optional per-axis mode
+ *             "fixed|percent|fill|hug"), spacing (optional)
  * Children are added to the container.
  */
-static UIElement *BuildContainer(mxml_node_t *node, UIElement *parent,
-                                 const UIPalette *palette, UILoaderContext *ctx)
+static UIBuildResult BuildContainer(mxml_node_t *node, UIElement *parent,
+                                    const UIPalette *palette, UILoaderContext *ctx,
+                                    UICommonAttrs *common)
 {
-    // Extract size, offset and layout exactly as BuildSection does, defaulting to
-    // the standard container size when the attributes are absent. This only honours
-    // attributes when present, so it is not a behavioural change for existing
-    // attribute-less <Container> markup.
-    Size size = ui_standard_container_size;
-    Offset offset = {{0.0f, 0.0f}, OFFSET_FIXED};
-    bool enabled = true;
-    UILoader_ExtractCommonAttrs(node, NULL, &size, &offset, &enabled);
-
-    const char *layout_attr = mxmlElementGetAttr(node, "layout");
-    const Spacing *layout = UILoader_ParseLayout(layout_attr);
-
-    return CreateUIContainer(parent, size, offset,
+    // Size, offset, layout and enabled all come from the common pass (size seeded with
+    // ui_standard_container_size). The offset is passed into CreateUIContainer, so mark it
+    // consumed; the skeleton re-asserts the same enabled value afterwards (idempotent).
+    UIElement *container = CreateUIContainer(parent, common->size, common->offset,
                             ui_standard_container_padding, palette,
-                            UI_PALETTE_SURFACE_CONTAINER, *layout,
-                            false, enabled);  // honour enabled= (defaults to true)
+                            UI_PALETTE_SURFACE_CONTAINER, *common->layout,
+                            false, common->enabled);
+    common->offset_consumed = true;
+
+    // Single-element builder: control == outer (offset consumed at construct time).
+    return (UIBuildResult){ .element = container };
 }
 
 /**
  * Builder for <View> elements.
- * Attributes: id (optional), type (optional), scrollable (optional)
+ * Attributes: id (optional), type (optional), scrollable (optional), layout (optional),
+ *             width/height (optional: "fixed"/"percent"/"fill"/"hug"), size (optional "w,h"),
+ *             offset (optional "x,y"), offset-mode (optional), enabled (optional).
  * Children (Sections) are added to the view container.
- * 
- * Creates a View struct with a fill-size container. The View is independent
- * of any panel and can be registered with a panel later if needed.
+ *
+ * width/height/size and offset default to a fill/fill container and a zero fixed offset
+ * when absent (a bare <View> fills its host). The View is independent of any panel and can
+ * be registered with a panel later if needed.
  */
-static UIElement *BuildView(mxml_node_t *node, UIElement *parent,
-                            const UIPalette *palette, UILoaderContext *ctx)
+static UIBuildResult BuildView(mxml_node_t *node, UIElement *parent,
+                               const UIPalette *palette, UILoaderContext *ctx,
+                               UICommonAttrs *common)
 {
-    // Extract view attributes. The id is preserved so Options and the ViewHost's
-    // initialView can resolve to this View's index after the tree is built. The
-    // enabled flag defaults to true when the attribute is absent.
-    char view_id[MAX_UI_ELEMENT_ID] = {0};
-    bool enabled = true;
-    UILoader_ExtractCommonAttrs(node, view_id, NULL, NULL, &enabled);
-    
+    // The id comes from the common pass (preserved so Options and the ViewHost's initialView
+    // can resolve to this View's index after the tree is built). Size/offset/layout/enabled
+    // likewise come from common (size seeded with ui_fill_container_size), so a bare <View>
+    // keeps its historic "fills the host" behaviour.
+    const char *view_id = common->id;
+
     const char *view_type_str = mxmlElementGetAttr(node, "type");
     const char *scrollable_attr = mxmlElementGetAttr(node, "scrollable");
     // Honour scrollable= when present (default false); applied to the View struct
     // in UILoader_CollectViewContainers once the View wrapper exists.
     bool is_scrollable = scrollable_attr && strcmp(scrollable_attr, "true") == 0;
-
-    // Honour layout= for the view's child spacing (defaults to stack when absent).
-    const char *layout_attr = mxmlElementGetAttr(node, "layout");
-    const Spacing *layout = UILoader_ParseLayout(layout_attr);
 
     // Resolve the type= string to a ViewType through the application-supplied
     // resolver. The generic loader never names application ViewType enums, so an
@@ -783,18 +860,21 @@ static UIElement *BuildView(mxml_node_t *node, UIElement *parent,
                view_id, view_type_str ? view_type_str : "<none>",
                is_scrollable ? "true" : "false");
     
-    // Create container with UI_ELEMENT_VIEW type so post-processor can find it
+    // Create container with UI_ELEMENT_VIEW type so post-processor can find it. Size/offset/
+    // layout/enabled all come from the common pass; the offset is consumed at construct time
+    // so the skeleton does not re-apply it.
     UIElement *container = CreateUIContainer(
         parent,
-        ui_fill_container_size,
-        (Offset){{0, 0}, OFFSET_FIXED},
+        common->size,     // honour width=/height=/size= (defaults to fill/fill)
+        common->offset,   // honour offset=/offset-mode= (defaults to zero fixed)
         ui_standard_container_padding,
         palette,
         UI_PALETTE_SURFACE_CONTAINER,
-        *layout,          // honour layout= (defaults to stack)
+        *common->layout,  // honour layout= (defaults to stack)
         false,
-        enabled           // honour enabled= (defaults to true)
+        common->enabled   // honour enabled= (skeleton re-asserts the same value)
     );
+    common->offset_consumed = true;
     
     if (container)
     {
@@ -806,7 +886,8 @@ static UIElement *BuildView(mxml_node_t *node, UIElement *parent,
         UILoader_RecordView(ctx, container, view_type, view_id, is_scrollable);
     }
     
-    return container;
+    // Single-element builder: control == outer (offset consumed at construct time).
+    return (UIBuildResult){ .element = container };
 }
 
 /**
@@ -814,8 +895,9 @@ static UIElement *BuildView(mxml_node_t *node, UIElement *parent,
  * Attributes: id (optional), type (optional)
  * Children (Options) are converted to selector buttons.
  */
-static UIElement *BuildViewSelector(mxml_node_t *node, UIElement *parent,
-                                    const UIPalette *palette, UILoaderContext *ctx)
+static UIBuildResult BuildViewSelector(mxml_node_t *node, UIElement *parent,
+                                       const UIPalette *palette, UILoaderContext *ctx,
+                                       UICommonAttrs *common)
 {
     // Build the toggle-bar container, mirroring the styling of
     // ViewHostSystem_CreateStandardViewSelector (transparent surface, container
@@ -829,14 +911,20 @@ static UIElement *BuildViewSelector(mxml_node_t *node, UIElement *parent,
         LOADER_WARNING(ctx, "Unrecognised view selector type; defaulting to enumerate");
     }
 
-    bool enabled = true;
-    UILoader_ExtractCommonAttrs(node, NULL, NULL, NULL, &enabled);
-
+    // Size and offset now come from the common pass (folded into the common-owns-it model).
+    // The registry seeds common.size with ui_standard_selector_container_size and the skeleton
+    // seeds the zero fixed offset, so attribute-less <ViewSelector> markup is byte-for-byte
+    // unchanged; only newly-authored size/offset/width/height take effect. The child spacing
+    // stays the hardcoded ui_zero_inline_spacing (a fixed horizontal toggle bar - layout
+    // authorability for the selector bar is intentionally NOT part of this change). The
+    // transparent surface, zero padding and colour_border styling are preserved exactly.
     UIElement *toggle_cont = CreateUIContainer(
-        parent, ui_standard_selector_container_size,
-        (Offset){{0.0f, 0.0f}, OFFSET_FIXED}, ZERO_VECTOR_2D,
+        parent, common->size,
+        common->offset, ZERO_VECTOR_2D,
         palette, UI_PALETTE_SURFACE_TRANSPARENT,
-        ui_zero_inline_spacing, false, enabled);  // honour enabled= (defaults to true)
+        ui_zero_inline_spacing, false, common->enabled);
+    // Offset is passed into the constructor, so mark it consumed (no skeleton double-apply).
+    common->offset_consumed = true;
 
     if (toggle_cont)
     {
@@ -845,15 +933,17 @@ static UIElement *BuildViewSelector(mxml_node_t *node, UIElement *parent,
         g_markup_table.selector_cont = toggle_cont;
     }
 
-    return toggle_cont;
+    // Single-element builder: control == outer (offset consumed at construct time).
+    return (UIBuildResult){ .element = toggle_cont };
 }
 
 /**
  * Builder for <Option> elements (inside ViewSelector).
  * Attributes: text (required), view (optional)
  */
-static UIElement *BuildOption(mxml_node_t *node, UIElement *parent,
-                              const UIPalette *palette, UILoaderContext *ctx)
+static UIBuildResult BuildOption(mxml_node_t *node, UIElement *parent,
+                                 const UIPalette *palette, UILoaderContext *ctx,
+                                 UICommonAttrs *common)
 {
     const char *text = mxmlElementGetAttr(node, "text");
     if (!text)
@@ -869,29 +959,33 @@ static UIElement *BuildOption(mxml_node_t *node, UIElement *parent,
         LOADER_WARNING(ctx, "Option missing view target");
     }
 
+    // Size now comes from the common pass (folded into the common-owns-it model). The
+    // registry seeds common.size with ui_standard_selector_button_size, so attribute-less
+    // <Option> markup is byte-for-byte unchanged; only newly-authored size/width/height take
+    // effect. A button takes no offset constructor arg, so offset is applied POST by the
+    // skeleton (offset_consumed left false) - identical to Button/TextField/Label. enabled is
+    // likewise applied POST by the skeleton.
     UIElement *button = CreateUIButtonDefault(parent, UI_ELEMENT_BUTTON_ENUMERATE, text,
-                                             ui_standard_selector_button_size,
+                                             common->size,
                                              ui_standard_button_padding, palette,
                                              NULL, NULL, NULL);
 
     if (button)
     {
-        // Apply enabled= (defaults to true when absent).
-        const char *enabled_attr = mxmlElementGetAttr(node, "enabled");
-        if (enabled_attr)
-        {
-            button->is_enabled = strcmp(enabled_attr, "false") != 0;
-        }
         UILoader_RecordOption(ctx, button, view_attr);
     }
 
-    return button;
+    // Single-element builder: control == outer (offset applied POST by the skeleton).
+    return (UIBuildResult){ .element = button };
 }
 
 /**
  * Builder for <ViewHost> elements (root of a multi-view panel markup).
  * Attributes: id (optional), layout (optional: "stacked"/"stack"/...),
- *             initial-view (optional), enabled (optional, default true).
+ *             initial-view (optional), enabled (optional, default true),
+ *             width/height (optional: "fixed"/"percent"/"fill"/"hug"), size (optional "w,h"),
+ *             offset (optional "x,y"), offset-mode (optional). width/height/size and offset
+ *             default to a fill/fill surface and a zero fixed offset when absent.
  *
  * Produces a plain fill-size container (NOT a UI_ELEMENT_ROOT) that becomes the
  * content host re-parented under the real ViewHostSystem root in InitLPanel. The
@@ -900,16 +994,14 @@ static UIElement *BuildOption(mxml_node_t *node, UIElement *parent,
  * generic loader free of viewport knowledge. The initial-view id is recorded for
  * the application to resolve to a view index.
  */
-static UIElement *BuildViewHost(mxml_node_t *node, UIElement *parent,
-                                const UIPalette *palette, UILoaderContext *ctx)
+static UIBuildResult BuildViewHost(mxml_node_t *node, UIElement *parent,
+                                   const UIPalette *palette, UILoaderContext *ctx,
+                                   UICommonAttrs *common)
 {
-    // Extract the host id (documentation / future lookup), enabled flag and layout spacing.
-    char host_id[MAX_UI_ELEMENT_ID] = {0};
-    bool enabled = true;
-    UILoader_ExtractCommonAttrs(node, host_id, NULL, NULL, &enabled);
-
-    const char *layout_attr = mxmlElementGetAttr(node, "layout");
-    const Spacing *layout = UILoader_ParseLayout(layout_attr);
+    // id, size, offset, layout and enabled all come from the common pass (size seeded with
+    // ui_fill_container_size), so a bare <ViewHost> keeps its historic behaviour of filling
+    // the application-built root. The offset is consumed at construct time.
+    const char *host_id = common->id;
 
     // Record the initial-view attribute so InitLPanel can resolve it to an index.
     const char *initial_view = mxmlElementGetAttr(node, "initial-view");
@@ -922,11 +1014,15 @@ static UIElement *BuildViewHost(mxml_node_t *node, UIElement *parent,
     // A plain fill-size container; the real UI_ELEMENT_ROOT is built by
     // ViewHostSystem_InitRoot in InitLPanel and this container is re-parented under
     // it. parent is NULL at the document root.
-    return CreateUIContainer(parent, ui_fill_container_size,
-                             (Offset){{0, 0}, OFFSET_FIXED},
+    UIElement *host = CreateUIContainer(parent, common->size,  // honour width=/height=/size= (defaults fill/fill)
+                             common->offset,                    // honour offset=/offset-mode= (defaults zero fixed)
                              ui_standard_container_padding, palette,
-                             UI_PALETTE_SURFACE_CONTAINER, *layout,
-                             false, enabled);  // honour enabled= (defaults to true)
+                             UI_PALETTE_SURFACE_CONTAINER, *common->layout,
+                             false, common->enabled);           // skeleton re-asserts the same enabled value
+    common->offset_consumed = true;
+
+    // Single-element builder: control == outer (offset consumed at construct time).
+    return (UIBuildResult){ .element = host };
 }
 
 // ============================================================================
@@ -935,23 +1031,28 @@ static UIElement *BuildViewHost(mxml_node_t *node, UIElement *parent,
 
 void UILoader_RegisterDefaultBuilders(void)
 {
-    // Register all built-in element type builders
-    UILoader_RegisterBuilder("ViewHost", BuildViewHost);
-    UILoader_RegisterBuilder("ViewSelector", BuildViewSelector);
-    UILoader_RegisterBuilder("Option", BuildOption);
-    UILoader_RegisterBuilder("View", BuildView);
-    UILoader_RegisterBuilder("Section", BuildSection);
-    UILoader_RegisterBuilder("Container", BuildContainer);
-    UILoader_RegisterBuilder("Button", BuildButton);
-    UILoader_RegisterBuilder("Label", BuildLabel);
-    UILoader_RegisterBuilder("TextField", BuildTextField);
+    // Register all built-in element type builders. Each builder's per-type size default
+    // (the exact constant it previously hardcoded) is seeded into the registry so the
+    // skeleton can place it in common.size before extraction, keeping attribute-less markup
+    // byte-for-byte unchanged.
+    UILoader_RegisterBuilder("ViewHost", BuildViewHost, ui_fill_container_size);
+    UILoader_RegisterBuilder("ViewSelector", BuildViewSelector, ui_standard_selector_container_size);
+    UILoader_RegisterBuilder("Option", BuildOption, ui_standard_selector_button_size);
+    UILoader_RegisterBuilder("View", BuildView, ui_fill_container_size);
+    UILoader_RegisterBuilder("Section", BuildSection, ui_standard_container_size);
+    UILoader_RegisterBuilder("Container", BuildContainer, ui_standard_container_size);
+    UILoader_RegisterBuilder("Button", BuildButton, ui_standard_button_size);
+    UILoader_RegisterBuilder("Label", BuildLabel, ui_standard_control_size);
+    UILoader_RegisterBuilder("Textbox", BuildTextbox, ui_standard_control_size);
+    UILoader_RegisterBuilder("TextField", BuildTextField, ui_standard_control_size);
 }
 
 // ============================================================================
 // Registry Management
 // ============================================================================
 
-bool UILoader_RegisterBuilder(const char *tag_name, UIElementBuilder builder)
+bool UILoader_RegisterBuilder(const char *tag_name, UIElementBuilder builder,
+                              Size default_size)
 {
     if (!tag_name || !builder)
         return false;
@@ -968,6 +1069,9 @@ bool UILoader_RegisterBuilder(const char *tag_name, UIElementBuilder builder)
     
     g_builder_registry.entries[g_builder_registry.count].tag_name = tag_name;
     g_builder_registry.entries[g_builder_registry.count].builder = builder;
+    // Store the per-type size default; the skeleton seeds common.size with this before
+    // extraction so attribute-less markup keeps each element's historic default size.
+    g_builder_registry.entries[g_builder_registry.count].default_size = default_size;
     g_builder_registry.count++;
     
     return true;
@@ -1017,44 +1121,41 @@ static const Spacing *UILoader_ParseLayout(const char *layout_str)
     return &ui_standard_stack_spacing;  // Default
 }
 
-// Helper: Parse SizeMode from string (e.g., "fixed", "fill", "hug_width", "hug_height")
-static SizeMode UILoader_ParseSizeMode(const char *mode_str)
+// Parse one per-axis mode keyword ("fixed"|"percent"|"fill"|"hug") into an AxisSizeMode.
+// *present is set true only when a recognised keyword was supplied; a NULL attribute or an
+// unrecognised value leaves it false (so the caller keeps the builder's default for that
+// axis). An unrecognised non-NULL value also emits a loader warning.
+static AxisSizeMode UILoader_ParseAxisMode(UILoaderContext *ctx, const char *mode_str, bool *present)
 {
+    if (present)
+        *present = false;
+
     if (!mode_str)
-        return SIZE_CONTENT;  // Default
+        return AXIS_FIXED;
 
-    // Normalise hyphenated attribute values (e.g. "content-fill") to the
-    // underscore form the comparisons below expect. We copy into a local
-    // buffer so the caller's string is never mutated; any value longer than
-    // the buffer simply falls through to the default, which is acceptable.
-    char norm[32];
-    size_t i = 0;
-    for (; mode_str[i] != '\0' && i < sizeof(norm) - 1; ++i)
-        norm[i] = (mode_str[i] == '-') ? '_' : mode_str[i];
-    norm[i] = '\0';
+    if (!strcmp(mode_str, "fixed"))
+    {
+        if (present) *present = true;
+        return AXIS_FIXED;
+    }
+    else if (!strcmp(mode_str, "percent"))
+    {
+        if (present) *present = true;
+        return AXIS_PERCENT;
+    }
+    else if (!strcmp(mode_str, "fill"))
+    {
+        if (present) *present = true;
+        return AXIS_FILL;
+    }
+    else if (!strcmp(mode_str, "hug"))
+    {
+        if (present) *present = true;
+        return AXIS_HUG;
+    }
 
-    if (!strcmp(norm, "fixed"))
-        return SIZE_FIXED;
-    else if (!strcmp(norm, "percent"))
-        return SIZE_PERCENT;
-    else if (!strcmp(norm, "fill"))
-        return SIZE_FILL;
-    else if (!strcmp(norm, "content"))
-        return SIZE_CONTENT;
-    else if (!strcmp(norm, "hug_height"))
-        return SIZE_HUG_HEIGHT; // height hugs content, width fills the parent
-    else if (!strcmp(norm, "hug_width"))
-        return SIZE_HUG_WIDTH;  // width hugs content, height fills the parent
-    // Deprecated aliases retained for existing markup: "content_fill"/"content_fill_height"
-    // map to SIZE_HUG_HEIGHT, "content_fill_width" maps to SIZE_HUG_WIDTH.
-    else if (!strcmp(norm, "content_fill") || !strcmp(norm, "content_fill_height"))
-        return SIZE_HUG_HEIGHT;
-    else if (!strcmp(norm, "content_fill_width"))
-        return SIZE_HUG_WIDTH;
-    else if (!strcmp(norm, "content_max"))
-        return SIZE_CONTENT_MAX;
-
-    return SIZE_CONTENT;  // Default
+    LOADER_WARNING(ctx, "Unrecognised width/height mode; using element default");
+    return AXIS_FIXED;
 }
 
 // Helper: Parse OffsetMode from string (e.g., "fixed", "percent")
@@ -1096,9 +1197,9 @@ static Vector2d UILoader_ParseSizeValues(const char *size_str)
     return result;
 }
 
-void UILoader_ExtractCommonAttrs(mxml_node_t *node, char *id_out,
+void UILoader_ExtractCommonAttrs(mxml_node_t *node, UILoaderContext *ctx, char *id_out,
                                  Size *size_out, Offset *offset_out,
-                                 bool *enabled_out)
+                                 bool *enabled_out, const Spacing **layout_out)
 {
     if (!node)
         return;
@@ -1113,32 +1214,66 @@ void UILoader_ExtractCommonAttrs(mxml_node_t *node, char *id_out,
             id_out[0] = '\0';
     }
     
-    // Extract size and size-mode
+    // Extract per-axis size. Numeric size="w,h" supplies authored dimensions; width=/height=
+    // supply the per-axis mode keyword. Inference per axis: explicit mode wins; else a
+    // provided size= value implies AXIS_FIXED on that axis; else leave the caller's seeded
+    // builder default untouched.
     if (size_out)
     {
         const char *size_attr = mxmlElementGetAttr(node, "size");
-        const char *size_mode_attr = mxmlElementGetAttr(node, "size-mode");
-        
-        if (size_attr)
-        {
-            Vector2d dimensions = UILoader_ParseSizeValues(size_attr);
-            SizeMode mode = UILoader_ParseSizeMode(size_mode_attr);
-            *size_out = (Size){{dimensions.x, dimensions.y}, mode};
-        }
-        else if (size_mode_attr)
-        {
-            // Honour a size-mode even when no explicit size is given. Modes like
-            // "content", "hug_width"/"hug_height", and "fill" derive their dimensions from
-            // children/parent, so zeroed dimensions are correct here.
-            SizeMode mode = UILoader_ParseSizeMode(size_mode_attr);
-            *size_out = (Size){{0.0f, 0.0f}, mode};
-        }
-        else
-        {
-            // Neither size= nor size-mode= given: leave *size_out as the caller supplied it,
-            // so each builder's own default (e.g. ui_standard_control_size for a TextField,
-            // ui_standard_button_size for a Button) is preserved rather than overridden.
-        }
+        const char *width_attr = mxmlElementGetAttr(node, "width");
+        const char *height_attr = mxmlElementGetAttr(node, "height");
+
+        // A provided size= supplies BOTH axes (ParseSizeValues mirrors a lone value to both).
+        Vector2d dims = size_attr ? UILoader_ParseSizeValues(size_attr) : (Vector2d){0.0f, 0.0f};
+        bool has_size = (size_attr != NULL);
+
+        bool wset = false, hset = false;
+        AxisSizeMode wmode = UILoader_ParseAxisMode(ctx, width_attr, &wset);
+        AxisSizeMode hmode = UILoader_ParseAxisMode(ctx, height_attr, &hset);
+
+        // Per-axis mode inference (width and height resolved independently).
+        if (wset)
+            size_out->width_mode = wmode;
+        else if (has_size)
+            size_out->width_mode = AXIS_FIXED;
+        // else: leave size_out->width_mode as the caller's builder default.
+
+        if (hset)
+            size_out->height_mode = hmode;
+        else if (has_size)
+            size_out->height_mode = AXIS_FIXED;
+        // else: leave size_out->height_mode as the caller's builder default.
+
+        // Only overwrite dimensions when size= actually provided numbers; otherwise keep the
+        // builder default dimensions (so e.g. a Button with only width=hug keeps its authored
+        // height for the FIXED axis).
+        if (has_size)
+            size_out->dimensions = dims;
+
+        // A HUG axis treats dimensions > 0 as a MAX cap (see ResolveAxisExtent). A cap must
+        // only exist when the author EXPLICITLY supplied one via size=; otherwise a leftover
+        // builder-default dimension (e.g. ui_standard_container_size's {1.0, 0.5}) would leak
+        // in as an accidental cap and clamp the hug far below its content. So when an axis
+        // resolves to AXIS_HUG and no size= was authored, zero that axis's dimension to make
+        // the hug uncapped (matching the old UI_SIZE_HUG_CAPPED(0, ...) width behaviour).
+        if (!has_size && size_out->width_mode == AXIS_HUG)
+            size_out->dimensions.x = 0.0f;
+        if (!has_size && size_out->height_mode == AXIS_HUG)
+            size_out->dimensions.y = 0.0f;
+
+        // Warn when size= supplies a value for an axis whose RESOLVED mode is FILL (dead
+        // value). LOADER_WARNING takes a fixed string (no varargs), so no value interpolation.
+        if (has_size && size_out->width_mode == AXIS_FILL)
+            LOADER_WARNING(ctx, "size= width value ignored: width mode is fill");
+        if (has_size && size_out->height_mode == AXIS_FILL)
+            LOADER_WARNING(ctx, "size= height value ignored: height mode is fill");
+
+        // Warn when a PERCENT fraction falls outside 0..1.
+        if (size_out->width_mode == AXIS_PERCENT && (dims.x < 0.0f || dims.x > 1.0f))
+            LOADER_WARNING(ctx, "width percent value outside 0..1");
+        if (size_out->height_mode == AXIS_PERCENT && (dims.y < 0.0f || dims.y > 1.0f))
+            LOADER_WARNING(ctx, "height percent value outside 0..1");
     }
     
     // Extract offset and offset-mode. The preferred syntax mirrors size=: a single
@@ -1182,6 +1317,14 @@ void UILoader_ExtractCommonAttrs(mxml_node_t *node, char *id_out,
         const char *enabled_attr = mxmlElementGetAttr(node, "enabled");
         *enabled_out = !enabled_attr || strcmp(enabled_attr, "false") != 0;  // Default true
     }
+
+    // Extract child spacing from layout=. Folding layout into the common pass makes it a
+    // single common concern; UILoader_ParseLayout returns a shared Spacing constant (never
+    // NULL, defaulting to &ui_standard_stack_spacing), so the field is always populated.
+    if (layout_out)
+    {
+        *layout_out = UILoader_ParseLayout(mxmlElementGetAttr(node, "layout"));
+    }
 }
 
 // ============================================================================
@@ -1208,33 +1351,78 @@ static UIElement *UILoader_ParseElementNode(mxml_node_t *node, UIElement *parent
         LOADER_WARNING(ctx, "Unknown XML element type");
         return NULL;
     }
-    
-    // Call tag-specific builder to construct this element
-    UIElement *elem = builder_entry->builder(node, parent, ctx->palette, ctx);
-    if (!elem)
+
+    // --- COMMON PRE-EXTRACT (once, for every element) ------------------------
+    // Seed the per-type size default from the registry, the universal zero fixed offset
+    // default, and the enabled default before extraction. ExtractCommonAttrs then overwrites
+    // only what the markup actually authors (and always populates layout), so attribute-less
+    // markup keeps each element's historic defaults.
+    UICommonAttrs common = {0};
+    common.enabled = true;                                   // default; ExtractCommonAttrs re-affirms
+    common.size    = builder_entry->default_size;            // per-type size default seed
+    common.offset  = (Offset){{0.0f, 0.0f}, OFFSET_FIXED};   // historic universal offset default
+    common.offset_consumed = false;
+    UILoader_ExtractCommonAttrs(node, ctx, common.id, &common.size,
+                                &common.offset, &common.enabled, &common.layout);
+
+    // --- DISPATCH the variable step ------------------------------------------
+    // The builder reads its own special attrs, calls the right constructor (passing size
+    // always; offset+layout where it needs them at construct time), sets union data /
+    // bindings / side-table records, and sets common.offset_consumed if it consumed offset.
+    UIBuildResult built = builder_entry->builder(node, parent, ctx->palette, ctx, &common);
+
+    // outer: the element the tag represents (the skeleton stamps common attrs onto it and
+    // recurses children into it). A NULL outer means the builder failed; abort this node.
+    UIElement *outer = built.element;
+    if (!outer)
     {
         // Builder returned NULL; may have logged its own errors
         return NULL;
     }
 
-    // 0.3 - Stamp id= on EVERY built element at this single generic choke point, so the
-    // app can later hand any element back by id via UILoader_FindById. This is independent
-    // of the <View>/<Option> side-table recording (still needed for index resolution).
-    const char *id_attr = mxmlElementGetAttr(node, "id");
-    safe_strncpy(elem->id, id_attr ? id_attr : "", MAX_UI_ELEMENT_ID);
+    // control: the inner element where type-specific data/bindings live. A NULL bind_target
+    // means "same as outer" (every single-element builder). Only a composite (e.g.
+    // TextField) sets a distinct control; the skeleton uses this to decide id placement.
+    UIElement *control = built.bind_target ? built.bind_target : outer;
 
-    // Recursively parse children
+    // --- COMMON POST-APPLY (the remainder the builder did not consume) --------
+    // id: stamp on the OUTER element for single-element builders (control == outer) at this
+    // single generic choke point, so the app can later hand any element back by id via
+    // UILoader_FindById. For a composite (control != outer) the builder has already stamped
+    // the id on its control itself (see BuildTextField), so the skeleton must NOT also stamp
+    // the row - stamping both would make FindById ambiguous (the ancestor row wins pre-order
+    // and would reintroduce the TextField label bug). This is independent of the
+    // <View>/<Option> side-table recording (still needed for index resolution).
+    if (control == outer)
+    {
+        safe_strncpy(outer->id, common.id, MAX_UI_ELEMENT_ID);
+    }
+    // enabled: single owner, applied uniformly to OUTER here (idempotent for containers that
+    // also received enabled at construct time).
+    outer->is_enabled = common.enabled;
+    // offset: apply to OUTER ONLY when the builder did not consume it at construct time, so
+    // offset is applied exactly once (no double application - e.g. Section passes it into its
+    // ctor). For a composite the outer is the row, so the inner control keeps its own
+    // constructor-authored offset untouched.
+    if (!common.offset_consumed)
+    {
+        outer->authored_offset = common.offset;
+        outer->resolved_offset = common.offset;
+    }
+    // size: NOT re-applied here; it was handled at construct time via common.size.
+
+    // Recursively parse children into the OUTER element (never the control).
     for (mxml_node_t *child = mxmlGetFirstChild(node); child; child = mxmlGetNextSibling(child))
     {
         if (mxmlGetType(child) == MXML_TYPE_ELEMENT)
         {
-            UIElement *child_elem = UILoader_ParseElementNode(child, elem, ctx);
+            UIElement *child_elem = UILoader_ParseElementNode(child, outer, ctx);
             // Child parse failures are non-fatal; continue with siblings
             (void)child_elem;
         }
     }
     
-    return elem;
+    return outer;
 }
 
 // ============================================================================

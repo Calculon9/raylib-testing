@@ -86,26 +86,106 @@ Use the shared constructors in `src/engine/ui/ui_constructors.c` and `CreateUICo
 
 ## UI Size Modes
 
-`Size` contains `dimensions` and a `SizeMode`. The dimensions are meaningful for fixed, percentage, and fill modes. Content modes use named presets because their dimensions are placeholders.
-
-| Mode | Meaning |
-| --- | --- |
-| `SIZE_FIXED` | Use the authored width and height, clamped to the available parent area. |
-| `SIZE_PERCENT` | Use the authored width and height as proportions of the parent content area. |
-| `SIZE_FILL` | Use the remaining parent width and height. In a stacked parent, remaining height is shared between fill children. |
-| `SIZE_CONTENT` | Use measured enabled-child content and padding for both width and height. |
-| `SIZE_CONTENT_FILL` | Fill the available parent width while retaining measured content height. |
-
-The content presets are defined in `include/ui/ui.h`:
+Sizing is **per-axis**. `Size` holds one authored `dimensions` pair plus an independent
+`AxisSizeMode` for each axis — `width_mode` and `height_mode`. Every element always has a
+mode on both axes; the only question is whether it is authored in markup or supplied by a
+default (see "Where sizes come from" below).
 
 ```c
-#define UI_SIZE_CONTENT ((Size){{0.0f, 0.0f}, SIZE_CONTENT})
-#define UI_SIZE_CONTENT_FILL ((Size){{0.0f, 0.0f}, SIZE_CONTENT_FILL})
+typedef enum { AXIS_FIXED, AXIS_PERCENT, AXIS_FILL, AXIS_HUG } AxisSizeMode;
+
+typedef struct {
+    Vector2d dimensions;   // Per-axis authored value; its meaning depends on that axis's mode.
+    AxisSizeMode width_mode;
+    AxisSizeMode height_mode;
+} Size;
 ```
 
-For `SIZE_CONTENT` and `SIZE_CONTENT_FILL`, changing the `{0.0f, 0.0f}` placeholder must not change layout. The layout helpers in `src/engine/ui/ui.c` resolve content modes from `measured_content_size` during stacked, inline, wrapped, and final box layout.
+| Axis mode | Meaning on that axis | Reads `dimensions`? |
+| --- | --- | --- |
+| `AXIS_FIXED` | The authored literal (world units). | Yes — it is the value. |
+| `AXIS_PERCENT` | A 0..1 fraction of the parent content extent. | Yes — as the fraction. |
+| `AXIS_FILL` | Take all remaining parent content extent on that axis. | No. |
+| `AXIS_HUG` | Shrink to fit children + padding. If the authored dimension on that axis is `> 0` it is a **max cap** (hug but never exceed it); `0`/absent means uncapped. | Optionally — as a cap. |
 
-Content measurement currently follows the UI tree: it measures enabled children and the element's padding. A leaf label or textbox does not automatically become text-metric-sized merely by using `SIZE_CONTENT`; give leaf controls an explicit size or place them inside a measured container.
+Because the two axes are independent, a single element can mix modes. The common
+combinations have convenience macros in `include/ui/ui.h`:
+
+```c
+#define UI_SIZE_FIXED(w, h)      ((Size){{(w),(h)}, AXIS_FIXED,   AXIS_FIXED})
+#define UI_SIZE_PERCENT(w, h)    ((Size){{(w),(h)}, AXIS_PERCENT, AXIS_PERCENT})
+#define UI_SIZE_FILL             ((Size){{0,0},     AXIS_FILL,    AXIS_FILL})
+#define UI_SIZE_HUG              ((Size){{0,0},     AXIS_HUG,     AXIS_HUG})    // fit children, both axes
+#define UI_SIZE_HUG_CAPPED(w, h) ((Size){{(w),(h)}, AXIS_HUG,     AXIS_HUG})    // fit children, capped per axis
+#define UI_SIZE_HUG_WIDTH        ((Size){{0,0},     AXIS_HUG,     AXIS_FILL})   // width hugs, height fills
+#define UI_SIZE_HUG_HEIGHT       ((Size){{0,0},     AXIS_FILL,    AXIS_HUG})    // width fills, height hugs
+```
+
+The "hug" macros name the **hugged (content-driven) axis**; the other axis fills the parent.
+`AXIS_HUG` with a cap replaces the former dedicated "content max" mode — a capped hug is
+just `AXIS_HUG` plus a `dimensions` value.
+
+The layout helpers in `src/engine/ui/ui.c` resolve each axis independently: `width_mode`
+drives horizontal decisions and `height_mode` drives vertical decisions, through the two
+pure resolvers `ResolveAxisExtent` and `ResolveMeasurementAxisAvailable`. For a `HUG` axis,
+changing a `0` placeholder dimension to another `0` must not change layout; a non-zero value
+turns it into a cap.
+
+Content measurement follows the UI tree: it measures enabled children and the element's
+padding. A leaf label or textbox does not become text-metric-sized merely by hugging; give
+leaf controls an explicit size or place them inside a measured container.
+
+### Authoring size in XML
+
+Markup sets the mode with two attributes and supplies numbers with `size`:
+
+```xml
+<Section width="hug"   height="fill"  layout="stack_wrap" />   <!-- width hugs content, height fills -->
+<Section width="fill"  height="hug" />                          <!-- width fills, height hugs content -->
+<Button  size="3.22,0.5" width="fixed" height="fixed" />        <!-- explicit fixed box -->
+<Button  size="3.22,0.5" />                                     <!-- same: size= with no mode infers fixed -->
+```
+
+- `width` / `height` take `fixed` | `percent` | `fill` | `hug`.
+- `size="w,h"` supplies the numbers; their meaning depends on each axis's mode (literal for
+  fixed, fraction for percent, **max cap for hug**, ignored for fill). A single `size="v"`
+  applies to both axes.
+- `offset="x,y"` + `offset-mode="fixed"|"percent"` position the element (legacy `x=`/`y=`/
+  `offset-type=` are still accepted).
+
+**Per-axis mode inference** (applied to width and height independently, in
+`UILoader_ExtractCommonAttrs`): an explicit `width`/`height` wins; otherwise if `size`
+provides a value for that axis the mode defaults to `fixed`; otherwise the axis takes the
+builder's natural default. The loader emits a `LOADER_WARNING` when a `size` value is
+supplied to a `fill` axis (the value is dead) or a `percent` value falls outside `0..1`.
+
+### Where sizes come from
+
+Each element's effective size resolves through three layers, highest priority first:
+
+1. **Explicit** markup — `width`/`height` (and `size` for the numbers).
+2. **Inferred** — `size` with no mode implies `fixed` per axis.
+3. **Builder default** — neither given, so the builder supplies a `Size`. Buttons default to
+   `ui_standard_button_size`, text fields to `ui_standard_control_size`, sections/containers
+   to `ui_standard_container_size`, and `<View>`/`<ViewHost>` to `ui_fill_container_size`
+   (fill/fill). All default constants live in `src/engine/system/ui_system.c`.
+
+`<View>` and `<ViewHost>` default to fill/fill but now also honour authored
+`width`/`height`/`size`/`offset`. The concrete magnitudes enter at the application-built
+root and propagate down a fill chain:
+
+```
+panel->space (columns × rows, set by the application)
+  -> UI_ELEMENT_ROOT        (view_host_system.c, AXIS_FILL both axes)
+    -> <ViewHost> container  (fill/fill, fills the root)
+      -> <View> container    (fill/fill, fills the host)
+        -> <Section>         (e.g. width=hug / height=fill: hugs content, fills vertically)
+          -> fields / buttons
+```
+
+Everything from the root down to the sections is `fill`, carrying the panel's size downward
+in world units (the renderer scales world units to pixels); sections then switch to `hug` on
+one axis to size to their own content.
 
 ## UI Spacing and Offsets
 

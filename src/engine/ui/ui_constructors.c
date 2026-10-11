@@ -66,10 +66,10 @@ static UIElement *CreateLabeledFieldElement(UIElement *parent, Size size,
     }
 
     UIElement *label = CreateUIElement(
-        UI_ELEMENT_LABEL, (Size){ZERO_VECTOR_2D, SIZE_PERCENT},
+        UI_ELEMENT_LABEL, (Size){ZERO_VECTOR_2D, AXIS_PERCENT, AXIS_PERCENT},
         (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ZERO_VECTOR_2D, border, fill);
     UIElement *textbox = CreateUIElement(
-        UI_ELEMENT_TEXTBOX_SAFE_IO, (Size){ZERO_VECTOR_2D, SIZE_PERCENT},
+        UI_ELEMENT_TEXTBOX_SAFE_IO, (Size){ZERO_VECTOR_2D, AXIS_PERCENT, AXIS_PERCENT},
         (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ZERO_VECTOR_2D, border, fill);
     if (!label || !textbox)
     {
@@ -81,7 +81,9 @@ static UIElement *CreateLabeledFieldElement(UIElement *parent, Size size,
     label->data.label.font = font;
     textbox->data.textbox.font = font;
 
-    if (textbox_size.size_mode == SIZE_PERCENT)
+    // Every former SIZE_PERCENT value maps to (AXIS_PERCENT, AXIS_PERCENT), so the width
+    // axis is the behaviour-equivalent test for the percent label/textbox split.
+    if (textbox_size.width_mode == AXIS_PERCENT)
     {
         label->size.dimensions = (Vector2d){1.0f - textbox_size.dimensions.x, 1.0f};
         label->resolved_offset.offset = ZERO_VECTOR_2D;

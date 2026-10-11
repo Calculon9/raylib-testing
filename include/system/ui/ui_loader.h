@@ -179,22 +179,85 @@ typedef struct UILoaderContext {
 } UILoaderContext;
 
 // ============================================================================
+// Common Element Attributes
+// ============================================================================
+
+/**
+ * Common attributes extracted ONCE by the skeleton for EVERY element, then handed
+ * to the per-type builder. The builder consumes the parts it needs at construct
+ * time (e.g. a container passes size/offset/layout into its constructor); the
+ * skeleton applies the universally-safe-after parts (id, enabled, and offset where
+ * the builder did not consume it) once the builder returns.
+ *
+ * `size` is SEEDED by the skeleton from the registry's per-type default_size BEFORE
+ * extraction, because UILoader_ExtractCommonAttrs only overwrites an axis mode /
+ * dimensions when the markup actually authors it; the per-type default must already
+ * be in place for the "attribute absent" case to reproduce historic behaviour.
+ *
+ * `offset_consumed` is the double-application guard: a builder that passed `offset`
+ * into its constructor sets it true, so the skeleton skips the post-apply.
+ */
+typedef struct {
+    char id[MAX_UI_ELEMENT_ID];   // id= (empty string when absent)
+    Size size;                    // size=/width=/height= with per-axis mode inference (seeded with the per-type default)
+    Offset offset;                // offset=/offset-mode= (+ legacy x/y/offset-type); default zero fixed
+    bool enabled;                 // enabled= ("false" => false; default true)
+    const Spacing *layout;        // layout= -> shared Spacing constant (never NULL; defaults to &ui_standard_stack_spacing)
+    bool offset_consumed;         // set by the builder when it passed `offset` into its constructor (skeleton must not re-apply)
+} UICommonAttrs;
+
+// ============================================================================
 // Element Builder Registry
 // ============================================================================
 
 /**
- * Element type builder callback.
- * Called to construct a UIElement from an XML node.
- * 
+ * Result of a builder: the element the tag represents (`element`) plus the optional
+ * inner control where type-specific data/bindings attach (`bind_target`).
+ *
+ * CONTRACT:
+ *  - `element` is the OUTER element: what the skeleton stamps common attrs onto and
+ *    recurses children into. NULL => the builder failed (skeleton aborts this node).
+ *  - `bind_target` is the inner CONTROL. A builder that is backed by a single element
+ *    leaves it NULL; the skeleton then treats bind_target as == element. Only a
+ *    composite builder (e.g. TextField) sets it to a descendant of `element`.
+ */
+typedef struct {
+    UIElement *element;      // outer element (NULL on failure)
+    UIElement *bind_target;  // inner control; NULL means "same as element"
+} UIBuildResult;
+
+/**
+ * Element type builder callback (template-method variable step).
+ *
+ * The skeleton has ALREADY extracted all common attributes into `common` (and
+ * applied nothing yet). The builder:
+ *   (1) reads its OWN special attributes from `node`,
+ *   (2) calls the correct constructor, passing the common fields it needs at
+ *       construct time (size always; offset+layout for containers),
+ *   (3) sets type-specific union data / assembles bindings / records side-table
+ *       entries,
+ *   (4) sets common->offset_consumed = true IF it passed common->offset into its
+ *       constructor (so the skeleton does not re-apply offset).
+ * The skeleton then applies the common remainder (id, enabled, and offset unless
+ * consumed) to the OUTER element.
+ *
+ * The builder returns a UIBuildResult: `element` is the outer element the tag
+ * represents (NULL on error), and `bind_target` is the optional inner control. A
+ * single-element builder leaves `bind_target` NULL (the skeleton then treats the
+ * control as the element itself); a composite builder (e.g. TextField) sets it to
+ * the descendant control that owns the type-specific data/bindings.
+ *
  * @param node XML element node (mxml_node_t with type MXML_TYPE_ELEMENT)
  * @param parent Parent UIElement (NULL if root)
  * @param palette UI palette for styling
  * @param ctx Shared loader context
- * @return Constructed UIElement, or NULL on error
+ * @param common Common attributes pre-extracted by the skeleton (never NULL)
+ * @return UIBuildResult with the outer element (NULL on error) and optional control
  */
-typedef UIElement *(*UIElementBuilder)(mxml_node_t *node, UIElement *parent,
-                                       const UIPalette *palette,
-                                       UILoaderContext *ctx);
+typedef UIBuildResult (*UIElementBuilder)(mxml_node_t *node, UIElement *parent,
+                                          const UIPalette *palette,
+                                          UILoaderContext *ctx,
+                                          UICommonAttrs *common);
 
 /**
  * Registry entry: maps XML tag names to builder functions.
@@ -202,6 +265,7 @@ typedef UIElement *(*UIElementBuilder)(mxml_node_t *node, UIElement *parent,
 typedef struct {
     const char *tag_name;           // XML element tag (e.g., "Button", "TextField")
     UIElementBuilder builder;       // Construction callback
+    Size default_size;              // Per-type size default; seeds common->size before extraction
 } UIElementBuilderRegistry;
 
 // ============================================================================
@@ -282,9 +346,11 @@ UIElement *UILoader_LoadFromString(const char *xml_string, const UIPalette *pale
  * 
  * @param tag_name XML tag to map (e.g., "CustomElement")
  * @param builder Construction callback
+ * @param default_size Per-type size default (seeds common->size before extraction)
  * @return true on success, false if tag already registered or out of space
  */
-bool UILoader_RegisterBuilder(const char *tag_name, UIElementBuilder builder);
+bool UILoader_RegisterBuilder(const char *tag_name, UIElementBuilder builder,
+                              Size default_size);
 
 // ============================================================================
 // Common Attribute Extraction
@@ -292,21 +358,26 @@ bool UILoader_RegisterBuilder(const char *tag_name, UIElementBuilder builder);
 
 /**
  * Extract common element attributes from an XML node.
- * 
+ *
  * Fills in id, size, offset, and enabled state from standard XML attributes.
  * Attributes:
  *   - id: element identifier (string)
- *   - size: "WIDTHxHEIGHT" or "W,H" (fixed) or "W%,H%" (percent) (optional)
- *   - x, y: position in pixels or percent (optional)
+ *   - size: "W,H" numeric authored dimensions (optional; a lone value mirrors to both axes)
+ *   - width/height: per-axis mode keyword "fixed|percent|fill|hug" (optional)
+ *   - offset / offset-mode (and legacy x/y/offset-type): position (optional)
  *   - enabled: "true"/"false" (optional, default true)
- * 
+ * Per-axis inference: an explicit width=/height= wins; else a provided size= value implies
+ * fixed on that axis; else the caller's seeded builder default is left untouched.
+ *
  * @param node XML element node
+ * @param ctx Loader context (for source-aware warnings; may be NULL)
  * @param id_out[MAX_UI_ELEMENT_ID] Output element ID (empty string if not present)
  * @param size_out[optional] Output size spec
  * @param offset_out[optional] Output position/offset
  * @param enabled_out[optional] Output enabled flag (default true)
+ * @param layout_out[optional] Output child spacing from layout= (shared Spacing constant, never NULL when set)
  */
-void UILoader_ExtractCommonAttrs(mxml_node_t *node, char *id_out, Size *size_out, Offset *offset_out, bool *enabled_out);
+void UILoader_ExtractCommonAttrs(mxml_node_t *node, UILoaderContext *ctx, char *id_out, Size *size_out, Offset *offset_out, bool *enabled_out, const Spacing **layout_out);
 
 // ============================================================================
 // Default Builder Registration

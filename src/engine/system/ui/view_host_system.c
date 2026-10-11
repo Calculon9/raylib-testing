@@ -145,7 +145,7 @@ void ViewHostSystem_InitRoot(ViewHostSystem *panel)
     panel->space = NewUISpace2d(panel->viewport->local_origin, resolution, viewport_basis);
 
     // Create root UI element
-    Size root_size = {{(float)panel->space.columns, (float)panel->space.rows}, SIZE_FILL};
+    Size root_size = {{(float)panel->space.columns, (float)panel->space.rows}, AXIS_FILL, AXIS_FILL};
     panel->root = CreateUIElement(UI_ELEMENT_ROOT, root_size,
                                   (Offset){ZERO_VECTOR_2D, OFFSET_FIXED},
                                   panel->default_padding, COLOURLESS_RGBA,

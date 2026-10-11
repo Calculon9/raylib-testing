@@ -18,9 +18,9 @@
     <!--    binding= names return in Stage 2 once StateManager_ResolveBinding honours them.  -->
     <!--                                                                                    -->
     <!--  * io= expresses read-only (io="readonly") vs editable (io="safe"); every          -->
-    <!--    <Section> uses size-mode="hug_width" with layout="stack_wrap" so its width hugs  -->
-    <!--    its content while its height fills the view, letting fields wrap into columns     -->
-    <!--    instead of clipping (a section with no size-mode collapses and clips its fields). -->
+    <!--    <Section> uses width="hug" height="fill" with layout="stack_wrap" so its width   -->
+    <!--    hugs its content while its height fills the view, letting fields wrap into        -->
+    <!--    columns instead of clipping (a section with no width/height collapses and clips). -->
     <!--                                                                                     -->
     <!--  * Gameplay/Components section visibility stays in the application (the C refresh    -->
     <!--    toggles it); markup only declares the sections.                                   -->
@@ -34,14 +34,14 @@
 
     <!-- ================= PHYS view ================= -->
     <View id="phys_view" type="STATE_MANAGER_PHYSICS_VIEW" layout="inline_wrap">
-        <Section id="identity" title="Identity" size-mode="hug_width" layout="stack_wrap">
+        <Section id="identity" title="Identity" width="hug" height="fill" layout="stack_wrap">
             <TextField id="sm_id" label="Id:" type="integer" io="readonly" />
             <TextField id="sm_slot" label="Slot:" type="integer" io="readonly" />
             <TextField id="sm_generation" label="Generation:" type="integer" io="readonly" />
             <TextField id="sm_world" label="World" type="integer" io="readonly" />
         </Section>
 
-        <Section id="physics" title="Physics" size-mode="hug_width" layout="stack_wrap">
+        <Section id="physics" title="Physics" width="hug" height="fill" layout="stack_wrap">
             <TextField id="sm_mass" label="Mass" type="float" io="safe" />
             <TextField id="sm_restitution" label="Restitution" type="float" io="safe" />
             <TextField id="sm_friction" label="Friction" type="float" io="safe" />
@@ -53,7 +53,7 @@
             <TextField id="sm_angaccel" label="AngAccel" type="float" io="readonly" />
         </Section>
 
-        <Section id="geometry" title="Geometry" size-mode="hug_width" layout="stack_wrap">
+        <Section id="geometry" title="Geometry" width="hug" height="fill" layout="stack_wrap">
             <TextField id="sm_bounds_min" label="Bounds.min" type="vector2" io="readonly" />
             <TextField id="sm_geo_center" label="Geo.center" type="vector2" io="readonly" />
             <TextField id="sm_rotation" label="Rot" type="float" io="safe" />
@@ -61,13 +61,13 @@
             <TextField id="sm_basis_v" label="Basis v" type="vector2" io="safe" />
         </Section>
 
-        <Section id="gameplay" title="Gameplay" size-mode="hug_width" layout="stack_wrap">
+        <Section id="gameplay" title="Gameplay" width="hug" height="fill" layout="stack_wrap">
             <TextField id="sm_health" label="Health" type="float" io="safe" />
             <TextField id="sm_max_health" label="MaxHealth" type="float" io="safe" />
             <TextField id="sm_damage" label="Damage" type="float" io="safe" />
         </Section>
 
-        <Section id="components" title="Components" size-mode="hug_width" layout="stack_wrap">
+        <Section id="components" title="Components" width="hug" height="fill" layout="stack_wrap">
             <!-- Component toggles: wired in C (HandleComponentToggleClick) in the id pass. -->
             <Button type="simple" id="sm_comp_portal" text="PORTAL" />
             <Button type="simple" id="sm_comp_rotor" text="ROTOR" />
@@ -80,36 +80,36 @@
             <TextField id="sm_relation_active" label="Relation Active" type="integer" io="readonly" />
         </Section>
 
-        <Button id="sm_delete" type="submit" text="DELETE" size="3.22,0.5" size-mode="fixed" />
+        <Button id="sm_delete" type="submit" text="DELETE" size="3.22,0.5" width="fixed" height="fixed" />
     </View>
 
     <!-- ================= ATTRI view ================= -->
     <!-- Flag-button grids: each <Button type="simple"> is wired in C in the id pass    -->
     <!-- (handler + user_data + query-source "<label>: ON/OFF" display).                 -->
     <View id="attri_view" type="STATE_MANAGER_ATTRIBUTES_VIEW" layout="inline_wrap">
-        <Section id="entity_roles" title="Entity" size-mode="hug_width" layout="stack_wrap">
+        <Section id="entity_roles" title="Entity" width="hug" height="fill" layout="stack_wrap">
             <Button type="simple" id="sm_role_wall" text="WALL" />
             <Button type="simple" id="sm_role_newtonoid" text="NEWTONOID" />
             <Button type="simple" id="sm_role_projectile" text="PROJECTILE" />
             <Button type="simple" id="sm_role_effect" text="EFFECT" />
             <Button type="simple" id="sm_role_camera" text="CAMERA" />
         </Section>
-        <Section id="capabilities" title="Capabilities" size-mode="hug_width" layout="stack_wrap">
+        <Section id="capabilities" title="Capabilities" width="hug" height="fill" layout="stack_wrap">
             <Button type="simple" id="sm_cap_damageable" text="DAMAGEABLE" />
             <Button type="simple" id="sm_cap_velocity" text="VELOCITY" />
             <Button type="simple" id="sm_cap_affect_owner" text="AFFECT OWNER" />
             <Button type="simple" id="sm_cap_sensor" text="SENSOR" />
         </Section>
-        <Section id="constraints" title="Constraints" size-mode="hug_width" layout="stack_wrap">
+        <Section id="constraints" title="Constraints" width="hug" height="fill" layout="stack_wrap">
             <Button type="simple" id="sm_con_position_locked" text="POSITION LOCKED" />
             <Button type="simple" id="sm_con_no_contact_response" text="NO CONTACT RESPONSE" />
         </Section>
-        <Section id="status" title="Status" size-mode="hug_width" layout="stack_wrap">
+        <Section id="status" title="Status" width="hug" height="fill" layout="stack_wrap">
             <Button type="simple" id="sm_status_alive" text="ALIVE" />
             <Button type="simple" id="sm_status_sleeping" text="SLEEPING" />
             <Button type="simple" id="sm_status_clocked" text="CLOCKED" />
         </Section>
-        <Section id="collision" title="Collision" size-mode="hug_width" layout="stack_wrap">
+        <Section id="collision" title="Collision" width="hug" height="fill" layout="stack_wrap">
             <Button type="simple" id="sm_coll_wall" text="WALL" />
             <Button type="simple" id="sm_coll_newtonoid" text="NEWTONOID" />
             <Button type="simple" id="sm_coll_projectile" text="PROJECTILE" />
@@ -121,7 +121,7 @@
     <!-- ================= WORLD view ================= -->
     <!-- Starts disabled (enabled when a world is the active selection context). -->
     <View id="world_view" type="STATE_MANAGER_WORLD_VIEW" enabled="false" layout="inline_wrap">
-        <Section id="world_flags" title="World" size-mode="hug_width" layout="stack_wrap">
+        <Section id="world_flags" title="World" width="hug" height="fill" layout="stack_wrap">
             <Button type="simple" id="sm_world_active" text="ACTIVE" />
             <Button type="simple" id="sm_world_visible" text="VISIBLE" />
             <Button type="simple" id="sm_world_selectable" text="SELECTABLE" />
@@ -130,7 +130,7 @@
             <Button type="simple" id="sm_world_locked" text="LOCKED" />
             <Button type="simple" id="sm_world_drag" text="DRAG" />
         </Section>
-        <Section id="world_physics" title="Physics" size-mode="hug_width" layout="stack_wrap">
+        <Section id="world_physics" title="Physics" width="hug" height="fill" layout="stack_wrap">
             <TextField id="sm_world_restitution" label="Restitution" type="float" io="safe" />
             <TextField id="sm_world_friction" label="Friction" type="float" io="safe" />
         </Section>
@@ -139,13 +139,13 @@
     <!-- ================= CELL view ================= -->
     <!-- Starts disabled (enabled when a cell is the active selection context). -->
     <View id="cell_view" type="STATE_MANAGER_CELL_STATE_VIEW" enabled="false" layout="inline_wrap">
-        <Section id="cell_phys" title="Cell" size-mode="hug_width" layout="stack_wrap">
+        <Section id="cell_phys" title="Cell" width="hug" height="fill" layout="stack_wrap">
             <TextField id="sm_cell_index" label="Index" type="integer" io="readonly" />
             <TextField id="sm_cell_occu" label="Occu" type="integer" io="readonly" />
             <TextField id="sm_cell_value" label="Value" type="float" io="readonly" />
             <TextField id="sm_cell_fill" label="Fill" type="float" io="readonly" />
         </Section>
-        <Section id="cell_flags" title="Flags" size-mode="hug_width" layout="stack_wrap">
+        <Section id="cell_flags" title="Flags" width="hug" height="fill" layout="stack_wrap">
             <Button type="simple" id="sm_cell_solid" text="SOLID" />
             <Button type="simple" id="sm_cell_walkable" text="WALKABLE" />
             <Button type="simple" id="sm_cell_hazard" text="HAZARD" />

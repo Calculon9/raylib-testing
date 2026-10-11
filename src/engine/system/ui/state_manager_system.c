@@ -1298,7 +1298,7 @@ void DestroyStateManagerSystem(void)
 //                                   ui_standard_selector_button_size.dimensions.y -
 //                                   state_manager_panel->root_child_spacing.spacing.y -
 //                                   (2.0f * ui_standard_container_padding.y);
-// view_section_size = UI_SIZE_CONTENT_MAX(0.0f, fmaxf(0.0f, state_manager_view_height));
+// view_section_size = UI_SIZE_HUG_CAPPED(0.0f, fmaxf(0.0f, state_manager_view_height));
 //
 // --- CreateStateManagerView (no remaining caller once the builders are gone) ---
 //

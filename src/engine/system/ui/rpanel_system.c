@@ -53,12 +53,12 @@ static UIElement *rpanel_create_objects_tbox = NULL;
 // ============================================================================
 // State View Layout
 // ============================================================================
-static Size rpanel_state_world_cont_size = {{1.0f, 0.36f}, SIZE_PERCENT};
+static Size rpanel_state_world_cont_size = {{1.0f, 0.36f}, AXIS_PERCENT, AXIS_PERCENT};
 
 // ============================================================================
 // Create View Layout
 // ============================================================================
-static Size rpanel_create_world_cont_size = {{1.0f, 0.32f}, SIZE_PERCENT};
+static Size rpanel_create_world_cont_size = {{1.0f, 0.32f}, AXIS_PERCENT, AXIS_PERCENT};
 
 static void InitRPanelStateView(void);
 static void InitRPanelCreateView(void);

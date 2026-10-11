@@ -8,6 +8,26 @@
 #include "ui/ui.h"
 #include "raylib.h"
 
+// Stacked-layout statistics for a SPACING_STACKED parent. Declared up here (rather than
+// beside its collector) so the MEASURE pass can derive the stacked-fill remainder from the
+// SAME helpers the DISTRIBUTE pass uses while keeping declaration-before-use in C.
+typedef struct StackedLayoutStats
+{
+    int fill_count;
+    int child_count;
+    float occupied_height;
+} StackedLayoutStats;
+
+// Forward declarations for the shared stacked-layout helpers. The MEASURE pass
+// (MeasureElementContent) is defined before these helpers but must call them so both passes
+// derive the stacked-fill remainder from one source of truth (see stackwrap-unify-design.md).
+static Vector2d ResolveSpacingStep(Spacing spacing, Vector2d content_area_local, OffsetMode offset_mode);
+static StackedLayoutStats CollectStackedLayoutStats(const UIElement *parent, float content_area_h);
+static float ResolveStackedFillHeightPerChild(StackedLayoutStats stats, float content_area_h, float spacing_y);
+static float ResolveStackedChildReceivedHeight(const UIElement *child,
+                                               float parent_content_height,
+                                               float fill_height_per_child);
+
 static Vector2d GetContentArea(Vector2d dimensions, Vector2d padding)
 {
     float content_w = fmaxf(0.0f, dimensions.x - (2.0f * padding.x));
@@ -31,6 +51,53 @@ static UIElement *GetNextEnabledChild(UIElement *child)
          (child) != NULL;                                                                    \
          (child) = GetNextEnabledChild((child)->next_sibling))
 
+// Resolve the FINAL extent of a single axis from its per-axis mode. Used by the
+// distribute / box-resolution sites where the measured content is trustworthy.
+//   mode               : this axis's AxisSizeMode (width_mode for x, height_mode for y).
+//   authored_dimension : Size.dimensions on this axis (literal for FIXED, 0..1 for PERCENT,
+//                        MAX cap for HUG when > 0, ignored for FILL).
+//   parent_extent      : parent content extent available on this axis.
+//   measured_content   : this element's measured content extent on this axis. HUG only.
+// Returns the resolved extent on this axis in world units, never negative.
+static float ResolveAxisExtent(AxisSizeMode mode, float authored_dimension,
+                               float parent_extent, float measured_content)
+{
+    switch (mode)
+    {
+    case AXIS_PERCENT:
+        return fmaxf(0.0f, parent_extent * authored_dimension);
+    case AXIS_FILL:
+        return fmaxf(0.0f, parent_extent);
+    case AXIS_HUG:
+        if (authored_dimension > 0.0f) // > 0 == MAX cap
+            return fminf(fmaxf(0.0f, measured_content), authored_dimension);
+        return fmaxf(0.0f, measured_content); // uncapped
+    case AXIS_FIXED:
+    default:
+        return fmaxf(0.0f, authored_dimension);
+    }
+}
+
+// Resolve the AVAILABLE extent of a single axis during the MEASURE pass. Used by the two
+// ResolveMeasurement* sites where a HUG axis has no trustworthy measured content yet, so
+// HUG and FILL both fall back to the parent's available extent (reproducing the old
+// code, where every content-driven/fill mode returned parent_content_* during measure).
+static float ResolveMeasurementAxisAvailable(AxisSizeMode mode, float authored_dimension,
+                                             float parent_extent)
+{
+    switch (mode)
+    {
+    case AXIS_PERCENT:
+        return fmaxf(0.0f, parent_extent * authored_dimension);
+    case AXIS_FILL:
+    case AXIS_HUG:
+        return fmaxf(0.0f, parent_extent); // availability, not final content size
+    case AXIS_FIXED:
+    default:
+        return fmaxf(0.0f, authored_dimension);
+    }
+}
+
 // Resolve the width available to an element during the measurement pass.
 static float ResolveMeasurementWidth(const UIElement *element, float parent_content_width)
 {
@@ -39,33 +106,23 @@ static float ResolveMeasurementWidth(const UIElement *element, float parent_cont
         return 0.0f;
     }
 
-    switch (element->size.size_mode)
+    // Width axis only.
+    float avail = ResolveMeasurementAxisAvailable(element->size.width_mode,
+                                                  element->size.dimensions.x,
+                                                  parent_content_width);
+    // Preserve the old SIZE_CONTENT_MAX width behaviour: an authored hug cap clamps the
+    // available width during measurement too (the height site never did this).
+    if (element->size.width_mode == AXIS_HUG && element->size.dimensions.x > 0.0f)
     {
-    case SIZE_PERCENT:
-        return fmaxf(0.0f, parent_content_width * element->size.dimensions.x);
-    case SIZE_FILL:
-    case SIZE_HUG_HEIGHT: // width fills parent (height hugs content)
-    case SIZE_HUG_WIDTH:  // width hugs content; measured against the parent's width
-    case SIZE_CONTENT:
-        return fmaxf(0.0f, parent_content_width);
-    case SIZE_CONTENT_MAX:
-        if (element->size.dimensions.x <= 0.0f)
-        {
-            return fmaxf(0.0f, parent_content_width);
-        }
-        return fminf(fmaxf(0.0f, parent_content_width), element->size.dimensions.x);
-    case SIZE_FIXED:
-    default:
-        return fmaxf(0.0f, element->size.dimensions.x);
+        avail = fminf(avail, element->size.dimensions.x);
     }
+    return avail;
 }
 
 // Resolve the height available to an element during the measurement pass.
-// Mirrors ResolveMeasurementWidth: modes that fill the parent on the vertical
-// axis (SIZE_FILL, SIZE_HUG_WIDTH) take the parent's available height,
-// which lets stacked-wrap measurement know where to break columns. Content-driven
-// vertical modes return the parent height only as an upper bound for wrapping; the
-// final box height for those is still derived from measured content elsewhere.
+// Mirrors ResolveMeasurementWidth: FILL/HUG take the parent's available height (used only
+// as a wrap upper bound, never to force a size). No HUG-cap post-clamp here, matching the
+// old code where the height axis never clamped availability.
 static float ResolveMeasurementHeight(const UIElement *element, float parent_content_height)
 {
     if (!element)
@@ -73,23 +130,15 @@ static float ResolveMeasurementHeight(const UIElement *element, float parent_con
         return 0.0f;
     }
 
-    switch (element->size.size_mode)
-    {
-    case SIZE_PERCENT:
-        return fmaxf(0.0f, parent_content_height * element->size.dimensions.y);
-    case SIZE_FILL:
-    case SIZE_HUG_WIDTH: // height fills the parent (width hugs content)
-        return fmaxf(0.0f, parent_content_height);
-    case SIZE_FIXED:
-        return fmaxf(0.0f, element->size.dimensions.y);
-    default:
-        // Content-driven vertical modes: fall back to the parent height as the
-        // available space (used only as a wrap bound, never to force a size).
-        return fmaxf(0.0f, parent_content_height);
-    }
+    // Height axis only.
+    return ResolveMeasurementAxisAvailable(element->size.height_mode,
+                                           element->size.dimensions.y,
+                                           parent_content_height);
 }
 
-// Resolve the measured size used when arranging a child in its parent's layout.
+// Resolve the measured size used when arranging a child in its parent's layout. Width is
+// resolved from width_mode via the helper; height reproduces the pre-existing quirky table
+// (a PERCENT height returns the RAW dimensions.y here, unscaled — see note below).
 static Vector2d ResolveMeasuredChildSize(const UIElement *child, float parent_content_width)
 {
     if (!child)
@@ -97,23 +146,31 @@ static Vector2d ResolveMeasuredChildSize(const UIElement *child, float parent_co
         return ZERO_VECTOR_2D;
     }
 
-    switch (child->size.size_mode)
+    // Width axis: FILL -> parent width; PERCENT -> parent*frac; HUG -> measured; FIXED -> literal.
+    float x = ResolveAxisExtent(child->size.width_mode, child->size.dimensions.x,
+                                parent_content_width, child->measured_content_size.x);
+
+    // Height axis: inlined to preserve the historic asymmetry. PERCENT returns the RAW
+    // authored dimensions.y UNSCALED (pre-existing quirk; cf. old SIZE_PERCENT arm which
+    // returned child->size.dimensions.y here). FILL/HUG return measured content; the final
+    // filled height is applied later at arrange time. FIXED returns the literal.
+    float y;
+    switch (child->size.height_mode)
     {
-    case SIZE_PERCENT:
-        return (Vector2d){
-            parent_content_width * child->size.dimensions.x,
-            child->size.dimensions.y};
-    case SIZE_FILL:
-    case SIZE_HUG_HEIGHT: // width fills parent, height hugs content
-        return (Vector2d){parent_content_width, child->measured_content_size.y};
-    case SIZE_HUG_WIDTH: // width hugs content, height filled during arrangement
-    case SIZE_CONTENT:
-    case SIZE_CONTENT_MAX:
-        return child->measured_content_size;
-    case SIZE_FIXED:
+    case AXIS_PERCENT:
+        y = child->size.dimensions.y; // UNSCALED quirk — do NOT multiply by parent height
+        break;
+    case AXIS_FILL:
+    case AXIS_HUG:
+        y = child->measured_content_size.y;
+        break;
+    case AXIS_FIXED:
     default:
-        return child->size.dimensions;
+        y = child->size.dimensions.y;
+        break;
     }
+
+    return (Vector2d){x, y};
 }
 
 // Measure inline children as rows constrained by the available content width.
@@ -180,21 +237,21 @@ static Vector2d MeasureStackedWrapContent(UIElement *element, float content_widt
     float spacing_x = element->child_spacing.spacing.x;
     float spacing_y = element->child_spacing.spacing.y;
 
-    // Determine the height at which columns wrap. Two sources feed this:
-    //  * SIZE_CONTENT_MAX uses its authored height (known at measure time), and
-    //  * fill-height modes (SIZE_FILL, SIZE_HUG_WIDTH) use the content
-    //    height handed down from the parent, so measurement wraps into the same
-    //    number of columns the distribute pass will produce against the real box.
+    // Determine the height at which columns wrap, keyed on the parent's height mode. Two sources:
+    //  * A capped HUG height (old SIZE_CONTENT_MAX) uses its authored height (known at
+    //    measure time), and
+    //  * a FILL height (old SIZE_FILL / SIZE_HUG_WIDTH, both of which fill the vertical
+    //    axis) uses the content height handed down from the parent, so measurement wraps
+    //    into the same number of columns the distribute pass produces against the real box.
     // Any other mode leaves the limit unbounded (single column, as before).
     float column_height_limit = FLT_MAX;
-    if (element->size.size_mode == SIZE_CONTENT_MAX &&
+    if (element->size.height_mode == AXIS_HUG &&
         element->size.dimensions.y > 0.0f)
     {
         column_height_limit = fmaxf(0.0f, element->size.dimensions.y -
                                               (2.0f * element->padding.y));
     }
-    else if ((element->size.size_mode == SIZE_HUG_WIDTH ||
-              element->size.size_mode == SIZE_FILL) &&
+    else if (element->size.height_mode == AXIS_FILL &&
              content_height > 0.0f && content_height < FLT_MAX)
     {
         column_height_limit = fmaxf(0.0f, content_height);
@@ -257,40 +314,98 @@ static Vector2d MeasureElementContent(UIElement *element, float parent_content_w
     float spacing_y = element->child_spacing.spacing.y;
     int child_count = 0;
 
-    ForEachEnabledChild(element, child)
+    if (element->child_spacing.spacing_type == SPACING_STACKED)
     {
-        float child_width = ResolveMeasurementWidth(child, content_width);
-        float child_height = ResolveMeasurementHeight(child, content_height);
-        child->measured_content_size = MeasureElementContent(child, child_width, child_height);
-        Vector2d child_size = ResolveMeasuredChildSize(child, content_width);
+        // TWO-SUB-PASS MEASURE for stacked parents, so the stacked-fill remainder a
+        // both-FILL child receives is derived from CURRENT-frame child measurements and
+        // matches the DISTRIBUTE pass exactly (see stackwrap-unify-design.md Finding 1).
 
-        if (element->child_spacing.spacing_type == SPACING_INLINE)
+        // Sub-pass 1: measure every child with its plain available height (today's
+        // behaviour) so each child's measured_content_size is this frame's value. Only
+        // NON-both-FILL children (the fixed/HUG siblings, e.g. the selector) contribute to
+        // the parent's measured size here; a both-FILL child's size is added in sub-pass 2.
+        ForEachEnabledChild(element, child)
         {
-            measured.x += child_size.x;
-            measured.y = fmaxf(measured.y, child_size.y);
-        }
-        else if (element->child_spacing.spacing_type == SPACING_INLINE_WRAP)
-        {
-            // Inline-wrap measurement is repeated below with row boundaries.
-            measured = ZERO_VECTOR_2D;
-        }
-        else if (element->child_spacing.spacing_type == SPACING_STACKED)
-        {
-            measured.x = fmaxf(measured.x, child_size.x);
-            measured.y += child_size.y;
-        }
-        else if (element->child_spacing.spacing_type == SPACING_STACKED_WRAP)
-        {
-            // Stacked-wrap measurement is repeated below with column boundaries.
-            measured = ZERO_VECTOR_2D;
-        }
-        else
-        {
-            measured.x = fmaxf(measured.x, child_size.x);
-            measured.y = fmaxf(measured.y, child_size.y);
+            float child_width = ResolveMeasurementWidth(child, content_width);
+            float child_height = ResolveMeasurementHeight(child, content_height);
+            child->measured_content_size = MeasureElementContent(child, child_width, child_height);
+
+            bool child_is_both_fill =
+                child->size.width_mode == AXIS_FILL && child->size.height_mode == AXIS_FILL;
+            if (!child_is_both_fill)
+            {
+                Vector2d child_size = ResolveMeasuredChildSize(child, content_width);
+                measured.x = fmaxf(measured.x, child_size.x);
+                measured.y += child_size.y;
+            }
+
+            child_count++;
         }
 
-        child_count++;
+        // Derive the single stacked-fill remainder ONCE (O(N)) from the SAME function and
+        // inputs DISTRIBUTE uses. The spacing MUST be the RESOLVED OFFSET_FIXED step so a
+        // PERCENT spacing_mode (scaled by the content area) cannot re-diverge the remainder
+        // vs DISTRIBUTE, which derives it the same way (see Finding 2). For NONE mode the
+        // resolved value equals the raw member, so this is behaviour-preserving today.
+        Vector2d measure_spacing_step =
+            ResolveSpacingStep(element->child_spacing,
+                               (Vector2d){content_width, content_height}, OFFSET_FIXED);
+        StackedLayoutStats stats = CollectStackedLayoutStats(element, content_height);
+        float stacked_fill_height_per_child =
+            ResolveStackedFillHeightPerChild(stats, content_height, measure_spacing_step.y);
+
+        // Sub-pass 2: re-measure ONLY both-FILL children against the stacked remainder so a
+        // both-FILL child (the view) and its stack_wrap descendants wrap their columns
+        // against the exact height the child's box will later resolve to. Each both-FILL
+        // child's remainder-based size is added into the parent's measured size EXACTLY
+        // once here (sub-pass 1 skipped it), so no child is double-counted.
+        ForEachEnabledChild(element, child)
+        {
+            if (child->size.width_mode == AXIS_FILL && child->size.height_mode == AXIS_FILL)
+            {
+                float child_width = ResolveMeasurementWidth(child, content_width);
+                float child_height = ResolveStackedChildReceivedHeight(child, content_height,
+                                                                      stacked_fill_height_per_child);
+                child->measured_content_size = MeasureElementContent(child, child_width, child_height);
+
+                Vector2d child_size = ResolveMeasuredChildSize(child, content_width);
+                measured.x = fmaxf(measured.x, child_size.x);
+                measured.y += child_size.y;
+            }
+        }
+    }
+    else
+    {
+        ForEachEnabledChild(element, child)
+        {
+            float child_width = ResolveMeasurementWidth(child, content_width);
+            float child_height = ResolveMeasurementHeight(child, content_height);
+            child->measured_content_size = MeasureElementContent(child, child_width, child_height);
+            Vector2d child_size = ResolveMeasuredChildSize(child, content_width);
+
+            if (element->child_spacing.spacing_type == SPACING_INLINE)
+            {
+                measured.x += child_size.x;
+                measured.y = fmaxf(measured.y, child_size.y);
+            }
+            else if (element->child_spacing.spacing_type == SPACING_INLINE_WRAP)
+            {
+                // Inline-wrap measurement is repeated below with row boundaries.
+                measured = ZERO_VECTOR_2D;
+            }
+            else if (element->child_spacing.spacing_type == SPACING_STACKED_WRAP)
+            {
+                // Stacked-wrap measurement is repeated below with column boundaries.
+                measured = ZERO_VECTOR_2D;
+            }
+            else
+            {
+                measured.x = fmaxf(measured.x, child_size.x);
+                measured.y = fmaxf(measured.y, child_size.y);
+            }
+
+            child_count++;
+        }
     }
 
     if (element->child_spacing.spacing_type == SPACING_INLINE_WRAP)
@@ -317,16 +432,17 @@ static Vector2d MeasureElementContent(UIElement *element, float parent_content_w
     measured.x += element->padding.x * 2.0f;
     measured.y += element->padding.y * 2.0f;
 
-    if (element->size.size_mode == SIZE_CONTENT_MAX)
+    // Per-axis hug cap. A HUG axis with an authored dimension > 0 clamps its measured
+    // content to that cap (folds the old SIZE_CONTENT_MAX clamp into the generic hug-cap).
+    // This stays behaviour-preserving because every non-cap HUG element carries
+    // dimensions == {0,0}, so the > 0 guard fires solely for the old capped-hug case.
+    if (element->size.width_mode == AXIS_HUG && element->size.dimensions.x > 0.0f)
     {
-        if (element->size.dimensions.x > 0.0f)
-        {
-            measured.x = fminf(measured.x, element->size.dimensions.x);
-        }
-        if (element->size.dimensions.y > 0.0f)
-        {
-            measured.y = fminf(measured.y, element->size.dimensions.y);
-        }
+        measured.x = fminf(measured.x, element->size.dimensions.x);
+    }
+    if (element->size.height_mode == AXIS_HUG && element->size.dimensions.y > 0.0f)
+    {
+        measured.y = fminf(measured.y, element->size.dimensions.y);
     }
 
     return measured;
@@ -374,27 +490,19 @@ static float ResolveChildHeight(const UIElement *child, float content_area_h, fl
         return 0.0f;
     }
 
-    // SIZE_FILL and SIZE_HUG_WIDTH both fill the parent on the vertical axis.
-    if (child->size.size_mode == SIZE_FILL ||
-        child->size.size_mode == SIZE_HUG_WIDTH)
+    // Height axis only. FILL uses the stacked remainder (fill_height), NOT content_area_h.
+    switch (child->size.height_mode)
     {
+    case AXIS_FILL:
         return fmaxf(0.0f, fill_height);
-    }
-
-    if (child->size.size_mode == SIZE_PERCENT)
-    {
+    case AXIS_PERCENT:
         return content_area_h * child->size.dimensions.y;
-    }
-
-    // SIZE_HUG_HEIGHT drives its height from content (width fills the parent).
-    if (child->size.size_mode == SIZE_CONTENT ||
-        child->size.size_mode == SIZE_HUG_HEIGHT ||
-        child->size.size_mode == SIZE_CONTENT_MAX)
-    {
+    case AXIS_HUG:
         return child->measured_content_size.y;
+    case AXIS_FIXED:
+    default:
+        return child->size.dimensions.y;
     }
-
-    return child->size.dimensions.y;
 }
 
 static Vector2d ResolveChildSizeFixed(const UIElement *child, Vector2d content_area_local, float consumed_fixed_y)
@@ -404,46 +512,33 @@ static Vector2d ResolveChildSizeFixed(const UIElement *child, Vector2d content_a
         return ZERO_VECTOR_2D;
     }
 
-    if (child->size.size_mode == SIZE_PERCENT)
+    // Width axis via the helper: FILL -> full content width; PERCENT -> content*frac;
+    // HUG -> measured content; FIXED -> literal.
+    float x = ResolveAxisExtent(child->size.width_mode, child->size.dimensions.x,
+                                content_area_local.x, child->measured_content_size.x);
+
+    // Height axis inlined because of the FILL stacked-remainder and the FIXED delegation.
+    float y;
+    switch (child->size.height_mode)
     {
-        return (Vector2d){content_area_local.x * child->size.dimensions.x,
-                          content_area_local.y * child->size.dimensions.y};
+    case AXIS_PERCENT:
+        y = content_area_local.y * child->size.dimensions.y;
+        break;
+    case AXIS_FILL:
+        y = fmaxf(0.0f, content_area_local.y - consumed_fixed_y); // stacked-fill remainder
+        break;
+    case AXIS_HUG:
+        y = child->measured_content_size.y;
+        break;
+    case AXIS_FIXED:
+    default:
+        y = ResolveChildHeight(child, content_area_local.y,
+                               content_area_local.y - consumed_fixed_y);
+        break;
     }
 
-    if (child->size.size_mode == SIZE_FILL)
-    {
-        return (Vector2d){content_area_local.x,
-                          fmaxf(0.0f, content_area_local.y - consumed_fixed_y)};
-    }
-
-    // SIZE_HUG_HEIGHT: width fills the parent, height hugs content.
-    if (child->size.size_mode == SIZE_HUG_HEIGHT)
-    {
-        return (Vector2d){content_area_local.x, child->measured_content_size.y};
-    }
-
-    // SIZE_HUG_WIDTH (mirror): width hugs content, height fills the parent.
-    if (child->size.size_mode == SIZE_HUG_WIDTH)
-    {
-        return (Vector2d){child->measured_content_size.x, content_area_local.y};
-    }
-
-    if (child->size.size_mode == SIZE_CONTENT ||
-        child->size.size_mode == SIZE_CONTENT_MAX)
-    {
-        return child->measured_content_size;
-    }
-
-    return (Vector2d){child->size.dimensions.x,
-                      ResolveChildHeight(child, content_area_local.y, content_area_local.y - consumed_fixed_y)};
+    return (Vector2d){x, y};
 }
-
-typedef struct StackedLayoutStats
-{
-    int fill_count;
-    int child_count;
-    float occupied_height;
-} StackedLayoutStats;
 
 static StackedLayoutStats CollectStackedLayoutStats(const UIElement *parent, float content_area_h)
 {
@@ -456,7 +551,9 @@ static StackedLayoutStats CollectStackedLayoutStats(const UIElement *parent, flo
     ForEachEnabledChild(parent, child)
     {
         stats.child_count++;
-        if (child->size.size_mode == SIZE_FILL)
+        // Only a both-FILL child participates in the stacked fill distribution (reproduces
+        // the old SIZE_FILL-only gating; a mixed hug/fill child is handled per axis).
+        if (child->size.width_mode == AXIS_FILL && child->size.height_mode == AXIS_FILL)
         {
             stats.fill_count++;
         }
@@ -479,6 +576,65 @@ static float ResolveStackedFillHeightPerChild(StackedLayoutStats stats, float co
     float total_spacing = spacing_y * (stats.child_count - 1);
     float remaining_space = fmaxf(0.0f, content_area_h - stats.occupied_height - total_spacing);
     return remaining_space / stats.fill_count;
+}
+
+// Resolve the content height a single child receives from a stacked (SPACING_STACKED)
+// parent, i.e. the stacked-fill remainder for a both-FILL child, matching exactly what
+// DistributeChildrenStacked caches and ResolveElementBox consumes. This is the SINGLE
+// source of truth shared by the MEASURE pass (MeasureElementContent) and the
+// DISTRIBUTE/box-resolve pass, so a both-FILL child (the view) receives the identical
+// height in both passes and its stack_wrap descendant wraps against the same limit.
+//
+// The caller MUST have already computed the stacked stats ONCE for this parent and pass
+// in the shared fill_height_per_child; this helper does NOT rescan the sibling list, so
+// routing every child through it stays O(N) per parent (not O(N^2)).
+//
+// STRUCTURAL CONTRACT (see .agents/tasks/stackwrap-unify-design.md): equality across
+// passes holds only if BOTH callers pass (1) the SAME parent_content_height for the
+// stacked parent — for the real chain the stacked parent is the XML <ViewHost> host,
+// whose own content height is equal across passes because its parent (panel->root,
+// parent==NULL, no padding/override asymmetry) hands it the full content height as its
+// single both-FILL child; (2) a fill_height_per_child derived from the SAME-FRAME child
+// measurements — the MEASURE caller must measure the parent's children BEFORE computing
+// the stacked stats, so the HUG selector's measured_content_size.y is this frame's value,
+// not the previous frame's; and (3) the SAME resolved spacing step — both callers must
+// feed the remainder helper a spacing derived via ResolveSpacingStep(child_spacing, ...,
+// OFFSET_FIXED), not the raw member spacing, so PERCENT-mode spacing (scaled by content
+// area) cannot re-diverge the remainder.
+//
+//   child                : the child whose received height we want.
+//   parent_content_height: the stacked parent's content area (box height - 2*padding) in
+//                          the CALLER'S pass. In MEASURE this is MeasureElementContent's
+//                          local content_height; in DISTRIBUTE it is content_area_local.y.
+//   fill_height_per_child: the parent's single stacked-remainder-per-fill-child, computed
+//                          ONCE by the caller via CollectStackedLayoutStats +
+//                          ResolveStackedFillHeightPerChild over same-frame measurements
+//                          and the resolved OFFSET_FIXED spacing step.
+// Returns the height the child should see on its height axis:
+//   * both-FILL child  -> fill_height_per_child (same value cached_stacked_fill_height holds);
+//   * any other child  -> ResolveChildHeight (fixed/percent/hug/measured), unchanged.
+//
+// NOTE (scope): this unifies the stacked-remainder height only. A single-FILL-axis
+// descendant (e.g. a stack_wrap section) whose resolved inline-wrap offset_y > 0 still
+// diverges by that offset in DISTRIBUTE; that is a separate asymmetry, out of scope here
+// (see "Out-of-scope / documented boundary" in the design note).
+static float ResolveStackedChildReceivedHeight(const UIElement *child,
+                                               float parent_content_height,
+                                               float fill_height_per_child)
+{
+    if (!child)
+    {
+        return 0.0f;
+    }
+
+    // A both-FILL child receives the stacked remainder the caller already computed once;
+    // anything else keeps its own per-axis height (fixed/percent/hug), identical to
+    // ResolveChildHeight's result. No sibling rescan here -> O(1) per child.
+    if (child->size.width_mode == AXIS_FILL && child->size.height_mode == AXIS_FILL)
+    {
+        return fmaxf(0.0f, fill_height_per_child);
+    }
+    return ResolveChildHeight(child, parent_content_height, fill_height_per_child);
 }
 
 static void DistributeChildrenNormal(UIElement *parent, Vector2d spacing_step_fixed, Vector2d spacing_step_percent)
@@ -523,11 +679,15 @@ static void DistributeChildrenStacked(UIElement *parent, Vector2d content_area_l
                 child->authored_offset.offset.y + cursor_y};
         }
 
-        // Determine height consumed by this child.
-        float child_h = ResolveChildHeight(child, content_area_local.y, fill_height_per_child);
-        if (child->size.size_mode == SIZE_FILL)
+        // Height this child receives from the stacked distribution — via the SAME helper
+        // the MEASURE pass uses, so the cached stacked-fill height can never diverge from
+        // the measured column-height limit. Reuses the single fill_height_per_child
+        // computed once above (O(1) here).
+        float child_h = ResolveStackedChildReceivedHeight(child, content_area_local.y, fill_height_per_child);
+        if (child->size.width_mode == AXIS_FILL && child->size.height_mode == AXIS_FILL)
         {
             // Cache here so this child's own ResolveElementBox call doesn't rescan every sibling.
+            // Only both-FILL children get the cached stacked remainder (old SIZE_FILL path).
             child->cached_stacked_fill_height = fill_height_per_child;
         }
 
@@ -556,29 +716,28 @@ static void DistributeChildrenInline(UIElement *parent, Vector2d content_area_lo
                 child->authored_offset.offset.y};
         }
 
+        // Width axis only. The AXIS_FILL arm advances by the literal dimensions.x (the old
+        // SIZE_FILL else-arm result). Note this folds two old modes into one arm:
+        // old SIZE_FILL (bare else -> dimensions.x) and old SIZE_HUG_HEIGHT (its own arm ->
+        // full content width). The per-axis model has a single width_mode == AXIS_FILL case
+        // and deliberately uses the SIZE_FILL result; no live inline-distributed element
+        // reaches this arm today, so the fold is bounded (see design Finding 1).
         float child_width;
-        if (child->size.size_mode == SIZE_PERCENT)
+        switch (child->size.width_mode)
         {
+        case AXIS_PERCENT:
             child_width = content_area_local.x * child->size.dimensions.x;
-        }
-        else if (child->size.size_mode == SIZE_CONTENT)
-        {
+            break;
+        case AXIS_HUG:
             child_width = child->measured_content_size.x;
-        }
-        else if (child->size.size_mode == SIZE_HUG_HEIGHT)
-        {
-            // Width fills the parent (height hugs content elsewhere).
-            child_width = content_area_local.x;
-        }
-        else if (child->size.size_mode == SIZE_HUG_WIDTH ||
-                 child->size.size_mode == SIZE_CONTENT_MAX)
-        {
-            // Width hugs content.
-            child_width = child->measured_content_size.x;
-        }
-        else
-        {
+            break;
+        case AXIS_FILL:
             child_width = child->size.dimensions.x;
+            break;
+        case AXIS_FIXED:
+        default:
+            child_width = child->size.dimensions.x;
+            break;
         }
         cursor_x += child_width + spacing_step_fixed.x;
     }
@@ -1272,45 +1431,19 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box)
     box.coords.x += adj_offset_x;
     box.coords.y += adj_offset_y;
 
-    // Resolve Dimensions
-    if (element->size.size_mode == SIZE_PERCENT)
-    {
-        box.dimensions.x = element->size.dimensions.x * content_area_w;
-        box.dimensions.y = element->size.dimensions.y * content_area_h;
-    }
-    else if (element->size.size_mode == SIZE_CONTENT)
-    {
-        box.dimensions = element->measured_content_size;
-    }
-    else if (element->size.size_mode == SIZE_HUG_HEIGHT)
-    {
-        // Width fills the parent's content area; height hugs content.
-        box.dimensions.x = fmaxf(0.0f, content_area_w - adj_offset_x);
-        box.dimensions.y = element->measured_content_size.y;
-    }
-    else if (element->size.size_mode == SIZE_HUG_WIDTH)
-    {
-        // Mirror: width hugs content; height fills the parent's content area.
-        box.dimensions.x = element->measured_content_size.x;
-        box.dimensions.y = fmaxf(0.0f, content_area_h - adj_offset_y);
-    }
-    else if (element->size.size_mode == SIZE_CONTENT_MAX)
-    {
-        box.dimensions = element->measured_content_size;
-    }
-    else
-    {
-        box.dimensions.x = element->size.dimensions.x; // * basis_tfrm.x;
-        box.dimensions.y = element->size.dimensions.y; // * basis_tfrm.y;
-    }
-
-    // Resolve Size with Right/Bottom clamping
-    // The "Space Left" is the content area minus how far we shifted in
+    // Resolve Size with Right/Bottom clamping. The "space left" is the content area minus
+    // how far we shifted in.
     float remaining_w = fmaxf(0.0f, content_area_w - adj_offset_x);
     float remaining_h = fmaxf(0.0f, content_area_h - adj_offset_y);
 
-    if (element->size.size_mode == SIZE_FILL)
+    // The cached_stacked_fill_height override applies ONLY when BOTH axes fill, reproducing
+    // the old SIZE_FILL-only path exactly. A mixed hug/fill element never picks it up.
+    bool both_fill = (element->size.width_mode == AXIS_FILL &&
+                      element->size.height_mode == AXIS_FILL);
+
+    if (both_fill)
     {
+        // Old SIZE_FILL path, verbatim: fill remaining extent, with the stacked-fill override.
         box.dimensions.x = remaining_w;
         box.dimensions.y = remaining_h;
 
@@ -1324,15 +1457,36 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box)
                 box.dimensions.y = fill_height_per_child;
             }
         }
+        // (No right/bottom clamp for the both-FILL case, matching today.)
     }
     else
     {
-        // Clamp dimensions only when the parent is not scrollable along that axis.
-        if (!element->parent || !element->parent->is_scrollable_x)
+        // Resolve each axis independently. A single FILL axis uses the "remaining" extent
+        // (old SIZE_HUG_* path), NOT the stacked-fill override. PERCENT/HUG/FIXED go via
+        // ResolveAxisExtent against the content area.
+        box.dimensions.x = (element->size.width_mode == AXIS_FILL)
+                               ? remaining_w
+                               : ResolveAxisExtent(element->size.width_mode,
+                                                   element->size.dimensions.x,
+                                                   content_area_w,
+                                                   element->measured_content_size.x);
+
+        box.dimensions.y = (element->size.height_mode == AXIS_FILL)
+                               ? remaining_h
+                               : ResolveAxisExtent(element->size.height_mode,
+                                                   element->size.dimensions.y,
+                                                   content_area_h,
+                                                   element->measured_content_size.y);
+
+        // Right/bottom clamp, per axis, only for the non-FILL axes and only when the parent
+        // is not scrollable along that axis.
+        if (element->size.width_mode != AXIS_FILL &&
+            (!element->parent || !element->parent->is_scrollable_x))
         {
             box.dimensions.x = fminf(box.dimensions.x, remaining_w);
         }
-        if (!element->parent || !element->parent->is_scrollable_y)
+        if (element->size.height_mode != AXIS_FILL &&
+            (!element->parent || !element->parent->is_scrollable_y))
         {
             box.dimensions.y = fminf(box.dimensions.y, remaining_h);
         }
