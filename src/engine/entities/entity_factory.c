@@ -70,7 +70,8 @@ Newtonoid2d *EntityFactory_Create(const EntityCreateParams *params)
     entity->id = id;
     bool component_attached = true;
 
-    // Attach each component and apply its entity-level lifecycle effects.    if (component_attached && (params->component_flags & CREATION_COMPONENT_PORTAL))
+    // Attach each component and apply its entity-level lifecycle effects.
+    if (component_attached && (params->component_flags & CREATION_COMPONENT_PORTAL))
     {
         PortalComponent portal = {0};
         component_attached = PortalComponent_Initialise(&portal, &params->portal_params) && EntityRegistry_AttachPortal(id, &portal);

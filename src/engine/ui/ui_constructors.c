@@ -182,9 +182,9 @@ UIElement *CreateUIButton(UIElement *parent, UIElementType type, const char *tex
     btn->data.button.font = font;
     SetUIElementTextHorizontalAlignment(btn, UI_TEXT_ALIGN_CENTRE);
     SetUIElementTextVerticalAlignment(btn, UI_TEXT_VERTICAL_ALIGN_CENTRE);
-    btn->data.button.on_click = on_click;
-    btn->data.button.user_data = user_data;
-    btn->data.button.data_bind = data_bind;
+    btn->on_click = on_click;                 // base handler (presence-based dispatch)
+    btn->interaction_user_data = user_data;   // base opaque per-element state
+    btn->data.button.data_bind = data_bind;   // retained in ButtonData for the view-selector click
     btn->is_draggable = true;
 
     return btn;
@@ -209,6 +209,10 @@ UIElement *CreateUIButtonDefault(UIElement *parent, UIElementType type, const ch
                           on_click, user_data, data_bind);
 }
 
+// Create a hover-reactive LABEL: a text label whose base on_hover fires while the
+// pointer is over it. There is no built-in tint (decision 1b); any visual change is
+// the handler's responsibility. Former UI_ELEMENT_HOVER_ITEM behaviour folds into a
+// LABEL plus a base interaction handler.
 UIElement *CreateUIHoverItemDefault(UIElement *parent, const char *text, Size size, Vector2d padding,
                                     const UIPalette *palette, UIEventHandler on_hover, void *user_data)
 {
@@ -222,23 +226,21 @@ UIElement *CreateUIHoverItemDefault(UIElement *parent, const char *text, Size si
     UIPalette_GetSurfaceColours(palette, UI_PALETTE_SURFACE_BUTTON, &border, &fill);
 
     UIElement *item = CreateUIElementInTree(
-        UI_ELEMENT_HOVER_ITEM, size, parent,
+        UI_ELEMENT_LABEL, size, parent,
         (Offset){ZERO_VECTOR_2D, OFFSET_FIXED}, padding, border, fill);
     if (!item)
     {
         return NULL;
     }
 
-    safe_strncpy(item->data.hover_item.label.string, text, MAX_LABEL_CHARS);
-    item->data.hover_item.font = FONT_MEDIUM_WITH_COLOUR(palette->text);
-    item->data.hover_item.on_hover = on_hover;
-    item->data.hover_item.data_bind = NULL;
-    item->data.hover_item.user_data = user_data;
-    item->data.hover_item.normal_fill = fill;
-    item->data.hover_item.hover_fill = palette->button_fill;
+    // Former hover-item text + font map onto the LABEL's label buffer and font.
+    safe_strncpy(item->data.label.text.string, text, MAX_LABEL_CHARS);
+    item->data.label.font = FONT_MEDIUM_WITH_COLOUR(palette->text);
+    item->on_hover = on_hover;                 // base handler (presence-based dispatch)
+    item->interaction_user_data = user_data;   // base opaque per-element state
     item->is_draggable = false;
     SetUIElementTextHorizontalAlignment(item, UI_TEXT_ALIGN_LEFT);
-    SetUIElementTextVerticalAlignment(item, UI_TEXT_ALIGN_CENTRE);
+    SetUIElementTextVerticalAlignment(item, UI_TEXT_VERTICAL_ALIGN_CENTRE);
     return item;
 }
 
@@ -309,48 +311,6 @@ UIElement *CreateViewSection_Stack(UIElement *parent, const char *title,
         (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ui_standard_container_padding,
         palette, UI_PALETTE_SURFACE_CONTAINER,
         ui_standard_stack_spacing, true, true);
-    if (!section)
-    {
-        return NULL;
-    }
-
-    // Use the dark ink used by panel controls for ViewSection edges.
-    section->colour_border = palette ? palette->button_border : ui_default_palette.button_border;
-    CreateUILabelDefault(section, title, ui_standard_button_size,
-                         ui_standard_field_padding, palette);
-    return section;
-}
-
-UIElement *CreateViewSection_StackWrap(UIElement *parent, const char *title,
-                                       Size section_size, const UIPalette *palette)
-{
-    // Build a reusable stacked-wrap section for panel views.
-    UIElement *section = CreateUIContainer(
-        parent, section_size,
-        (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ui_standard_container_padding,
-        palette, UI_PALETTE_SURFACE_CONTAINER,
-        ui_standard_stack_wrap_spacing, true, true);
-    if (!section)
-    {
-        return NULL;
-    }
-
-    // Use the dark ink used by panel controls for ViewSection edges.
-    section->colour_border = palette ? palette->button_border : ui_default_palette.button_border;
-    CreateUILabelDefault(section, title, ui_standard_button_size,
-                         ui_standard_field_padding, palette);
-    return section;
-}
-
-UIElement *CreateViewSection_InlineWrap(UIElement *parent, const char *title,
-                                       Size section_size, const UIPalette *palette)
-{
-    // Build a reusable wrapped section for panel views that flows left-to-right.
-    UIElement *section = CreateUIContainer(
-        parent, section_size,
-        (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ui_standard_container_padding,
-        palette, UI_PALETTE_SURFACE_CONTAINER,
-        ui_standard_inline_wrap_spacing, true, true);
     if (!section)
     {
         return NULL;

@@ -86,6 +86,10 @@ Use the shared constructors in `src/engine/ui/ui_constructors.c` and `CreateUICo
 
 ## UI Size Modes
 
+> For authoring UI from XML markup (tags, attributes, bindings), see
+> [`UI_MARKUP_SYNTAX.md`](UI_MARKUP_SYNTAX.md). This section covers the underlying
+> sizing model that markup's `width`/`height`/`size` attributes map onto.
+
 Sizing is **per-axis**. `Size` holds one authored `dimensions` pair plus an independent
 `AxisSizeMode` for each axis — `width_mode` and `height_mode`. Every element always has a
 mode on both axes; the only question is whether it is authored in markup or supplied by a
@@ -140,8 +144,8 @@ leaf controls an explicit size or place them inside a measured container.
 Markup sets the mode with two attributes and supplies numbers with `size`:
 
 ```xml
-<Section width="hug"   height="fill"  layout="stack_wrap" />   <!-- width hugs content, height fills -->
-<Section width="fill"  height="hug" />                          <!-- width fills, height hugs content -->
+<Container title="X" width="hug"  height="fill" layout="stack_wrap" />  <!-- width hugs content, height fills -->
+<Container title="Y" width="fill" height="hug" />                       <!-- width fills, height hugs content -->
 <Button  size="3.22,0.5" width="fixed" height="fixed" />        <!-- explicit fixed box -->
 <Button  size="3.22,0.5" />                                     <!-- same: size= with no mode infers fixed -->
 ```
@@ -166,7 +170,7 @@ Each element's effective size resolves through three layers, highest priority fi
 1. **Explicit** markup — `width`/`height` (and `size` for the numbers).
 2. **Inferred** — `size` with no mode implies `fixed` per axis.
 3. **Builder default** — neither given, so the builder supplies a `Size`. Buttons default to
-   `ui_standard_button_size`, text fields to `ui_standard_control_size`, sections/containers
+   `ui_standard_button_size`, text fields to `ui_standard_control_size`, containers
    to `ui_standard_container_size`, and `<View>`/`<ViewHost>` to `ui_fill_container_size`
    (fill/fill). All default constants live in `src/engine/system/ui_system.c`.
 
@@ -179,13 +183,13 @@ panel->space (columns × rows, set by the application)
   -> UI_ELEMENT_ROOT        (view_host_system.c, AXIS_FILL both axes)
     -> <ViewHost> container  (fill/fill, fills the root)
       -> <View> container    (fill/fill, fills the host)
-        -> <Section>         (e.g. width=hug / height=fill: hugs content, fills vertically)
+        -> <Container>       (e.g. width=hug / height=fill: hugs content, fills vertically)
           -> fields / buttons
 ```
 
-Everything from the root down to the sections is `fill`, carrying the panel's size downward
-in world units (the renderer scales world units to pixels); sections then switch to `hug` on
-one axis to size to their own content.
+Everything from the root down to the containers is `fill`, carrying the panel's size downward
+in world units (the renderer scales world units to pixels); the containers then switch to `hug`
+on one axis to size to their own content.
 
 ## UI Spacing and Offsets
 

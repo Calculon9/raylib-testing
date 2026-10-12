@@ -74,6 +74,7 @@ typedef struct StateManagerUI
     UIElement *components_section;
     UIElement *comp_portal_cooldown_tbox;
     String64 *comp_portal_cooldown_str;
+    UIElement *comp_portal_target_tbox;   // Portal Dest. field (editable; binding-owned, no String64)
     UIElement *comp_portal_entrant_roles_tbox;
     String64 *comp_portal_entrant_roles_str;
     UIElement *comp_relation_type_tbox;
@@ -293,6 +294,81 @@ static bool StateManager_WriteDamage(int key, BindingValue value)
     return true;
 }
 
+// DYNAMIC read for the selected object's portal cooldown (configured frames, NOT the live
+// cooldown_frames_remaining counter). The target is reached via the selection -> attached
+// portal, which can go stale (selection changes, portal detaches), so it is re-resolved every
+// call rather than address-bound. Returns BIND_NONE when there is no selection or no portal.
+static BindingValue StateManager_QueryPortalCooldown(int key)
+{
+    (void)key;
+    Newtonoid2d *object = UIState_GetSelectedObject();
+    if (!object || object->id == INVALID_ENTITY_ID)
+    {
+        return (BindingValue){ .type = BIND_NONE };
+    }
+    PortalComponent *portal = EntityRegistry_GetPortal(object->id);
+    if (!portal)
+    {
+        return (BindingValue){ .type = BIND_NONE };
+    }
+    return (BindingValue){ .type = BIND_INT, .as.i = portal->cooldown_frames };
+}
+
+static BindingValue StateManager_QueryPortalDestination(int key)
+{
+    (void)key;
+    Newtonoid2d *object = UIState_GetSelectedObject();
+    if (!object || object->id == INVALID_ENTITY_ID)
+    {
+        return (BindingValue){ .type = BIND_NONE };
+    }
+    PortalComponent *portal = EntityRegistry_GetPortal(object->id);
+    if (!portal)
+    {
+        return (BindingValue){ .type = BIND_NONE };
+    }
+    return (BindingValue){ .type = BIND_INT, .as.i = portal->portal_destination_id };
+}
+
+static bool StateManager_WritePortalDestination(int key, BindingValue value)
+{
+    (void)key;
+    Newtonoid2d *object = UIState_GetSelectedObject();
+    if (!object || object->id == INVALID_ENTITY_ID || value.type != BIND_INT || value.as.i < 0)
+    {
+        return false;
+    }
+    PortalComponent *portal = EntityRegistry_GetPortal(object->id);
+    if (!portal)
+    {
+        return false;
+    }
+    portal->portal_destination_id = value.as.i;
+    return true;
+}
+
+// DYNAMIC write: store a committed INT into the selected object's portal cooldown. Rejects
+// (false, caller reverts) when there is no selection/portal, the value is the wrong type, or
+// the value is negative (cooldown_frames must stay >= 0, per PortalComponent_IsValid). Only the
+// configured cooldown_frames is written; the runtime cooldown_frames_remaining counter is owned
+// by the portal system and left untouched.
+static bool StateManager_WritePortalCooldown(int key, BindingValue value)
+{
+    (void)key;
+    Newtonoid2d *object = UIState_GetSelectedObject();
+    if (!object || object->id == INVALID_ENTITY_ID || value.type != BIND_INT || value.as.i < 0)
+    {
+        return false;
+    }
+    PortalComponent *portal = EntityRegistry_GetPortal(object->id);
+    if (!portal)
+    {
+        return false;
+    }
+    portal->cooldown_frames = value.as.i;
+    return true;
+}
+
 // ============================================================================
 // Flag-button display queries (one per family; is-set returning BIND_INT 0/1)
 // ============================================================================
@@ -386,7 +462,7 @@ static BindingValue StateManager_QueryComponentAttached(int component_type)
 static void HandleEntityTypeFlagClick(UIElement *button)
 {
     Newtonoid2d *object = UIState_GetSelectedObject();
-    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->data.button.user_data;
+    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->interaction_user_data;
     if (!object || !spec)
     {
         return;
@@ -401,7 +477,7 @@ static void HandleEntityTypeFlagClick(UIElement *button)
 static void HandleEntityCapabilityFlagClick(UIElement *button)
 {
     Newtonoid2d *object = UIState_GetSelectedObject();
-    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->data.button.user_data;
+    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->interaction_user_data;
     if (!object || !spec)
     {
         return;
@@ -415,7 +491,7 @@ static void HandleEntityCapabilityFlagClick(UIElement *button)
 static void HandleEntityConstraintFlagClick(UIElement *button)
 {
     Newtonoid2d *object = UIState_GetSelectedObject();
-    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->data.button.user_data;
+    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->interaction_user_data;
     if (!object || !spec)
     {
         return;
@@ -429,7 +505,7 @@ static void HandleEntityConstraintFlagClick(UIElement *button)
 static void HandleEntityStatusFlagClick(UIElement *button)
 {
     Newtonoid2d *object = UIState_GetSelectedObject();
-    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->data.button.user_data;
+    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->interaction_user_data;
     if (!object || !spec)
     {
         return;
@@ -459,7 +535,7 @@ static void HandleEntityStatusFlagClick(UIElement *button)
 static void HandleCollisionMaskFlagClick(UIElement *button)
 {
     Newtonoid2d *object = UIState_GetSelectedObject();
-    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->data.button.user_data;
+    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->interaction_user_data;
     if (!object || !spec)
     {
         return;
@@ -473,7 +549,7 @@ static void HandleCollisionMaskFlagClick(UIElement *button)
 static void HandleWorldFlagClick(UIElement *button)
 {
     World2d *world = Universe_GetSelectedWorld(&G_Universe);
-    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->data.button.user_data;
+    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->interaction_user_data;
     if (!world || !spec)
     {
         return;
@@ -487,7 +563,7 @@ static void HandleWorldFlagClick(UIElement *button)
 static void HandleCellFlagClick(UIElement *button)
 {
     Cell *cell = UIState_GetSelectedCell();
-    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->data.button.user_data;
+    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->interaction_user_data;
     if (!cell || !spec)
     {
         return;
@@ -501,12 +577,12 @@ static void HandleCellFlagClick(UIElement *button)
 static void HandleComponentToggleClick(UIElement *button)
 {
     Newtonoid2d *object = UIState_GetSelectedObject();
-    if (!object || object->id == INVALID_ENTITY_ID || !button || !button->data.button.user_data)
+    if (!object || object->id == INVALID_ENTITY_ID || !button || !button->interaction_user_data)
     {
         return;
     }
 
-    const StateManagerComponentButton *spec = (const StateManagerComponentButton *)button->data.button.user_data;
+    const StateManagerComponentButton *spec = (const StateManagerComponentButton *)button->interaction_user_data;
     EntityComponentType type = spec->type;
 
     if (EntityRegistry_HasComponent(object->id, type))
@@ -595,8 +671,8 @@ static void StateManager_WireFlags(UIElement *root, StateManagerFlagButton *butt
         buttons[i].button = StateManager_Find(root, ids[i]);
         if (buttons[i].button)
         {
-            buttons[i].button->data.button.on_click  = handler;
-            buttons[i].button->data.button.user_data = (void *)&buttons[i];
+            buttons[i].button->on_click  = handler;
+            buttons[i].button->interaction_user_data = (void *)&buttons[i];
 
             // Query SOURCE restores the "<label>: ON/OFF" display (sink stays NONE; the handler
             // owns the write path).
@@ -656,10 +732,28 @@ static void StateManager_RegisterElements(UIElement *root)
     // --- Component property textboxes + their String64 display buffers ---
     // The String64 is the inline data.textbox.text buffer the field draws; the former
     // UIFieldSpec out-param captured exactly that address.
+    // Portal cooldown is EDITABLE (io="safe" in the markup): bind it dynamically with a
+    // query SOURCE + write SINK, exactly like the damage field, so commits write back to the
+    // selected object's portal->cooldown_frames. The target is reached via the selection ->
+    // attached portal (can go stale), so a dynamic query/write pair is used rather than an
+    // address binding. comp_portal_cooldown_str is left NULL so the per-frame refresh does NOT
+    // blit the display buffer (which would fight the binding); the binding owns the value.
     s_sm_ui.comp_portal_cooldown_tbox = StateManager_Find(root, "sm_portal_cooldown");
     if (s_sm_ui.comp_portal_cooldown_tbox)
     {
-        s_sm_ui.comp_portal_cooldown_str = &s_sm_ui.comp_portal_cooldown_tbox->data.textbox.text;
+        BindTextboxDynamic(s_sm_ui.comp_portal_cooldown_tbox, BIND_INT, 0,
+                           StateManager_QueryPortalCooldown, StateManager_WritePortalCooldown, 0);
+    }
+    s_sm_ui.comp_portal_cooldown_str = NULL;
+
+    // Portal Dest. is EDITABLE (io="safe"): same dynamic query/write pattern as cooldown. The
+    // query reads portal->portal_destination_id and the write commits the entered entity id to
+    // the selected object's portal. Binding-owned display, so no String64 and no refresh blit.
+    s_sm_ui.comp_portal_target_tbox = StateManager_Find(root, "sm_portal_target_id");
+    if (s_sm_ui.comp_portal_target_tbox)
+    {
+        BindTextboxDynamic(s_sm_ui.comp_portal_target_tbox, BIND_INT, 0,
+                           StateManager_QueryPortalDestination, StateManager_WritePortalDestination, 0);
     }
     s_sm_ui.comp_portal_entrant_roles_tbox = StateManager_Find(root, "sm_portal_roles");
     if (s_sm_ui.comp_portal_entrant_roles_tbox)
@@ -717,8 +811,8 @@ static void StateManager_RegisterElements(UIElement *root)
     {
         if (s_sm_ui.comp_buttons[i].button)
         {
-            s_sm_ui.comp_buttons[i].button->data.button.on_click  = HandleComponentToggleClick;
-            s_sm_ui.comp_buttons[i].button->data.button.user_data = (void *)&s_sm_ui.comp_buttons[i];
+            s_sm_ui.comp_buttons[i].button->on_click  = HandleComponentToggleClick;
+            s_sm_ui.comp_buttons[i].button->interaction_user_data = (void *)&s_sm_ui.comp_buttons[i];
 
             // Re-attach the component query SOURCE (keyed on component TYPE) so the refresh walk
             // composes "<label>: ON/OFF" exactly as the former construction loop did.
@@ -745,8 +839,8 @@ static void StateManager_RegisterElements(UIElement *root)
     UIElement *del = StateManager_Find(root, "sm_delete");
     if (del)
     {
-        del->data.button.on_click  = HandleBtnSubmitClick;
-        del->data.button.user_data = &s_sm_ui.delete_action;
+        del->on_click  = HandleBtnSubmitClick;
+        del->interaction_user_data = &s_sm_ui.delete_action;
     }
 }
 
@@ -827,6 +921,7 @@ static void RefreshComponentsSection(const Newtonoid2d *object)
     // Toggle Portal property field row visibility
     bool has_portal = (desc.components[ENTITY_COMPONENT_PORTAL] != NULL);
     SetParentEnabledState(s_sm_ui.comp_portal_cooldown_tbox, has_portal);
+    SetParentEnabledState(s_sm_ui.comp_portal_target_tbox, has_portal);
     SetParentEnabledState(s_sm_ui.comp_portal_entrant_roles_tbox, has_portal);
 
     // Populate portal component fields if attached.
@@ -1114,22 +1209,12 @@ void InitStateManagerSystem(void)
         }
     }
 
-    // 7) Horizontal-scroll parity. The loader's scrollable= drives VERTICAL scroll; the former C
-    //    views used View_SetScrollableX(view, true). Re-assert horizontal scroll on every view to
-    //    preserve the former behaviour (no vertical scroll is introduced).
-    for (int i = 0; i < state_manager_panel->views.count; i++)
-    {
-        View *view = *((View **)LArray_Get(&state_manager_panel->views, i));
-        if (view)
-        {
-            View_SetScrollableX(view, true);
-        }
-    }
-
-    // 8) ID-REGISTRATION + WIRING PASS: re-acquire every pointer the C refresh/handlers need.
+    // 7) ID-REGISTRATION + WIRING PASS: re-acquire every pointer the C refresh/handlers need.
+    //    (Scrolling is now authored declaratively via scroll= on each <View> in the markup;
+    //    the former imperative View_SetScrollableX force-enable has been removed.)
     StateManager_RegisterElements(root);
 
-    // 9) Subscribe once so selection transitions can proactively refresh this panel.
+    // 8) Subscribe once so selection transitions can proactively refresh this panel.
     UIState_SetSelectionChangedCallback(HandleSelectionChanged, NULL);
 
     // 10) First frame should always render initialised state-manager values; final layout update.

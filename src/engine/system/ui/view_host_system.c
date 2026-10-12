@@ -10,7 +10,18 @@
 // Draw a compact scrollbar over a scrollable view after its clipped content.
 static void DrawViewScrollbar(const View *view, const UIPalette *palette)
 {
-    if (!view || !view->container || !view->is_scrollable_y || view->max_scroll_y <= 0.0f)
+    if (!view || !view->container)
+    {
+        return;
+    }
+
+    // Draw up to two scrollbars: a vertical one on the right edge when the view scrolls
+    // vertically with overflow, and a horizontal one on the bottom edge when it scrolls
+    // horizontally with overflow. Each is drawn only when its axis both scrolls and has
+    // content exceeding the visible extent (max_scroll_* > 0).
+    const bool show_y = view->is_scrollable_y && view->max_scroll_y > 0.0f;
+    const bool show_x = view->is_scrollable_x && view->max_scroll_x > 0.0f;
+    if (!show_y && !show_x)
     {
         return;
     }
@@ -18,24 +29,39 @@ static void DrawViewScrollbar(const View *view, const UIPalette *palette)
     UIBox box = view->container->screen_box;
     const float scrollbar_width = 6.0f;
     const float inset = 4.0f;
-    float track_height = fmaxf(0.0f, box.dimensions.y - (2.0f * inset));
-    float thumb_height = fmaxf(20.0f, track_height * (box.dimensions.y / view->content_height));
-    thumb_height = fminf(track_height, thumb_height);
-    float travel = fmaxf(0.0f, track_height - thumb_height);
-    float thumb_offset = view->max_scroll_y > 0.0f
-                             ? travel * (view->scroll_y / view->max_scroll_y)
-                             : 0.0f;
 
     Color track_colour = ToRaylibColor(palette ? palette->container_border : ui_default_palette.container_border);
     Color thumb_colour = ToRaylibColor(palette ? palette->button_fill : ui_default_palette.button_fill);
-    DrawRectangleRec((Rectangle){box.coords.x + box.dimensions.x - scrollbar_width - inset,
-                                 box.coords.y + inset,
-                                 scrollbar_width,
-                                 track_height}, track_colour);
-    DrawRectangleRec((Rectangle){box.coords.x + box.dimensions.x - scrollbar_width - inset,
-                                 box.coords.y + inset + thumb_offset,
-                                 scrollbar_width,
-                                 thumb_height}, thumb_colour);
+
+    // Vertical scrollbar (right edge). Leave room at the bottom for the horizontal bar
+    // when both are shown so the two tracks do not overlap in the corner.
+    if (show_y)
+    {
+        float reserve = show_x ? (scrollbar_width + inset) : 0.0f;
+        float track_height = fmaxf(0.0f, box.dimensions.y - (2.0f * inset) - reserve);
+        float thumb_height = fmaxf(20.0f, track_height * (box.dimensions.y / view->content_height));
+        thumb_height = fminf(track_height, thumb_height);
+        float travel = fmaxf(0.0f, track_height - thumb_height);
+        float thumb_offset = travel * (view->scroll_y / view->max_scroll_y);
+        float x = box.coords.x + box.dimensions.x - scrollbar_width - inset;
+        DrawRectangleRec((Rectangle){x, box.coords.y + inset, scrollbar_width, track_height}, track_colour);
+        DrawRectangleRec((Rectangle){x, box.coords.y + inset + thumb_offset, scrollbar_width, thumb_height}, thumb_colour);
+    }
+
+    // Horizontal scrollbar (bottom edge). Mirrors the vertical logic across axes, and
+    // reserves room at the right for the vertical bar when both are shown.
+    if (show_x)
+    {
+        float reserve = show_y ? (scrollbar_width + inset) : 0.0f;
+        float track_width = fmaxf(0.0f, box.dimensions.x - (2.0f * inset) - reserve);
+        float thumb_width = fmaxf(20.0f, track_width * (box.dimensions.x / view->content_width));
+        thumb_width = fminf(track_width, thumb_width);
+        float travel = fmaxf(0.0f, track_width - thumb_width);
+        float thumb_offset = travel * (view->scroll_x / view->max_scroll_x);
+        float y = box.coords.y + box.dimensions.y - scrollbar_width - inset;
+        DrawRectangleRec((Rectangle){box.coords.x + inset, y, track_width, scrollbar_width}, track_colour);
+        DrawRectangleRec((Rectangle){box.coords.x + inset + thumb_offset, y, thumb_width, scrollbar_width}, thumb_colour);
+    }
 }
 
 void ViewHostSystem_HandleViewSelected(View *view)
@@ -453,52 +479,67 @@ View *ViewHostSystem_GetActiveView(ViewHostSystem *panel)
     return NULL;
 }
 
+// Recolour a selector's option elements to reflect the active selection. Active
+// options get the panel button_fill; inactive get the panel background. Font colour
+// follows the same active/inactive split. Hover highlight is now handler-driven
+// (decision 1b); this routine still owns the persistent ACTIVE-selection colour.
 static void UpdatePanelViewSelectorButtons(ViewSelector *selector)
 {
     for (size_t i = 0; i < selector->count; i++)
     {
         bool is_active = i == selector->active_index;
-        selector->buttons[i]->colour_fill = is_active
-                                                ? selector->panel->palette->button_fill
-                                                : selector->panel->palette->panel_background;
-        if (selector->buttons[i]->type == UI_ELEMENT_HOVER_ITEM)
+        UIElement *option = selector->buttons[i];
+        ColourRgba fill = is_active ? selector->panel->palette->button_fill
+                                    : selector->panel->palette->panel_background;
+        ColourRgba text = is_active ? selector->panel->palette->text_on_dark
+                                    : selector->panel->palette->button_fill;
+        option->colour_fill = fill;
+
+        // Former hover items are LABELs; enumerate selectors are buttons. Pick the
+        // matching text buffer's font so the drawn colour updates correctly.
+        if (IsBtn(option))
         {
-            selector->buttons[i]->data.hover_item.normal_fill = selector->buttons[i]->colour_fill;
-            selector->buttons[i]->data.hover_item.font.colour = is_active
-                                                                    ? selector->panel->palette->text_on_dark
-                                                                    : selector->panel->palette->button_fill;
+            option->data.button.font.colour = text;
         }
-        else
+        else   // UI_ELEMENT_LABEL (hover selector option)
         {
-            selector->buttons[i]->data.button.font.colour = is_active
-                                                                ? selector->panel->palette->text_on_dark
-                                                                : selector->panel->palette->button_fill;
+            option->data.label.font.colour = text;
         }
     }
 }
 
 static void HandlePanelViewSelectorHover(UIElement *item);
 
+// Click handler for a view-selector enumerate button. Reads the selector pointer
+// from ButtonData.data_bind (buttons only) and the view index from the base
+// interaction_user_data, then switches to that view.
 void HandleViewHostSelectorClick(UIElement *button)
 {
-    ViewSelector *selector = (ViewSelector *)button->data.button.data_bind;
-    if (!selector || !button->data.button.user_data)
+    ViewSelector *selector = (ViewSelector *)button->data.button.data_bind;  // KEEP (button only)
+    if (!selector || !button->interaction_user_data)
     {
         return;
     }
 
-    ViewHostSystem_SelectView(selector, (size_t)*((int *)button->data.button.user_data));
+    ViewHostSystem_SelectView(selector, (size_t)*((int *)button->interaction_user_data));
 }
 
+// Hover handler for a hover-view-selector option (a LABEL). Switches to the option's
+// view and reproduces the former hover tint by setting the option's fill directly
+// (no built-in tint, decision 1b). ViewHostSystem_SelectView ->
+// UpdatePanelViewSelectorButtons re-asserts the persistent active/inactive colours
+// immediately afterwards, so the hover tint shows on the element under the cursor
+// and the active option keeps its selected colour.
 static void HandlePanelViewSelectorHover(UIElement *item)
 {
-    ViewSelector *selector = (ViewSelector *)item->data.hover_item.data_bind;
-    if (!selector || !item->data.hover_item.user_data)
+    ViewSelector *selector = (ViewSelector *)item->interaction_data_bind;
+    if (!selector || !item->interaction_user_data)
     {
         return;
     }
 
-    ViewHostSystem_SelectView(selector, (size_t)*((int *)item->data.hover_item.user_data));
+    item->colour_fill = selector->panel->palette->button_fill;   // handler-driven hover tint
+    ViewHostSystem_SelectView(selector, (size_t)*((int *)item->interaction_user_data));
 }
 
 static ViewSelector *AllocatePanelViewSelector(ViewHostSystem *panel, const char *labels[], size_t count,
@@ -629,7 +670,7 @@ ViewSelector *ViewHostSystem_CreateHoverViewSelector(ViewHostSystem *panel, UIEl
             return NULL;
         }
 
-        selector->buttons[i]->data.hover_item.data_bind = selector;
+        selector->buttons[i]->interaction_data_bind = selector;
     }
 
     UpdatePanelViewSelectorButtons(selector);
@@ -690,7 +731,7 @@ void ViewHostSystem_Draw(ViewHostSystem *panel)
     for (int i = 0; i < panel->views.count; i++)
     {
         View *view = *((View **)LArray_Get(&panel->views, i));
-        if (view && view->is_scrollable_y)
+        if (view && (view->is_scrollable_x || view->is_scrollable_y))
         {
             View_UpdateScrollBounds(view);
         }

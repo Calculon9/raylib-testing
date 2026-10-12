@@ -244,7 +244,7 @@ static bool RemoveRegisteredEntity(World2d *world, EntityId entity_id, bool rele
 EntityId MoveObjectBetweenWorlds(World2d *source_world, World2d *destination_world, EntityId object_id,
                                  EntityId destination_parent_id, Vector2d destination_coords)
 {
-    if (!source_world || !destination_world || source_world == destination_world)
+    if (!source_world || !destination_world)// || source_world == destination_world)
     {
         return INVALID_ENTITY_ID;
     }

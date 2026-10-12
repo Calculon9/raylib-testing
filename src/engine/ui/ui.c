@@ -1125,10 +1125,26 @@ UIElement *GetElementAtClipped(UIElement *e, Vector2d pixel_coords, UIClipRect c
         return NULL;
     }
 
-    // If the mouse isn't over this element, it cannot be over its children.
-    if (!IsMouseOverElement(e, pixel_coords))
+    // Is the pointer over THIS element's own box? A child authored allow_overflow may extend
+    // outside e's box, so being outside e does NOT prove the pointer misses every descendant:
+    // we must still descend into overflow children. Only when the pointer is outside e AND e
+    // has no overflow child can we short-circuit (the common, fast case).
+    bool over_self = IsMouseOverElement(e, pixel_coords);
+    if (!over_self)
     {
-        return NULL;
+        bool has_overflow_child = false;
+        ForEachChild(e, child)
+        {
+            if (child->allow_overflow)
+            {
+                has_overflow_child = true;
+                break;
+            }
+        }
+        if (!has_overflow_child)
+        {
+            return NULL;
+        }
     }
 
     // If this container is scrollable, constrain child hit-testing to the container's visible bounds.
@@ -1138,12 +1154,18 @@ UIElement *GetElementAtClipped(UIElement *e, Vector2d pixel_coords, UIClipRect c
         child_clip = UIClipRect_Intersect(clip, UIClipRect_FromBox(e->screen_box));
     }
 
-    // Check children (last sibling is usually drawn on top, so top-most child wins).
+    // Check children (last sibling is usually drawn on top, so top-most child wins). When the
+    // pointer is outside e's own box, only overflow children are eligible (a non-overflow child
+    // is clamped within e, so it cannot contain a pointer that e itself does not).
     UIElement *found = NULL;
     if (!UIClipRect_IsEmpty(child_clip))
     {
         ForEachChild(e, child)
         {
+            if (!over_self && !child->allow_overflow)
+            {
+                continue;
+            }
             UIElement *clicked = GetElementAtClipped(child, pixel_coords, child_clip);
             if (clicked)
             {
@@ -1152,8 +1174,14 @@ UIElement *GetElementAtClipped(UIElement *e, Vector2d pixel_coords, UIClipRect c
         }
     }
 
-    // If a child was clicked, return that. Otherwise, it's this element.
-    return (found) ? found : e;
+    // A child hit wins. Otherwise e is the hit ONLY if the pointer is actually over e's box
+    // (an overflow-only descent where the pointer missed every overflow child returns NULL,
+    // since the pointer is not over e itself).
+    if (found)
+    {
+        return found;
+    }
+    return over_self ? e : NULL;
 }
 
 void DisableElement(UIElement *element)
@@ -1479,13 +1507,15 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box)
                                                    element->measured_content_size.y);
 
         // Right/bottom clamp, per axis, only for the non-FILL axes and only when the parent
-        // is not scrollable along that axis.
-        if (element->size.width_mode != AXIS_FILL &&
+        // is not scrollable along that axis. An element with allow_overflow opts out of the
+        // clamp entirely so it may extend past the parent's content box (fan-out submenus,
+        // tooltips, dropdowns); its authored/measured size is kept intact on both axes.
+        if (element->size.width_mode != AXIS_FILL && !element->allow_overflow &&
             (!element->parent || !element->parent->is_scrollable_x))
         {
             box.dimensions.x = fminf(box.dimensions.x, remaining_w);
         }
-        if (element->size.height_mode != AXIS_FILL &&
+        if (element->size.height_mode != AXIS_FILL && !element->allow_overflow &&
             (!element->parent || !element->parent->is_scrollable_y))
         {
             box.dimensions.y = fminf(box.dimensions.y, remaining_h);
@@ -1606,8 +1636,6 @@ const char *GetElementTypeName(UIElementType type)
         return "BUTTON_ENUMERATE";
     case UI_ELEMENT_BUTTON_SUBMIT:
         return "BUTTON_SUBMIT";
-    case UI_ELEMENT_HOVER_ITEM:
-        return "HOVER_ITEM";
     case UI_ELEMENT_IMAGE:
         return "IMAGE";
     default:

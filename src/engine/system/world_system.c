@@ -276,6 +276,22 @@ void InitWorldSystem(void)
                    sizeof(*G_UIState.entity_create_params));
     }
     G_UIState.entity_create_params = AllocateBytes(sizeof(EntityCreateParams));
+    if (G_UIState.entity_create_params)
+    {
+        // Seed sane physics defaults so any consumer (the popup create menu, a
+        // programmatic spawn) produces a valid entity even before the lpanel DRAW form
+        // has been touched. The struct is otherwise zero-initialised, which would make
+        // width/height 0 and fail Entity_ValidateDimensions. The DRAW form's value=
+        // attributes overwrite these once that panel loads.
+        Newtonoid2dParams *physics = &G_UIState.entity_create_params->physics;
+        physics->width = 1.0f;
+        physics->height = 1.0f;
+        physics->mass = 1.0f;
+        physics->restitution = 0.9f;
+        physics->friction = 0.5f;
+        physics->vertice_count = 4;
+    }
+
     extern void InitCommandSystem(void);
     InitCommandSystem();
 }
@@ -356,11 +372,8 @@ static InputRouteResult TryHandleFireProjectile(World2d *active_world, InputRout
 }
 
 // Resolve and capture the closest selectable entity for drag operations.
-static InputRouteResult TrySelectAndCaptureEntity(World2d *active_world,
-                                                  const InputFrame *input,
-                                                  Vector2d click_world_coords,
-                                                  DragInteractionState *game_drag_ctx,
-                                                  InputRouteResult prior_result)
+static InputRouteResult TrySelectAndCaptureEntity(World2d *active_world, const InputFrame *input, Vector2d click_world_coords,
+                                                  DragInteractionState *game_drag_ctx, InputRouteResult prior_result)
 {
     if (!active_world || !input || !game_drag_ctx ||
         prior_result != INPUT_ROUTE_IGNORED || !input->left_down ||
@@ -371,40 +384,28 @@ static InputRouteResult TrySelectAndCaptureEntity(World2d *active_world,
 
     char log[256] = "";
     int offset = 0;
-    AppendLogLine(log, sizeof(log), &offset,
-                  "WORLD (%.1f,%.1f) --> ",
-                  game_viewport.local_origin.x,
-                  game_viewport.local_origin.y);
+    AppendLogLine(log, sizeof(log), &offset, "WORLD (%.1f,%.1f) --> ",
+                  game_viewport.local_origin.x, game_viewport.local_origin.y);
 
     Cell *selected_cell = NULL;
     int selected_cell_index = -1;
-    Newtonoid2d *closest = ResolveClosestEntityAt(active_world,
-                                                  click_world_coords,
-                                                  &selected_cell,
-                                                  &selected_cell_index,
-                                                  log,
-                                                  sizeof(log),
-                                                  &offset);
+    Newtonoid2d *closest = ResolveClosestEntityAt(active_world, click_world_coords, &selected_cell,
+                                                  &selected_cell_index,log,sizeof(log), &offset);
 
     UIState_SetSelection(closest, selected_cell, selected_cell_index);
 
     if (closest)
     {
         SnapshotDraggedEntityMotion(closest);
-        DragInteraction_BeginCapture(game_drag_ctx,
-                                     DRAG_TARGET_WORLD_ENTITY,
-                                     closest,
-                                     closest->anchor_position);
-        AppendLogLine(log, sizeof(log), &offset,
-                      "--> SELECTED ENTITY: ID:%d", closest->id);
+        DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_ENTITY, closest, closest->anchor_position);
+        AppendLogLine(log, sizeof(log), &offset, "--> SELECTED ENTITY: ID:%d", closest->id);
     }
     else
     {
         g_drag_motion_snapshot.entity = NULL;
         g_drag_motion_snapshot.has_snapshot = false;
         DragInteraction_ClearCapture(game_drag_ctx);
-        AppendLogLine(log, sizeof(log), &offset,
-                      " --> SELECTED ENTITY: NULL");
+        AppendLogLine(log, sizeof(log), &offset, " --> SELECTED ENTITY: NULL");
     }
 
     LOG_INFO("CLICKED (%d,%d) | %s\n",

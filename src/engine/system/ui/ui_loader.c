@@ -33,6 +33,11 @@ static void UILoader_LogWarning(UILoaderContext *ctx, const char *msg, const cha
 static void UILoader_LogError(UILoaderContext *ctx, const char *msg, const char *func);
 static void UILoader_Log(UILoaderContext *ctx, const char *func, const char *format, ...);
 
+// Forward-declared: the attribute parsers live below the builders, but BuildView (above them)
+// uses UILoader_ParseScroll.
+static void UILoader_ParseScroll(UILoaderContext *ctx, const char *scroll_str,
+                                 bool *scroll_x, bool *scroll_y);
+
 static struct {
     UIElementBuilderRegistry entries[MAX_REGISTERED_BUILDERS];
     int count;
@@ -60,7 +65,8 @@ typedef struct {
     UIElement *container;           // The UI_ELEMENT_VIEW container (same pointer View->container holds)
     ViewType view_type;             // Resolved ViewType from type=
     char id[MAX_UI_ELEMENT_ID];     // Preserved id= for Option/initialView resolution
-    bool scrollable_y;              // Vertical scrollability from scrollable= (default false)
+    bool scrollable_x;              // Horizontal scrollability from scroll= (default false)
+    bool scrollable_y;              // Vertical scrollability from scroll= (default false)
 } LoadedViewEntry;
 
 // Captured <Option>: links an enumerate button to the View id it targets.
@@ -92,7 +98,8 @@ static void UILoader_ResetMarkupTable(void)
  * Overflow beyond MAX_LOADED_VIEWS is warned and ignored.
  */
 static void UILoader_RecordView(UILoaderContext *ctx, UIElement *container,
-                                ViewType view_type, const char *id, bool scrollable_y)
+                                ViewType view_type, const char *id,
+                                bool scrollable_x, bool scrollable_y)
 {
     if (g_markup_table.view_count >= MAX_LOADED_VIEWS)
     {
@@ -104,23 +111,29 @@ static void UILoader_RecordView(UILoaderContext *ctx, UIElement *container,
     entry->container = container;
     entry->view_type = view_type;
     safe_strncpy(entry->id, id ? id : "", MAX_UI_ELEMENT_ID);
+    entry->scrollable_x = scrollable_x;
     entry->scrollable_y = scrollable_y;
 }
 
 /**
- * Look up the recorded vertical scrollability for a given view container pointer.
- * Defaults to false if the container is not found in the side table.
+ * Look up the recorded per-axis scrollability for a given view container pointer.
+ * Writes both axes through the out-params; both default to false when the container
+ * is not found in the side table.
  */
-static bool UILoader_LookupViewScrollable(const UIElement *container)
+static void UILoader_LookupViewScrollable(const UIElement *container,
+                                          bool *scrollable_x, bool *scrollable_y)
 {
     for (size_t i = 0; i < g_markup_table.view_count; i++)
     {
         if (g_markup_table.views[i].container == container)
         {
-            return g_markup_table.views[i].scrollable_y;
+            if (scrollable_x) *scrollable_x = g_markup_table.views[i].scrollable_x;
+            if (scrollable_y) *scrollable_y = g_markup_table.views[i].scrollable_y;
+            return;
         }
     }
-    return false;
+    if (scrollable_x) *scrollable_x = false;
+    if (scrollable_y) *scrollable_y = false;
 }
 
 /**
@@ -224,24 +237,6 @@ static void UILoader_LogError(UILoaderContext *ctx, const char *msg, const char 
     
     (void)source;
     (void)func;
-}
-
-/**
- * Validate that a required attribute is present and non-empty.
- * Logs error if missing.
- * 
- * @return true if attribute exists and is non-empty, false otherwise
- */
-static bool UILoader_ValidateRequired(mxml_node_t *node, const char *attr_name,
-                                      UILoaderContext *ctx, const char *element_tag)
-{
-    const char *value = mxmlElementGetAttr(node, attr_name);
-    if (!value || value[0] == '\0')
-    {
-        // Log error but don't fatal; allow builder to handle gracefully
-        return false;
-    }
-    return true;
 }
 
 // ============================================================================
@@ -485,6 +480,7 @@ static UIBuildResult BuildLabel(mxml_node_t *node, UIElement *parent, const UIPa
  * Builder for <TextField> elements.
  * Attributes: label (required), type (integer/float/vector2), binding (optional source,
  *             optionally a dynamic write sink), io (optional: "readonly"/"safe"/"raw"),
+ *             value (optional - initial value seeded into the binding + shown in the field),
  *             size (optional "w,h"), width/height (optional per-axis mode
  *             "fixed|percent|fill|hug"), offset (optional "x,y"),
  *             offset-mode (optional "fixed"/"percent"), enabled (optional).
@@ -631,6 +627,49 @@ static void UILoader_AssembleTextboxBinding(mxml_node_t *node, UILoaderContext *
     }
 }
 
+// Apply an authored value= attribute: parse the string per the field's value type and seed it
+// into the field, both into the bound data (when the binding has an ADDRESS source we can
+// write) and into the textbox's displayed text, so the field starts at its authored value.
+// `b` is the binding assembled by UILoader_AssembleTextboxBinding; `data_type` is the field's
+// resolved parse/format DataType. No-ops when value= is absent. For a query-source or
+// address-less binding the data cannot be written (nothing to write to); the display text is
+// still seeded so the field shows the authored value.
+static void UILoader_ApplyFieldValue(mxml_node_t *node, UIElement *textbox,
+                                     const Binding *b, DataType data_type)
+{
+    const char *value_attr = mxmlElementGetAttr(node, "value");
+    if (!value_attr || !textbox)
+        return;
+
+    // Parse the authored text into a typed BindingValue (same parser the commit path uses).
+    BindingValueType vt = UILoader_MapDataType(data_type);
+    if (vt == BIND_NONE)
+        return;
+    BindingValue parsed = {0};
+    if (!Binding_ParseText(value_attr, vt, NULL, NULL, &parsed))
+        return;
+
+    // Seed the bound DATA when the source is a writable address. Reuse the symmetric sink
+    // write so the store matches the commit path exactly (type-correct deref at the address).
+    if (b && b->source.kind == BIND_SRC_ADDRESS && b->source.address)
+    {
+        BindingSink seed = {
+            .kind = BIND_SINK_ADDRESS,
+            .value_type = b->source.value_type,
+            .address = b->source.address,
+        };
+        (void)Binding_WriteSink(&seed, parsed);
+    }
+
+    // Seed the DISPLAY text so the field shows its authored value immediately. Prefer a
+    // binding-driven refresh (formats the just-seeded source); fall back to formatting the
+    // parsed value directly when there is no readable source.
+    if (b && b->source.kind != BIND_SRC_NONE)
+        Binding_RefreshText(b, textbox->data.textbox.text.string, sizeof(textbox->data.textbox.text.string));
+    else
+        safe_strncpy(textbox->data.textbox.text.string, value_attr, MAX_LABEL_CHARS);
+}
+
 static UIBuildResult BuildTextField(mxml_node_t *node, UIElement *parent, const UIPalette *palette,
                                     UILoaderContext *ctx, UICommonAttrs *common)
 {
@@ -679,6 +718,9 @@ static UIBuildResult BuildTextField(mxml_node_t *node, UIElement *parent, const 
         textbox->data.textbox.binding = Binding_Create(b);
     }
 
+    // Seed the field from an authored value= (writes the bound data + the display text).
+    UILoader_ApplyFieldValue(node, textbox, &b, data_type);
+
     // id-on-control (design section 7): stamp common.id onto the TEXTBOX (control) here so
     // FindById(id) returns the textbox exactly as external code (StateManager) expects. The
     // skeleton skips id-stamping for composites (control != outer), so the row carries no id.
@@ -694,8 +736,9 @@ static UIBuildResult BuildTextField(mxml_node_t *node, UIElement *parent, const 
 /**
  * Builder for <Textbox> elements (standalone input primitive).
  * Attributes: type (integer/float/vector2), io (optional: "readonly"/"safe"/"raw"),
- *             binding (optional source, optionally a dynamic write sink), size (optional
- *             "w,h"), width/height (optional per-axis mode), offset (optional),
+ *             binding (optional source, optionally a dynamic write sink),
+ *             value (optional - initial value seeded into the binding + shown),
+ *             size (optional "w,h"), width/height (optional per-axis mode), offset (optional),
  *             offset-mode (optional), enabled (optional).
  *
  * Constructs a BARE textbox - the SAME UI_ELEMENT_TEXTBOX_* control <TextField> uses
@@ -751,43 +794,20 @@ static UIBuildResult BuildTextbox(mxml_node_t *node, UIElement *parent, const UI
         textbox->data.textbox.binding = Binding_Create(b);
     }
 
+    // Seed the field from an authored value= (writes the bound data + the display text).
+    UILoader_ApplyFieldValue(node, textbox, &b, data_type);
+
     // Single-element builder: control == outer. id/offset/enabled/size land on the textbox.
     return (UIBuildResult){ .element = textbox };
 }
 
 /**
- * Builder for <Section> elements.
- * Attributes: title (required), id (optional), size (optional "w,h"),
- *             width/height (optional per-axis mode "fixed|percent|fill|hug"),
- *             layout (optional: "stack"/"stack_wrap"/"inline_wrap"),
- *             offset (optional "x,y"), offset-mode (optional "fixed"/"percent")
- * Children are added to the section's container.
- */
-static UIBuildResult BuildSection(mxml_node_t *node, UIElement *parent,
-                                  const UIPalette *palette, UILoaderContext *ctx,
-                                  UICommonAttrs *common)
-{
-    const char *title = mxmlElementGetAttr(node, "title");
-    if (!title)
-        title = "";
-
-    // Size, offset and layout all come from the common pass (size seeded with
-    // ui_standard_container_size). The offset is passed into CreateViewSection, so mark it
-    // consumed and let the skeleton skip the post-apply (exactly-once offset). enabled is
-    // applied POST by the skeleton.
-    UIElement *section = CreateViewSection(parent, title, common->size, common->offset,
-                                           common->layout, palette);
-    common->offset_consumed = true;
-
-    // Single-element builder: control == outer (offset consumed at construct time).
-    return (UIBuildResult){ .element = section };
-}
-
-/**
- * Builder for <Container> elements.
- * Attributes: size (optional "w,h"), width/height (optional per-axis mode
- *             "fixed|percent|fill|hug"), spacing (optional)
- * Children are added to the container.
+ * Builder for <Container> elements: a box that groups children, with an optional title.
+ * Attributes: title (optional - adds a heading label and the section edge tint when set),
+ *             size (optional "w,h"), width/height (optional per-axis mode
+ *             "fixed|percent|fill|hug"), offset (optional "x,y"),
+ *             offset-mode (optional "fixed"/"percent"), layout (optional).
+ * Children are added to the container. (This tag supersedes the former <Section>.)
  */
 static UIBuildResult BuildContainer(mxml_node_t *node, UIElement *parent,
                                     const UIPalette *palette, UILoaderContext *ctx,
@@ -802,16 +822,28 @@ static UIBuildResult BuildContainer(mxml_node_t *node, UIElement *parent,
                             false, common->enabled);
     common->offset_consumed = true;
 
+    // An authored title turns the box into a titled "section": it gets the panel-control
+    // edge tint and a heading label child. A title-less container stays a plain box with
+    // the default container border (and no phantom empty-label slot).
+    const char *title = mxmlElementGetAttr(node, "title");
+    if (container && title && title[0] != '\0')
+    {
+        container->colour_border = palette ? palette->button_border
+                                           : ui_default_palette.button_border;
+        CreateUILabelDefault(container, title, ui_standard_button_size,
+                             ui_standard_field_padding, palette);
+    }
+
     // Single-element builder: control == outer (offset consumed at construct time).
     return (UIBuildResult){ .element = container };
 }
 
 /**
  * Builder for <View> elements.
- * Attributes: id (optional), type (optional), scrollable (optional), layout (optional),
+ * Attributes: id (optional), type (optional), scroll (optional "x|y|both|none"), layout (optional),
  *             width/height (optional: "fixed"/"percent"/"fill"/"hug"), size (optional "w,h"),
  *             offset (optional "x,y"), offset-mode (optional), enabled (optional).
- * Children (Sections) are added to the view container.
+ * Children (Containers) are added to the view container.
  *
  * width/height/size and offset default to a fill/fill container and a zero fixed offset
  * when absent (a bare <View> fills its host). The View is independent of any panel and can
@@ -828,10 +860,11 @@ static UIBuildResult BuildView(mxml_node_t *node, UIElement *parent,
     const char *view_id = common->id;
 
     const char *view_type_str = mxmlElementGetAttr(node, "type");
-    const char *scrollable_attr = mxmlElementGetAttr(node, "scrollable");
-    // Honour scrollable= when present (default false); applied to the View struct
-    // in UILoader_CollectViewContainers once the View wrapper exists.
-    bool is_scrollable = scrollable_attr && strcmp(scrollable_attr, "true") == 0;
+    // Honour scroll="x|y|both|none" when present (default none); applied per-axis to the
+    // View struct in UILoader_CollectViewContainers once the View wrapper exists. Scroll
+    // must be authored: an absent scroll= means no scrolling on either axis.
+    bool scroll_x = false, scroll_y = false;
+    UILoader_ParseScroll(ctx, mxmlElementGetAttr(node, "scroll"), &scroll_x, &scroll_y);
 
     // Resolve the type= string to a ViewType through the application-supplied
     // resolver. The generic loader never names application ViewType enums, so an
@@ -856,9 +889,9 @@ static UIBuildResult BuildView(mxml_node_t *node, UIElement *parent,
         LOADER_WARNING(ctx, "View type specified but resolver not available");
     }
 
-    LOADER_LOG(ctx, "Creating View: id=%s, type=%s, scrollable=%s",
+    LOADER_LOG(ctx, "Creating View: id=%s, type=%s, scroll_x=%s scroll_y=%s",
                view_id, view_type_str ? view_type_str : "<none>",
-               is_scrollable ? "true" : "false");
+               scroll_x ? "true" : "false", scroll_y ? "true" : "false");
     
     // Create container with UI_ELEMENT_VIEW type so post-processor can find it. Size/offset/
     // layout/enabled all come from the common pass; the offset is consumed at construct time
@@ -883,7 +916,7 @@ static UIBuildResult BuildView(mxml_node_t *node, UIElement *parent,
         // pointer so UILoader_CollectViewContainers can stamp the correct View->type
         // and scroll flag, and the post-process pass can resolve Option/initialView
         // ids to view indices.
-        UILoader_RecordView(ctx, container, view_type, view_id, is_scrollable);
+        UILoader_RecordView(ctx, container, view_type, view_id, scroll_x, scroll_y);
     }
     
     // Single-element builder: control == outer (offset consumed at construct time).
@@ -1039,7 +1072,6 @@ void UILoader_RegisterDefaultBuilders(void)
     UILoader_RegisterBuilder("ViewSelector", BuildViewSelector, ui_standard_selector_container_size);
     UILoader_RegisterBuilder("Option", BuildOption, ui_standard_selector_button_size);
     UILoader_RegisterBuilder("View", BuildView, ui_fill_container_size);
-    UILoader_RegisterBuilder("Section", BuildSection, ui_standard_container_size);
     UILoader_RegisterBuilder("Container", BuildContainer, ui_standard_container_size);
     UILoader_RegisterBuilder("Button", BuildButton, ui_standard_button_size);
     UILoader_RegisterBuilder("Label", BuildLabel, ui_standard_control_size);
@@ -1115,6 +1147,10 @@ static const Spacing *UILoader_ParseLayout(const char *layout_str)
         return &ui_standard_stack_spacing;
     else if (!strcmp(layout_str, "stack_wrap"))
         return &ui_standard_stack_wrap_spacing;
+    else if (!strcmp(layout_str, "inline"))
+        // Non-wrapping horizontal row: children flow left-to-right without wrapping, so the
+        // row can exceed the parent width (enabling horizontal scroll on a scrollable parent).
+        return &ui_standard_inline_spacing;
     else if (!strcmp(layout_str, "inline_wrap"))
         return &ui_standard_inline_wrap_spacing;
     
@@ -1156,6 +1192,29 @@ static AxisSizeMode UILoader_ParseAxisMode(UILoaderContext *ctx, const char *mod
 
     LOADER_WARNING(ctx, "Unrecognised width/height mode; using element default");
     return AXIS_FIXED;
+}
+
+// Helper: Parse the scroll= attribute into per-axis scrollability.
+// Accepted values: "none" (default/absent), "x", "y", "both" (alias "xy"). An
+// unrecognised value is treated as "none" and warned. Writes both axes through the
+// out-params so a <View> can scroll horizontally, vertically, both, or neither.
+static void UILoader_ParseScroll(UILoaderContext *ctx, const char *scroll_str,
+                                 bool *scroll_x, bool *scroll_y)
+{
+    bool x = false, y = false;
+    if (scroll_str)
+    {
+        if (!strcmp(scroll_str, "x"))
+            x = true;
+        else if (!strcmp(scroll_str, "y"))
+            y = true;
+        else if (!strcmp(scroll_str, "both") || !strcmp(scroll_str, "xy"))
+            x = y = true;
+        else if (strcmp(scroll_str, "none") != 0)
+            LOADER_WARNING(ctx, "Unrecognised scroll value; using none");
+    }
+    if (scroll_x) *scroll_x = x;
+    if (scroll_y) *scroll_y = y;
 }
 
 // Helper: Parse OffsetMode from string (e.g., "fixed", "percent")
@@ -1400,6 +1459,12 @@ static UIElement *UILoader_ParseElementNode(mxml_node_t *node, UIElement *parent
     // enabled: single owner, applied uniformly to OUTER here (idempotent for containers that
     // also received enabled at construct time).
     outer->is_enabled = common.enabled;
+    // overflow: optional overflow="true" lets this element extend beyond its parent's content
+    // box (its box dimensions are not clamped to the parent's remaining space on either axis).
+    // Default false. Applied at this single generic choke point so ANY element can opt in
+    // (fan-out submenus, tooltips, dropdowns). See UIElement.allow_overflow / ResolveElementBox.
+    const char *overflow_attr = mxmlElementGetAttr(node, "overflow");
+    outer->allow_overflow = (overflow_attr && strcmp(overflow_attr, "true") == 0);
     // offset: apply to OUTER ONLY when the builder did not consume it at construct time, so
     // offset is applied exactly once (no double application - e.g. Section passes it into its
     // ctor). For a composite the outer is the row, so the inner control keeps its own
@@ -1678,11 +1743,15 @@ static void UILoader_CollectViewContainers(UIElement *elem, View ***views_array,
             view->scroll_y = 0.0f;
             view->max_scroll_y = 0.0f;
             view->content_height = 0.0f;
-            view->is_scrollable_x = false;
-            // Apply the recorded scrollable= flag (vertical) from the markup, syncing
-            // the container flag the same way View_SetScrollableY does.
-            view->is_scrollable_y = UILoader_LookupViewScrollable(elem);
-            elem->is_scrollable_y = view->is_scrollable_y;
+            // Apply the recorded scroll= flags (per axis) from the markup, syncing the
+            // container flags the same way View_SetScrollableX/Y do. Scroll must be
+            // authored; an absent scroll= leaves both axes off.
+            bool scroll_x = false, scroll_y = false;
+            UILoader_LookupViewScrollable(elem, &scroll_x, &scroll_y);
+            view->is_scrollable_x = scroll_x;
+            view->is_scrollable_y = scroll_y;
+            elem->is_scrollable_x = scroll_x;
+            elem->is_scrollable_y = scroll_y;
             
             (*views_array)[(*count)++] = view;
         }
@@ -1860,8 +1929,8 @@ ViewSelector *UILoader_BuildSelectorFromMarkup(ViewHostSystem *host,
         // Wire the enumerate button exactly like ViewHostSystem_CreateViewSelector.
         if (option->button)
         {
-            option->button->data.button.on_click = HandleViewHostSelectorClick;
-            option->button->data.button.user_data = &selector->view_indices[i];
+            option->button->on_click = HandleViewHostSelectorClick;            // base handler
+            option->button->interaction_user_data = &selector->view_indices[i]; // base opaque state
             option->button->data.button.data_bind = selector;
         }
     }

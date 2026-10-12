@@ -38,7 +38,6 @@ typedef enum
     UI_ELEMENT_BUTTON_SIMPLE,
     UI_ELEMENT_BUTTON_ENUMERATE,
     UI_ELEMENT_BUTTON_SUBMIT,
-    UI_ELEMENT_HOVER_ITEM,
     UI_ELEMENT_IMAGE,
     UI_ELEMENT_VIEW
 } UIElementType;
@@ -164,22 +163,9 @@ typedef struct
     String64 text;         // authored base text (from the XML "text" attribute / constructor arg)
     String64 display_text; // text actually drawn; equals `text` unless a binding derives it (e.g. "<text>: ON")
     Bitmap_Font font;
-    UIEventHandler on_click;
-    void *data_bind;
-    void *user_data; // 8-byte magic pointer for ANY custom state
+    void *data_bind;   // retained: button-driven view-selector click reads this (see §8)
     Binding *binding; // optional heap binding: command-sink (XML button actions) or query-source display; NULL otherwise
 } ButtonData;
-
-typedef struct
-{
-    String64 label;
-    Bitmap_Font font;
-    UIEventHandler on_hover;
-    void *data_bind;
-    void *user_data;
-    ColourRgba normal_fill;
-    ColourRgba hover_fill;
-} HoverItemData;
 
 typedef union
 {
@@ -187,7 +173,6 @@ typedef union
     TextBoxData textbox;
     LabelData label;
     ButtonData button;
-    HoverItemData hover_item;
     // UIImageData image;
 } UIElementData;
 
@@ -230,6 +215,17 @@ typedef struct UIElement
     bool is_focused, is_dirty, is_draggable, is_enabled; // For interactive elements like TextBoxes and Buttons
     bool is_scrollable_x; // Bypasses horizontal size clamping when scrolling
     bool is_scrollable_y; // Bypasses vertical size clamping when scrolling
+    bool allow_overflow;  // When true, this element may extend beyond its parent's content box:
+                          // its box dimensions are NOT clamped to the parent's remaining space
+                          // (both axes). Used for fan-out submenus, tooltips, dropdowns. Scroll
+                          // clipping (is_scrollable_*) still applies. Defaults to false.
+
+    // Interaction handlers live on the BASE element so ANY element can be clickable
+    // or hoverable; dispatch is by handler-presence, not element type (see ui_input.c).
+    UIEventHandler on_click;            // fired on click for any element with a non-NULL handler
+    UIEventHandler on_hover;            // fired while hovered for any enabled element with a non-NULL handler
+    void *interaction_user_data;        // unified opaque per-element state pointer for click/hover handlers (buttons + former hover items)
+    void *interaction_data_bind;        // base data_bind, used by the hover-view-selector LABEL only (see §8)
 
     UIElement *parent;
     UIElement *first_child;

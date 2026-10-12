@@ -416,8 +416,8 @@ View **UILoader_ExtractViews(UIElement *root, size_t *out_count);
  * host->views (two-pass, since Options precede Views in document order),
  * allocates the ViewSelector plus its buttons[]/view_indices[] arrays, and wires
  * each enumerate button exactly like ViewHostSystem_CreateViewSelector:
- *   button->data.button.on_click  = HandleViewHostSelectorClick
- *   button->data.button.user_data = &selector->view_indices[i]
+ *   button->on_click              = HandleViewHostSelectorClick
+ *   button->interaction_user_data = &selector->view_indices[i]
  *   button->data.button.data_bind = selector
  * so Option clicks drive ViewHostSystem_SelectView.
  *

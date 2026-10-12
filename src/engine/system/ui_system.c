@@ -410,8 +410,14 @@ InputRouteResult UpdateUISystem(const InputFrame *input)
                         ViewportRegion_ContainsPixel(&rpanel_viewport, input->pointer_position) ||
                         ViewportRegion_ContainsPixel(&entity_panel_viewport, input->pointer_position) ||
                         ViewportRegion_ContainsPixel(&utility_panel_viewport, input->pointer_position) ||
+                        // Popup: treat the click as UI when the pointer is over ANY popup
+                        // element (main column OR a submenu), not just the popup root's box.
+                        // The root is a FILL element shifted to the click point, so its box
+                        // shrinks away from submenus sitting at a +x local offset; hit-testing
+                        // the whole subtree (same GetElementAt the input dispatch uses) keeps
+                        // submenu clicks in UI while empty space still falls through to the game.
                         (IsPopupMenuVisible() && popup_root &&
-                         IsMouseOverElement(popup_root, (Vector2d){(float)mouse_x, (float)mouse_y}));
+                         GetElementAt(popup_root, (Vector2d){(float)mouse_x, (float)mouse_y}) != NULL);
     bool cursor_in_game_viewport = ViewportRegion_ContainsPixel(&game_viewport, input->pointer_position);
 
     // Any click outside the UI should drop UI keyboard focus so world/game actions can proceed.

@@ -43,7 +43,6 @@ void HandleLeftMouseUp(UIElement *target, Vector2d mouse_coords);
 void HandleTextBoxClick(UIElement *clicked);
 void HandleBtnClick(UIElement *target);
 void HandleHoverItem(UIElement *target);
-static UIElement *hovered_item = NULL;
 void HandleUIDragging(UIElement *e, Vector2d mouse_coords);
 //void HandleFocusSwitch(UIElement *curr_focus, UIElement *prev_focus);
 void HandleTextCommit(UIElement *element, Text_64_IOState *tbox_buffers);
@@ -64,12 +63,6 @@ void ClearUIFocus(void);
 static DragInteractionState *GetUIDragContext(void)
 {
     return DragInteraction_GetContext(DRAG_CONTEXT_UI);
-}
-
-// Return true only when a UI element is a valid enabled button target.
-static bool IsDispatchableButton(UIElement *button)
-{
-    return UIElement_IsEnabled(button) && IsBtn(button);
 }
 
 // Find the nearest scrollable ancestor under the pointer.
@@ -346,13 +339,17 @@ void HandleLeftMouseUp(UIElement *target, Vector2d mouse_coords)
             {
                 printf("CLICKED [%s] | PIXEL (%.0f, %.0f)\n", GetElementTypeName(target ? target->type : UI_ELEMENT_NONE), mouse_coords.x, mouse_coords.y);
             }
+            // TEMP DIAGNOSTIC: show resolved target id + whether on_click is wired. REMOVE AFTER DIAGNOSIS.
+            printf("[CLICK-DBG] id='%s' enabled=%d on_click=%p is_textbox=%d\n",
+                   target ? target->id : "<null>", target ? target->is_enabled : -1,
+                   target ? (void *)target->on_click : NULL, target ? IsTextbox(target) : 0);
 
             // Handle Interaction
             if (target && IsTextbox(target))
             {
                 HandleTextBoxClick(target);
             }
-            else if (target && IsBtn(target))
+            else if (target && target->on_click != NULL)
             {
                 HandleBtnClick(target);
             }
@@ -362,44 +359,36 @@ void HandleLeftMouseUp(UIElement *target, Vector2d mouse_coords)
     }
 }
 
+// Fire a clicked element's handler. Any enabled element with a non-NULL base
+// on_click is dispatchable now that interaction is not tied to element type.
 void HandleBtnClick(UIElement *target)
 {
-    if (!IsDispatchableButton(target))
+    if (!UIElement_IsEnabled(target) || target->on_click == NULL)
     {
         return;
     }
 
-    if (target->data.button.on_click != NULL)
-    {
-        target->data.button.on_click(target);
-    }
+    target->on_click(target);
 }
 
+// Fire the hovered element's base on_hover. Any enabled element with a non-NULL
+// handler hovers now; there is NO built-in tint - a handler that wants a visual
+// change sets element->colour_fill itself (decision 1b).
 void HandleHoverItem(UIElement *target)
 {
-    if (hovered_item != target && hovered_item &&
-        hovered_item->type == UI_ELEMENT_HOVER_ITEM)
+    if (target && target->is_enabled && target->on_hover != NULL)
     {
-        hovered_item->colour_fill = hovered_item->data.hover_item.normal_fill;
-    }
-
-    hovered_item = NULL;
-    if (target && target->is_enabled && target->type == UI_ELEMENT_HOVER_ITEM)
-    {
-        hovered_item = target;
-        target->colour_fill = target->data.hover_item.hover_fill;
-        if (target->data.hover_item.on_hover)
-        {
-            target->data.hover_item.on_hover(target);
-        }
+        target->on_hover(target);
     }
 }
 
+// Dispatch a submit button's action, reading the action code from the base
+// interaction_user_data pointer attached by the state manager.
 void HandleBtnSubmitClick(UIElement *btn)
 {
     int action = BUTTON_ACTION_NONE;
-    if (btn->data.button.user_data)
-        action = *(int *)(btn->data.button.user_data);
+    if (btn->interaction_user_data)
+        action = *(int *)(btn->interaction_user_data);
 
     if (action == BUTTON_ACTION_CREATE_ENTITY)
     {
@@ -752,6 +741,7 @@ UIElement *ResolveUIRootTarget(Vector2d mouse_coords)
         }
 
         UIElement *target = GetElementAt(roots[i], mouse_coords);
+
         if (target)
         {
             return target;

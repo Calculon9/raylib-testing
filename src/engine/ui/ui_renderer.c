@@ -206,7 +206,7 @@ void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
         return;
     }
 
-    // Data Setup - Abstract the difference between Label, Button, HoverItem, and Textbox.
+    // Data Setup - Abstract the difference between Label, Button, and Textbox.
     char *text_ptr = NULL;
     Bitmap_Font font = {0};
     if (IsTextbox(e))
@@ -218,11 +218,6 @@ void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
     {
         text_ptr = e->data.button.display_text.string;
         font = e->data.button.font;
-    }
-    else if (e->type == UI_ELEMENT_HOVER_ITEM)
-    {
-        text_ptr = e->data.hover_item.label.string;
-        font = e->data.hover_item.font;
     }
     else if (e->type == UI_ELEMENT_LABEL)
     {
@@ -324,7 +319,7 @@ void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
     const char *remaining_text = text_cursor;
     if (remaining_text[0] != '\0')
     {
-        if (frame_counter.total_frames % 300 == 0)
+        if (frame_counter.total_frames % 1200 == 0)
         {
             LOG_WARN("Text was truncated for %s. Rendered rows: %d, Rows that fit: %d. Remaining text: \"%s\"",
                      GetElementTypeName(e->type), current_row, rows_that_fit, remaining_text);
@@ -424,8 +419,7 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel, UICl
     // Draw background & border with clipping against the current clip rectangle
     DrawElementBoxClipped(e, current_clip);
 
-    if (IsTextbox(e) || IsBtn(e) || e->type == UI_ELEMENT_LABEL ||
-        e->type == UI_ELEMENT_HOVER_ITEM)
+    if (IsTextbox(e) || IsBtn(e) || e->type == UI_ELEMENT_LABEL)
     {
         // Draw text only if element intersects the visible clip
         if (UIClipRect_IntersectsBox(current_clip, e->screen_box))
