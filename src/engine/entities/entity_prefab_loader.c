@@ -121,6 +121,28 @@ static bool ReadPrefabCooldown(const cJSON *portal, int *out_cooldown_frames)
 	return true;
 }
 
+// Read a positive integral member (e.g. tooth_count, vertice_count) from a JSON object.
+static bool ReadPrefabPositiveInt(const cJSON *object, const char *name, int *out_value)
+{
+	const cJSON *value = cJSON_GetObjectItemCaseSensitive(object, name);
+	if (!cJSON_IsNumber(value) || !out_value ||
+		!isfinite(value->valuedouble) || value->valuedouble < 1.0 ||
+		value->valuedouble > INT_MAX)
+	{
+		return false;
+	}
+
+	int as_int = (int)value->valuedouble;
+	// Reject non-integral values (e.g. 8.5) so counts stay whole.
+	if ((double)as_int != value->valuedouble)
+	{
+		return false;
+	}
+
+	*out_value = as_int;
+	return true;
+}
+
 // Parse physics parameters.
 static bool ParsePhysicsComponent(const cJSON *physics, Newtonoid2dParams *out_physics)
 {
@@ -144,6 +166,18 @@ static bool ParsePhysicsComponent(const cJSON *physics, Newtonoid2dParams *out_p
 		!ReadPrefabVector2(physics, "acceleration", &result.acceleration))
 	{
 		return false;
+	}
+
+	// Optional vertice_count: shape builders (e.g. gear/rotor) read this as their primitive
+	// facet/tooth count. Absent keeps the default (MAX_SHAPE_VERTICES, a smooth polygon);
+	// when present it must be a positive integer within the vertex budget.
+	if (cJSON_GetObjectItemCaseSensitive(physics, "vertice_count"))
+	{
+		if (!ReadPrefabPositiveInt(physics, "vertice_count", &result.vertice_count) ||
+			result.vertice_count > MAX_SHAPE_VERTICES)
+		{
+			return false;
+		}
 	}
 
 	*out_physics = result;
@@ -182,7 +216,9 @@ static bool ParseRotorComponent(const cJSON *rotor, RotorComponentParams *out_pa
 	return true;
 }
 
-// Parse gear component from prefab JSON.
+// Parse gear component from prefab JSON. The gear carries its meshing identity (teeth,
+// module) plus driver configuration; runtime engagement state is derived in
+// GearComponent_Initialise. drive_angular_velocity is optional (defaults to 0 = driven).
 static bool ParseGearComponent(const cJSON *gear, GearComponentParams *out_params)
 {
 	if (!cJSON_IsObject(gear) || !out_params)
@@ -190,8 +226,33 @@ static bool ParseGearComponent(const cJSON *gear, GearComponentParams *out_param
 		return false;
 	}
 
-	// Gear component is currently a placeholder; initialise to zero.
-	*out_params = (GearComponentParams){0};
+	GearComponentParams result = {0};
+
+	// Required: positive tooth count and positive module (both needed to form gear ratios).
+	if (!ReadPrefabPositiveInt(gear, "tooth_count", &result.tooth_count) ||
+		!ReadPrefabFloatMember(gear, "module", 0.0, FLT_MAX, &result.module) ||
+		result.module <= 0.0f)
+	{
+		return false;
+	}
+
+	// Optional: is_driver (default false) and drive_angular_velocity (default 0.0).
+	const cJSON *is_driver = cJSON_GetObjectItemCaseSensitive(gear, "is_driver");
+	if (cJSON_IsBool(is_driver))
+	{
+		result.is_driver = cJSON_IsTrue(is_driver);
+	}
+	// drive_angular_velocity is optional; absence leaves it 0 (a driven, non-source gear).
+	if (cJSON_GetObjectItemCaseSensitive(gear, "drive_angular_velocity"))
+	{
+		if (!ReadPrefabFloatMember(gear, "drive_angular_velocity", -FLT_MAX, FLT_MAX,
+								   &result.drive_angular_velocity))
+		{
+			return false;
+		}
+	}
+
+	*out_params = result;
 	return true;
 }
 

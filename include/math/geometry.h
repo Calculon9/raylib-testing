@@ -11,7 +11,15 @@ GEOMETRY MODULE
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
-#define MAX_SHAPE_VERTICES 32  // Reduced from 512 to prevent O(v²) SAT explosion
+#define MAX_SHAPE_VERTICES 64  // Vertex budget cap. Bounds every per-shape stack array and the
+                               // O(v²) SAT narrow phase, so keep it modest; raised from 32 to
+                               // allow higher gear tooth counts (teeth * GEAR_POINTS_PER_TOOTH).
+
+// Gear geometry contract (shared by CreateVertices_Gear and gear entity validation).
+// A gear outline emits GEAR_POINTS_PER_TOOTH vertices per tooth, so the maximum tooth
+// count is MAX_SHAPE_VERTICES / GEAR_POINTS_PER_TOOTH.
+#define GEAR_POINTS_PER_TOOTH 3
+#define GEAR_MIN_TEETH 3
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------

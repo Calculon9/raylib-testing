@@ -1,5 +1,5 @@
-#ifndef ENTITY_PREFAB_H
-#define ENTITY_PREFAB_H
+#ifndef ENTITY_PREFAB_LOADER_H
+#define ENTITY_PREFAB_LOADER_H
 
 #include "entities/entity_factory.h"
 

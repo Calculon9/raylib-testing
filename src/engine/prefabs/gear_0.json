@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "name": "",
+  "prefab_id": "gear_0",
+  "preset": "gear",
+  "components": {
+    "gear": {
+      "tooth_count": 12,
+      "module": 0.1,
+      "is_driver": true,
+      "drive_angular_velocity": 1.5
+    },
+    "physics": {
+      "width": 1.0,
+      "height": 1.0,
+      "mass": 1.0,
+      "restitution": 0.9,
+      "friction": 0.5,
+      "velocity": [0.0, 0.0],
+      "acceleration": [0.0, 0.0]
+    }
+  }
+}

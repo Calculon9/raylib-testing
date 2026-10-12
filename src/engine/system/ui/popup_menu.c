@@ -114,10 +114,23 @@ static void HandlePopupCreateClick(UIElement *button)
     {
         G_UIState.entity_create_params->physics.vertice_count = 4;
     }
-    // Handle gear: set vertex count.
+    // Handle gear: load from prefab and return.
     else if (action->component_flags & CREATION_COMPONENT_GEAR)
     {
-        G_UIState.entity_create_params->physics.vertice_count = 8;
+        EntityCreateParams gear_params = {0};
+        if (!EntityPrefab_LoadFile("prefabs/gear_0.json", &gear_params))
+        {
+            return;
+        }
+
+        gear_params.physics.anchor_position = popup_spawn_position;
+        if (!EnqueueCreateEntity(&gear_params))
+        {
+            return;
+        }
+
+        HidePopupMenu();
+        return;
     }
     // Handle portal: load from prefab and return.
     else if (action->component_flags & CREATION_COMPONENT_PORTAL)

@@ -84,8 +84,8 @@ LArray CreateVertices_Rotor(int blade_count, float radius_x, float radius_y)
 // Create a centred gear outline by alternating between root and tip radii.
 LArray CreateVertices_Gear(int tooth_count, float radius_x, float radius_y)
 {
-    const int minimum_teeth = 3;
-    const int points_per_tooth = 3;
+    const int minimum_teeth = GEAR_MIN_TEETH;
+    const int points_per_tooth = GEAR_POINTS_PER_TOOTH;
     const int maximum_teeth = MAX_SHAPE_VERTICES / points_per_tooth;
 
     if (tooth_count < minimum_teeth || tooth_count > maximum_teeth ||

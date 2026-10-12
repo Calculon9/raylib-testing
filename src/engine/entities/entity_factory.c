@@ -54,7 +54,14 @@ Newtonoid2d *EntityFactory_Create(const EntityCreateParams *params)
     }
     else if (params->component_flags & CREATION_COMPONENT_GEAR)
     {
-        entity = GearEntity_Create(&params->physics);
+        // Single source of truth: the gear's authored tooth_count drives its geometry. Derive
+        // the base body's vertice_count (the tooth count CreateVertices_Gear consumes) from it
+        // so visual teeth and meshing teeth can never diverge. The gear prefab therefore does
+        // NOT author physics.vertice_count. GearEntity_Create validates the resulting count
+        // against the vertex budget and rejects (returns NULL) if tooth_count is too high.
+        Newtonoid2dParams gear_physics = params->physics;
+        gear_physics.vertice_count = params->gear_params.tooth_count;
+        entity = GearEntity_Create(&gear_physics);
     }
     else
     {
@@ -93,7 +100,8 @@ Newtonoid2d *EntityFactory_Create(const EntityCreateParams *params)
     if (component_attached && (params->component_flags & CREATION_COMPONENT_GEAR))
     {
         GearComponent gear = {0};
-        component_attached = EntityRegistry_AttachGear(id, &gear);
+        component_attached = GearComponent_Initialise(&gear, &params->gear_params) &&
+                             EntityRegistry_AttachGear(id, &gear);
         if (component_attached)
         {
             EntityLifecycle_ApplyAttachedComponent(entity, ENTITY_COMPONENT_GEAR, &gear);

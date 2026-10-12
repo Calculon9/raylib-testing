@@ -339,10 +339,6 @@ void HandleLeftMouseUp(UIElement *target, Vector2d mouse_coords)
             {
                 printf("CLICKED [%s] | PIXEL (%.0f, %.0f)\n", GetElementTypeName(target ? target->type : UI_ELEMENT_NONE), mouse_coords.x, mouse_coords.y);
             }
-            // TEMP DIAGNOSTIC: show resolved target id + whether on_click is wired. REMOVE AFTER DIAGNOSIS.
-            printf("[CLICK-DBG] id='%s' enabled=%d on_click=%p is_textbox=%d\n",
-                   target ? target->id : "<null>", target ? target->is_enabled : -1,
-                   target ? (void *)target->on_click : NULL, target ? IsTextbox(target) : 0);
 
             // Handle Interaction
             if (target && IsTextbox(target))

@@ -1104,6 +1104,31 @@ void UI_DistributeChildren(UIElement *e)
 // Call this to kick of the recursive distribution of children for a given parent element and its resolved box. This function will traverse the entire subtree of the parent element, applying the appropriate spacing rules to each child based on the parent's configuration.
 //  Correct top-down recursion
 
+// True if this element OR any descendant has allow_overflow set. The hit-test uses this to
+// decide whether to keep descending a child branch when the pointer is outside the current
+// element's own box: an overflow element may draw and be hit outside its ancestors' boxes,
+// so a branch containing one must still be visited. Only enabled elements are considered,
+// mirroring the hit-test's own is_enabled gate (a disabled subtree is never hit).
+static bool SubtreeHasOverflow(const UIElement *e)
+{
+    if (!e || !e->is_enabled)
+    {
+        return false;
+    }
+    if (e->allow_overflow)
+    {
+        return true;
+    }
+    ForEachChild(e, child)
+    {
+        if (SubtreeHasOverflow(child))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Resolve the deepest interactive UIElement under pixel coordinates, respecting unconstrained bounds.
 UIElement *GetElementAt(UIElement *e, Vector2d pixel_coords)
 {
@@ -1125,23 +1150,25 @@ UIElement *GetElementAtClipped(UIElement *e, Vector2d pixel_coords, UIClipRect c
         return NULL;
     }
 
-    // Is the pointer over THIS element's own box? A child authored allow_overflow may extend
-    // outside e's box, so being outside e does NOT prove the pointer misses every descendant:
-    // we must still descend into overflow children. Only when the pointer is outside e AND e
-    // has no overflow child can we short-circuit (the common, fast case).
+    // Is the pointer over THIS element's own box? An allow_overflow element ANYWHERE in a
+    // child's subtree (not just an immediate child) may extend outside e's box, so being
+    // outside e does NOT prove the pointer misses every descendant: we must keep descending
+    // into any child branch that contains an overflow element. Only when the pointer is
+    // outside e AND no child subtree contains an overflow element can we short-circuit
+    // (the common, fast case). SubtreeHasOverflow walks the branch to answer that.
     bool over_self = IsMouseOverElement(e, pixel_coords);
     if (!over_self)
     {
-        bool has_overflow_child = false;
+        bool branch_overflows = false;
         ForEachChild(e, child)
         {
-            if (child->allow_overflow)
+            if (SubtreeHasOverflow(child))
             {
-                has_overflow_child = true;
+                branch_overflows = true;
                 break;
             }
         }
-        if (!has_overflow_child)
+        if (!branch_overflows)
         {
             return NULL;
         }
@@ -1155,14 +1182,14 @@ UIElement *GetElementAtClipped(UIElement *e, Vector2d pixel_coords, UIClipRect c
     }
 
     // Check children (last sibling is usually drawn on top, so top-most child wins). When the
-    // pointer is outside e's own box, only overflow children are eligible (a non-overflow child
-    // is clamped within e, so it cannot contain a pointer that e itself does not).
+    // pointer is outside e's own box, only child branches that CONTAIN an overflow element are
+    // eligible (a fully-clamped branch cannot hold a pointer that e itself does not).
     UIElement *found = NULL;
     if (!UIClipRect_IsEmpty(child_clip))
     {
         ForEachChild(e, child)
         {
-            if (!over_self && !child->allow_overflow)
+            if (!over_self && !SubtreeHasOverflow(child))
             {
                 continue;
             }
