@@ -306,7 +306,12 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
             if (world_index >= 0)
             {
                 World2d *world = &G_Universe.worlds[world_index];
-                if (World_IsDraggable(world))
+                // Gate world-drag on selection: a world is only draggable once it is in the
+                // SelectionSet, extending the engine's "selection arms a thing for dragging" rule
+                // to worlds. A drag inside an unselected world is NOT captured here, so it falls
+                // through to the world stage's marquee capture path.
+                TargetRef world_ref = { .kind = TARGET_KIND_WORLD, .as.world_index = world_index };
+                if (World_IsDraggable(world) && SelectionSet_Contains(world_ref))
                 {
                     DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_CONTAINER, world,
                                                  world->grid_space.space.frame.origin_in_parent);
