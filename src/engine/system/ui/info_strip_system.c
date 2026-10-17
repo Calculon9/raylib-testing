@@ -22,6 +22,7 @@ which is strictly read-only with respect to input routing.
 #include "world/universe.h"
 #include "world/world_internal.h" // ResolvePixelToWorldFrame
 #include "world/target_resolver.h"
+#include "entities/entity_registry.h" // EntityRegistry_IsIdActive
 
 // ============================================================================
 // Panel + hover state (module-owned)
@@ -68,9 +69,11 @@ static BindingValue InfoStrip_QuerySelectionLabel(int key)
     int selected_cell_index = UIState_GetSelectedCellIndex();
     int selected_world_index = Universe_GetSelectedIndex(&G_Universe);
 
-    if (selected_entity != INVALID_ENTITY_ID)
+    if (selected_entity != INVALID_ENTITY_ID && EntityRegistry_IsIdActive(selected_entity))
     {
-        // Entity selection wins outright.
+        // Entity selection wins outright. The IsIdActive guard ensures a despawned-but-still-
+        // selected entity (UIState_ValidateSelection clears the pointer but not the id) falls
+        // through to the next precedence tier rather than rendering as a dead reference.
         ref.kind = TARGET_KIND_ENTITY;
         ref.as.entity = selected_entity;
     }
@@ -151,6 +154,16 @@ void InfoStrip_UpdateHover(const InputFrame *input)
 {
     if (!input)
     {
+        return;
+    }
+
+    // Gate on the game viewport: only the world view should contribute a hover target. When the
+    // pointer is over a UI panel or outside the world view entirely, report "nothing" rather
+    // than narrating the world content occluded beneath the panel.
+    if (!ViewportRegion_ContainsPixel(&game_viewport, input->pointer_position))
+    {
+        info_strip_hover_ref = (TargetRef){0};
+        info_strip_hover_ref.kind = TARGET_KIND_NONE;
         return;
     }
 

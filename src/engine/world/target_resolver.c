@@ -30,9 +30,9 @@ as TARGET_KIND_WORLD with world_index == UNIVERSE_ROOT_WORLD_INDEX.
 // Internal helpers
 //----------------------------------------------------------------------------------
 
-// Append a comma-separated token to a running buffer, inserting ", " before the second and
-// later tokens. `written` tracks whether anything has been appended yet (for the separator).
-// Bounded by out_bytes so the composed label never overruns the caller buffer.
+// Append a "/"-separated token to a running buffer, inserting "/" before the second and later
+// tokens. `written` tracks whether anything has been appended yet (for the separator). Bounded
+// by out_bytes so the composed list never overruns the caller buffer.
 static void Target_AppendToken(char *out, size_t out_bytes, size_t *used, bool *written,
                                const char *token)
 {
@@ -43,7 +43,7 @@ static void Target_AppendToken(char *out, size_t out_bytes, size_t *used, bool *
 
     if (*written)
     {
-        int n = snprintf(out + *used, out_bytes - *used, ", %s", token);
+        int n = snprintf(out + *used, out_bytes - *used, "/%s", token);
         if (n > 0)
         {
             *used += (size_t)n;
@@ -60,38 +60,52 @@ static void Target_AppendToken(char *out, size_t out_bytes, size_t *used, bool *
     }
 }
 
-// Compose the role portion of an entity label ("Wall", "Newtonoid", ...) from its role flags.
-// Appends each set role as a token; leaves the buffer untouched when no roles are set.
-static void Target_AppendRoles(char *out, size_t out_bytes, size_t *used, bool *written,
-                               EntityRoleFlags roles)
+// Compose the role portion of an entity label ("WALL", "NEWTONOID", ...) from its role flags
+// into out as a "/"-joined list. Writes "-" when no role bits are set (locked label form).
+static void Target_ComposeRoles(char *out, size_t out_bytes, EntityRoleFlags roles)
 {
-    if (roles & ENTITY_ROLE_WALL)       Target_AppendToken(out, out_bytes, used, written, "Wall");
-    if (roles & ENTITY_ROLE_NEWTONOID)  Target_AppendToken(out, out_bytes, used, written, "Newtonoid");
-    if (roles & ENTITY_ROLE_PROJECTILE) Target_AppendToken(out, out_bytes, used, written, "Projectile");
-    if (roles & ENTITY_ROLE_EFFECT)     Target_AppendToken(out, out_bytes, used, written, "Effect");
-    if (roles & ENTITY_ROLE_CAMERA)     Target_AppendToken(out, out_bytes, used, written, "Camera");
+    size_t used = 0;
+    bool written = false;
+    if (roles & ENTITY_ROLE_WALL)       Target_AppendToken(out, out_bytes, &used, &written, "WALL");
+    if (roles & ENTITY_ROLE_NEWTONOID)  Target_AppendToken(out, out_bytes, &used, &written, "NEWTONOID");
+    if (roles & ENTITY_ROLE_PROJECTILE) Target_AppendToken(out, out_bytes, &used, &written, "PROJECTILE");
+    if (roles & ENTITY_ROLE_EFFECT)     Target_AppendToken(out, out_bytes, &used, &written, "EFFECT");
+    if (roles & ENTITY_ROLE_CAMERA)     Target_AppendToken(out, out_bytes, &used, &written, "CAMERA");
+
+    if (!written)
+    {
+        snprintf(out, out_bytes, "-");
+    }
 }
 
-// Compose the component portion of an entity label ("Rotor", "Gear", ...) from the registry.
-// Only the components the strip cares about (ROTOR/GEAR/PORTAL/HEALTH) are surfaced.
-static void Target_AppendComponents(char *out, size_t out_bytes, size_t *used, bool *written,
-                                    EntityId id)
+// Compose the component portion of an entity label ("ROTOR", "GEAR", ...) from the registry
+// into out as a "/"-joined list. Only ROTOR/GEAR/PORTAL/HEALTH are surfaced; writes "-" when
+// none are present (locked label form).
+static void Target_ComposeComponents(char *out, size_t out_bytes, EntityId id)
 {
-    if (EntityRegistry_HasComponent(id, ENTITY_COMPONENT_ROTOR))  Target_AppendToken(out, out_bytes, used, written, "Rotor");
-    if (EntityRegistry_HasComponent(id, ENTITY_COMPONENT_GEAR))   Target_AppendToken(out, out_bytes, used, written, "Gear");
-    if (EntityRegistry_HasComponent(id, ENTITY_COMPONENT_PORTAL)) Target_AppendToken(out, out_bytes, used, written, "Portal");
-    if (EntityRegistry_HasComponent(id, ENTITY_COMPONENT_HEALTH)) Target_AppendToken(out, out_bytes, used, written, "Health");
+    size_t used = 0;
+    bool written = false;
+    if (EntityRegistry_HasComponent(id, ENTITY_COMPONENT_ROTOR))  Target_AppendToken(out, out_bytes, &used, &written, "ROTOR");
+    if (EntityRegistry_HasComponent(id, ENTITY_COMPONENT_GEAR))   Target_AppendToken(out, out_bytes, &used, &written, "GEAR");
+    if (EntityRegistry_HasComponent(id, ENTITY_COMPONENT_PORTAL)) Target_AppendToken(out, out_bytes, &used, &written, "PORTAL");
+    if (EntityRegistry_HasComponent(id, ENTITY_COMPONENT_HEALTH)) Target_AppendToken(out, out_bytes, &used, &written, "HEALTH");
+
+    if (!written)
+    {
+        snprintf(out, out_bytes, "-");
+    }
 }
 
-// Build the "Entity #<id> (<roles>, <components>)" label for an entity ref. The Newtonoid2d
-// carries no name string, so the descriptive portion is synthesised purely from role flags
-// and attached components. An entity with no roles/components yields "Entity #<id>".
+// Build the "Entity #<slot> (<roles>, <components>)" label for an entity ref. The Newtonoid2d
+// carries no name string, so the descriptive portion is synthesised purely from role flags and
+// attached components; empty lists show "-" (so a bare entity reads "Entity #3 (-, -)"). A
+// stale id that no longer resolves to a live object is labelled "Entity #<slot> (gone)".
 static void Target_DescribeEntity(TargetRef ref, char *out, size_t out_bytes)
 {
     EntityId id = ref.as.entity;
     Newtonoid2d *entity = Universe_GetEntityByID(&G_Universe, id, NULL);
 
-    // Header "Entity #<id>" using the id's slot index for a stable, human-friendly number.
+    // Header "Entity #<slot>" using the id's slot index for a stable, human-friendly number.
     int header = snprintf(out, out_bytes, "Entity #%u", EntityId_GetSlotIndex(id));
     if (header < 0)
     {
@@ -105,23 +119,22 @@ static void Target_DescribeEntity(TargetRef ref, char *out, size_t out_bytes)
         return; // Buffer already full; snprintf NUL-terminated.
     }
 
-    // Open the detail parenthesis and append roles then components.
-    char detail[128];
-    detail[0] = '\0';
-    size_t detail_used = 0;
-    bool detail_written = false;
-
-    if (entity)
+    if (!entity)
     {
-        Target_AppendRoles(detail, sizeof(detail), &detail_used, &detail_written, entity->roles);
+        // The id no longer resolves to a live object (e.g. a hover ref held across a despawn).
+        // Mark it "(gone)" so the strip degrades gracefully rather than showing a detail-less id.
+        snprintf(out + used, out_bytes - used, " (gone)");
+        return;
     }
-    Target_AppendComponents(detail, sizeof(detail), &detail_used, &detail_written, id);
 
-    // Only append the parenthesised detail when something was synthesised.
-    if (detail_written)
-    {
-        snprintf(out + used, out_bytes - used, " (%s)", detail);
-    }
+    // Compose the "/"-joined role and component lists ("-" when empty) and append the
+    // parenthesised detail in the locked "(<roles>, <components>)" form.
+    char roles[96];
+    char components[96];
+    Target_ComposeRoles(roles, sizeof(roles), entity->roles);
+    Target_ComposeComponents(components, sizeof(components), id);
+
+    snprintf(out + used, out_bytes - used, " (%s, %s)", roles, components);
 }
 
 //----------------------------------------------------------------------------------
@@ -211,7 +224,7 @@ void Target_Describe(TargetRef ref, char *out, size_t out_bytes)
         // Distinguish the universe root world from a nested world index.
         if (ref.as.world_index == UNIVERSE_ROOT_WORLD_INDEX)
         {
-            snprintf(out, out_bytes, "World (root)");
+            snprintf(out, out_bytes, "World: Root");
         }
         else
         {
@@ -220,22 +233,23 @@ void Target_Describe(TargetRef ref, char *out, size_t out_bytes)
         return;
 
     case TARGET_KIND_CELL:
-        // Cells are identified by their owning world plus linear cell index.
+        // Cells are identified by their owning world plus linear cell index. The owning world is
+        // labelled "Root" for the root sentinel, else by its numeric index.
         if (ref.as.cell.world_index == UNIVERSE_ROOT_WORLD_INDEX)
         {
-            snprintf(out, out_bytes, "Cell #%d (World root)", ref.as.cell.cell_index);
+            snprintf(out, out_bytes, "Cell #%d (World Root)", ref.as.cell.cell_index);
         }
         else
         {
-            snprintf(out, out_bytes, "Cell #%d (World #%d)",
+            snprintf(out, out_bytes, "Cell #%d (World %d)",
                      ref.as.cell.cell_index, ref.as.cell.world_index);
         }
         return;
 
     case TARGET_KIND_NONE:
     default:
-        // Neutral placeholder so the strip shows a stable dash rather than stale text.
-        snprintf(out, out_bytes, "-");
+        // Neutral placeholder so the strip shows a stable label rather than stale text.
+        snprintf(out, out_bytes, "None");
         return;
     }
 }
