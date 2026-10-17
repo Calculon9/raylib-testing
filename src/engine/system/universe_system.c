@@ -326,6 +326,9 @@ void DrawUniverse(void)
 
     // Overlay the selection highlight pass on top of the drawn worlds/entities, in world space.
     WorldRenderer_DrawSelectionHighlights(&G_Universe);
+
+    // Draw the live marquee box (pixel space) above the highlights while a box drag is active.
+    WorldRenderer_DrawMarquee();
 }
 
 int CreateNewWorld(bool auto_select)

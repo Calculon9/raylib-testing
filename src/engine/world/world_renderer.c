@@ -19,6 +19,7 @@
 #include "world/universe_renderer.h"
 #include "world/target_resolver.h"
 #include "system/ui/ui_state.h"
+#include "input/drag_interaction.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -193,6 +194,11 @@ static void DrawNewtonoidAABB(const Newtonoid2d *newtonoid, Matrix3x3 space_to_p
 // selection highlight never reads as an AABB gizmo. Bright cyan stands out against the world.
 static const ColourRgba selection_highlight_colour = {64, 224, 255, 255};
 
+// Marquee box palette: a faint translucent fill and a solid thin outline, kept distinct from the
+// selection highlight colour so the live drag box reads as a transient overlay, not a selection.
+static const ColourRgba marquee_fill_colour = {64, 224, 255, 40};
+static const ColourRgba marquee_line_colour = {64, 224, 255, 200};
+
 // Draw an axis-aligned box outline (min corner + size) in a given space using the selection
 // highlight colour. Shares the four-corner / four-line math with DrawNewtonoidAABB but is not
 // gizmo-gated and takes an explicit colour.
@@ -267,6 +273,31 @@ void WorldRenderer_DrawSelectionHighlights(Universe *universe)
                 break;
         }
     }
+}
+
+// Draw the live marquee selection box while an empty-space box drag is in progress. The rectangle
+// is taken straight from the game drag context's screen-pixel start/current points (no coordinate
+// conversion), normalised to a top-left origin with positive size so it draws correctly when the
+// user drags in any direction. A no-op unless a DRAG_TARGET_MARQUEE capture is currently active.
+void WorldRenderer_DrawMarquee(void)
+{
+    DragInteractionState *ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
+    if (!ctx || !ctx->has_capture || ctx->target_kind != DRAG_TARGET_MARQUEE)
+    {
+        return;
+    }
+
+    Vector2d a = ctx->pointer_state.initial_pos;
+    Vector2d b = ctx->pointer_state.current_pos;
+
+    // Normalise the two corners into a top-left origin plus a positive width/height.
+    float x = fminf(a.x, b.x);
+    float y = fminf(a.y, b.y);
+    float w = fabsf(a.x - b.x);
+    float h = fabsf(a.y - b.y);
+
+    DrawRectangleV((Vector2){x, y}, (Vector2){w, h}, ToRaylibColor(marquee_fill_colour));
+    DrawRectangleLinesEx((Rectangle){x, y, w, h}, 1.0f, ToRaylibColor(marquee_line_colour));
 }
 
 // Fill a simple polygon with ear-clipped triangles so concave outlines remain

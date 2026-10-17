@@ -16,4 +16,8 @@ void UniverseRenderer_Draw(Universe *universe, CameraViewBox camera_view, Matrix
 // cached bounds). A world-space overlay pass that only reads the set + existing bounds.
 void WorldRenderer_DrawSelectionHighlights(Universe *universe);
 
+// Draw the live marquee selection box in screen/pixel space while a DRAG_TARGET_MARQUEE drag is
+// active in the game drag context. A no-op when no marquee drag is in progress.
+void WorldRenderer_DrawMarquee(void);
+
 #endif

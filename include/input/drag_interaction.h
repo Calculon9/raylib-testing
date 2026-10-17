@@ -32,7 +32,8 @@ typedef enum
     DRAG_TARGET_UI_ELEMENT = 1,
     DRAG_TARGET_WORLD_ENTITY = 2,
     DRAG_TARGET_WORLD_CONTAINER = 3,
-    DRAG_TARGET_VERTEX_HANDLE = 4
+    DRAG_TARGET_VERTEX_HANDLE = 4,
+    DRAG_TARGET_MARQUEE = 5 // Empty-space box/marquee selection drag.
 } DragTargetKind;
 
 typedef struct

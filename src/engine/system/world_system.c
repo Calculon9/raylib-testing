@@ -622,6 +622,104 @@ static InputRouteResult TryHandleEntityDragRelease(const InputFrame *input,
     return prior_result;
 }
 
+// Commit a marquee box selection into the central Stage 1 SelectionSet. The marquee is captured
+// in screen pixels; both corners are converted through the existing camera matrices to the
+// relevant world/universe frame (dual-space, mirroring Target_ResolveAtPoint / HandleCapturedEntityDrag).
+// `additive` unions with the current selection (Ctrl/Shift held); otherwise the selection is
+// replaced (cleared first). The hit-test is a simple linear AABB overlap over existing LArrays —
+// the cell-scoped broad-phase optimisation is deliberately deferred (documented limitation).
+static void CommitMarqueeSelection(const DragInteractionState *ctx, bool additive)
+{
+    if (!ctx)
+    {
+        return;
+    }
+
+    // No modifier replaces the whole selection; a held modifier unions with it.
+    if (!additive)
+    {
+        SelectionSet_Clear();
+    }
+
+    // Universe-space rectangle: convert both pixel corners through the root world's frame. The
+    // camera matrix bakes in rotation/zoom, so AABB2d_FromPoints (min/max over the transformed
+    // corners) is used rather than assuming axis-alignment survives the transform.
+    Vector2d uni_corners[2] = {
+        ResolvePixelToWorldFrame(&G_Universe.root_world, ctx->pointer_state.initial_pos),
+        ResolvePixelToWorldFrame(&G_Universe.root_world, ctx->pointer_state.current_pos)};
+    Matrix2x2 uni_rect = AABB2d_FromPoints(uni_corners, 2);
+
+    // Root-owned entities are placed in universe space: test them against the universe rect.
+    {
+        Newtonoid2d *e = NULL;
+        LArray_ForEach(&G_Universe.root_world.objects, Newtonoid2d*, e)
+        {
+            if (AABB2d_Overlaps(uni_rect, AABB2d_FromOriginDimensions(e->bounds_origin, e->bounds_size)))
+            {
+                SelectionSet_Add((TargetRef){ .kind = TARGET_KIND_ENTITY, .as.entity = e->id });
+            }
+        }
+    }
+
+    // Worlds (universe-space bounds) plus, for each overlapped world, its own entities in that
+    // world's local frame. A single pass does the world-bounds test, adds the world ref, and
+    // immediately scans that world's entities — no remembered list or temporary allocation.
+    int world_count = Universe_GetWorldCount(&G_Universe);
+    for (int i = 0; i < world_count; i++)
+    {
+        World2d *w = Universe_GetWorld(&G_Universe, i);
+        if (!w || !w->bounds_valid)
+        {
+            continue;
+        }
+        if (!AABB2d_Overlaps(uni_rect, w->bounds))
+        {
+            continue;
+        }
+
+        // The world's cached bounds overlap the box: select the world itself.
+        SelectionSet_Add((TargetRef){ .kind = TARGET_KIND_WORLD, .as.world_index = i });
+
+        // Convert the pixel corners into this world's local frame and test its entities there.
+        Vector2d loc_corners[2] = {
+            ResolvePixelToWorldFrame(w, ctx->pointer_state.initial_pos),
+            ResolvePixelToWorldFrame(w, ctx->pointer_state.current_pos)};
+        Matrix2x2 loc_rect = AABB2d_FromPoints(loc_corners, 2);
+
+        Newtonoid2d *e = NULL;
+        LArray_ForEach(&w->objects, Newtonoid2d*, e)
+        {
+            if (AABB2d_Overlaps(loc_rect, AABB2d_FromOriginDimensions(e->bounds_origin, e->bounds_size)))
+            {
+                SelectionSet_Add((TargetRef){ .kind = TARGET_KIND_ENTITY, .as.entity = e->id });
+            }
+        }
+    }
+
+    // Re-sync the back-compat single-valued primary fields from the new set contents.
+    UIState_SyncPrimaryFieldsFromSet();
+}
+
+// Finish a marquee drag on mouse release: commit the enclosed entities/worlds into the selection
+// set (replace when no modifier, union when Ctrl/Shift is held) and clear the drag capture.
+// Returns INPUT_ROUTE_HANDLED when it consumed a marquee release; otherwise the prior result.
+static InputRouteResult TryHandleMarqueeRelease(const InputFrame *input,
+                                                DragInteractionState *game_drag_ctx,
+                                                InputRouteResult prior_result)
+{
+    if (!input || !game_drag_ctx || !input->left_released ||
+        !game_drag_ctx->has_capture ||
+        game_drag_ctx->target_kind != DRAG_TARGET_MARQUEE)
+    {
+        return prior_result;
+    }
+
+    bool additive = input->ctrl_down || input->shift_down;
+    CommitMarqueeSelection(game_drag_ctx, additive);
+    DragInteraction_ClearCapture(game_drag_ctx);
+    return INPUT_ROUTE_HANDLED;
+}
+
 // Route gameplay input for simulation, world-entity selection, dragging, and firing.
 InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult prior_result)
 {
@@ -681,9 +779,23 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
                                                      game_drag_ctx,
                                                      prior_result);
             HandleCapturedEntityDrag(game_drag_ctx);
+
+            // Begin a marquee drag only when nothing else captured this frame: the universe stage
+            // (earlier) would have claimed any draggable world, and TrySelectAndCaptureEntity only
+            // captures on an entity hit, so !has_capture here means the drag began on empty space.
+            // The 5px threshold keeps a plain empty-space click behaving exactly as before.
+            if (game_drag_ctx && !game_drag_ctx->has_capture &&
+                DragInteraction_IsDragActive(game_drag_ctx, INPUT_DRAG_THRESHOLD_PIXELS))
+            {
+                DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_MARQUEE, NULL,
+                                             game_drag_ctx->pointer_state.initial_pos);
+            }
         }
         else
         {
+            // Marquee and entity releases are mutually exclusive target kinds; attempt the marquee
+            // release first and fall through to the entity release when it did not consume it.
+            prior_result = TryHandleMarqueeRelease(input, game_drag_ctx, prior_result);
             prior_result = TryHandleEntityDragRelease(input, game_drag_ctx,
                                                       prior_result);
         }
