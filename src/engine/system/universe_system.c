@@ -27,22 +27,33 @@ static bool camera_diagnostic_printed = false;
 ColourRgba camera_marker_colour = {86, 139, 127, 230};
 static CameraController cam_ctrl = {0};
 
+// Refresh panels that mirror the current navigation world. This is a CURSOR concern only: it must
+// NOT touch the SelectionSet (the action source of truth). Moving the World Manager cursor
+// (PREV/NEXT) therefore no longer wipes or rewrites what is selected for actions, and selecting
+// things for actions never moves the cursor.
 static void SyncWorldStateFromSelection(void)
 {
-    // Plain single-world selection routes through the set: clearing the entity/cell selection
-    // (which also empties the set via UIState_SetSelection) then, when a world is currently
-    // selected, adding that world's ref so a plain world click yields a set of just that world.
-    // Net user-visible behaviour is unchanged (plain world click still deselects entities).
-    UIState_SetSelection(NULL, NULL, -1);
-
-    int selected_world_index = Universe_GetSelectedIndex(&G_Universe);
-    if (selected_world_index >= 0)
-    {
-        SelectionSet_Add((TargetRef){ .kind = TARGET_KIND_WORLD, .as.world_index = selected_world_index });
-        UIState_SyncPrimaryFieldsFromSet();
-    }
-
     MarkStateManagerRefreshDirty();
+}
+
+// Order world indices high-to-low in place. Used before enqueuing world deletes so that
+// Universe_DeleteWorld's array compaction (which shifts every index above the deleted one down by
+// one) can never invalidate a still-pending smaller index. A simple insertion sort over at most
+// UNIVERSE_MAX_WORLDS ints; no allocation, and the input set is tiny.
+static void SortWorldIndicesDescending(int *indices, int count)
+{
+    for (int i = 1; i < count; i++)
+    {
+        int key = indices[i];
+        int j = i - 1;
+        // Shift elements smaller than key up so larger indices settle towards the front.
+        while (j >= 0 && indices[j] < key)
+        {
+            indices[j + 1] = indices[j];
+            j--;
+        }
+        indices[j + 1] = key;
+    }
 }
 
 static bool Universe_HasRootEntityAt(Vector2d universe_point)
@@ -160,12 +171,54 @@ InputRouteResult UpdateUniverseSystem(const InputFrame *input, InputRouteResult 
         camera_diagnostic_printed = true;
     }
 
-    if (input->delete_pressed && !G_UIState.focused_element && G_Universe.selected_world_index >= 0)
+    // DELETE acts on the central SelectionSet (the single source of truth for actions), NOT on the
+    // World Manager navigation cursor (selected_world_index). A current-but-unselected world is
+    // kept; a selected-but-not-current world is deleted.
+    if (input->delete_pressed && !G_UIState.focused_element && SelectionSet_Count() > 0)
     {
-        if (EnqueueDeleteWorld(G_Universe.selected_world_index))
+        // World indices must be enqueued high-to-low: Universe_DeleteWorld compacts the array,
+        // shifting every index above the deleted one down by one, so deleting the largest index
+        // first leaves the still-pending (smaller) indices valid. Entities carry stable ids and
+        // are order-independent, so enqueue them directly while scanning.
+        int world_indices[UNIVERSE_MAX_WORLDS]; // bounded by the universe's world cap (stack, no alloc)
+        int world_count = 0;
+
+        TargetRef *member = NULL;
+        LArray_ForEach(&G_UIState.selection_set, TargetRef *, member)
         {
-            return INPUT_ROUTE_HANDLED;
+            switch (member->kind)
+            {
+                case TARGET_KIND_ENTITY:
+                    EnqueueDeleteEntity(member->as.entity); // reuse the existing entity-delete path
+                    break;
+                case TARGET_KIND_WORLD:
+                    if (world_count < UNIVERSE_MAX_WORLDS)
+                    {
+                        world_indices[world_count++] = member->as.world_index; // defer, sort later
+                    }
+                    break;
+                case TARGET_KIND_CELL:
+                default:
+                    // CELL (and any NONE) members have no delete action in this stage; skip.
+                    break;
+            }
         }
+
+        // Enqueue world deletes in descending index order so compaction never invalidates a
+        // pending index (see ordering-hazard note above).
+        SortWorldIndicesDescending(world_indices, world_count);
+        for (int i = 0; i < world_count; i++)
+        {
+            EnqueueDeleteWorld(world_indices[i]); // reuse the existing world-delete path
+        }
+
+        // Clear the set now that every member has been enqueued: enqueue-all-then-clear keeps the
+        // ForEach loop reading a stable set, and dropping all refs avoids any stale/aliased world
+        // TargetRef surviving the index compaction. Keep the back-compat primary fields in step.
+        SelectionSet_Clear();
+        UIState_SyncPrimaryFieldsFromSet();
+
+        return INPUT_ROUTE_HANDLED;
     }
 
     UpdateUniverseInput(input, cursor_in_game_viewport);
@@ -300,8 +353,10 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
                 bool world_hit = false;
                 if (!Universe_ResolveClickHit(mouse_universe_coords, &world_hit))
                 {
-                    G_Universe.selected_world_index = -1;
-                    SyncWorldStateFromSelection();
+                    G_Universe.selected_world_index = -1; // cursor: nothing focused
+                    SyncWorldStateFromSelection();        // cursor refresh only
+                    SelectionSet_Clear();                 // empty-click deselects everything (action set)
+                    UIState_SyncPrimaryFieldsFromSet();
                 }
             }
         }
@@ -310,8 +365,10 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
     {
         if (!Universe_ResolveClickHit(mouse_universe_coords, NULL))
         {
-            G_Universe.selected_world_index = -1;
-            SyncWorldStateFromSelection();
+            G_Universe.selected_world_index = -1; // cursor: nothing focused
+            SyncWorldStateFromSelection();        // cursor refresh only
+            SelectionSet_Clear();                 // empty-click deselects everything (action set)
+            UIState_SyncPrimaryFieldsFromSet();
         }
     }
 
