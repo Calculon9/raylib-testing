@@ -48,11 +48,55 @@ typedef struct
     Vector2d velocity;
     Vector2d acceleration;
     Vector2d momentum;
+    Vector2d base_anchor;   // Entity's anchor captured at drag start (multi-move base).
     EntityRoleFlags collision_role_mask;
     bool has_snapshot;
 } EntityDragMotionSnapshot;
 
-static EntityDragMotionSnapshot g_drag_motion_snapshot = {0};
+// Drag-motion snapshots for every entity touched by the active drag. A single-entity drag stores
+// one entry; a multi-move stores one per in-world ENTITY member of the SelectionSet. Allocated
+// lazily on first use and reused thereafter (count reset, capacity retained) so no per-frame
+// allocation occurs during a drag.
+static LArray g_drag_motion_snapshots = {0};
+
+// True while a multi-move drag is armed (an already-selected entity with more than one in-world
+// ENTITY member was dragged without a modifier). Pinned at drag start, cleared on release and on
+// any single-select capture, so the per-frame dispatch decision matches drag-start membership.
+static bool g_multi_move_active = false;
+
+// Ensure the snapshot store is allocated and empty, ready to receive this drag's entries.
+static void DragMotion_Reset(void)
+{
+    if (!g_drag_motion_snapshots.items)
+    {
+        // Lazy one-time allocation; 4 is a sensible starting capacity for a small selection.
+        g_drag_motion_snapshots = MakeLArray(4, sizeof(EntityDragMotionSnapshot));
+    }
+    g_drag_motion_snapshots.count = 0;
+}
+
+// Record one entity's motion state into the snapshot store and pause its physics for the drag.
+// Saves velocity/acceleration/momentum/collision_role_mask plus the entity's current anchor (the
+// multi-move base), then zeroes the entity's collision role so it does not collide while dragged.
+static void DragMotion_PushEntity(Newtonoid2d *entity)
+{
+    if (!entity)
+    {
+        return;
+    }
+
+    EntityDragMotionSnapshot snapshot = {0};
+    snapshot.entity = entity;
+    snapshot.velocity = entity->velocity;
+    snapshot.acceleration = entity->acceleration;
+    snapshot.momentum = entity->momentum;
+    snapshot.base_anchor = entity->anchor_position;
+    snapshot.collision_role_mask = entity->collision_role_mask;
+    snapshot.has_snapshot = true;
+
+    entity->collision_role_mask = ENTITY_ROLE_NONE;
+    LArray_Push(&g_drag_motion_snapshots, &snapshot);
+}
 
 // Forward declarations keep the input router independent of helper ordering.
 void CreateAddNewtonoid(int vertice_count, float radius, ShapeBuildType build_type,
@@ -60,46 +104,73 @@ void CreateAddNewtonoid(int vertice_count, float radius, ShapeBuildType build_ty
                         Vector2d velocity, Vector2d acceleration);
 void TogglePause(World2d *world);
 
-// Save motion state while an entity is being dragged so manual positioning does
-// not permanently erase the simulation state that existed before the drag.
+// Save motion state for a single dragged entity so manual positioning does not permanently erase
+// the simulation state that existed before the drag. Clears the store first, so a single-entity
+// drag holds exactly one snapshot (the captured entity). Passing NULL simply empties the store.
 static void SnapshotDraggedEntityMotion(Newtonoid2d *entity)
 {
+    DragMotion_Reset();
     if (!entity)
     {
-        g_drag_motion_snapshot.entity = NULL;
-        g_drag_motion_snapshot.has_snapshot = false;
         return;
     }
 
-    g_drag_motion_snapshot.entity = entity;
-    g_drag_motion_snapshot.velocity = entity->velocity;
-    g_drag_motion_snapshot.acceleration = entity->acceleration;
-    g_drag_motion_snapshot.momentum = entity->momentum;
-    g_drag_motion_snapshot.collision_role_mask = entity->collision_role_mask;
-    entity->collision_role_mask = ENTITY_ROLE_NONE;
-    g_drag_motion_snapshot.has_snapshot = true;
+    DragMotion_PushEntity(entity);
 }
 
-// Restore the saved simulation state when an entity drag ends.
-static void RestoreDraggedEntityMotion(Newtonoid2d *entity)
+// Restore the saved simulation state for every entity recorded in the snapshot store when a drag
+// ends. Each member's velocity/acceleration/momentum/collision_role_mask is restored from its
+// stored snapshot, then the store is emptied. Safe to call with an empty store.
+static void RestoreDraggedEntitiesMotion(void)
 {
-    if (!entity || !g_drag_motion_snapshot.has_snapshot)
+    EntityDragMotionSnapshot *snapshot = NULL;
+    LArray_ForEach(&g_drag_motion_snapshots, EntityDragMotionSnapshot *, snapshot)
     {
-        return;
+        Newtonoid2d *entity = snapshot->entity;
+        if (!entity || !snapshot->has_snapshot)
+        {
+            continue;
+        }
+
+        entity->velocity = snapshot->velocity;
+        entity->acceleration = snapshot->acceleration;
+        entity->momentum = snapshot->momentum;
+        entity->collision_role_mask = snapshot->collision_role_mask;
     }
 
-    if (g_drag_motion_snapshot.entity != entity)
+    g_drag_motion_snapshots.count = 0;
+}
+
+// Snapshot every in-world ENTITY member of the SelectionSet for a multi-move drag. The store is
+// cleared first, then each ENTITY member is resolved live via Universe_GetEntityByID; a member is
+// skipped when it is stale (resolves to NULL) or lives in a different world than the dragged entity
+// (cross-world multi-move is out of scope). Every snapshot entry records the member's base anchor
+// and pauses its physics, mirroring the single-entity SnapshotDraggedEntityMotion for each member.
+static void SnapshotSelectionMotion(int source_world_index)
+{
+    DragMotion_Reset();
+
+    TargetRef *member = NULL;
+    LArray_ForEach(&G_UIState.selection_set, TargetRef *, member)
     {
-        return;
+        // ENTITIES ONLY: WORLD/CELL/NONE members never move on an entity drag.
+        if (member->kind != TARGET_KIND_ENTITY)
+        {
+            continue;
+        }
+
+        int member_world_index = -1;
+        Newtonoid2d *entity = Universe_GetEntityByID(&G_Universe, member->as.entity,
+                                                     &member_world_index);
+
+        // Skip stale ids and out-of-world members (intra-world scope only).
+        if (!entity || member_world_index != source_world_index)
+        {
+            continue;
+        }
+
+        DragMotion_PushEntity(entity);
     }
-
-    entity->velocity = g_drag_motion_snapshot.velocity;
-    entity->acceleration = g_drag_motion_snapshot.acceleration;
-    entity->momentum = g_drag_motion_snapshot.momentum;
-    entity->collision_role_mask = g_drag_motion_snapshot.collision_role_mask;
-
-    g_drag_motion_snapshot.entity = NULL;
-    g_drag_motion_snapshot.has_snapshot = false;
 }
 
 // Append diagnostic text without writing beyond the caller's fixed buffer.
@@ -400,7 +471,61 @@ static InputRouteResult TrySelectAndCaptureEntity(World2d *active_world, const I
 
     if (!modified)
     {
-        // Unmodified click: today's replace/clear behaviour, unchanged.
+        // Decide whether this unmodified drag is a multi-move: an already-selected entity with more
+        // than one in-world ENTITY member moves the whole selection; anything else is single-move.
+        g_multi_move_active = false;
+        if (closest)
+        {
+            int dragged_world_index = -1;
+            Universe_GetEntityByID(&G_Universe, closest->id, &dragged_world_index);
+
+            TargetRef dragged_ref = { .kind = TARGET_KIND_ENTITY, .as.entity = closest->id };
+            bool dragged_in_set = SelectionSet_Contains(dragged_ref);
+
+            if (dragged_in_set)
+            {
+                // Count the ENTITY members that live in the dragged entity's world; a multi-move
+                // needs at least two (the dragged entity plus one more) to be meaningful.
+                int in_world_entity_members = 0;
+                TargetRef *member = NULL;
+                LArray_ForEach(&G_UIState.selection_set, TargetRef *, member)
+                {
+                    if (member->kind != TARGET_KIND_ENTITY)
+                    {
+                        continue;
+                    }
+                    int member_world_index = -1;
+                    if (Universe_GetEntityByID(&G_Universe, member->as.entity,
+                                               &member_world_index) &&
+                        member_world_index == dragged_world_index)
+                    {
+                        in_world_entity_members++;
+                    }
+                }
+
+                if (in_world_entity_members > 1)
+                {
+                    // Multi-move: keep the set intact (do NOT collapse it via UIState_SetSelection),
+                    // keep the dragged entity as the primary single-fields, snapshot every in-world
+                    // member and capture on the dragged entity.
+                    UIState_SyncPrimaryFieldsFromSet();
+                    g_multi_move_active = true;
+                    SnapshotSelectionMotion(dragged_world_index);
+                    DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_ENTITY, closest, closest->anchor_position);
+                    AppendLogLine(log, sizeof(log), &offset,
+                                  "--> MULTI-MOVE: ID:%d (%d members)", closest->id,
+                                  in_world_entity_members);
+
+                    LOG_INFO("CLICKED (%d,%d) | %s\n",
+                             (int)input->pointer_position.x,
+                             (int)input->pointer_position.y,
+                             log);
+                    return INPUT_ROUTE_CAPTURED;
+                }
+            }
+        }
+
+        // Unmodified click (single-move / empty space): today's replace/clear behaviour, unchanged.
         UIState_SetSelection(closest, selected_cell, selected_cell_index);
 
         if (closest)
@@ -411,8 +536,7 @@ static InputRouteResult TrySelectAndCaptureEntity(World2d *active_world, const I
         }
         else
         {
-            g_drag_motion_snapshot.entity = NULL;
-            g_drag_motion_snapshot.has_snapshot = false;
+            SnapshotDraggedEntityMotion(NULL);
             DragInteraction_ClearCapture(game_drag_ctx);
             AppendLogLine(log, sizeof(log), &offset, " --> SELECTED ENTITY: NULL");
         }
@@ -444,6 +568,9 @@ static InputRouteResult TrySelectAndCaptureEntity(World2d *active_world, const I
     SelectionSet_Toggle(ref);
     UIState_SyncPrimaryFieldsFromSet();
 
+    // A modified-click capture never arms multi-move (unchanged single-entity drag behaviour).
+    g_multi_move_active = false;
+
     if (!was_present)
     {
         // Freshly added: keep it immediately draggable, matching the plain-click feel.
@@ -459,8 +586,7 @@ static InputRouteResult TrySelectAndCaptureEntity(World2d *active_world, const I
     }
 
     // Toggled out: drop any capture/snapshot for it.
-    g_drag_motion_snapshot.entity = NULL;
-    g_drag_motion_snapshot.has_snapshot = false;
+    SnapshotDraggedEntityMotion(NULL);
     DragInteraction_ClearCapture(game_drag_ctx);
     AppendLogLine(log, sizeof(log), &offset, "--> TOGGLED OUT ENTITY: ID:%d", closest->id);
 
@@ -471,31 +597,29 @@ static InputRouteResult TrySelectAndCaptureEntity(World2d *active_world, const I
     return INPUT_ROUTE_HANDLED;
 }
 
-// Move a dragged entity inside its current world and keep its space map in sync.
-static void HandleIntraWorldEntityDrag(Newtonoid2d *dragged,
-                                       World2d *source_world,
-                                       DragInteractionState *game_drag_ctx)
+// Apply one world-space drag delta to a single entity from a fixed base anchor, reusing the
+// existing snapped-AABB + clamp + RemapEntityInASpace pipeline. `base_anchor` is the entity's
+// anchor captured at drag start; `new_center = base_anchor + drag_delta_world` (clamped to the
+// grid). This is the exact per-entity transform lifted out of the former HandleIntraWorldEntityDrag
+// body, so both the single and multi-move paths share identical maths.
+static void MoveEntityByDragDelta(Newtonoid2d *entity,
+                                  World2d *world,
+                                  Vector2d base_anchor,
+                                  Vector2d drag_delta_world)
 {
     Vector2d previous_snapped_aabb_verts[4] = {0};
-    CalcSnappedAABB_Vertices(dragged->surface.surface_vectors.items,
-                             dragged->surface.surface_vectors.count,
-                             dragged->anchor_position,
-                             source_world->grid_space.space.frame.basis,
+    CalcSnappedAABB_Vertices(entity->surface.surface_vectors.items,
+                             entity->surface.surface_vectors.count,
+                             entity->anchor_position,
+                             world->grid_space.space.frame.basis,
                              previous_snapped_aabb_verts);
 
     Matrix2x2 previous_snapped_aabb_box = CalcAABBCoords_Tight(
         previous_snapped_aabb_verts, 4, ZERO_VECTOR_2D);
 
-    Vector2d initial_world_coords = ResolvePixelToWorldFrame(
-        source_world, game_drag_ctx->pointer_state.initial_pos);
-    Vector2d current_world_coords = ResolvePixelToWorldFrame(
-        source_world, game_drag_ctx->pointer_state.current_pos);
-    Vector2d drag_delta_world = VectorDiff_2d(current_world_coords,
-                                              initial_world_coords);
-    Vector2d new_center = VectorSum_2d(game_drag_ctx->target_anchor,
-                                       drag_delta_world);
+    Vector2d new_center = VectorSum_2d(base_anchor, drag_delta_world);
 
-    Space2d *space = &source_world->grid_space.space;
+    Space2d *space = &world->grid_space.space;
     Vector2d min_bound = space->grid_origin;
     Vector2d max_bound = {
         min_bound.x + (float)space->columns - 0.001f,
@@ -504,18 +628,71 @@ static void HandleIntraWorldEntityDrag(Newtonoid2d *dragged,
     new_center.x = ClampFloat(new_center.x, min_bound.x, max_bound.x);
     new_center.y = ClampFloat(new_center.y, min_bound.y, max_bound.y);
 
-    dragged->anchor_position = new_center;
-    dragged->bounds_origin = (Vector2d){
-        new_center.x - (dragged->bounds_size.x * 0.5f),
-        new_center.y - (dragged->bounds_size.y * 0.5f)};
-    dragged->velocity = ZERO_VECTOR_2D;
-    dragged->acceleration = ZERO_VECTOR_2D;
-    dragged->momentum = ZERO_VECTOR_2D;
+    entity->anchor_position = new_center;
+    entity->bounds_origin = (Vector2d){
+        new_center.x - (entity->bounds_size.x * 0.5f),
+        new_center.y - (entity->bounds_size.y * 0.5f)};
+    entity->velocity = ZERO_VECTOR_2D;
+    entity->acceleration = ZERO_VECTOR_2D;
+    entity->momentum = ZERO_VECTOR_2D;
 
-    RemapEntityInASpace(&source_world->grid_space.space,
-                        dragged,
+    RemapEntityInASpace(&world->grid_space.space,
+                        entity,
                         previous_snapped_aabb_box,
-                        &source_world->entity_space_map);
+                        &world->entity_space_map);
+}
+
+// Compute the world-space drag delta for an intra-world entity drag from the pointer's start/now
+// positions resolved into the given world's frame.
+static Vector2d ComputeIntraWorldDragDelta(World2d *source_world,
+                                           DragInteractionState *game_drag_ctx)
+{
+    Vector2d initial_world_coords = ResolvePixelToWorldFrame(
+        source_world, game_drag_ctx->pointer_state.initial_pos);
+    Vector2d current_world_coords = ResolvePixelToWorldFrame(
+        source_world, game_drag_ctx->pointer_state.current_pos);
+    return VectorDiff_2d(current_world_coords, initial_world_coords);
+}
+
+// Move a single dragged entity inside its current world and keep its space map in sync. Thin
+// wrapper over MoveEntityByDragDelta using the captured target anchor as the base; behaviour is
+// identical to the former inline implementation.
+static void HandleIntraWorldEntityDrag(Newtonoid2d *dragged,
+                                       World2d *source_world,
+                                       DragInteractionState *game_drag_ctx)
+{
+    Vector2d drag_delta_world = ComputeIntraWorldDragDelta(source_world, game_drag_ctx);
+    MoveEntityByDragDelta(dragged, source_world, game_drag_ctx->target_anchor,
+                          drag_delta_world);
+}
+
+// Apply one world-space drag delta to every selected entity captured at drag start (multi-move).
+// The snapshot store (populated by SnapshotSelectionMotion) already holds exactly the in-world
+// ENTITY members with their base anchors, so iterating it both supplies each member's base and
+// acts as the stale-member guard: the id is re-resolved each frame via Universe_GetEntityByID and
+// skipped if it no longer resolves. The dragged entity is one of those members and so is moved
+// exactly once here; the single-entity HandleIntraWorldEntityDrag is NOT also called, which is the
+// double-move guard.
+static void HandleIntraWorldMultiEntityDrag(DragInteractionState *game_drag_ctx,
+                                            World2d *source_world,
+                                            int source_world_index)
+{
+    Vector2d drag_delta_world = ComputeIntraWorldDragDelta(source_world, game_drag_ctx);
+
+    EntityDragMotionSnapshot *snapshot = NULL;
+    LArray_ForEach(&g_drag_motion_snapshots, EntityDragMotionSnapshot *, snapshot)
+    {
+        // Re-resolve the id live so a member deleted mid-drag is silently skipped (stale guard).
+        int member_world_index = -1;
+        Newtonoid2d *entity = Universe_GetEntityByID(&G_Universe, snapshot->entity->id,
+                                                     &member_world_index);
+        if (!entity || member_world_index != source_world_index)
+        {
+            continue;
+        }
+
+        MoveEntityByDragDelta(entity, source_world, snapshot->base_anchor, drag_delta_world);
+    }
 }
 
 // Queue transfer when a dragged entity crosses into a different world.
@@ -544,12 +721,22 @@ static void HandleInterWorldEntityDrag(Newtonoid2d *dragged,
              uni_coords.x,
              uni_coords.y);
 
+    // Recover the dragged entity's pre-drag collision role from its snapshot (the single-entity
+    // cross-world path holds exactly one snapshot entry: the dragged entity).
+    EntityRoleFlags dragged_role_mask = ENTITY_ROLE_NONE;
+    EntityDragMotionSnapshot *dragged_snapshot =
+        (EntityDragMotionSnapshot *)LArray_Get(&g_drag_motion_snapshots, 0);
+    if (dragged_snapshot && dragged_snapshot->has_snapshot)
+    {
+        dragged_role_mask = dragged_snapshot->collision_role_mask;
+    }
+
     EnqueueMoveEntity(dragged->id,
                       source_world_index,
                       destination_world_index,
                       destination_world->grid_space.object.id,
                       current_world_coords,
-                      g_drag_motion_snapshot.collision_role_mask);
+                      dragged_role_mask);
 }
 
 // Process pointer drag updates for a captured world entity.
@@ -588,10 +775,22 @@ static void HandleCapturedEntityDrag(DragInteractionState *game_drag_ctx)
 
     if (source_world_index == destination_world_index)
     {
-        HandleIntraWorldEntityDrag(dragged, source_world, game_drag_ctx);
+        // Multi-move applies the same delta to every selected in-world entity; the single path
+        // moves only the dragged entity. Both share MoveEntityByDragDelta, so the maths is identical.
+        if (g_multi_move_active)
+        {
+            HandleIntraWorldMultiEntityDrag(game_drag_ctx, source_world, source_world_index);
+        }
+        else
+        {
+            HandleIntraWorldEntityDrag(dragged, source_world, game_drag_ctx);
+        }
     }
     else
     {
+        // DOCUMENTED LIMITATION: cross-world multi-move is out of scope. When the dragged entity
+        // crosses into a different world only IT is transferred (existing single-entity path);
+        // other selected members (and any member living in another world) are not moved.
         HandleInterWorldEntityDrag(dragged,
                                    destination_world,
                                    source_world_index,
@@ -615,7 +814,9 @@ static InputRouteResult TryHandleEntityDragRelease(const InputFrame *input,
     if (game_drag_ctx->has_capture &&
         game_drag_ctx->target_kind == DRAG_TARGET_WORLD_ENTITY)
     {
-        RestoreDraggedEntityMotion((Newtonoid2d *)game_drag_ctx->target);
+        // Restore every moved member's physics (single or multi) and clear the multi-move arming.
+        RestoreDraggedEntitiesMotion();
+        g_multi_move_active = false;
         return INPUT_ROUTE_HANDLED;
     }
 
