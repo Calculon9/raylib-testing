@@ -11,6 +11,7 @@ UI SYSTEM MODULE
 #include "math/cvectors.h"
 #include "ui/ui.h"
 #include "camera/camera.h"
+#include "world/target_resolver.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
@@ -105,12 +106,29 @@ void UIState_SetSelection(Newtonoid2d *object, Cell *cell, int cell_index);
 void UIState_SetSelectionChangedCallback(UIStateSelectionChangedCallback callback, void *user_data);
 void UIState_ClearSelectedObject(void);
 void UIState_ValidateSelection(void);
+// Prune stale (deleted/out-of-range) members from the central selection set; call once per frame.
+void UIState_ValidateSelectionSet(void);
 Newtonoid2d *UIState_GetSelectedObject(void);
 EntityId UIState_GetSelectedObjectId(void);
 void UIState_SetSelectedCell(Cell *cell, int cell_index);
 void UIState_ClearSelectedCell(void);
 Cell *UIState_GetSelectedCell(void);
 int UIState_GetSelectedCellIndex(void);
+
+// Central mixed SelectionSet operations. The set (TargetRef entries owned in G_UIState) is the
+// source of truth for multi-selection; the single-valued getters above mirror its primary member.
+void SelectionSet_Clear(void);                 // Empty the set (retaining capacity).
+bool SelectionSet_Contains(TargetRef ref);     // True when an equal ref is already present.
+int SelectionSet_Count(void);                  // Number of members currently selected.
+void SelectionSet_Add(TargetRef ref);          // Add a member (idempotent; ignores TARGET_KIND_NONE).
+bool SelectionSet_Remove(TargetRef ref);       // Remove an equal member; returns whether removed.
+void SelectionSet_Toggle(TargetRef ref);       // Remove if present, otherwise add.
+TargetRef SelectionSet_Primary(void);          // Last-added member, or a TARGET_KIND_NONE ref if empty.
+
+// Re-derive the single-valued primary fields from the set's primary member, firing the
+// selection-changed callback when they actually change. Called after set toggles/pruning so the
+// back-compat getters stay consistent with the set.
+void UIState_SyncPrimaryFieldsFromSet(void);
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------

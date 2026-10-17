@@ -411,7 +411,9 @@ void UpdateGameplayScreen(void)
         .right_down = IsMouseButtonDown(MOUSE_BUTTON_RIGHT),
         .right_released = IsMouseButtonReleased(MOUSE_BUTTON_RIGHT),
         .delete_pressed = IsKeyPressed(KEY_DELETE),
-        .wheel_delta = GetMouseWheelMove()};
+        .wheel_delta = GetMouseWheelMove(),
+        .ctrl_down = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL),
+        .shift_down = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT)};
 
     UpdateInputSystem(&input);
 }

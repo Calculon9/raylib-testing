@@ -7,6 +7,7 @@ UI STATE MODULE
 #define UI_STATE_H
 
 #include "common/common.h"
+#include "world/target_resolver.h"
 
 //----------------------------------------------------------------------------------
 // Forward Declarations
@@ -92,6 +93,9 @@ typedef struct
     EntityCreateParams *entity_create_params;
     Cell *selected_cell;
     int selected_cell_index;
+    // Central mixed selection: TargetRef entries (entity/world/cell). Source of truth for
+    // multi-selection; the single-valued fields above mirror its primary (last-added) member.
+    LArray selection_set;
 } UIState;
 
 //----------------------------------------------------------------------------------

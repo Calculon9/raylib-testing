@@ -15,6 +15,10 @@
 #include "world/world.h"
 #include "world/world_internal.h"
 #include "world/object_gizmos.h"
+#include "world/universe.h"
+#include "world/universe_renderer.h"
+#include "world/target_resolver.h"
+#include "system/ui/ui_state.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -183,6 +187,86 @@ static void DrawNewtonoidAABB(const Newtonoid2d *newtonoid, Matrix3x3 space_to_p
     DrawTransformedLineV(top_right, max_corner, space_to_pixel_mtx, game_default_palette.secondary);
     DrawTransformedLineV(max_corner, bottom_left, space_to_pixel_mtx, game_default_palette.secondary);
     DrawTransformedLineV(bottom_left, min_corner, space_to_pixel_mtx, game_default_palette.secondary);
+}
+
+// A distinct outline colour for selected members, kept separate from the gizmo palette so a
+// selection highlight never reads as an AABB gizmo. Bright cyan stands out against the world.
+static const ColourRgba selection_highlight_colour = {64, 224, 255, 255};
+
+// Draw an axis-aligned box outline (min corner + size) in a given space using the selection
+// highlight colour. Shares the four-corner / four-line math with DrawNewtonoidAABB but is not
+// gizmo-gated and takes an explicit colour.
+static void DrawSelectionHighlightAABB(Vector2d min_corner, Vector2d size, Matrix3x3 space_to_pixel,
+                                       ColourRgba colour)
+{
+    Vector2d max_corner = VectorSum_2d(min_corner, size);
+    Vector2d top_right = (Vector2d){max_corner.x, min_corner.y};
+    Vector2d bottom_left = (Vector2d){min_corner.x, max_corner.y};
+
+    DrawTransformedLineV(min_corner, top_right, space_to_pixel, colour);
+    DrawTransformedLineV(top_right, max_corner, space_to_pixel, colour);
+    DrawTransformedLineV(max_corner, bottom_left, space_to_pixel, colour);
+    DrawTransformedLineV(bottom_left, min_corner, space_to_pixel, colour);
+}
+
+// Outline every member of the central selection set. ENTITY members are outlined from their
+// AABB in their owning world's space; WORLD members from their cached universe-space bounds.
+// CELL members are skipped in Stage 1 (documented limitation) as the draw path does not already
+// expose cell geometry; cells still participate in the set and the info-strip count. Unresolved
+// members (deleted entity, invalid world, or invalid bounds) are skipped silently.
+void WorldRenderer_DrawSelectionHighlights(Universe *universe)
+{
+    if (!universe)
+    {
+        return;
+    }
+
+    TargetRef *ref = NULL;
+    LArray_ForEach(&G_UIState.selection_set, TargetRef*, ref)
+    {
+        switch (ref->kind)
+        {
+            case TARGET_KIND_ENTITY:
+            {
+                int world_index = 0;
+                Newtonoid2d *entity = Universe_GetEntityByID(universe, ref->as.entity, &world_index);
+                if (!entity)
+                {
+                    break;
+                }
+                World2d *owning_world = Universe_GetWorld(universe, world_index);
+                if (!owning_world)
+                {
+                    break;
+                }
+                Matrix3x3 space_to_pixel = ResolveWorldToPixelMatrix(owning_world, &universe->camera);
+                DrawSelectionHighlightAABB(entity->bounds_origin, entity->bounds_size,
+                                           space_to_pixel, selection_highlight_colour);
+                break;
+            }
+            case TARGET_KIND_WORLD:
+            {
+                World2d *world = Universe_GetWorld(universe, ref->as.world_index);
+                if (!world || !world->bounds_valid)
+                {
+                    break;
+                }
+                // bounds.col1 is the universe-space min corner, col2 the max corner.
+                Vector2d min_corner = world->bounds.col1;
+                Vector2d size = VectorDiff_2d(world->bounds.col2, world->bounds.col1);
+                Matrix3x3 universe_to_pixel = ResolveWorldToPixelMatrix(&universe->root_world,
+                                                                        &universe->camera);
+                DrawSelectionHighlightAABB(min_corner, size, universe_to_pixel,
+                                           selection_highlight_colour);
+                break;
+            }
+            case TARGET_KIND_CELL:
+            case TARGET_KIND_NONE:
+            default:
+                // Cells skipped in Stage 1; NONE never stored.
+                break;
+        }
+    }
 }
 
 // Fill a simple polygon with ear-clipped triangles so concave outlines remain

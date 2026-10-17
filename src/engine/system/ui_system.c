@@ -30,6 +30,8 @@
 #include "system/debug_overlay_system.h"
 #include "memory/cmemory.h"
 #include "system/ui/ui_loader.h"
+#include "world/target_resolver.h"
+#include "entities/entity_registry.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -211,6 +213,131 @@ void UIPalette_GetSurfaceColours(const UIPalette *palette, UIPaletteSurface surf
 
 void UpdateGlobalUIState();
 
+//----------------------------------------------------------------------------------
+// Central SelectionSet (mixed entity/world/cell TargetRef membership)
+//----------------------------------------------------------------------------------
+
+// Lazily create the backing LArray on first use. G_UIState is a {0} global with no explicit
+// teardown and InitUI may re-run on screen transitions, so a {0} array (elem_bytes == 0) must
+// never be pushed to; this guards that without per-frame allocation.
+static void SelectionSet_EnsureInit(void)
+{
+    if (G_UIState.selection_set.elem_bytes == 0)
+    {
+        // A small initial capacity covers the common 1-3 member case without churn.
+        G_UIState.selection_set = MakeLArray(4, sizeof(TargetRef));
+    }
+}
+
+// Identity for "same member": entities match by id, worlds by index, cells by owning world and
+// cell index. A TARGET_KIND_NONE ref never equals anything (including another NONE).
+static bool SelectionSet_RefsEqual(TargetRef a, TargetRef b)
+{
+    if (a.kind != b.kind || a.kind == TARGET_KIND_NONE)
+    {
+        return false;
+    }
+
+    switch (a.kind)
+    {
+        case TARGET_KIND_ENTITY:
+            return a.as.entity == b.as.entity;
+        case TARGET_KIND_WORLD:
+            return a.as.world_index == b.as.world_index;
+        case TARGET_KIND_CELL:
+            return a.as.cell.world_index == b.as.cell.world_index &&
+                   a.as.cell.cell_index == b.as.cell.cell_index;
+        default:
+            return false;
+    }
+}
+
+// Empty the selection set, retaining its allocated capacity for reuse.
+void SelectionSet_Clear(void)
+{
+    SelectionSet_EnsureInit();
+    ClearLArray(&G_UIState.selection_set);
+}
+
+// Report whether an equal ref is already a member of the set.
+bool SelectionSet_Contains(TargetRef ref)
+{
+    SelectionSet_EnsureInit();
+    TargetRef *member = NULL;
+    LArray_ForEach(&G_UIState.selection_set, TargetRef*, member)
+    {
+        if (SelectionSet_RefsEqual(*member, ref))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Return the number of members currently in the set.
+int SelectionSet_Count(void)
+{
+    SelectionSet_EnsureInit();
+    return LArray_Count(&G_UIState.selection_set);
+}
+
+// Add a member to the set. TARGET_KIND_NONE is ignored so a failed pick never adds junk; an
+// already-present ref is a no-op so the collection stays a true set.
+void SelectionSet_Add(TargetRef ref)
+{
+    SelectionSet_EnsureInit();
+    if (ref.kind == TARGET_KIND_NONE || SelectionSet_Contains(ref))
+    {
+        return;
+    }
+    // On allocation failure LArray_Push leaves the set unchanged; the add simply does not take
+    // effect this frame, which is recoverable (no partial state to unwind).
+    LArray_Push(&G_UIState.selection_set, &ref);
+}
+
+// Remove an equal member if present. Uses order-preserving removal (not swap-pop) so removing a
+// non-primary member does not silently promote an arbitrary element to primary. Returns whether
+// a member was removed.
+bool SelectionSet_Remove(TargetRef ref)
+{
+    SelectionSet_EnsureInit();
+    for (int index = 0; index < G_UIState.selection_set.count; index++)
+    {
+        TargetRef *member = (TargetRef *)LArray_Get(&G_UIState.selection_set, index);
+        if (member && SelectionSet_RefsEqual(*member, ref))
+        {
+            return LArray_RemoveAt(&G_UIState.selection_set, index);
+        }
+    }
+    return false;
+}
+
+// Toggle a member: remove it if present, otherwise add it.
+void SelectionSet_Toggle(TargetRef ref)
+{
+    if (SelectionSet_Contains(ref))
+    {
+        SelectionSet_Remove(ref);
+    }
+    else
+    {
+        SelectionSet_Add(ref);
+    }
+}
+
+// Return the primary (last-added) member, or a TARGET_KIND_NONE ref when the set is empty.
+TargetRef SelectionSet_Primary(void)
+{
+    SelectionSet_EnsureInit();
+    int count = G_UIState.selection_set.count;
+    if (count <= 0)
+    {
+        return (TargetRef){ .kind = TARGET_KIND_NONE };
+    }
+    TargetRef *primary = (TargetRef *)LArray_Get(&G_UIState.selection_set, count - 1);
+    return primary ? *primary : (TargetRef){ .kind = TARGET_KIND_NONE };
+}
+
 void UIState_SetSelectedObject(Newtonoid2d *object)
 {
     // Centralise object selection writes so other systems stop mutating the UI state directly.
@@ -243,10 +370,67 @@ void UIState_SetSelection(Newtonoid2d *object, Cell *cell, int cell_index)
     G_UIState.selected_cell = cell;
     G_UIState.selected_cell_index = cell_index;
 
+    // Mirror a single-selection replace into the central set: clear it, then add the one member
+    // this write represents (entity, else cell, else nothing). This makes every existing
+    // single-select caller (which funnels through here) transparently drive the set.
+    SelectionSet_Clear();
+    if (object)
+    {
+        SelectionSet_Add((TargetRef){ .kind = TARGET_KIND_ENTITY, .as.entity = object->id });
+    }
+    else if (cell_index >= 0)
+    {
+        // A cell-only selection records a CELL ref for the currently selected world context,
+        // matching the info strip's existing owning-world resolution.
+        int world_index = Universe_GetSelectedIndex(&G_Universe);
+        SelectionSet_Add((TargetRef){
+            .kind = TARGET_KIND_CELL,
+            .as.cell = {
+                .world_index = (world_index >= 0) ? world_index : UNIVERSE_ROOT_WORLD_INDEX,
+                .cell_index = cell_index,
+            },
+        });
+    }
+    // A full clear (object == NULL, cell_index < 0) leaves the set empty.
+
     bool selection_changed = prev_selected_object_id != G_UIState.selected_object_id ||
                             prev_selected_object != G_UIState.selected_object ||
                             prev_selected_cell != G_UIState.selected_cell ||
                             prev_selected_cell_index != G_UIState.selected_cell_index;
+    if (selection_changed && ui_selection_changed_callback)
+    {
+        ui_selection_changed_callback(G_UIState.selected_object_id,
+                                      G_UIState.selected_object,
+                                      G_UIState.selected_cell,
+                                      G_UIState.selected_cell_index,
+                                      ui_selection_changed_user_data);
+    }
+}
+
+// Re-derive the single-valued primary fields (selected_object_id / selected_object) from the
+// set's primary member and fire the change callback when they differ. Called after set toggles
+// and per-frame pruning so the back-compat getters and callback track the primary. A non-entity
+// or empty primary clears the entity single-fields; cell single-fields are left untouched here
+// (cell selection is still driven through UIState_SetSelection).
+void UIState_SyncPrimaryFieldsFromSet(void)
+{
+    EntityId prev_selected_object_id = G_UIState.selected_object_id;
+    Newtonoid2d *prev_selected_object = G_UIState.selected_object;
+
+    TargetRef primary = SelectionSet_Primary();
+    if (primary.kind == TARGET_KIND_ENTITY)
+    {
+        G_UIState.selected_object_id = primary.as.entity;
+        G_UIState.selected_object = Universe_GetEntityByID(&G_Universe, primary.as.entity, NULL);
+    }
+    else
+    {
+        G_UIState.selected_object_id = INVALID_ENTITY_ID;
+        G_UIState.selected_object = NULL;
+    }
+
+    bool selection_changed = prev_selected_object_id != G_UIState.selected_object_id ||
+                             prev_selected_object != G_UIState.selected_object;
     if (selection_changed && ui_selection_changed_callback)
     {
         ui_selection_changed_callback(G_UIState.selected_object_id,
@@ -290,6 +474,70 @@ void UIState_ValidateSelection(void)
     if (selected_object != G_UIState.selected_object)
     {
         UIState_SetSelectedObject(selected_object);
+    }
+}
+
+// Prune stale members from the selection set so dead ids are purged after deletes/moves that go
+// through the existing single paths. Runs each frame alongside the single-pointer re-sync above;
+// it only reacts to deletions, it never deletes anything itself. Iterates by index because it
+// removes while iterating.
+void UIState_ValidateSelectionSet(void)
+{
+    SelectionSet_EnsureInit();
+
+    bool pruned = false;
+    int index = 0;
+    while (index < G_UIState.selection_set.count)
+    {
+        TargetRef *member = (TargetRef *)LArray_Get(&G_UIState.selection_set, index);
+        bool stale = false;
+        if (member)
+        {
+            switch (member->kind)
+            {
+                case TARGET_KIND_ENTITY:
+                    // Drop entities whose id is no longer live.
+                    stale = !EntityRegistry_IsIdActive(member->as.entity) ||
+                            Universe_GetEntityByID(&G_Universe, member->as.entity, NULL) == NULL;
+                    break;
+                case TARGET_KIND_WORLD:
+                    // Drop worlds whose index is out of range (the root sentinel stays valid).
+                    stale = member->as.world_index != UNIVERSE_ROOT_WORLD_INDEX &&
+                            (member->as.world_index < 0 ||
+                             member->as.world_index >= Universe_GetWorldCount(&G_Universe));
+                    break;
+                case TARGET_KIND_CELL:
+                    // Validate a cell via its owning world index (cell index within an existing
+                    // world is treated as valid in Stage 1).
+                    stale = member->as.cell.world_index != UNIVERSE_ROOT_WORLD_INDEX &&
+                            (member->as.cell.world_index < 0 ||
+                             member->as.cell.world_index >= Universe_GetWorldCount(&G_Universe));
+                    break;
+                default:
+                    stale = true; // A TARGET_KIND_NONE member should never be stored; drop it.
+                    break;
+            }
+        }
+        else
+        {
+            stale = true;
+        }
+
+        if (stale)
+        {
+            LArray_RemoveAt(&G_UIState.selection_set, index);
+            pruned = true;
+        }
+        else
+        {
+            index++;
+        }
+    }
+
+    if (pruned)
+    {
+        // Keep the back-compat single-fields consistent with the pruned set.
+        UIState_SyncPrimaryFieldsFromSet();
     }
 }
 

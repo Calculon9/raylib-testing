@@ -23,6 +23,8 @@ which is strictly read-only with respect to input routing.
 #include "world/world_internal.h" // ResolvePixelToWorldFrame
 #include "world/target_resolver.h"
 #include "entities/entity_registry.h" // EntityRegistry_IsIdActive
+#include "system/ui/ui_state.h"       // G_UIState.selection_set (set tally)
+#include <stdio.h>                     // snprintf for the count summary
 
 // ============================================================================
 // Panel + hover state (module-owned)
@@ -54,45 +56,78 @@ static BindingValue InfoStrip_QueryHoverLabel(int key)
     return (BindingValue){ .type = BIND_STRING, .as.s = info_strip_hover_text };
 }
 
-// Compose the selection label from live selection state. Entity selection outranks world
-// selection; a selected cell is surfaced when there is no selected entity. World selection is
-// owned by the universe, entity+cell by G_UIState, so both owners are read here and reconciled
-// into a single TargetRef before Target_Describe formats it.
+// Compose the selection label from the central selection set. An empty set reports "nothing";
+// exactly one member is described with the existing single-target label; more than one member is
+// summarised as a count tally by TargetKind (e.g. "Selection: 3 entities, 1 world"). The set is
+// the source of truth, so the primary member is read via SelectionSet_Primary for the single case.
 static BindingValue InfoStrip_QuerySelectionLabel(int key)
 {
     (void)key;
 
-    TargetRef ref = {0};
-    ref.kind = TARGET_KIND_NONE;
+    int count = SelectionSet_Count();
 
-    EntityId selected_entity = UIState_GetSelectedObjectId();
-    int selected_cell_index = UIState_GetSelectedCellIndex();
-    int selected_world_index = Universe_GetSelectedIndex(&G_Universe);
-
-    if (selected_entity != INVALID_ENTITY_ID && EntityRegistry_IsIdActive(selected_entity))
+    if (count <= 0)
     {
-        // Entity selection wins outright. The IsIdActive guard ensures a despawned-but-still-
-        // selected entity (UIState_ValidateSelection clears the pointer but not the id) falls
-        // through to the next precedence tier rather than rendering as a dead reference.
-        ref.kind = TARGET_KIND_ENTITY;
-        ref.as.entity = selected_entity;
-    }
-    else if (selected_cell_index >= 0)
-    {
-        // No entity, but a cell is selected: report the cell within the selected world.
-        ref.kind = TARGET_KIND_CELL;
-        ref.as.cell.world_index =
-            (selected_world_index >= 0) ? selected_world_index : UNIVERSE_ROOT_WORLD_INDEX;
-        ref.as.cell.cell_index = selected_cell_index;
-    }
-    else if (selected_world_index >= 0)
-    {
-        // Only a world is selected.
-        ref.kind = TARGET_KIND_WORLD;
-        ref.as.world_index = selected_world_index;
+        // Empty selection: keep the existing neutral "none" output.
+        Target_Describe((TargetRef){ .kind = TARGET_KIND_NONE }, info_strip_selection_text,
+                        sizeof(info_strip_selection_text));
+        return (BindingValue){ .type = BIND_STRING, .as.s = info_strip_selection_text };
     }
 
-    Target_Describe(ref, info_strip_selection_text, sizeof(info_strip_selection_text));
+    if (count == 1)
+    {
+        // Single member: preserve today's single-target label via the set's primary.
+        Target_Describe(SelectionSet_Primary(), info_strip_selection_text,
+                        sizeof(info_strip_selection_text));
+        return (BindingValue){ .type = BIND_STRING, .as.s = info_strip_selection_text };
+    }
+
+    // More than one member: tally kinds over the set and compose a count summary.
+    int entity_count = 0;
+    int world_count = 0;
+    int cell_count = 0;
+    TargetRef *member = NULL;
+    LArray_ForEach(&G_UIState.selection_set, TargetRef*, member)
+    {
+        switch (member->kind)
+        {
+            case TARGET_KIND_ENTITY: entity_count++; break;
+            case TARGET_KIND_WORLD:  world_count++;  break;
+            case TARGET_KIND_CELL:   cell_count++;   break;
+            default: break;
+        }
+    }
+
+    // Build "Selection: N entities, M worlds, K cells", omitting zero-count kinds and pluralising
+    // per tally. Writes are length-checked so the panel-owned buffer never overflows.
+    int offset = 0;
+    offset += snprintf(info_strip_selection_text + offset,
+                       sizeof(info_strip_selection_text) - (size_t)offset, "Selection: ");
+
+    bool first = true;
+    if (entity_count > 0 && offset < (int)sizeof(info_strip_selection_text))
+    {
+        offset += snprintf(info_strip_selection_text + offset,
+                           sizeof(info_strip_selection_text) - (size_t)offset,
+                           "%d %s", entity_count, entity_count == 1 ? "entity" : "entities");
+        first = false;
+    }
+    if (world_count > 0 && offset < (int)sizeof(info_strip_selection_text))
+    {
+        offset += snprintf(info_strip_selection_text + offset,
+                           sizeof(info_strip_selection_text) - (size_t)offset,
+                           "%s%d %s", first ? "" : ", ", world_count,
+                           world_count == 1 ? "world" : "worlds");
+        first = false;
+    }
+    if (cell_count > 0 && offset < (int)sizeof(info_strip_selection_text))
+    {
+        snprintf(info_strip_selection_text + offset,
+                 sizeof(info_strip_selection_text) - (size_t)offset,
+                 "%s%d %s", first ? "" : ", ", cell_count,
+                 cell_count == 1 ? "cell" : "cells");
+    }
+
     return (BindingValue){ .type = BIND_STRING, .as.s = info_strip_selection_text };
 }
 

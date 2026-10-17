@@ -312,6 +312,9 @@ static void UpdateWorldSimulation(bool step_requested)
     }
 
     UIState_ValidateSelection();
+    // Prune stale members from the central selection set once per frame (purges ids dropped by
+    // deletes/moves that went through the existing single paths).
+    UIState_ValidateSelectionSet();
 }
 
 // Apply debug keyboard actions that directly manipulate the selected world.
@@ -392,28 +395,80 @@ static InputRouteResult TrySelectAndCaptureEntity(World2d *active_world, const I
     Newtonoid2d *closest = ResolveClosestEntityAt(active_world, click_world_coords, &selected_cell,
                                                   &selected_cell_index,log,sizeof(log), &offset);
 
-    UIState_SetSelection(closest, selected_cell, selected_cell_index);
+    // A held Ctrl/Shift turns a click into an additive toggle instead of a replace.
+    bool modified = input->ctrl_down || input->shift_down;
 
-    if (closest)
+    if (!modified)
     {
+        // Unmodified click: today's replace/clear behaviour, unchanged.
+        UIState_SetSelection(closest, selected_cell, selected_cell_index);
+
+        if (closest)
+        {
+            SnapshotDraggedEntityMotion(closest);
+            DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_ENTITY, closest, closest->anchor_position);
+            AppendLogLine(log, sizeof(log), &offset, "--> SELECTED ENTITY: ID:%d", closest->id);
+        }
+        else
+        {
+            g_drag_motion_snapshot.entity = NULL;
+            g_drag_motion_snapshot.has_snapshot = false;
+            DragInteraction_ClearCapture(game_drag_ctx);
+            AppendLogLine(log, sizeof(log), &offset, " --> SELECTED ENTITY: NULL");
+        }
+
+        LOG_INFO("CLICKED (%d,%d) | %s\n",
+                 (int)input->pointer_position.x,
+                 (int)input->pointer_position.y,
+                 log);
+
+        return closest ? INPUT_ROUTE_CAPTURED : INPUT_ROUTE_HANDLED;
+    }
+
+    // Modified click on empty space: leave the set intact (no clear, no capture).
+    // (A cell-only modified pick with no entity is likewise a no-op for the set in Stage 1;
+    // cells remain a single-selection concept.)
+    if (!closest)
+    {
+        AppendLogLine(log, sizeof(log), &offset, " --> MODIFIED CLICK (empty): SET UNCHANGED");
+        LOG_INFO("CLICKED (%d,%d) | %s\n",
+                 (int)input->pointer_position.x,
+                 (int)input->pointer_position.y,
+                 log);
+        return INPUT_ROUTE_HANDLED;
+    }
+
+    // Modified click on an entity: toggle its ref into the set and re-sync the primary fields.
+    TargetRef ref = { .kind = TARGET_KIND_ENTITY, .as.entity = closest->id };
+    bool was_present = SelectionSet_Contains(ref);
+    SelectionSet_Toggle(ref);
+    UIState_SyncPrimaryFieldsFromSet();
+
+    if (!was_present)
+    {
+        // Freshly added: keep it immediately draggable, matching the plain-click feel.
         SnapshotDraggedEntityMotion(closest);
         DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_ENTITY, closest, closest->anchor_position);
-        AppendLogLine(log, sizeof(log), &offset, "--> SELECTED ENTITY: ID:%d", closest->id);
+        AppendLogLine(log, sizeof(log), &offset, "--> TOGGLED IN ENTITY: ID:%d", closest->id);
+
+        LOG_INFO("CLICKED (%d,%d) | %s\n",
+                 (int)input->pointer_position.x,
+                 (int)input->pointer_position.y,
+                 log);
+        return INPUT_ROUTE_CAPTURED;
     }
-    else
-    {
-        g_drag_motion_snapshot.entity = NULL;
-        g_drag_motion_snapshot.has_snapshot = false;
-        DragInteraction_ClearCapture(game_drag_ctx);
-        AppendLogLine(log, sizeof(log), &offset, " --> SELECTED ENTITY: NULL");
-    }
+
+    // Toggled out: drop any capture/snapshot for it.
+    g_drag_motion_snapshot.entity = NULL;
+    g_drag_motion_snapshot.has_snapshot = false;
+    DragInteraction_ClearCapture(game_drag_ctx);
+    AppendLogLine(log, sizeof(log), &offset, "--> TOGGLED OUT ENTITY: ID:%d", closest->id);
 
     LOG_INFO("CLICKED (%d,%d) | %s\n",
              (int)input->pointer_position.x,
              (int)input->pointer_position.y,
              log);
-
-    return closest ? INPUT_ROUTE_CAPTURED : INPUT_ROUTE_HANDLED;
+    return INPUT_ROUTE_HANDLED;
 }
 
 // Move a dragged entity inside its current world and keep its space map in sync.

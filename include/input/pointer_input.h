@@ -38,6 +38,8 @@ typedef struct
     bool right_released;
     bool delete_pressed;
     float wheel_delta;
+    bool ctrl_down;    // Either Ctrl held this frame (selection add/toggle modifier).
+    bool shift_down;   // Either Shift held this frame (selection add/toggle modifier).
 } InputFrame;
 
 void UpdatePointerState(PointerButton button, PointerState *pointer_state, Vector2d pointer_pos);

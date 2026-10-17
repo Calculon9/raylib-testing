@@ -16,7 +16,14 @@ so a stored TargetRef stays stale-safe across frames.
 #include <stddef.h>
 #include "entities/entity_id.h"
 #include "math/cvectors.h"
-#include "world/universe.h"
+
+// Forward declaration only: the resolver API takes `const Universe *` by pointer, so the full
+// universe definition is not required here. Including world/universe.h directly would create a
+// header cycle (universe.h <-> world.h) for the lightweight consumers that now pull TargetRef
+// (e.g. the UI-state selection set); callers that dereference a Universe include universe.h
+// (or world.h) themselves.
+struct Universe;
+typedef struct Universe Universe;
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition

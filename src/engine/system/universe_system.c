@@ -29,7 +29,19 @@ static CameraController cam_ctrl = {0};
 
 static void SyncWorldStateFromSelection(void)
 {
+    // Plain single-world selection routes through the set: clearing the entity/cell selection
+    // (which also empties the set via UIState_SetSelection) then, when a world is currently
+    // selected, adding that world's ref so a plain world click yields a set of just that world.
+    // Net user-visible behaviour is unchanged (plain world click still deselects entities).
     UIState_SetSelection(NULL, NULL, -1);
+
+    int selected_world_index = Universe_GetSelectedIndex(&G_Universe);
+    if (selected_world_index >= 0)
+    {
+        SelectionSet_Add((TargetRef){ .kind = TARGET_KIND_WORLD, .as.world_index = selected_world_index });
+        UIState_SyncPrimaryFieldsFromSet();
+    }
+
     MarkStateManagerRefreshDirty();
 }
 
@@ -270,11 +282,27 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
                                                  INPUT_DRAG_THRESHOLD_PIXELS);
         if (was_click && cursor_in_game_viewport)
         {
-            bool world_hit = false;
-            if (!Universe_ResolveClickHit(mouse_universe_coords, &world_hit))
+            if (input->ctrl_down || input->shift_down)
             {
-                G_Universe.selected_world_index = -1;
-                SyncWorldStateFromSelection();
+                // Modified click: toggle the hit world into the set WITHOUT the selecting side
+                // effect (so it coexists with selected entities and does not disturb
+                // selected_world_index). Empty space leaves the set intact.
+                int hit_index = Universe_FindWorldAt(&G_Universe, mouse_universe_coords);
+                if (hit_index >= 0)
+                {
+                    SelectionSet_Toggle((TargetRef){ .kind = TARGET_KIND_WORLD, .as.world_index = hit_index });
+                    UIState_SyncPrimaryFieldsFromSet();
+                }
+            }
+            else
+            {
+                // Unmodified click: existing plain select / empty-click deselect.
+                bool world_hit = false;
+                if (!Universe_ResolveClickHit(mouse_universe_coords, &world_hit))
+                {
+                    G_Universe.selected_world_index = -1;
+                    SyncWorldStateFromSelection();
+                }
             }
         }
     }
@@ -295,6 +323,9 @@ void DrawUniverse(void)
     Matrix3x3 camera_to_pixel = ResolveWorldToPixelMatrix(&G_Universe.root_world, &G_Universe.camera);
     CameraViewBox camera_view = GetCameraView(&G_Universe.camera, game_viewport, camera_to_pixel);
     UniverseRenderer_Draw(&G_Universe, camera_view, camera_to_pixel);
+
+    // Overlay the selection highlight pass on top of the drawn worlds/entities, in world space.
+    WorldRenderer_DrawSelectionHighlights(&G_Universe);
 }
 
 int CreateNewWorld(bool auto_select)
