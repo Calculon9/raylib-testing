@@ -148,6 +148,16 @@ Default size: standard control.
 | --- | --- | --- |
 | `text` | string | The label text. |
 
+A `<Label>` is a text leaf and, having no `layout=`, keeps `child_spacing` at
+`SPACING_NONE`. It is still a tree node, so the generic layout and draw passes will
+lay out and draw any child elements authored inside it — but because its spacing is
+`SPACING_NONE`, those children are positioned purely by their own `offset=` relative
+to the label's content box (no stacked/inline distribution is applied). This is used
+by the popup creation menu, where each ENTITY/WORLD label hosts its fly-out submenu as
+an `overflow="true"` child offset to the right of the item's row. Do not add `layout=`
+to such a label: that would switch it to a stacking parent and displace the child by
+the preceding content's height.
+
 ### `<Textbox>` — standalone input field (leaf)
 Default size: standard control. This is the same input control `<TextField>` uses
 internally, without a label or row wrapper.

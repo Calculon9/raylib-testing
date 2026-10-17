@@ -11,8 +11,9 @@
 <!--    is set in C to open/close the entity/world submenus (HandlePopupHover). The    -->
 <!--    former CreateUIHoverItemDefault presentation (button-surface colours,          -->
 <!--    LEFT/CENTRE alignment, is_draggable=false) is restored in C in the id-pass.     -->
-<!--  * The entity/world submenus are <Container enabled="false"> nested inside         -->
-<!--    create_view, fanned out by a fixed +x offset; C toggles their enabled state.    -->
+<!--  * The entity/world submenus are <Container enabled="false"> nested as CHILDREN of  -->
+<!--    their ENTITY/WORLD <Label> item (NOT siblings in create_view), fanned out by a    -->
+<!--    fixed +x offset so each anchors beside its own row; C toggles their enabled state.-->
 <!--  * The six create buttons and six world buttons carry NO action=/binding= so the  -->
 <!--    loader attaches no handler; C wires on_click + typed interaction_user_data.     -->
 <!--  * Click-point positioning, show/hide and visibility stay entirely in C.           -->
@@ -23,43 +24,63 @@
 <!--    render and hit-test as nothing. Visibility is owned solely by popup_menu->root  -->
 <!--    (InitPopupMenu disables it; Show/Hide toggle it).                               -->
 <ViewHost id="popup_menu" layout="stacked" initial-view="create_view"
-          size="6.9,5.75" width="fixed" height="fixed">
+          size="3.75,5.75" width="fixed" height="fixed">
 
     <ViewSelector id="popup_views" type="enumerate" size="3.75,0.5" width="fixed" height="fixed">
         <Option text="CREATE" view="create_view" size="1.875,0.5" />
         <Option text="RECENT" view="recent_view" size="1.875,0.5" />
     </ViewSelector>
 
-    <!-- CREATE view: persistent ENTITY/WORLD column + the two hover-toggled submenus. -->
+    <!-- CREATE view: persistent ENTITY/WORLD column, each item HOSTING its own          -->
+    <!-- hover-toggled submenu as a CHILD (not a sibling). Anchoring the submenu to its   -->
+    <!-- item's row is what fixes the detached low-right placement: because create_view    -->
+    <!-- uses layout="stack", a submenu authored as a SIBLING of the items was displaced   -->
+    <!-- downward by the accumulated stack cursor of the preceding ENTITY/WORLD rows the    -->
+    <!-- moment it was enabled on hover. Re-parenting each submenu INTO its <Label> makes   -->
+    <!-- the submenu's layout origin the item's own row, so its offset="3.75,0" fans it     -->
+    <!-- out to the right of that exact row with ~0 vertical displacement.                  -->
+    <!--                                                                                    -->
+    <!-- The ENTITY/WORLD <Label>s deliberately carry NO layout= attribute, so their        -->
+    <!-- child_spacing stays SPACING_NONE (the loader default for a Label). A SPACING_NONE   -->
+    <!-- parent runs no stacked distribution, so the submenu keeps its authored offset       -->
+    <!-- (3.75,0) with no stack cursor added - adding layout="stack" here would instead      -->
+    <!-- push the submenu down by the label's row height and re-introduce the displacement.  -->
+    <!-- The labels remain height="fixed" 0.5, so create_view's stack advances by exactly    -->
+    <!-- one row per item regardless of whether a submenu is open: the two items still stack  -->
+    <!-- as a tight 0.5-high column with no new vertical gap. The submenus keep overflow=      -->
+    <!-- "true" so their hug box is not clamped to the item's small content box.               -->
     <View id="create_view" type="POPUP_MENU_CREATE_VIEW"
           size="3.75,5.0" width="fixed" height="fixed" offset="0,0.5" layout="stack">
-        <Label id="popup_item_entity" text="ENTITY" size="3.75,0.5" width="fixed" height="fixed" />
-        <Label id="popup_item_world"  text="WORLD"  size="3.75,0.5" width="fixed" height="fixed" />
+        <!-- ENTITY item HOSTS the entity submenu; keep the label leaf-styled (no layout=). -->
+        <Label id="popup_item_entity" text="ENTITY" size="3.75,0.5" width="fixed" height="fixed">
+            <!-- Entity submenu: child of its item, fixed +x fan-out, starts disabled. -->
+            <Container id="popup_entity_submenu" enabled="false" overflow="true"
+                       offset="3.75,0" offset-mode="fixed" width="hug" height="hug" layout="stack">
+                <Label  text="Shapes" size="3.75,0.5" width="fixed" height="fixed" />
+                <Button type="simple" id="popup_btn_triangle" text="triangle" size="3.75,0.5" width="fixed" height="fixed" />
+                <Button type="simple" id="popup_btn_square"   text="square"   size="3.75,0.5" width="fixed" height="fixed" />
+                <Button type="simple" id="popup_btn_circle"   text="circle"   size="3.75,0.5" width="fixed" height="fixed" />
+                <Label  text="Functional" size="3.75,0.5" width="fixed" height="fixed" />
+                <Button type="simple" id="popup_btn_rotor"  text="rotor"  size="3.75,0.5" width="fixed" height="fixed" />
+                <Button type="simple" id="popup_btn_gear"   text="gear"   size="3.75,0.5" width="fixed" height="fixed" />
+                <Button type="simple" id="popup_btn_portal" text="portal" size="3.75,0.5" width="fixed" height="fixed" />
+            </Container>
+        </Label>
 
-        <!-- Entity submenu: nested in the view, fixed +x fan-out, starts disabled. -->
-        <Container id="popup_entity_submenu" enabled="false" overflow="true"
-                   offset="3.75,0" offset-mode="fixed" width="hug" height="hug" layout="stack">
-            <Label  text="Shapes" size="3.75,0.5" width="fixed" height="fixed" />
-            <Button type="simple" id="popup_btn_triangle" text="triangle" size="3.75,0.5" width="fixed" height="fixed" />
-            <Button type="simple" id="popup_btn_square"   text="square"   size="3.75,0.5" width="fixed" height="fixed" />
-            <Button type="simple" id="popup_btn_circle"   text="circle"   size="3.75,0.5" width="fixed" height="fixed" />
-            <Label  text="Functional" size="3.75,0.5" width="fixed" height="fixed" />
-            <Button type="simple" id="popup_btn_rotor"  text="rotor"  size="3.75,0.5" width="fixed" height="fixed" />
-            <Button type="simple" id="popup_btn_gear"   text="gear"   size="3.75,0.5" width="fixed" height="fixed" />
-            <Button type="simple" id="popup_btn_portal" text="portal" size="3.75,0.5" width="fixed" height="fixed" />
-        </Container>
-
-        <!-- World submenu: nested in the view, fixed +x fan-out, starts disabled. -->
-        <Container id="popup_world_submenu" enabled="false" overflow="true"
-                   offset="3.75,0" offset-mode="fixed" width="hug" height="hug" layout="stack">
-            <Label  text="Small" size="3.75,0.5" width="fixed" height="fixed" />
-            <Button type="simple" id="popup_btn_regular"     text="regular"      size="3.75,0.5" width="fixed" height="fixed" />
-            <Button type="simple" id="popup_btn_sheared_y"   text="sheared-y"    size="3.75,0.5" width="fixed" height="fixed" />
-            <Button type="simple" id="popup_btn_sheared_x"   text="sheared-x"    size="3.75,0.5" width="fixed" height="fixed" />
-            <Button type="simple" id="popup_btn_isometric"   text="isometric"    size="3.75,0.5" width="fixed" height="fixed" />
-            <Button type="simple" id="popup_btn_perspective" text="perspective"  size="3.75,0.5" width="fixed" height="fixed" />
-            <Button type="simple" id="popup_btn_radial"      text="radial/polar" size="3.75,0.5" width="fixed" height="fixed" />
-        </Container>
+        <!-- WORLD item HOSTS the world submenu; keep the label leaf-styled (no layout=). -->
+        <Label id="popup_item_world"  text="WORLD"  size="3.75,0.5" width="fixed" height="fixed">
+            <!-- World submenu: child of its item, fixed +x fan-out, starts disabled. -->
+            <Container id="popup_world_submenu" enabled="false" overflow="true"
+                       offset="3.75,0" offset-mode="fixed" width="hug" height="hug" layout="stack">
+                <Label  text="Small" size="3.75,0.5" width="fixed" height="fixed" />
+                <Button type="simple" id="popup_btn_regular"     text="regular"      size="3.75,0.5" width="fixed" height="fixed" />
+                <Button type="simple" id="popup_btn_sheared_y"   text="sheared-y"    size="3.75,0.5" width="fixed" height="fixed" />
+                <Button type="simple" id="popup_btn_sheared_x"   text="sheared-x"    size="3.75,0.5" width="fixed" height="fixed" />
+                <Button type="simple" id="popup_btn_isometric"   text="isometric"    size="3.75,0.5" width="fixed" height="fixed" />
+                <Button type="simple" id="popup_btn_perspective" text="perspective"  size="3.75,0.5" width="fixed" height="fixed" />
+                <Button type="simple" id="popup_btn_radial"      text="radial/polar" size="3.75,0.5" width="fixed" height="fixed" />
+            </Container>
+        </Label>
     </View>
 
     <!-- RECENT view: starts disabled; static placeholder (no C refresh today). -->
