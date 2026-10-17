@@ -99,7 +99,12 @@ void DragInteraction_BeginCapture(DragInteractionState *state, DragTargetKind ki
     state->target_kind = kind;
     state->target = target;
     state->target_anchor = anchor;
-    state->has_capture = (target != NULL && kind != DRAG_TARGET_NONE);
+    // A capture is active whenever a real target kind is set. Most kinds carry a target pointer,
+    // but the marquee is described entirely by the pointer state (initial/current positions), so it
+    // legitimately captures with target == NULL; requiring a non-NULL target here would leave the
+    // marquee capture inactive and let the per-frame click-selection path keep running.
+    state->has_capture = (kind != DRAG_TARGET_NONE) &&
+                         (target != NULL || kind == DRAG_TARGET_MARQUEE);
 }
 
 void DragInteraction_ClearCapture(DragInteractionState *state)
