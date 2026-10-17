@@ -19,6 +19,7 @@
 #include "system/ui/utility_panel_system.h"
 #include "entities/entity_factory.h"
 #include "system/ui/popup_menu.h"
+#include "system/ui/info_strip_system.h"
 #include "world/world.h"
 #include "world/world_internal.h"
 #include "world/universe.h"
@@ -340,6 +341,7 @@ void InitUI(void)
     InitRPanel();
     InitStateManagerSystem();
     InitPopupMenu();
+    InitInfoStrip();
     G_UIState.active_view = LPANEL_STATE_VIEW;
 }
 
@@ -362,6 +364,7 @@ void DestroyUI(void)
     DestroyUtilityPanel();
     DestroyPopupMenu();
     DestroyStateManagerSystem();
+    DestroyInfoStrip();
 
     // Destroy the global element pool so the next allocation creates a clean pool.
     Pool *ui_element_pool = GetUIElementPool();
@@ -402,6 +405,11 @@ InputRouteResult UpdateUISystem(const InputFrame *input)
     {
         return INPUT_ROUTE_IGNORED;
     }
+
+    // Read-only hover resolution for the info strip. This only reads the pointer position and
+    // must run every frame irrespective of routing, so it sits ahead of the route-claim logic
+    // and never consumes input.
+    InfoStrip_UpdateHover(input);
 
     int mouse_x = (int)input->pointer_position.x;
     int mouse_y = (int)input->pointer_position.y;
@@ -465,6 +473,7 @@ void DrawUI()
     DrawStateManagerSystem();
     DrawUtilityPanel();
     DrawPopupMenu();
+    DrawInfoStrip();
 }
 
 void UpdateUISpace(UIElement *root_element, UIBox seed_box)
