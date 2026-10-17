@@ -363,6 +363,22 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
                     SelectionSet_Clear();                 // empty-click deselects everything (action set)
                     UIState_SyncPrimaryFieldsFromSet();
                 }
+                else if (world_hit)
+                {
+                    // Plain click on a world: REPLACE the action set with just this world,
+                    // mirroring the entity plain-click (clear-then-add-one). Universe_ResolveClickHit
+                    // has already moved the navigation cursor (selected_world_index) via
+                    // Universe_SelectWorld; that cursor is deliberately kept separate from the action
+                    // set. Arming the world as the sole SelectionSet member makes the world-drag gate
+                    // (World_IsDraggable && SelectionSet_Contains) pass, so the world can then be dragged.
+                    int hit_index = Universe_FindWorldAt(&G_Universe, mouse_universe_coords);
+                    if (hit_index >= 0)
+                    {
+                        SelectionSet_Clear(); // REPLACE: drop any prior selection
+                        SelectionSet_Add((TargetRef){ .kind = TARGET_KIND_WORLD, .as.world_index = hit_index });
+                        UIState_SyncPrimaryFieldsFromSet(); // keep back-compat primary fields in step
+                    }
+                }
             }
         }
     }
