@@ -31,6 +31,12 @@ ViewportRegion lpanel_viewport = {0};
 ViewportRegion rpanel_viewport = {0};
 ViewportRegion entity_panel_viewport = {0};
 ViewportRegion utility_panel_viewport = {0};
+ViewportRegion info_strip_viewport = {0};
+
+// Fixed logical height (game units) of the info strip band carved from the top of the central
+// column. Kept small so it reads as a thin status strip, consistent with the other docked
+// panels reserving their own screen region rather than overlaying the world.
+static const float info_strip_logical_height = 0.6f;
 
 // ============================================================================
 // Viewport Basis Vectors (used by SetViewportSpaceBasis / ResetViewportSpaceBasis)
@@ -312,10 +318,23 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
                             (float)ui_pixels_per_unit,
                             &screen_frame);
 
-    // GAME VIEWPORT: fills the gap between left and right panels
+    // INFO STRIP: a thin horizontal band across the top of the central column (the gap
+    // between the left and right panels). Carved out FIRST so the game viewport below can
+    // account for its height and the strip never overlaps the world render region. The band
+    // height is clamped so it can never consume the whole central column on very short windows.
+    float strip_height = fminf(info_strip_logical_height, fmaxf(0.0f, logical_screen.y - 1.0f));
+    ConfigureViewportRegion(&info_strip_viewport,
+                            (Vector2d){lpanel_viewport.local_end.x, 0.0f},
+                            (Vector2d){rpanel_viewport.local_origin.x, strip_height},
+                            viewport_basis_data[VIEWPORT_SPACE_LPANEL].u, viewport_basis_data[VIEWPORT_SPACE_LPANEL].v,
+                            (float)ui_pixels_per_unit,
+                            &screen_frame);
+
+    // GAME VIEWPORT: fills the gap between left and right panels, starting BELOW the info
+    // strip band so the strip and the world never overlap.
     float entity_panel_height = fmaxf(1.0f, floorf(logical_screen.y * 0.275f));
     ConfigureViewportRegion(&game_viewport,
-                            (Vector2d){lpanel_viewport.local_end.x, 0.0f},
+                            (Vector2d){lpanel_viewport.local_end.x, strip_height},
                             (Vector2d){rpanel_viewport.local_origin.x, logical_screen.y - entity_panel_height},
                             resolved_u, resolved_v,
                             (float)screen_pixels_per_unit,

@@ -45,6 +45,10 @@ extern ViewportRegion lpanel_viewport;
 extern ViewportRegion rpanel_viewport;
 extern ViewportRegion entity_panel_viewport;
 extern ViewportRegion utility_panel_viewport;
+// Thin horizontal band across the top of the central column (between the left and right
+// panels) that hosts the read-only info strip. Carved out of the game viewport's top so the
+// strip never overlaps the world render region.
+extern ViewportRegion info_strip_viewport;
 
 // Resolve logical and pixel-space regions for left panel, game region, and right panel.
 // game_pixels_per_unit_override <= 0 uses dynamic scaling from target game logical height.

@@ -2,7 +2,7 @@
 *
 INFO STRIP SYSTEM MODULE (implementation)
 *
-Loads info_strip.xml, mounts it as a single-view ViewHostSystem against the game viewport, and
+Loads info_strip.xml, mounts it as a single-view ViewHostSystem against the info-strip viewport, and
 feeds two read-only BIND_STRING labels: the hovered target and the current selection. Both are
 expressed through the universal TargetRef resolver (Target_ResolveAtPoint / Target_Describe).
 The hover ref is recomputed each frame from the pointer position by InfoStrip_UpdateHover,
@@ -201,9 +201,12 @@ void InitInfoStrip(void)
         return;
     }
 
-    // 2) Build the host against the game viewport, build its real root, and re-parent the XML
+    // 2) Build the host against the dedicated info-strip viewport band (carved from the top of
+    //    the central column by InitViewportLayout), build its real root, and re-parent the XML
     //    container under it (NEVER info_strip->root = root - that is the dangling-root bug).
-    info_strip = ViewHostSystem_Create(&game_viewport, 1.0f, ZERO_VECTOR_2D,
+    //    Mounting against info_strip_viewport (not game_viewport) keeps the strip in its own
+    //    reserved screen region so it never overlaps the world render area.
+    info_strip = ViewHostSystem_Create(&info_strip_viewport, 1.0f, ZERO_VECTOR_2D,
                                        &ui_default_palette, ui_standard_stack_spacing);
     if (!info_strip)
     {

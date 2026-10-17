@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
     <!-- Info strip: read-only hover + selection report. Runtime construction is in -->
-    <!-- info_strip_system.c. The two leaf labels use binding= (a value SOURCE) only, -->
-    <!-- making them read-only live labels refreshed each frame by the binding core. -->
-    <!-- Leaves do NOT auto-size to text, so each label carries an explicit fixed size. -->
+    <!-- info_strip_system.c. The two leaf fields are read-only <Textbox> controls carrying -->
+    <!-- binding= (a value SOURCE) only, so the binding core refreshes each with the verbatim -->
+    <!-- BIND_STRING query result via Binding_RefreshText (no ON/OFF toggle composition - -->
+    <!-- that path is exclusive to bound <Button> toggles). Leaves do NOT auto-size to text, -->
+    <!-- so each field carries an explicit fixed size. -->
 <Container id="info_strip" title="" layout="inline" width="fill" height="hug">
-    <Button id="info_strip_hover" type="simple" text="-" binding="infostrip.hover" size="12.0,0.5" width="fixed" height="fixed" />
-    <Button id="info_strip_selection" type="simple" text="-" binding="infostrip.selection" size="12.0,0.5" width="fixed" height="fixed" />
+    <Textbox id="info_strip_hover" io="readonly" binding="infostrip.hover" size="12.0,0.5" width="fixed" height="fixed" />
+    <Textbox id="info_strip_selection" io="readonly" binding="infostrip.selection" size="12.0,0.5" width="fixed" height="fixed" />
 </Container>
