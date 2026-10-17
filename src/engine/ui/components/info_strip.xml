@@ -8,4 +8,10 @@
 <Container id="info_strip" title="" layout="inline" width="fill" height="hug">
     <Textbox id="info_strip_hover" io="readonly" binding="infostrip.hover" size="12.0,0.5" width="fixed" height="fixed" />
     <Textbox id="info_strip_selection" io="readonly" binding="infostrip.selection" size="12.0,0.5" width="fixed" height="fixed" />
+    <!-- Cursor-coordinate fields. Root: pointer in the root world's frame (always shown). -->
+    <!-- Child: pointer in a hovered nested world's local frame, or a dash over root/empty space. -->
+    <!-- Height 0.5 matches the two fields above; width 10.0 fits the short coord labels and keeps -->
+    <!-- all four fields on one row in the wide central-column strip (see info-strip-coords-design.md). -->
+    <Textbox id="info_strip_rootcoords" io="readonly" binding="infostrip.rootcoords" size="10.0,0.5" width="fixed" height="fixed" />
+    <Textbox id="info_strip_childcoords" io="readonly" binding="infostrip.childcoords" size="10.0,0.5" width="fixed" height="fixed" />
 </Container>

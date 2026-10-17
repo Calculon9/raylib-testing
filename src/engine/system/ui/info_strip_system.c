@@ -43,6 +43,15 @@ static TargetRef info_strip_hover_ref = {0};
 static char info_strip_hover_text[160];
 static char info_strip_selection_text[160];
 
+// Retained pointer state for the cursor-coordinate shims. InfoStrip_UpdateHover captures the
+// current pointer pixel and whether it lies inside the game viewport each frame; the two coord
+// query shims then convert that pixel into world frames at binding-refresh time. Panel-owned
+// backing buffers hold the formatted labels (BIND_STRING lifetime — never stack locals).
+static Vector2d info_strip_pointer_pixel = {0};  // Last pointer pixel captured this frame.
+static bool     info_strip_pointer_in_view = false; // Pointer inside game_viewport this frame.
+static char     info_strip_rootcoords_text[64];  // Backing buffer for the Root coord label.
+static char     info_strip_childcoords_text[64]; // Backing buffer for the Child coord label.
+
 // ============================================================================
 // Binding query shims (return BIND_STRING, mirroring LPanel's INT query shims)
 // ============================================================================
@@ -131,12 +140,79 @@ static BindingValue InfoStrip_QuerySelectionLabel(int key)
     return (BindingValue){ .type = BIND_STRING, .as.s = info_strip_selection_text };
 }
 
+// Compose the ROOT cursor-coordinate label. Always present: converts the last captured pointer
+// pixel into the root world's frame via ResolvePixelToWorldFrame and reports "Root: (x, y)" with
+// one decimal per axis. When the pointer is outside the game viewport the strip shows "Root: -"
+// (dash) so no stale coordinate is displayed, mirroring the child field's empty convention.
+// Returns a BIND_STRING value pointing at the panel-owned buffer; the key is unused.
+static BindingValue InfoStrip_QueryRootCoords(int key)
+{
+    (void)key;
+
+    if (!info_strip_pointer_in_view)
+    {
+        // Pointer not over the world view: show a dash rather than a stale coordinate.
+        snprintf(info_strip_rootcoords_text, sizeof(info_strip_rootcoords_text), "Root: -");
+        return (BindingValue){ .type = BIND_STRING, .as.s = info_strip_rootcoords_text };
+    }
+
+    // Pixel -> root-world frame (universe space), reusing the existing conversion helper.
+    Vector2d uni = ResolvePixelToWorldFrame(&G_Universe.root_world, info_strip_pointer_pixel);
+    snprintf(info_strip_rootcoords_text, sizeof(info_strip_rootcoords_text),
+             "Root: (%.1f, %.1f)", (double)uni.x, (double)uni.y);
+    return (BindingValue){ .type = BIND_STRING, .as.s = info_strip_rootcoords_text };
+}
+
+// Compose the CHILD cursor-coordinate label. Shown only when the pointer hovers a nested/child
+// world (same detection the hover field uses via Universe_FindWorldAt): over a nested world the
+// pointer is converted into THAT world's local frame and reported as "Child: (x, y)". Over the
+// root world or empty space it shows "Child: -". Sentinel normalisation matches the resolver:
+// Universe_FindWorldAt returns a nested index in 0..world_count-1, or -1 for the none/root case;
+// only a valid nested index populates the coordinates, so -1 (and the root) both render the dash.
+// The current/selected world is deliberately NOT used as a fallback. Returns a BIND_STRING value
+// pointing at the panel-owned buffer; the key is unused.
+static BindingValue InfoStrip_QueryChildCoords(int key)
+{
+    (void)key;
+
+    if (!info_strip_pointer_in_view)
+    {
+        // Pointer not over the world view: nothing to report for the child frame.
+        snprintf(info_strip_childcoords_text, sizeof(info_strip_childcoords_text), "Child: -");
+        return (BindingValue){ .type = BIND_STRING, .as.s = info_strip_childcoords_text };
+    }
+
+    // Resolve which world sits under the pointer, using the SAME detection the hover field uses:
+    // pixel -> root frame, then Universe_FindWorldAt to find any nested world at that point.
+    Vector2d uni = ResolvePixelToWorldFrame(&G_Universe.root_world, info_strip_pointer_pixel);
+    int idx = Universe_FindWorldAt(&G_Universe, uni);
+
+    // Only a confirmed nested index (0..world_count-1) yields a child-frame coordinate; the -1
+    // none case and the root fall through to the dash.
+    if (idx >= 0 && idx < Universe_GetWorldCount(&G_Universe))
+    {
+        World2d *child_world = Universe_GetWorld(&G_Universe, idx);
+        // Convert the SAME pointer pixel into the nested world's local frame.
+        Vector2d child = ResolvePixelToWorldFrame(child_world, info_strip_pointer_pixel);
+        snprintf(info_strip_childcoords_text, sizeof(info_strip_childcoords_text),
+                 "Child: (%.1f, %.1f)", (double)child.x, (double)child.y);
+    }
+    else
+    {
+        // Root world or empty space: no child frame to report.
+        snprintf(info_strip_childcoords_text, sizeof(info_strip_childcoords_text), "Child: -");
+    }
+
+    return (BindingValue){ .type = BIND_STRING, .as.s = info_strip_childcoords_text };
+}
+
 // ============================================================================
 // UI loader resolvers (application-specific)
 // ============================================================================
 
-// Resolve the strip's binding names to query sources returning BIND_STRING values. Two names
-// are recognised: "infostrip.hover" and "infostrip.selection"; anything else is unresolved.
+// Resolve the strip's binding names to query sources returning BIND_STRING values. Four names
+// are recognised: "infostrip.hover", "infostrip.selection", "infostrip.rootcoords" and
+// "infostrip.childcoords"; anything else is unresolved.
 static UIBinding InfoStrip_ResolveBinding(const char *binding_string, UILoaderContext *ctx)
 {
     (void)ctx;
@@ -166,6 +242,26 @@ static UIBinding InfoStrip_ResolveBinding(const char *binding_string, UILoaderCo
         };
     }
 
+    if (!strcmp(binding_string, "infostrip.rootcoords"))
+    {
+        return (UIBinding){
+            .kind = UI_BIND_SRC_QUERY,
+            .query = InfoStrip_QueryRootCoords,
+            .query_key = 0,
+            .value_type = BIND_STRING,
+        };
+    }
+
+    if (!strcmp(binding_string, "infostrip.childcoords"))
+    {
+        return (UIBinding){
+            .kind = UI_BIND_SRC_QUERY,
+            .query = InfoStrip_QueryChildCoords,
+            .query_key = 0,
+            .value_type = BIND_STRING,
+        };
+    }
+
     return (UIBinding){ .kind = UI_BIND_SRC_NONE };
 }
 
@@ -189,13 +285,21 @@ void InfoStrip_UpdateHover(const InputFrame *input)
 {
     if (!input)
     {
+        // No input this frame: the coord shims must not report a stale pixel.
+        info_strip_pointer_in_view = false;
         return;
     }
+
+    // Capture the pointer pixel for the coord shims, and compute the viewport gate ONCE so the
+    // hover ref and the coord fields share a single source of truth for "pointer in view".
+    info_strip_pointer_pixel = input->pointer_position;
+    info_strip_pointer_in_view =
+        ViewportRegion_ContainsPixel(&game_viewport, input->pointer_position);
 
     // Gate on the game viewport: only the world view should contribute a hover target. When the
     // pointer is over a UI panel or outside the world view entirely, report "nothing" rather
     // than narrating the world content occluded beneath the panel.
-    if (!ViewportRegion_ContainsPixel(&game_viewport, input->pointer_position))
+    if (!info_strip_pointer_in_view)
     {
         info_strip_hover_ref = (TargetRef){0};
         info_strip_hover_ref.kind = TARGET_KIND_NONE;
@@ -277,4 +381,10 @@ void DestroyInfoStrip(void)
     info_strip_hover_ref = (TargetRef){0};
     info_strip_hover_text[0] = '\0';
     info_strip_selection_text[0] = '\0';
+
+    // Reset the coord shim state so a later re-init starts clean (no stale pixel/label).
+    info_strip_rootcoords_text[0] = '\0';
+    info_strip_childcoords_text[0] = '\0';
+    info_strip_pointer_in_view = false;
+    info_strip_pointer_pixel = (Vector2d){0};
 }
