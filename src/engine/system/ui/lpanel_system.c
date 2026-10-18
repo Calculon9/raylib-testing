@@ -10,8 +10,16 @@
 #include "ui/ui_constructors.h"
 #include "system/view_host_system.h"
 #include "system/systems.h"
+#include "system/entities/ancestry.h"          // Ancestry_WalkUp / Ancestry_GetKind
+#include "system/entities/relation_system.h"   // RelationSystem_GetRelation
+#include "entities/entity_components.h"         // RelationType_ToString / RelationComponent
+#include "entities/entity_id.h"                 // EntityId_GetSlotIndex / INVALID_ENTITY_ID
+#include "world/target_resolver.h"              // TargetRef (primary selection payload)
+#include "world/universe.h"                     // G_Universe / Universe_GetWorld
+#include "ui/binding.h"                          // BindingValue / BIND_STRING
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>                               // snprintf for the read-only label text
 
 // ============================================================================
 // Panel System
@@ -33,6 +41,30 @@ static ViewSelector *lpanel_view_selector = NULL;
 // Forward declaration: the debug query shim is defined lower down (near its historic
 // neighbours) but the debug.* resolver branch below references it.
 static BindingValue LPanel_QueryDebugEnabled(int overlay_key);
+
+// ============================================================================
+// Ancestry View State (module-owned, read-only)
+// ============================================================================
+// Fixed number of pre-declared ancestry line slots. Six generations comfortably covers
+// selected entity -> parent entities -> owning world -> universe root world for the current
+// depth model; any line beyond the actual chain length renders blank.
+#define LPANEL_ANCESTRY_LINE_COUNT 6
+
+// Panel-owned backing buffers for the ancestry view's read-only BIND_STRING labels. The binding
+// core copies value.as.s into each textbox's own text buffer during the per-frame refresh, but
+// the returned pointer must stay valid for the duration of that call, so storage is module-owned
+// (never a stack local). One buffer per line slot, plus the header and relation summaries.
+static char lpanel_ancestry_line_text[LPANEL_ANCESTRY_LINE_COUNT][96]; // One per ancestry line.
+static char lpanel_ancestry_selected_text[96];                        // Header naming the rooted node.
+static char lpanel_ancestry_relation_text[128];                       // Direct-relation summary.
+
+// Forward declarations for the ancestry query shims + their shared selection-root helper. They
+// are defined lower down alongside LPanel_QueryDebugEnabled, but the ancestry.* resolver branch
+// below references them.
+static EntityId     LPanel_AncestryRootId(void);
+static BindingValue LPanel_QueryAncestryLine(int line_key);
+static BindingValue LPanel_QueryAncestrySelected(int key);
+static BindingValue LPanel_QueryAncestryRelation(int key);
 
 /**
  * Map a toggle binding suffix to its DebugOverlayId.
@@ -79,6 +111,50 @@ static UIBinding LPanel_ResolveBinding(const char *binding_string, UILoaderConte
 
     if (!binding_string)
         return binding;
+
+    // Handle the ancestry.* read-only labels FIRST. This branch is self-contained and does NOT
+    // depend on entity_create_params, so it must resolve even when no create-params exist. Each
+    // name maps to a BIND_STRING query source (mirroring the info strip's read-only shims): a
+    // header, a relation summary, and six line slots keyed 0..5 by the trailing digit.
+    if (!strcmp(binding_string, "ancestry.selected"))
+    {
+        return (UIBinding){
+            .kind = UI_BIND_SRC_QUERY,
+            .query = LPanel_QueryAncestrySelected,
+            .query_key = 0,
+            .value_type = BIND_STRING,
+        };
+    }
+    if (!strcmp(binding_string, "ancestry.relation"))
+    {
+        return (UIBinding){
+            .kind = UI_BIND_SRC_QUERY,
+            .query = LPanel_QueryAncestryRelation,
+            .query_key = 0,
+            .value_type = BIND_STRING,
+        };
+    }
+    if (!strncmp(binding_string, "ancestry.line", 13))
+    {
+        // Parse the trailing digit into a line slot index, keeping one shim for all six lines
+        // (keyed by query_key). Only a single in-range digit resolves; anything else is unknown.
+        const char *digits = binding_string + 13;
+        if (digits[0] >= '0' && digits[0] <= '9' && digits[1] == '\0')
+        {
+            int line_key = digits[0] - '0';
+            if (line_key >= 0 && line_key < LPANEL_ANCESTRY_LINE_COUNT)
+            {
+                return (UIBinding){
+                    .kind = UI_BIND_SRC_QUERY,
+                    .query = LPanel_QueryAncestryLine,
+                    .query_key = line_key,
+                    .value_type = BIND_STRING,
+                };
+            }
+        }
+        // Malformed ancestry.lineN name -> unresolved (loader warns).
+        return (UIBinding){ .kind = UI_BIND_SRC_NONE };
+    }
 
     // Handle the toggle namespaces FIRST (before the physics dot-parse). This branch is
     // self-contained and does NOT depend on entity_create_params, so it must run even when
@@ -217,6 +293,10 @@ static ViewType LPanel_ResolveViewType(const char *type_string, bool *resolved, 
     {
         return LPANEL_DRAW_VIEW;
     }
+    if (type_string && !strcmp(type_string, "LPANEL_ANCESTRY_VIEW"))
+    {
+        return LPANEL_ANCESTRY_VIEW;
+    }
 
     // Unrecognised: report failure and default to the first view type.
     if (resolved)
@@ -253,6 +333,162 @@ static void HandleLPanelUIRefreshClick(UIElement *button)
 static BindingValue LPanel_QueryDebugEnabled(int overlay_key)
 {
     return (BindingValue){ .type = BIND_INT, .as.i = IsDebugEnabled((DebugOverlayId)overlay_key) ? 1 : 0 };
+}
+
+// ============================================================================
+// Ancestry View Query Shims (read-only BIND_STRING sources)
+// ============================================================================
+
+/**
+ * Resolve the EntityId the ancestry walk should root on, from the current PRIMARY selection.
+ * Selection is read fresh every call (never cached) so the view always reflects the live set.
+ * An entity selection roots on itself; a world selection roots on that world's own EntityId
+ * (its chain is itself -> universe root world); a cell / empty selection has no frame-bearing
+ * node, so INVALID_ENTITY_ID is returned (callers render the neutral "No selection" state).
+ * This is the single source of truth the ancestry shims share, so selection resolution is not
+ * duplicated across them.
+ */
+static EntityId LPanel_AncestryRootId(void)
+{
+    // Nothing selected: no root node.
+    if (SelectionSet_Count() <= 0)
+    {
+        return INVALID_ENTITY_ID;
+    }
+
+    TargetRef ref = SelectionSet_Primary();
+    switch (ref.kind)
+    {
+        case TARGET_KIND_ENTITY:
+            // A plain entity roots the walk on itself.
+            return ref.as.entity;
+
+        case TARGET_KIND_WORLD:
+        {
+            // Resolve the world index to the world's own EntityId (its body in the registry).
+            World2d *world = Universe_GetWorld(&G_Universe, ref.as.world_index);
+            return world ? world->grid_space.object.id : INVALID_ENTITY_ID;
+        }
+
+        default:
+            // Cell / none: ancestry is only meaningful for a frame-bearing node.
+            return INVALID_ENTITY_ID;
+    }
+}
+
+/**
+ * Query shim for one ancestry line slot (line_key = 0..LPANEL_ANCESTRY_LINE_COUNT-1).
+ * Rooted fresh each frame via LPanel_AncestryRootId, it walks up to the root world into a small
+ * stack buffer and formats the requested generation as "<KIND> #<slot>". Slots beyond the actual
+ * chain length (or when nothing is selected) render blank: the buffer is set to an empty string
+ * and returned as BIND_STRING "" rather than BIND_NONE, because BIND_NONE leaves the textbox's
+ * last-good text untouched (stale) instead of clearing it.
+ */
+static BindingValue LPanel_QueryAncestryLine(int line_key)
+{
+    // Clamp defensively; the resolver already bounds the key, but keep the array access safe.
+    if (line_key < 0 || line_key >= LPANEL_ANCESTRY_LINE_COUNT)
+    {
+        return (BindingValue){ .type = BIND_STRING, .as.s = "" };
+    }
+
+    char *buf = lpanel_ancestry_line_text[line_key];
+    buf[0] = '\0'; // Default to blank so an unused slot always clears.
+
+    EntityId root = LPanel_AncestryRootId();
+    if (root == INVALID_ENTITY_ID)
+    {
+        // Nothing frame-bearing is selected: this slot stays blank.
+        return (BindingValue){ .type = BIND_STRING, .as.s = buf };
+    }
+
+    // Walk the chain fresh every frame. max_generations is a HOP count, so slots-1 hops yields up
+    // to LPANEL_ANCESTRY_LINE_COUNT ids (start first), matching the slot capacity.
+    EntityId chain[LPANEL_ANCESTRY_LINE_COUNT];
+    int count = Ancestry_WalkUp(root, LPANEL_ANCESTRY_LINE_COUNT - 1, chain,
+                                LPANEL_ANCESTRY_LINE_COUNT);
+
+    if (line_key >= count)
+    {
+        // Beyond the chain length: leave the slot blank.
+        return (BindingValue){ .type = BIND_STRING, .as.s = buf };
+    }
+
+    // Classify and format this generation's node. A node should not be invalid mid-chain, but
+    // label it honestly if the registry no longer resolves it.
+    AncestryNodeKind kind = Ancestry_GetKind(chain[line_key]);
+    const char *label = (kind == ANCESTRY_KIND_WORLD)  ? "WORLD"
+                      : (kind == ANCESTRY_KIND_ENTITY) ? "ENTITY"
+                                                       : "INVALID";
+    snprintf(buf, sizeof(lpanel_ancestry_line_text[line_key]), "%s #%u",
+             label, EntityId_GetSlotIndex(chain[line_key]));
+
+    return (BindingValue){ .type = BIND_STRING, .as.s = buf };
+}
+
+/**
+ * Query shim for the ancestry header line. Names the rooted (primary-selected) node, or shows
+ * the neutral "No selection" state when nothing frame-bearing is selected. Resolved fresh each
+ * frame; returns BIND_STRING pointing at the panel-owned header buffer.
+ */
+static BindingValue LPanel_QueryAncestrySelected(int key)
+{
+    (void)key; // Single header source; key is unused.
+
+    EntityId root = LPanel_AncestryRootId();
+    if (root == INVALID_ENTITY_ID)
+    {
+        // Neutral empty state.
+        snprintf(lpanel_ancestry_selected_text, sizeof(lpanel_ancestry_selected_text),
+                 "No selection");
+        return (BindingValue){ .type = BIND_STRING, .as.s = lpanel_ancestry_selected_text };
+    }
+
+    AncestryNodeKind kind = Ancestry_GetKind(root);
+    const char *label = (kind == ANCESTRY_KIND_WORLD)  ? "WORLD"
+                      : (kind == ANCESTRY_KIND_ENTITY) ? "ENTITY"
+                                                       : "INVALID";
+    snprintf(lpanel_ancestry_selected_text, sizeof(lpanel_ancestry_selected_text),
+             "Selected: %s #%u", label, EntityId_GetSlotIndex(root));
+
+    return (BindingValue){ .type = BIND_STRING, .as.s = lpanel_ancestry_selected_text };
+}
+
+/**
+ * Query shim for the direct-relation summary line. Reads the rooted node's relation fresh each
+ * frame (never caching the RelationComponent* across frames): "Relation: -" when nothing is
+ * selected, "Relation: none" when the node has no relation, otherwise
+ * "Relation: <type> -> #<target slot>" with an " (inactive)" suffix when the relation is dormant.
+ * Returns BIND_STRING pointing at the panel-owned relation buffer.
+ */
+static BindingValue LPanel_QueryAncestryRelation(int key)
+{
+    (void)key; // Single relation source; key is unused.
+
+    EntityId root = LPanel_AncestryRootId();
+    if (root == INVALID_ENTITY_ID)
+    {
+        // Neutral empty state (nothing selected).
+        snprintf(lpanel_ancestry_relation_text, sizeof(lpanel_ancestry_relation_text),
+                 "Relation: -");
+        return (BindingValue){ .type = BIND_STRING, .as.s = lpanel_ancestry_relation_text };
+    }
+
+    RelationComponent *rel = RelationSystem_GetRelation(root);
+    if (!rel)
+    {
+        // Node exists but carries no relation.
+        snprintf(lpanel_ancestry_relation_text, sizeof(lpanel_ancestry_relation_text),
+                 "Relation: none");
+        return (BindingValue){ .type = BIND_STRING, .as.s = lpanel_ancestry_relation_text };
+    }
+
+    // Describe the relation by type and target slot; flag an inactive relation for honesty.
+    snprintf(lpanel_ancestry_relation_text, sizeof(lpanel_ancestry_relation_text),
+             "Relation: %s -> #%u%s", RelationType_ToString(rel->type),
+             EntityId_GetSlotIndex(rel->target_entity), rel->is_active ? "" : " (inactive)");
+
+    return (BindingValue){ .type = BIND_STRING, .as.s = lpanel_ancestry_relation_text };
 }
 
 void InitLPanel()

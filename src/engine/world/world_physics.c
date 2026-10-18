@@ -9,6 +9,23 @@
 #include "entities/entity_registry.h"
 #include "system/entities/portal_system.h"
 
+// Apply a local basis to a vector using the project's standard basis-apply idiom
+// (the same maths as Newtonoid_TransformVertices / Frame_TransformPoint_ToParent):
+// result = u * v.x + v * v.y. Used to warp an entity's motion vectors through a
+// cell's local warp_basis.
+static inline Vector2d WarpApplyBasis(Basis2d basis, Vector2d v)
+{
+    return VectorSum_2d(VectorScale_2d(basis.u, v.x), VectorScale_2d(basis.v, v.y));
+}
+
+// Return true when the given basis is the identity basis, so inert cells can be
+// skipped cheaply. Exact float comparison is valid because identity cells are
+// written with the IDENTITY_BASIS_2D literal at the fresh-build site.
+static inline bool WarpIsIdentity(Basis2d b)
+{
+    return b.u.x == 1.0f && b.u.y == 0.0f && b.v.x == 0.0f && b.v.y == 1.0f;
+}
+
 // Find the scalar projection interval of a polygon onto an axis. SAT reduces
 // each 2D shape to this 1D interval using projection = vertex dot unit_axis.
 static void FindMinMaxProjection(Vector2d *vertices, size_t count, Vector2d axis, float *out_min, float *out_max)
@@ -253,7 +270,41 @@ void PhysicsUpdateJob(void *context, int start, int end)
         {
             obj->acceleration.y += world->gravity;
         }
+
+        // Kinematic LEVEL-2 cell warp: a cell carrying a non-identity warp_basis
+        // bends this entity's MOTION for this step only. Point-sample the cell by
+        // the entity's centre (anchor_position); GetCellFromCoords returns NULL
+        // out of bounds. Mirroring the gravity save/restore idiom above, we save
+        // the authored velocity AND acceleration, replace them with their
+        // basis-transformed versions so CalcVectors integrates the warped motion,
+        // then restore both afterwards — warp is never accumulated into persistent
+        // entity state. Re-sampling every frame means boundary transitions need no
+        // per-entity state. NOTE: this is deliberately level-2 (motion only): the
+        // collision / AABB / spatial-map code below stays world-space via
+        // space->frame.basis and is intentionally left unwarped.
+        // Only a warped entity needs its velocity saved/restored. The NON-warp path must
+        // leave velocity to CalcVectors, which integrates v += a*dt — restoring velocity
+        // unconditionally would discard that per-frame integration for EVERY entity (gravity
+        // would read as constant drift, not acceleration). So scope the velocity save/restore
+        // to the warp branch; acceleration is always restored (its gravity tweak above is the
+        // per-step environmental add, never persisted — matching the original behaviour).
+        Cell *warp_cell = GetCellFromCoords(space, obj->anchor_position);
+        bool warped = (warp_cell && !WarpIsIdentity(warp_cell->warp_basis));
+        Vector2d authored_velocity = obj->velocity;
+        if (warped)
+        {
+            obj->velocity = WarpApplyBasis(warp_cell->warp_basis, obj->velocity);
+            obj->acceleration = WarpApplyBasis(warp_cell->warp_basis, obj->acceleration);
+        }
+
         CalcVectors(obj, frame_counter.delta_time);
+
+        // Restore the authored acceleration always (gravity/warp were per-step only). Restore
+        // velocity ONLY when warped, so a non-warped entity keeps CalcVectors' v += a*dt.
+        if (warped)
+        {
+            obj->velocity = authored_velocity;
+        }
         obj->acceleration = authored_acceleration;
 
         // Map the post-integration position so rendering, hit-testing, and the

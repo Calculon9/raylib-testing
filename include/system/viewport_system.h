@@ -49,6 +49,10 @@ extern ViewportRegion utility_panel_viewport;
 // panels) that hosts the read-only info strip. Carved out of the game viewport's top so the
 // strip never overlaps the world render region.
 extern ViewportRegion info_strip_viewport;
+// Thin vertical band reserved on the FAR LEFT of the screen (outside/left of the left panel) that
+// hosts the vertical tool toolbar. Carved out of the left edge so it never overlaps the left
+// panel, the world render region, or the right panel.
+extern ViewportRegion toolbar_viewport;
 
 // Resolve logical and pixel-space regions for left panel, game region, and right panel.
 // game_pixels_per_unit_override <= 0 uses dynamic scaling from target game logical height.

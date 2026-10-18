@@ -428,6 +428,14 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel, UICl
         }
     }
 
+    // Optional custom-draw hook: presence-dispatched, runs on top of the element's box and
+    // independently of child recursion. Mirror the text branch's clip guard so a clipped
+    // element draws no glyph. The hook reads e->screen_box for geometry.
+    if (e->on_draw != NULL && UIClipRect_IntersectsBox(current_clip, e->screen_box))
+    {
+        e->on_draw(e);
+    }
+
     // Calculate clip rectangle for children; scrollable containers constrain all descendants.
     UIClipRect child_clip = current_clip;
     if (e->is_scrollable_x || e->is_scrollable_y)

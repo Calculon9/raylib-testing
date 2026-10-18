@@ -18,6 +18,7 @@
 #include "world/world.h"
 #include "system/ui/rpanel_system.h"
 #include "system/ui/popup_menu.h"
+#include "system/ui/toolbar_system.h"
 #include "world/universe.h"
 #include "system/command_system.h"
 #include "input/drag_interaction.h"
@@ -727,7 +728,8 @@ UIElement *ResolveUIRootTarget(Vector2d mouse_coords)
         GetUtilityPanelRoot(),
         GetStateManagerRoot(),
         GetRPanelRoot(),
-        GetLPanelRoot()};
+        GetLPanelRoot(),
+        GetToolbarRoot()};
 
     for (int i = 0; i < (int)ARRAY_COUNT(roots); i++)
     {

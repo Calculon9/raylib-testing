@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+    <!-- Vertical tool toolbar: a thin far-left band of radio-exclusive tool toggle buttons. -->
+    <!-- Runtime construction is in toolbar_system.c. Each tool button carries binding= (a value -->
+    <!-- SOURCE reporting whether that tool is active, driving the pressed/unpressed visual) and -->
+    <!-- action= (a command that sets the active tool radio-exclusively), mirroring the lpanel -->
+    <!-- debug-toggle buttons. Buttons are stacked vertically as a single column of small squares. -->
+<Container id="toolbar" title="" layout="stacked" width="fill" height="fill">
+    <!-- Icon-only tool button. NO binding= here on purpose: a binding= display source makes the -->
+    <!-- per-frame refresh walk WRITE the button's text (e.g. ": ON"/": OFF"), which a text="" -->
+    <!-- cannot suppress. Instead the active-tool state drives the ICON appearance inside the -->
+    <!-- on_draw hook (Toolbar_DrawNudgeIcon reads UIState_IsToolActive), so the toggle feedback -->
+    <!-- is the glyph's look, not text. action="tool-nudge" still sets the active tool on click. -->
+    <!-- surface="input" gives the flat info-strip tint (vs the bright BUTTON surface). -->
+    <Button id="tool_nudge" type="simple" text="" surface="input" action="tool-nudge" size="2.4,0.5" width="fill" height="fixed" />
+</Container>

@@ -111,6 +111,9 @@ int CommandSystem_ResolveString(const char *cmd_string)
         return CMD_TOGGLE_OBJECT_HULL;
     else if (!strcmp(cmd_string, "toggle-object-aabb"))
         return CMD_TOGGLE_OBJECT_AABB;
+    // Tool-toolbar actions
+    else if (!strcmp(cmd_string, "tool-nudge"))
+        return CMD_TOOL_NUDGE;
     
     return 0;  // Unresolved
 }
@@ -262,6 +265,15 @@ void ExecuteCommand(CommandType type, const void *data)
     if (CommandSystem_ResolveToggleOverlay(type, &overlay_id))
     {
         ToggleDebug((DebugOverlayId)overlay_id);
+        return;
+    }
+
+    // Tool-toolbar commands: radio-exclusive toggle of the active tool. Clicking the active tool's
+    // button again un-toggles it back to TOOL_NONE; clicking an inactive tool makes it active
+    // (which deactivates any other tool by construction).
+    if (type == CMD_TOOL_NUDGE)
+    {
+        UIState_SetActiveTool(UIState_IsToolActive(TOOL_NUDGE) ? TOOL_NONE : TOOL_NUDGE);
         return;
     }
     

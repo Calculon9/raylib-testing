@@ -20,6 +20,7 @@
 #include "entities/entity_factory.h"
 #include "system/ui/popup_menu.h"
 #include "system/ui/info_strip_system.h"
+#include "system/ui/toolbar_system.h"
 #include "world/world.h"
 #include "world/world_internal.h"
 #include "world/universe.h"
@@ -38,6 +39,10 @@
 //----------------------------------------------------------------------------------
 UIState G_UIState = {0};
 bool ui_borders_enabled = false;
+
+// Currently active tool for the vertical tool toolbar. Radio-exclusive: at most one tool is
+// active at a time, defaulting to TOOL_NONE (no additive tool action runs).
+static ActiveTool g_active_tool = TOOL_NONE;
 // ------------------TOTAL SCREEN-------------------------
 // Logical->pixel-space conversion properties
 
@@ -564,14 +569,66 @@ void UIState_ClearSelectedCell(void)
     UIState_SetSelectedCell(NULL, -1);
 }
 
+// Resolve the currently-selected cell LIVE from the central SelectionSet's primary member each
+// call. The clicked cell is already recorded as a TARGET_KIND_CELL ref (world_index + cell_index)
+// by Target_ResolveAtPoint / CommitClickSelection, so this derives the selected cell from that
+// single source of truth rather than from a cached Cell* field. Resolving by index every call is
+// deliberate: cells live in a per-frame-reset DArray and the buffer can be rebuilt, so a retained
+// Cell* could dangle; re-resolving here keeps reads and writes landing on the LIVE cell that the
+// physics step uses. Returns NULL when the primary selection is not a cell or the ids no longer
+// resolve to a live cell.
 Cell *UIState_GetSelectedCell(void)
 {
-    return G_UIState.selected_cell;
+    TargetRef primary = SelectionSet_Primary();
+    if (primary.kind != TARGET_KIND_CELL)
+    {
+        return NULL;
+    }
+
+    // Resolve the owning world (handles the UNIVERSE_ROOT_WORLD_INDEX sentinel via Universe_GetWorld).
+    World2d *world = Universe_GetWorld(&G_Universe, primary.as.cell.world_index);
+    if (!world)
+    {
+        return NULL;
+    }
+
+    // Bounds-check the cell index against the live cell buffer, then index it directly the same
+    // way every other cell consumer does (space->cells.items is the dense Cell array).
+    Space2d *space = &world->grid_space.space;
+    int cell_index = primary.as.cell.cell_index;
+    if (!space->cells.items || cell_index < 0 || cell_index >= (int)space->cells.count)
+    {
+        return NULL;
+    }
+
+    return &((Cell *)space->cells.items)[cell_index];
 }
 
+// Report the selected cell's index from the SelectionSet primary, or -1 when the primary is not a
+// cell. Mirrors UIState_GetSelectedCell's single-source-of-truth derivation.
 int UIState_GetSelectedCellIndex(void)
 {
-    return G_UIState.selected_cell_index;
+    TargetRef primary = SelectionSet_Primary();
+    return (primary.kind == TARGET_KIND_CELL) ? primary.as.cell.cell_index : -1;
+}
+
+// Return the currently active tool (TOOL_NONE when none is active).
+ActiveTool UIState_GetActiveTool(void)
+{
+    return g_active_tool;
+}
+
+// Set the active tool. Radio-exclusive: the assignment replaces the previous tool, so activating
+// one tool deactivates every other by construction.
+void UIState_SetActiveTool(ActiveTool tool)
+{
+    g_active_tool = tool;
+}
+
+// Query whether the given tool is the active one (drives the toolbar button pressed state).
+bool UIState_IsToolActive(ActiveTool tool)
+{
+    return g_active_tool == tool;
 }
 
 void InitUI(void)
@@ -590,6 +647,7 @@ void InitUI(void)
     InitStateManagerSystem();
     InitPopupMenu();
     InitInfoStrip();
+    InitToolbar();
     G_UIState.active_view = LPANEL_STATE_VIEW;
 }
 
@@ -613,6 +671,7 @@ void DestroyUI(void)
     DestroyPopupMenu();
     DestroyStateManagerSystem();
     DestroyInfoStrip();
+    DestroyToolbar();
 
     // Destroy the global element pool so the next allocation creates a clean pool.
     Pool *ui_element_pool = GetUIElementPool();
@@ -662,7 +721,8 @@ InputRouteResult UpdateUISystem(const InputFrame *input)
     int mouse_x = (int)input->pointer_position.x;
     int mouse_y = (int)input->pointer_position.y;
     UIElement *popup_root = GetPopupMenuRoot();
-    bool cursor_in_ui = ViewportRegion_ContainsPixel(&lpanel_viewport, input->pointer_position) ||
+    bool cursor_in_ui = ViewportRegion_ContainsPixel(&toolbar_viewport, input->pointer_position) ||
+                        ViewportRegion_ContainsPixel(&lpanel_viewport, input->pointer_position) ||
                         ViewportRegion_ContainsPixel(&rpanel_viewport, input->pointer_position) ||
                         ViewportRegion_ContainsPixel(&entity_panel_viewport, input->pointer_position) ||
                         ViewportRegion_ContainsPixel(&utility_panel_viewport, input->pointer_position) ||
@@ -722,6 +782,7 @@ void DrawUI()
     DrawUtilityPanel();
     DrawPopupMenu();
     DrawInfoStrip();
+    DrawToolbar();
 }
 
 void UpdateUISpace(UIElement *root_element, UIBox seed_box)

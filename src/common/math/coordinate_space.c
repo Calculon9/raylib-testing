@@ -152,6 +152,12 @@ void InitUnitCells(Space2d *space)
 
       Cell cell = {0}; // Create a new cell and initialize it to zero
 
+      // Warp basis defaults to identity so a freshly built cell is inert (no motion warp).
+      // NOTE: ResetSpaceCells runs every frame and must NOT clear warp_basis — it is authored
+      // state that has to survive the per-frame occupancy reset. Hence identity is set here,
+      // at the fresh-build site only.
+      cell.warp_basis = IDENTITY_BASIS_2D;
+
       // Scale the basis vectors (u,v) and add them to get the displacement from the origin
       Vector2d scaled_u = {j * space->frame.basis.u.x, j * space->frame.basis.u.y};
       Vector2d scaled_v = {i * space->frame.basis.v.x, i * space->frame.basis.v.y};

@@ -5,6 +5,7 @@
     <ViewSelector id="left_panel_views" type="enumerate">
         <Option text="STATE" view="state_view" />
         <Option text="DRAW" view="draw_view" />
+        <Option text="ANCESTRY" view="ancestry_view" />
     </ViewSelector>
 
     <View id="state_view" type="LPANEL_STATE_VIEW">
@@ -46,6 +47,24 @@
             <TextField id="acceleration" label="Acc" type="vector2" />
             <TextField id="moment" label="Moment" type="vector2" />
             <Button id="create_entity" type="submit" text="CREATE" action="create-entity" size="4.65,0.5" width="fixed" height="fixed" />
+        </Container>
+    </View>
+
+    <!-- Ancestry view: read-only display of the primary selection's ancestry chain and relation. -->
+    <!-- All rows are readonly <Textbox> controls carrying binding= (a value SOURCE only); the -->
+    <!-- binding core refreshes each per frame from its BIND_STRING query shim. Six pre-declared -->
+    <!-- line slots cover the chain; lines beyond its length render blank. Sizing mirrors the -->
+    <!-- STATE view's buttons (5.25,0.5 fixed) so the rows stay consistent with sibling controls. -->
+    <View id="ancestry_view" type="LPANEL_ANCESTRY_VIEW">
+        <Container id="ancestry" title="Ancestry" width="fill" height="hug">
+            <Textbox id="ancestry_selected" io="readonly" binding="ancestry.selected" size="5.25,0.5" width="fixed" height="fixed" />
+            <Textbox id="ancestry_line0" io="readonly" binding="ancestry.line0" size="5.25,0.5" width="fixed" height="fixed" />
+            <Textbox id="ancestry_line1" io="readonly" binding="ancestry.line1" size="5.25,0.5" width="fixed" height="fixed" />
+            <Textbox id="ancestry_line2" io="readonly" binding="ancestry.line2" size="5.25,0.5" width="fixed" height="fixed" />
+            <Textbox id="ancestry_line3" io="readonly" binding="ancestry.line3" size="5.25,0.5" width="fixed" height="fixed" />
+            <Textbox id="ancestry_line4" io="readonly" binding="ancestry.line4" size="5.25,0.5" width="fixed" height="fixed" />
+            <Textbox id="ancestry_line5" io="readonly" binding="ancestry.line5" size="5.25,0.5" width="fixed" height="fixed" />
+            <Textbox id="ancestry_relation" io="readonly" binding="ancestry.relation" size="5.25,0.5" width="fixed" height="fixed" />
         </Container>
     </View>
 </ViewHost>

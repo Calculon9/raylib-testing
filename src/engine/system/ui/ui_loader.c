@@ -1229,6 +1229,35 @@ static OffsetMode UILoader_ParseOffsetMode(const char *mode_str)
     return OFFSET_FIXED;  // Default
 }
 
+// Helper: Map a surface= attribute string to a UIPaletteSurface role. Returns true and writes
+// *out when the string is recognised; returns false (leaving *out untouched) when the attribute
+// is absent/NULL so the caller keeps the element's constructor-chosen colours. An unrecognised
+// non-NULL value also returns false and emits a loader warning (no override is applied).
+static bool UILoader_ParseSurface(UILoaderContext *ctx, const char *surface_str, UIPaletteSurface *out)
+{
+    if (!surface_str)
+        return false;  // Absent: leave constructor colours unchanged
+
+    if (!strcmp(surface_str, "transparent"))
+        *out = UI_PALETTE_SURFACE_TRANSPARENT;
+    else if (!strcmp(surface_str, "container"))
+        *out = UI_PALETTE_SURFACE_CONTAINER;
+    else if (!strcmp(surface_str, "field_row"))
+        *out = UI_PALETTE_SURFACE_FIELD_ROW;
+    else if (!strcmp(surface_str, "input"))
+        *out = UI_PALETTE_SURFACE_INPUT;
+    else if (!strcmp(surface_str, "button"))
+        *out = UI_PALETTE_SURFACE_BUTTON;
+    else
+    {
+        // Unrecognised value: warn and leave the constructor colours unchanged.
+        LOADER_WARNING(ctx, "Unrecognised surface value; leaving element colours unchanged");
+        return false;
+    }
+
+    return true;
+}
+
 // Helper: Parse size attribute (e.g., "100,50" or "100" for square)
 static Vector2d UILoader_ParseSizeValues(const char *size_str)
 {
@@ -1465,6 +1494,16 @@ static UIElement *UILoader_ParseElementNode(mxml_node_t *node, UIElement *parent
     // (fan-out submenus, tooltips, dropdowns). See UIElement.allow_overflow / ResolveElementBox.
     const char *overflow_attr = mxmlElementGetAttr(node, "overflow");
     outer->allow_overflow = (overflow_attr && strcmp(overflow_attr, "true") == 0);
+    // surface: optional theme-safe fill/border override. Applied at this single generic choke
+    // point (after the builder ran) so ANY element can opt in. An absent or unrecognised value
+    // leaves the element's constructor-chosen colours untouched; a recognised value resolves the
+    // role from the active palette and overrides colour_fill/colour_border.
+    UIPaletteSurface surface_role;
+    if (UILoader_ParseSurface(ctx, mxmlElementGetAttr(node, "surface"), &surface_role))
+    {
+        UIPalette_GetSurfaceColours(ctx->palette, surface_role,
+                                    &outer->colour_border, &outer->colour_fill);
+    }
     // offset: apply to OUTER ONLY when the builder did not consume it at construct time, so
     // offset is applied exactly once (no double application - e.g. Section passes it into its
     // ctor). For a composite the outer is the row, so the inner control keeps its own

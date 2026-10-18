@@ -48,6 +48,16 @@ typedef struct UIPalette
 	ColourRgba warning;
 } UIPalette;
 
+// Active tool for the vertical tool toolbar. Tools are radio-exclusive: at most one is active at
+// a time. TOOL_NONE is the default (no additive tool action runs). A tool is purely additive and
+// never suppresses the normal selection/drag/marquee input; its action is hung off the
+// confirmed-click commit site so a genuine drag never sprays the action.
+typedef enum ActiveTool
+{
+	TOOL_NONE = 0, // No tool active; only normal selection/drag/marquee behaviour runs.
+	TOOL_NUDGE,    // Nudge tool: a confirmed click adds a random-direction linear impulse.
+} ActiveTool;
+
 // Forward declarations keep selection APIs lightweight without pulling full physics/world headers.
 typedef struct Newtonoid2d Newtonoid2d;
 typedef struct Cell Cell;
@@ -129,6 +139,16 @@ TargetRef SelectionSet_Primary(void);          // Last-added member, or a TARGET
 // selection-changed callback when they actually change. Called after set toggles/pruning so the
 // back-compat getters stay consistent with the set.
 void UIState_SyncPrimaryFieldsFromSet(void);
+
+// Active-tool state for the tool toolbar (radio-exclusive). The toolbar buttons query the active
+// tool for their pressed/unpressed visual, and setting a tool replaces the active tool.
+// Return the currently active tool (TOOL_NONE when no tool is active).
+ActiveTool UIState_GetActiveTool(void);
+// Set the active tool. Radio-exclusive: assigning a tool replaces the previous one, which
+// deactivates every other tool by construction.
+void UIState_SetActiveTool(ActiveTool tool);
+// Query whether a specific tool is the active one (used by toolbar button bindings).
+bool UIState_IsToolActive(ActiveTool tool);
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------

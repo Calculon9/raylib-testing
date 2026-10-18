@@ -224,6 +224,9 @@ typedef struct UIElement
     // or hoverable; dispatch is by handler-presence, not element type (see ui_input.c).
     UIEventHandler on_click;            // fired on click for any element with a non-NULL handler
     UIEventHandler on_hover;            // fired while hovered for any enabled element with a non-NULL handler
+    UIEventHandler on_draw;             // when non-NULL, the renderer calls it to draw custom per-element
+                                        // content on top of the element's box; presence-dispatched, reads
+                                        // e->screen_box for geometry. No new type or data union change.
     void *interaction_user_data;        // unified opaque per-element state pointer for click/hover handlers (buttons + former hover items)
     void *interaction_data_bind;        // base data_bind, used by the hover-view-selector LABEL only (see §8)
 

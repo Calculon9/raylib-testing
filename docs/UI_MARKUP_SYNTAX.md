@@ -43,6 +43,7 @@ per attribute). Attribute-less markup renders at each element's standard size.
 | `offset-mode` | `fixed` \| `percent` | `fixed` | `fixed` = world units; `percent` = fraction of the parent content area. |
 | `enabled` | `true` \| `false` | `true` | A disabled element is not laid out, drawn, or interacted with. |
 | `layout` | `stack` \| `stacked` \| `stack_wrap` \| `inline_wrap` | `stack` | How this element arranges its **children** (container-like elements only; leaf elements ignore it). See "Layout". |
+| `surface` | `transparent` \| `container` \| `field_row` \| `input` \| `button` | constructor default | Theme-safe fill/border override: resolves the named surface role from the active palette and replaces the element's constructor-chosen `colour_fill`/`colour_border`. An absent or unrecognised value leaves the constructor colours unchanged. |
 
 Legacy offset spelling (still accepted): `x="…"`, `y="…"`, `offset-type="…"`. The
 unified `offset`/`offset-mode` form is preferred and wins if both are present.

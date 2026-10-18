@@ -71,6 +71,25 @@ bool CreateWorld(GridSpace2d space_obj, float gravity, struct Universe *universe
         LOG_ERROR("Cannot create world: entity location registration failed.\n");
         return false;
     }
+
+    // Ancestry wiring: every frame-bearing node links to its parent via parent_id so a single
+    // uniform upward walk reaches the tree root. The universe's root_world is that root, so a
+    // nested world's parent is the root world's id, while the root world itself terminates the
+    // chain with INVALID_ENTITY_ID. (A world body's parent_id has no physics/render side effect:
+    // all parent_id consumers iterate world->objects, which never contains a world body.)
+    bool is_root_world = (out_world == &universe->root_world);
+    out_world->grid_space.object.parent_id =
+        is_root_world ? INVALID_ENTITY_ID : universe->root_world.grid_space.object.id;
+
+    // Tag the world id as a WORLD node so ancestry/UI can classify it (worlds and plain
+    // entities are otherwise indistinguishable via EntityRegistry_GetEntity). Presence is the
+    // signal; the tag stores no world state. A failure here is non-fatal to world creation.
+    WorldComponent world_tag = {0};
+    if (!EntityRegistry_AttachWorld(out_world->grid_space.object.id, &world_tag))
+    {
+        LOG_WARN("World %d: WorldComponent tag attach failed; ancestry classification degraded.\n",
+                 out_world->grid_space.object.id);
+    }
     // Use the creation settings belonging to this universe, not global system state.
     int object_count = universe->next_object_count;
     if (object_count < 0)

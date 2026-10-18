@@ -27,6 +27,10 @@ typedef enum
     CMD_TOGGLE_OBJECT_AXES,
     CMD_TOGGLE_OBJECT_HULL,
     CMD_TOGGLE_OBJECT_AABB,
+
+    // Tool-toolbar actions. These are NOT CMD_TOGGLE_* commands, so they are not intercepted by
+    // the CMD_TOGGLE_* -> debug-overlay mapping; each toggles its tool radio-exclusively instead.
+    CMD_TOOL_NUDGE = 200,
 } CommandType;
 
 typedef struct

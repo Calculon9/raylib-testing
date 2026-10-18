@@ -55,7 +55,7 @@
         <Label id="popup_item_entity" text="ENTITY" size="3.75,0.5" width="fixed" height="fixed">
             <!-- Entity submenu: child of its item, fixed +x fan-out, starts disabled. -->
             <Container id="popup_entity_submenu" enabled="false" overflow="true"
-                       offset="3.75,0" offset-mode="fixed" width="hug" height="hug" layout="stack">
+                       offset="3.5,0" offset-mode="fixed" width="hug" height="hug" layout="stack">
                 <Label  text="Shapes" size="3.75,0.5" width="fixed" height="fixed" />
                 <Button type="simple" id="popup_btn_triangle" text="triangle" size="3.75,0.5" width="fixed" height="fixed" />
                 <Button type="simple" id="popup_btn_square"   text="square"   size="3.75,0.5" width="fixed" height="fixed" />
@@ -71,7 +71,7 @@
         <Label id="popup_item_world"  text="WORLD"  size="3.75,0.5" width="fixed" height="fixed">
             <!-- World submenu: child of its item, fixed +x fan-out, starts disabled. -->
             <Container id="popup_world_submenu" enabled="false" overflow="true"
-                       offset="3.75,0" offset-mode="fixed" width="hug" height="hug" layout="stack">
+                       offset="3.5,0" offset-mode="fixed" width="hug" height="hug" layout="stack">
                 <Label  text="Small" size="3.75,0.5" width="fixed" height="fixed" />
                 <Button type="simple" id="popup_btn_regular"     text="regular"      size="3.75,0.5" width="fixed" height="fixed" />
                 <Button type="simple" id="popup_btn_sheared_y"   text="sheared-y"    size="3.75,0.5" width="fixed" height="fixed" />

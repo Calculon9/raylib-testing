@@ -18,8 +18,8 @@ typedef struct World2d World2d;
 typedef struct
 {
     EntityId id;
-    // Components indexed by EntityComponentType (0-5). NULL if not attached.
-    void *components[ENTITY_COMPONENT_HEALTH + 1];
+    // Components indexed by EntityComponentType. NULL if not attached.
+    void *components[ENTITY_COMPONENT_MAX + 1];
 } EntityDescription;
 
 // Initialise the entity ID sequence and component storage.
@@ -140,6 +140,19 @@ RelationComponent *EntityRegistry_GetRelation(EntityId entity_id);
 
 // Remove the RelationComponent from an EntityId. Returns false if no relation was attached.
 bool EntityRegistry_RemoveRelation(EntityId entity_id);
+
+// ============================================================================
+// Component Accessors - World Component
+// ============================================================================
+
+// Attach a WorldComponent (presence tag) to an EntityId. Returns false if already attached.
+bool EntityRegistry_AttachWorld(EntityId entity_id, const WorldComponent *world);
+
+// Retrieve the WorldComponent attached to an EntityId, or NULL if not attached.
+WorldComponent *EntityRegistry_GetWorld(EntityId entity_id);
+
+// Remove the WorldComponent from an EntityId. Returns false if none was attached.
+bool EntityRegistry_RemoveWorld(EntityId entity_id);
 
 // ============================================================================
 // Component Accessors - Health Component

@@ -32,11 +32,18 @@ ViewportRegion rpanel_viewport = {0};
 ViewportRegion entity_panel_viewport = {0};
 ViewportRegion utility_panel_viewport = {0};
 ViewportRegion info_strip_viewport = {0};
+ViewportRegion toolbar_viewport = {0};
 
 // Fixed logical height (game units) of the info strip band carved from the top of the central
 // column. Kept small so it reads as a thin status strip, consistent with the other docked
 // panels reserving their own screen region rather than overlaying the world.
 static const float info_strip_logical_height = 0.6f;
+
+// Fixed logical width (game units) of the thin far-left toolbar band. Sized to fit a single column
+// of tool buttons whose labels (e.g. "Nudge") are legible; the left panel (and therefore the world
+// viewport, which derives its left edge from the left panel) is shifted right by this width so
+// nothing overlaps. Buttons inside the band are width="fill" so they span this width.
+static const float toolbar_logical_width = 2.6f;
 
 // ============================================================================
 // Viewport Basis Vectors (used by SetViewportSpaceBasis / ResetViewportSpaceBasis)
@@ -302,10 +309,24 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
         resolved_v = game_viewport_basis_override_v;
     }
 
-    // LEFT PANEL: origin at 0, width by ratio, full height
-    ConfigureViewportRegion(&lpanel_viewport,
+    // TOOLBAR BAND: a thin vertical strip reserved at the FAR LEFT (logical-x 0), full height.
+    // Carved out FIRST so the left panel (and the world viewport, which derives its left edge from
+    // the left panel) can be shifted right by the band width and never overlap it. The width is
+    // clamped so it can never consume the whole screen on very narrow windows.
+    float toolbar_w = fminf(toolbar_logical_width, fmaxf(0.0f, logical_screen.x - 1.0f));
+    ConfigureViewportRegion(&toolbar_viewport,
                             ZERO_VECTOR_2D,
-                            (Vector2d){floorf(left_panel_ratio * logical_screen.x), logical_screen.y},
+                            (Vector2d){toolbar_w, logical_screen.y},
+                            viewport_basis_data[VIEWPORT_SPACE_LPANEL].u, viewport_basis_data[VIEWPORT_SPACE_LPANEL].v,
+                            (float)ui_pixels_per_unit,
+                            &screen_frame);
+
+    // LEFT PANEL: origin shifted right by the toolbar band, width by ratio, full height. Keeping
+    // the panel's width (ratio * screen) and only shifting the origin preserves the previous panel
+    // size while reserving the far-left band for the toolbar.
+    ConfigureViewportRegion(&lpanel_viewport,
+                            (Vector2d){toolbar_w, 0.0f},
+                            (Vector2d){toolbar_w + floorf(left_panel_ratio * logical_screen.x), logical_screen.y},
                             viewport_basis_data[VIEWPORT_SPACE_LPANEL].u, viewport_basis_data[VIEWPORT_SPACE_LPANEL].v,
                             (float)ui_pixels_per_unit,
                             &screen_frame);

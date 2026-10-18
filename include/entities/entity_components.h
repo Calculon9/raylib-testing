@@ -50,6 +50,19 @@ typedef struct RelationComponent
     bool is_active;                // Whether the relation is currently active/enabled
 } RelationComponent;
 
+// World component: a presence tag marking an EntityId as a WORLD node rather than a plain
+// entity. Worlds and plain entities share the EntityId space and both resolve to a
+// Newtonoid2d via EntityRegistry_GetEntity (a world returns its GridSpace2d.object body), so
+// they cannot be told apart by that call alone. This tag is the unambiguous discriminator for
+// ancestry/UI classification. It stores NO world state: the owning World2d is resolved live
+// via Universe_GetWorldById(id), keeping a single source of truth.
+typedef struct WorldComponent
+{
+    // Reserved storage keeps the tag representable in the packed component store. The tag's
+    // PRESENCE is the signal; no world data is duplicated here.
+    unsigned char reserved;
+} WorldComponent;
+
 // ============================================================================
 // Component Types
 // ============================================================================
@@ -63,8 +76,12 @@ typedef enum EntityComponentType
     ENTITY_COMPONENT_ROTOR = 2,
     ENTITY_COMPONENT_GEAR = 3,
     ENTITY_COMPONENT_RELATION = 4,
-    ENTITY_COMPONENT_HEALTH = 5
+    ENTITY_COMPONENT_HEALTH = 5,
+    ENTITY_COMPONENT_WORLD = 6    // Presence tag: this EntityId is a world node (see WorldComponent).
 } EntityComponentType;
+
+// Highest valid component type, for iteration bounds (e.g. EntityRegistry_Describe).
+#define ENTITY_COMPONENT_MAX ENTITY_COMPONENT_WORLD
 
 // Runtime component payload used by command_system to route attachments to registry stores.
 typedef struct EntityComponent
@@ -77,6 +94,7 @@ typedef struct EntityComponent
         PortalComponent portal;
         RelationComponent relation;
         HealthComponent health;
+        WorldComponent world;
     } data;
 } EntityComponent;
 

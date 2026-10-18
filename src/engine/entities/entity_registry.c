@@ -52,6 +52,7 @@ typedef struct EntityRegistry
     ComponentStore portal_components;
     ComponentStore relation_components;
     ComponentStore health_components;
+    ComponentStore world_components;
     bool is_initialised;        // Initialisation state flag.
 } EntityRegistry;
 
@@ -278,7 +279,8 @@ void EntityRegistry_Init(void)
         ComponentStore_Init(&registry.gear_components, sizeof(GearComponent), 8) &&
         ComponentStore_Init(&registry.portal_components, sizeof(PortalComponent), 8) &&
         ComponentStore_Init(&registry.relation_components, sizeof(RelationComponent), 8) &&
-        ComponentStore_Init(&registry.health_components, sizeof(HealthComponent), 8);
+        ComponentStore_Init(&registry.health_components, sizeof(HealthComponent), 8) &&
+        ComponentStore_Init(&registry.world_components, sizeof(WorldComponent), 8);
 
     if (!component_stores_ready)
     {
@@ -288,6 +290,7 @@ void EntityRegistry_Init(void)
         ComponentStore_Clear(&registry.portal_components);
         ComponentStore_Clear(&registry.relation_components);
         ComponentStore_Clear(&registry.health_components);
+        ComponentStore_Clear(&registry.world_components);
         ClearSlotMap(&registry.id_slots);
         return;
     }
@@ -309,6 +312,7 @@ void EntityRegistry_Shutdown(void)
     ComponentStore_Clear(&registry.portal_components);
     ComponentStore_Clear(&registry.relation_components);
     ComponentStore_Clear(&registry.health_components);
+    ComponentStore_Clear(&registry.world_components);
     registry.is_initialised = false;
 }
 
@@ -473,7 +477,7 @@ EntityDescription EntityRegistry_Describe(const Newtonoid2d *object)
     }
 
     desc.id = object->id;
-    for (int type = 1; type <= ENTITY_COMPONENT_HEALTH; type++)
+    for (int type = 1; type <= ENTITY_COMPONENT_MAX; type++)
     {
         desc.components[type] = EntityRegistry_GetComponent(object->id, (EntityComponentType)type);
     }
@@ -505,6 +509,8 @@ bool EntityRegistry_AttachComponent(EntityId entity_id, EntityComponentType type
         return EntityRegistry_AttachRelation(entity_id, (const RelationComponent *)component_data);
     case ENTITY_COMPONENT_HEALTH:
         return EntityRegistry_AttachHealth(entity_id, (const HealthComponent *)component_data);
+    case ENTITY_COMPONENT_WORLD:
+        return EntityRegistry_AttachWorld(entity_id, (const WorldComponent *)component_data);
     case ENTITY_COMPONENT_NONE:
     default:
         return false;
@@ -526,6 +532,8 @@ void *EntityRegistry_GetComponent(EntityId entity_id, EntityComponentType type)
         return (void *)EntityRegistry_GetRelation(entity_id);
     case ENTITY_COMPONENT_HEALTH:
         return (void *)EntityRegistry_GetHealth(entity_id);
+    case ENTITY_COMPONENT_WORLD:
+        return (void *)EntityRegistry_GetWorld(entity_id);
     case ENTITY_COMPONENT_NONE:
     default:
         return NULL;
@@ -547,6 +555,8 @@ bool EntityRegistry_RemoveComponent(EntityId entity_id, EntityComponentType type
         return EntityRegistry_RemoveRelation(entity_id);
     case ENTITY_COMPONENT_HEALTH:
         return EntityRegistry_RemoveHealth(entity_id);
+    case ENTITY_COMPONENT_WORLD:
+        return EntityRegistry_RemoveWorld(entity_id);
     case ENTITY_COMPONENT_NONE:
     default:
         return false;
@@ -893,6 +903,45 @@ bool EntityRegistry_RemoveRelation(EntityId entity_id)
     }
 
     return ComponentStore_Remove(&registry.relation_components, entity_id);
+}
+
+// ============================================================================
+// Component Accessors - World Component
+// ============================================================================
+
+// Attach a WorldComponent (presence tag) to an EntityId. Returns false if already attached.
+// No lifecycle hook: a world body must NOT receive entity physics flags (sensor/position-lock);
+// the tag only marks the id as a world node for classification.
+bool EntityRegistry_AttachWorld(EntityId entity_id, const WorldComponent *world)
+{
+    if (!registry.is_initialised || !world || !EntityRegistry_IsIdActive(entity_id))
+    {
+        return false;
+    }
+
+    return ComponentStore_Attach(&registry.world_components, entity_id, world);
+}
+
+// Retrieve the WorldComponent attached to an EntityId, or NULL if not attached.
+WorldComponent *EntityRegistry_GetWorld(EntityId entity_id)
+{
+    if (!registry.is_initialised || !EntityRegistry_IsIdActive(entity_id))
+    {
+        return NULL;
+    }
+
+    return (WorldComponent *)ComponentStore_Get(&registry.world_components, entity_id);
+}
+
+// Remove the WorldComponent from an EntityId. Returns false if none was attached.
+bool EntityRegistry_RemoveWorld(EntityId entity_id)
+{
+    if (!registry.is_initialised || !EntityRegistry_IsIdActive(entity_id))
+    {
+        return false;
+    }
+
+    return ComponentStore_Remove(&registry.world_components, entity_id);
 }
 
 // Attach a HealthComponent to an EntityId and enable its damageable capability.

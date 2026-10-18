@@ -93,6 +93,8 @@ typedef struct StateManagerUI
     String64 *cell_occu_str;
     String64 *cell_value_str;
     String64 *cell_fill_str;
+    UIElement *cell_warp_u_tbox; // editable Warp U (warp_basis.u) — dynamic query/write bound
+    UIElement *cell_warp_v_tbox; // editable Warp V (warp_basis.v) — dynamic query/write bound
 } StateManagerUI;
 
 static StateManagerUI s_sm_ui = {0};
@@ -434,6 +436,61 @@ static BindingValue StateManager_QueryCellFlag(int flag_key)
     Cell *c = UIState_GetSelectedCell();
     int on = (c && (c->flags & (uint32_t)flag_key)) ? 1 : 0;
     return (BindingValue){ .type = BIND_INT, .as.i = on };
+}
+
+// DYNAMIC read for the selected cell's warp basis U vector (warp_basis.u). The selection can go
+// stale, so it is re-resolved every call. Returns the identity U component (1,0) when there is
+// no selection, so an inert/neutral value is displayed rather than stale data.
+static BindingValue StateManager_QueryCellWarpU(int key)
+{
+    (void)key;
+    Cell *c = UIState_GetSelectedCell();
+    if (!c)
+    {
+        return (BindingValue){ .type = BIND_VECTOR2D, .as.v = (Vector2d){1.0f, 0.0f} };
+    }
+    return (BindingValue){ .type = BIND_VECTOR2D, .as.v = c->warp_basis.u };
+}
+
+// DYNAMIC write: store a committed VECTOR2D into the selected cell's warp basis U vector. Rejects
+// (false, caller reverts) when there is no selection or the value is the wrong type.
+static bool StateManager_WriteCellWarpU(int key, BindingValue value)
+{
+    (void)key;
+    Cell *c = UIState_GetSelectedCell();
+    if (!c || value.type != BIND_VECTOR2D)
+    {
+        return false;
+    }
+    c->warp_basis.u = value.as.v;
+    return true;
+}
+
+// DYNAMIC read for the selected cell's warp basis V vector (warp_basis.v). Returns the identity V
+// component (0,1) when there is no selection, matching the Warp U query's neutral behaviour.
+static BindingValue StateManager_QueryCellWarpV(int key)
+{
+    (void)key;
+    Cell *c = UIState_GetSelectedCell();
+    if (!c)
+    {
+        return (BindingValue){ .type = BIND_VECTOR2D, .as.v = (Vector2d){0.0f, 1.0f} };
+    }
+    return (BindingValue){ .type = BIND_VECTOR2D, .as.v = c->warp_basis.v };
+}
+
+// DYNAMIC write: store a committed VECTOR2D into the selected cell's warp basis V vector. Rejects
+// (false, caller reverts) when there is no selection or the value is the wrong type.
+static bool StateManager_WriteCellWarpV(int key, BindingValue value)
+{
+    (void)key;
+    Cell *c = UIState_GetSelectedCell();
+    if (!c || value.type != BIND_VECTOR2D)
+    {
+        return false;
+    }
+    c->warp_basis.v = value.as.v;
+    return true;
 }
 
 // Attached query for the COMPONENT buttons (NOT a bitmask read). Uses the STRICTER guard
@@ -800,6 +857,22 @@ static void StateManager_RegisterElements(UIElement *root)
     if (cell_fill_tbox)
     {
         s_sm_ui.cell_fill_str = &cell_fill_tbox->data.textbox.text;
+    }
+
+    // --- Editable cell warp basis (DYNAMIC query/write, like the portal fields; NOT a readonly
+    // readout, so there is no String64 and no RefreshCellView entry — the generic per-frame
+    // binding walk refreshes these). Precision 2 matches the sibling vector2 editable fields. ---
+    s_sm_ui.cell_warp_u_tbox = StateManager_Find(root, "sm_cell_warp_u");
+    if (s_sm_ui.cell_warp_u_tbox)
+    {
+        BindTextboxDynamic(s_sm_ui.cell_warp_u_tbox, BIND_VECTOR2D, 2,
+                           StateManager_QueryCellWarpU, StateManager_WriteCellWarpU, 0);
+    }
+    s_sm_ui.cell_warp_v_tbox = StateManager_Find(root, "sm_cell_warp_v");
+    if (s_sm_ui.cell_warp_v_tbox)
+    {
+        BindTextboxDynamic(s_sm_ui.cell_warp_v_tbox, BIND_VECTOR2D, 2,
+                           StateManager_QueryCellWarpV, StateManager_WriteCellWarpV, 0);
     }
 
     // --- Component toggle buttons (labels/types set in C; only .button re-acquired + wired) ---
@@ -1227,6 +1300,27 @@ void DrawStateManagerSystem(void)
     if (state_manager_panel)
     {
         Newtonoid2d *object = UIState_GetSelectedObject();
+
+        // The CELL readouts are push-refreshed by RefreshCellView, but cell selection now flows
+        // through the central SelectionSet (CommitClickSelection -> SelectionSet_Add), which does
+        // NOT go through UIState_SetSelection, so the selection-changed callback never fires for a
+        // cell-to-cell change and the readouts would stay stale. Detect a change in the selected
+        // cell here by its canonical identity (owning world index + cell index; both -1 when no
+        // cell is selected) and mark dirty so the readouts refresh. Using the (world,cell) pair
+        // rather than cell index alone avoids missing a change between same-index cells in
+        // different worlds. The warp fields are unaffected either way (per-frame dynamic queries).
+        static int last_cell_world = -2;  // -2: never evaluated; -1: no cell selected.
+        static int last_cell_index = -2;
+        TargetRef primary = SelectionSet_Primary();
+        int current_cell_world = (primary.kind == TARGET_KIND_CELL) ? primary.as.cell.world_index : -1;
+        int current_cell_index = (primary.kind == TARGET_KIND_CELL) ? primary.as.cell.cell_index : -1;
+        if (current_cell_world != last_cell_world || current_cell_index != last_cell_index)
+        {
+            last_cell_world = current_cell_world;
+            last_cell_index = current_cell_index;
+            MarkStateManagerRefreshDirty();
+        }
+
         // Dynamic entities update continuously; otherwise update when state is marked dirty.
         if (object || state_manager_refresh_dirty)
         {

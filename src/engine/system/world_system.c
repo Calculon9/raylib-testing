@@ -21,6 +21,7 @@
 #include "system/job_system.h"
 #include "system/systems.h"
 #include "system/ui_system.h"
+#include "system/ui/toolbar_system.h"   // Toolbar_ApplyNudgeToEntity (post-restore tool action)
 #include "system/viewport_system.h"
 #include "input/drag_interaction.h"
 #include "combat/projectile.h"
@@ -735,9 +736,26 @@ static InputRouteResult TryHandleEntityDragRelease(const InputFrame *input,
     if (game_drag_ctx->has_capture &&
         game_drag_ctx->target_kind == DRAG_TARGET_WORLD_ENTITY)
     {
+        // Capture the target entity BEFORE the restore clears the snapshot store.
+        Newtonoid2d *captured = (Newtonoid2d *)game_drag_ctx->target;
+
         // Restore every moved member's physics (single or multi) and clear the multi-move arming.
         RestoreDraggedEntitiesMotion();
         g_multi_move_active = false;
+
+        // TOOL ACTION (additive), applied AFTER the restore so it survives. An already-selected
+        // entity arms this capture on press and snapshots its pre-press velocity; the restore
+        // above writes that snapshot back, which would wipe a nudge applied earlier in the frame
+        // (the universe stage runs before this one). So the captured-click nudge belongs HERE,
+        // after the restore. Gate on a genuine click (not a real drag): a release whose gesture
+        // crossed the drag threshold is a move, not a tool click, and must not nudge.
+        if (captured && UIState_GetActiveTool() == TOOL_NUDGE &&
+            DragInteraction_IsClick(game_drag_ctx, INPUT_CLICK_MAX_HOLD_TICKS,
+                                    INPUT_DRAG_THRESHOLD_PIXELS))
+        {
+            Toolbar_ApplyNudgeToEntity(captured->id);
+        }
+
         return INPUT_ROUTE_HANDLED;
     }
 

@@ -29,7 +29,10 @@ typedef enum
     STATE_MANAGER_WORLD_VIEW,
     STATE_MANAGER_CELL_STATE_VIEW,
     POPUP_MENU_CREATE_VIEW,
-    POPUP_MENU_RECENT_VIEW
+    POPUP_MENU_RECENT_VIEW,
+    // Left-panel ancestry view: read-only display of the selected entity's ancestry
+    // chain and relation. Appended LAST so no existing enumerator value shifts.
+    LPANEL_ANCESTRY_VIEW
 } ViewType;
 
 //----------------------------------------------------------------------------------

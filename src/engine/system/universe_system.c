@@ -18,6 +18,7 @@ UNIVERSE SYSTEM MODULE
 #include "system/ui_system.h"
 #include "system/ui/state_manager_system.h"
 #include "system/ui/popup_menu.h"
+#include "system/ui/toolbar_system.h"
 #include "system/command_system.h"
 #include "world/world_internal.h"
 #include "world/target_resolver.h"
@@ -530,6 +531,23 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
         // R1/R3 (a real marquee/move release): no selection change here; the world-stage release
         // handlers commit the marquee / restore entity physics, and the capture is torn down at
         // frame end.
+
+        // TOOL ACTION (additive): fire the active tool on a confirmed click over an entity, but
+        // ONLY on the no-capture path. When the press armed an entity drag capture (an
+        // already-selected entity), the WORLD stage runs after this one and restores the entity's
+        // pre-press velocity in RestoreDraggedEntitiesMotion, which would overwrite a nudge applied
+        // here. That captured-click case is nudged in the world stage AFTER the restore instead
+        // (see TryHandleEntityDragRelease). Here we handle only the unselected / no-capture click,
+        // which has no restore to fight.
+        bool tool_click = cursor_in_game_viewport && !game_drag_ctx->has_capture &&
+                          !g_game_press.ever_dragged &&
+                          DragInteraction_IsClick(game_drag_ctx, INPUT_CLICK_MAX_HOLD_TICKS,
+                                                  INPUT_DRAG_THRESHOLD_PIXELS);
+        if (tool_click && UIState_GetActiveTool() == TOOL_NUDGE &&
+            g_game_press.select_ref.kind == TARGET_KIND_ENTITY)
+        {
+            Toolbar_ApplyNudgeToEntity(g_game_press.select_ref.as.entity);
+        }
 
         g_game_press.valid = false;
     }
