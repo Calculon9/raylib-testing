@@ -240,6 +240,31 @@ InputRouteResult UpdateUniverseSystem(const InputFrame *input, InputRouteResult 
         }
     }
 
+    // Hold the frame for a SELECTED world while the button is down, even before the drag crosses
+    // its pixel threshold. Those sub-threshold left_down frames would otherwise return IGNORED and
+    // let the world route's cell pick run UIState_SetSelection, which REPLACES the WORLD ref in the
+    // SelectionSet with a CELL ref. The world-drag gate (World_IsDraggable && SelectionSet_Contains
+    // for the WORLD ref) would then fail once the threshold is finally crossed, and the drag would
+    // fall through to a marquee. Claiming the frame here keeps the WORLD ref intact so a selected
+    // world can be dragged from anywhere inside its bounds, regardless of a coincident cell hit.
+    // Gated on the world being BOTH draggable and already selected, so an UNSELECTED world still
+    // falls through to the marquee path unchanged.
+    if (input->left_down && cursor_in_game_viewport)
+    {
+        Vector2d mouse_universe_coords = TransformCoordinates(root_world_to_pixel,
+                                                               input->pointer_position);
+        int world_index = Universe_FindWorldAt(&G_Universe, mouse_universe_coords);
+        if (world_index >= 0)
+        {
+            TargetRef world_ref = { .kind = TARGET_KIND_WORLD, .as.world_index = world_index };
+            if (World_IsDraggable(&G_Universe.worlds[world_index]) &&
+                SelectionSet_Contains(world_ref))
+            {
+                return INPUT_ROUTE_HANDLED;
+            }
+        }
+    }
+
     if (input->left_pressed || input->left_released)
     {
         return INPUT_ROUTE_HANDLED;
