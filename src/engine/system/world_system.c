@@ -445,156 +445,77 @@ static InputRouteResult TryHandleFireProjectile(World2d *active_world, InputRout
     return prior_result;
 }
 
-// Resolve and capture the closest selectable entity for drag operations.
-static InputRouteResult TrySelectAndCaptureEntity(World2d *active_world, const InputFrame *input, Vector2d click_world_coords,
-                                                  DragInteractionState *game_drag_ctx, InputRouteResult prior_result)
+// Arm an entity drag by universal id, beginning a DRAG_CONTEXT_GAME capture on that entity. This
+// is the sole surviving per-type leaf arm for entities: the universe stage's generic press
+// classifier calls it when the drag-target escalation lands on a movable, already-selected ENTITY.
+// It performs NO selection mutation (the entity is already in the set) and NO modifier handling
+// (`modified` is reserved for signature symmetry with a future toggle-arm and is currently always
+// false from the generic caller). The entity + its owning world are resolved via
+// Universe_GetEntityByID; a stale id resolves to NULL and arms nothing. The single-vs-multi-move
+// decision mirrors the former TrySelectAndCaptureEntity plain branch exactly (an in-set entity
+// with >= 2 in-world ENTITY members arms multi-move; otherwise single), preserving the statement
+// order sync primary -> set multi flag -> snapshot -> begin capture. Returns true iff a capture
+// was armed.
+bool WorldSystem_ArmEntityDragById(EntityId id, bool modified)
 {
-    if (!active_world || !input || !game_drag_ctx ||
-        prior_result != INPUT_ROUTE_IGNORED || !input->left_down ||
-        game_drag_ctx->has_capture)
+    (void)modified; // reserved for symmetry; the generic caller never passes a modified arm
+
+    DragInteractionState *game_drag_ctx = DragInteraction_GetContext(DRAG_CONTEXT_GAME);
+    if (!game_drag_ctx)
     {
-        return prior_result;
+        return false;
     }
 
-    char log[256] = "";
-    int offset = 0;
-    AppendLogLine(log, sizeof(log), &offset, "WORLD (%.1f,%.1f) --> ",
-                  game_viewport.local_origin.x, game_viewport.local_origin.y);
-
-    Cell *selected_cell = NULL;
-    int selected_cell_index = -1;
-    Newtonoid2d *closest = ResolveClosestEntityAt(active_world, click_world_coords, &selected_cell,
-                                                  &selected_cell_index,log,sizeof(log), &offset);
-
-    // A held Ctrl/Shift turns a click into an additive toggle instead of a replace.
-    bool modified = input->ctrl_down || input->shift_down;
-
-    if (!modified)
+    int dragged_world_index = -1;
+    Newtonoid2d *entity = Universe_GetEntityByID(&G_Universe, id, &dragged_world_index);
+    if (!entity)
     {
-        // Decide whether this unmodified drag is a multi-move: an already-selected entity with more
-        // than one in-world ENTITY member moves the whole selection; anything else is single-move.
-        g_multi_move_active = false;
-        if (closest)
+        return false; // stale id -> nothing to arm
+    }
+
+    // Decide single-vs-multi exactly as the former plain branch: an already-selected entity with
+    // more than one in-world ENTITY member moves the whole in-world selection; otherwise single.
+    g_multi_move_active = false;
+
+    TargetRef dragged_ref = { .kind = TARGET_KIND_ENTITY, .as.entity = id };
+    if (SelectionSet_Contains(dragged_ref))
+    {
+        // Count the ENTITY members that live in the dragged entity's world; a multi-move needs at
+        // least two (the dragged entity plus one more) to be meaningful.
+        int in_world_entity_members = 0;
+        TargetRef *member = NULL;
+        LArray_ForEach(&G_UIState.selection_set, TargetRef *, member)
         {
-            int dragged_world_index = -1;
-            Universe_GetEntityByID(&G_Universe, closest->id, &dragged_world_index);
-
-            TargetRef dragged_ref = { .kind = TARGET_KIND_ENTITY, .as.entity = closest->id };
-            bool dragged_in_set = SelectionSet_Contains(dragged_ref);
-
-            if (dragged_in_set)
+            if (member->kind != TARGET_KIND_ENTITY)
             {
-                // Count the ENTITY members that live in the dragged entity's world; a multi-move
-                // needs at least two (the dragged entity plus one more) to be meaningful.
-                int in_world_entity_members = 0;
-                TargetRef *member = NULL;
-                LArray_ForEach(&G_UIState.selection_set, TargetRef *, member)
-                {
-                    if (member->kind != TARGET_KIND_ENTITY)
-                    {
-                        continue;
-                    }
-                    int member_world_index = -1;
-                    if (Universe_GetEntityByID(&G_Universe, member->as.entity,
-                                               &member_world_index) &&
-                        member_world_index == dragged_world_index)
-                    {
-                        in_world_entity_members++;
-                    }
-                }
-
-                if (in_world_entity_members > 1)
-                {
-                    // Multi-move: keep the set intact (do NOT collapse it via UIState_SetSelection),
-                    // keep the dragged entity as the primary single-fields, snapshot every in-world
-                    // member and capture on the dragged entity.
-                    UIState_SyncPrimaryFieldsFromSet();
-                    g_multi_move_active = true;
-                    SnapshotSelectionMotion(dragged_world_index);
-                    DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_ENTITY, closest, closest->anchor_position);
-                    AppendLogLine(log, sizeof(log), &offset,
-                                  "--> MULTI-MOVE: ID:%d (%d members)", closest->id,
-                                  in_world_entity_members);
-
-                    LOG_INFO("CLICKED (%d,%d) | %s\n",
-                             (int)input->pointer_position.x,
-                             (int)input->pointer_position.y,
-                             log);
-                    return INPUT_ROUTE_CAPTURED;
-                }
+                continue;
+            }
+            int member_world_index = -1;
+            if (Universe_GetEntityByID(&G_Universe, member->as.entity, &member_world_index) &&
+                member_world_index == dragged_world_index)
+            {
+                in_world_entity_members++;
             }
         }
 
-        // Unmodified click (single-move / empty space): today's replace/clear behaviour, unchanged.
-        UIState_SetSelection(closest, selected_cell, selected_cell_index);
-
-        if (closest)
+        if (in_world_entity_members > 1)
         {
-            SnapshotDraggedEntityMotion(closest);
-            DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_ENTITY, closest, closest->anchor_position);
-            AppendLogLine(log, sizeof(log), &offset, "--> SELECTED ENTITY: ID:%d", closest->id);
+            // Multi-move: keep the dragged entity as the primary single-fields, pin the multi flag,
+            // snapshot every in-world member and capture on the dragged entity.
+            UIState_SyncPrimaryFieldsFromSet();
+            g_multi_move_active = true;
+            SnapshotSelectionMotion(dragged_world_index);
+            DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_ENTITY, entity,
+                                         entity->anchor_position);
+            return true;
         }
-        else
-        {
-            SnapshotDraggedEntityMotion(NULL);
-            DragInteraction_ClearCapture(game_drag_ctx);
-            AppendLogLine(log, sizeof(log), &offset, " --> SELECTED ENTITY: NULL");
-        }
-
-        LOG_INFO("CLICKED (%d,%d) | %s\n",
-                 (int)input->pointer_position.x,
-                 (int)input->pointer_position.y,
-                 log);
-
-        return closest ? INPUT_ROUTE_CAPTURED : INPUT_ROUTE_HANDLED;
     }
 
-    // Modified click on empty space: leave the set intact (no clear, no capture).
-    // (A cell-only modified pick with no entity is likewise a no-op for the set in Stage 1;
-    // cells remain a single-selection concept.)
-    if (!closest)
-    {
-        AppendLogLine(log, sizeof(log), &offset, " --> MODIFIED CLICK (empty): SET UNCHANGED");
-        LOG_INFO("CLICKED (%d,%d) | %s\n",
-                 (int)input->pointer_position.x,
-                 (int)input->pointer_position.y,
-                 log);
-        return INPUT_ROUTE_HANDLED;
-    }
-
-    // Modified click on an entity: toggle its ref into the set and re-sync the primary fields.
-    TargetRef ref = { .kind = TARGET_KIND_ENTITY, .as.entity = closest->id };
-    bool was_present = SelectionSet_Contains(ref);
-    SelectionSet_Toggle(ref);
-    UIState_SyncPrimaryFieldsFromSet();
-
-    // A modified-click capture never arms multi-move (unchanged single-entity drag behaviour).
-    g_multi_move_active = false;
-
-    if (!was_present)
-    {
-        // Freshly added: keep it immediately draggable, matching the plain-click feel.
-        SnapshotDraggedEntityMotion(closest);
-        DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_ENTITY, closest, closest->anchor_position);
-        AppendLogLine(log, sizeof(log), &offset, "--> TOGGLED IN ENTITY: ID:%d", closest->id);
-
-        LOG_INFO("CLICKED (%d,%d) | %s\n",
-                 (int)input->pointer_position.x,
-                 (int)input->pointer_position.y,
-                 log);
-        return INPUT_ROUTE_CAPTURED;
-    }
-
-    // Toggled out: drop any capture/snapshot for it.
-    SnapshotDraggedEntityMotion(NULL);
-    DragInteraction_ClearCapture(game_drag_ctx);
-    AppendLogLine(log, sizeof(log), &offset, "--> TOGGLED OUT ENTITY: ID:%d", closest->id);
-
-    LOG_INFO("CLICKED (%d,%d) | %s\n",
-             (int)input->pointer_position.x,
-             (int)input->pointer_position.y,
-             log);
-    return INPUT_ROUTE_HANDLED;
+    // Single-move: snapshot just this entity and capture on it.
+    SnapshotDraggedEntityMotion(entity);
+    DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_ENTITY, entity,
+                                 entity->anchor_position);
+    return true;
 }
 
 // Apply one world-space drag delta to a single entity from a fixed base anchor, reusing the
@@ -972,25 +893,15 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
         HandleWorldDebugHotkeys(active_world, click_world_coords);
         prior_result = TryHandleFireProjectile(active_world, prior_result);
 
-        if (prior_result == INPUT_ROUTE_IGNORED && cursor_in_game_viewport && input->left_down)
+        if (input->left_down)
         {
-            prior_result = TrySelectAndCaptureEntity(active_world,
-                                                     input,
-                                                     click_world_coords,
-                                                     game_drag_ctx,
-                                                     prior_result);
+            // The world stage is now a leaf executor: selection, world-drag arming, and the
+            // marquee begin all live in the universe stage's generic classifier. The only drag
+            // work left here is driving an already-armed ENTITY capture each down frame. The
+            // universe stage returns IGNORED for entity captures (CAPTURED only for world
+            // containers), so this call runs for entity moves; HandleCapturedEntityDrag itself
+            // no-ops unless an entity capture is active and past the 5px threshold.
             HandleCapturedEntityDrag(game_drag_ctx);
-
-            // Begin a marquee drag only when nothing else captured this frame: the universe stage
-            // (earlier) would have claimed any draggable world, and TrySelectAndCaptureEntity only
-            // captures on an entity hit, so !has_capture here means the drag began on empty space.
-            // The 5px threshold keeps a plain empty-space click behaving exactly as before.
-            if (game_drag_ctx && !game_drag_ctx->has_capture &&
-                DragInteraction_IsDragActive(game_drag_ctx, INPUT_DRAG_THRESHOLD_PIXELS))
-            {
-                DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_MARQUEE, NULL,
-                                             game_drag_ctx->pointer_state.initial_pos);
-            }
         }
         else
         {

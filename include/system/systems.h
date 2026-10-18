@@ -93,6 +93,11 @@ void HandleBtnSubmitClick(UIElement *btn);
 // World Functions Declaration
 //----------------------------------------------------------------------------------
 InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult prior_result);
+// Arm an entity drag by universal id, beginning a DRAG_CONTEXT_GAME capture on that entity. Called
+// by the universe stage's generic press classifier when the drag-target escalation lands on a
+// movable, already-selected ENTITY; performs NO selection mutation (the entity is already selected).
+// Returns true iff a capture was armed. `modified` is reserved for signature symmetry and unused.
+bool WorldSystem_ArmEntityDragById(EntityId id, bool modified);
 int GetNewtonoidCount(void);
 void InitWorldSystem(void);
 void InitUniverseSystem(void);
