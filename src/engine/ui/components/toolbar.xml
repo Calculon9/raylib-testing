@@ -11,5 +11,5 @@
     <!-- on_draw hook (Toolbar_DrawNudgeIcon reads UIState_IsToolActive), so the toggle feedback -->
     <!-- is the glyph's look, not text. action="tool-nudge" still sets the active tool on click. -->
     <!-- surface="input" gives the flat info-strip tint (vs the bright BUTTON surface). -->
-    <Button id="tool_nudge" type="simple" text="" surface="input" action="tool-nudge" size="2.4,0.5" width="fill" height="fixed" />
+    <Button id="tool_nudge" type="simple" text="" surface="input" action="tool-nudge" size="0.8,0.45" />
 </Container>

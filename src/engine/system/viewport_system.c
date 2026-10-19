@@ -43,7 +43,7 @@ static const float info_strip_logical_height = 0.6f;
 // of tool buttons whose labels (e.g. "Nudge") are legible; the left panel (and therefore the world
 // viewport, which derives its left edge from the left panel) is shifted right by this width so
 // nothing overlaps. Buttons inside the band are width="fill" so they span this width.
-static const float toolbar_logical_width = 2.6f;
+static const float toolbar_logical_width = 0.95f;
 
 // ============================================================================
 // Viewport Basis Vectors (used by SetViewportSpaceBasis / ResetViewportSpaceBasis)
@@ -309,24 +309,11 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
         resolved_v = game_viewport_basis_override_v;
     }
 
-    // TOOLBAR BAND: a thin vertical strip reserved at the FAR LEFT (logical-x 0), full height.
-    // Carved out FIRST so the left panel (and the world viewport, which derives its left edge from
-    // the left panel) can be shifted right by the band width and never overlap it. The width is
-    // clamped so it can never consume the whole screen on very narrow windows.
-    float toolbar_w = fminf(toolbar_logical_width, fmaxf(0.0f, logical_screen.x - 1.0f));
-    ConfigureViewportRegion(&toolbar_viewport,
-                            ZERO_VECTOR_2D,
-                            (Vector2d){toolbar_w, logical_screen.y},
-                            viewport_basis_data[VIEWPORT_SPACE_LPANEL].u, viewport_basis_data[VIEWPORT_SPACE_LPANEL].v,
-                            (float)ui_pixels_per_unit,
-                            &screen_frame);
-
-    // LEFT PANEL: origin shifted right by the toolbar band, width by ratio, full height. Keeping
-    // the panel's width (ratio * screen) and only shifting the origin preserves the previous panel
-    // size while reserving the far-left band for the toolbar.
+    // LEFT PANEL: origin at the far left, width by ratio, full height (its original placement;
+    // the toolbar now lives on the INNER edge of the game viewport, not outside the left panel).
     ConfigureViewportRegion(&lpanel_viewport,
-                            (Vector2d){toolbar_w, 0.0f},
-                            (Vector2d){toolbar_w + floorf(left_panel_ratio * logical_screen.x), logical_screen.y},
+                            ZERO_VECTOR_2D,
+                            (Vector2d){floorf(left_panel_ratio * logical_screen.x), logical_screen.y},
                             viewport_basis_data[VIEWPORT_SPACE_LPANEL].u, viewport_basis_data[VIEWPORT_SPACE_LPANEL].v,
                             (float)ui_pixels_per_unit,
                             &screen_frame);
@@ -344,18 +331,46 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
     // account for its height and the strip never overlaps the world render region. The band
     // height is clamped so it can never consume the whole central column on very short windows.
     float strip_height = fminf(info_strip_logical_height, fmaxf(0.0f, logical_screen.y - 1.0f));
+
+    // TOOLBAR BAND: a thin vertical tool strip carved from the LEFT EDGE of the central column,
+    // flush against the left panel's right edge and spanning the game viewport's vertical extent
+    // (below the info strip, above the bottom entity panel). It hugs the world it operates on,
+    // like a classic tool palette, rather than being an outermost band. The info strip and the
+    // game viewport below start at the toolbar's right edge so nothing overlaps. Width is clamped
+    // so the band can never swallow the whole central column on narrow windows.
+    //
+    // The toolbar spans from the TOP of the central column (y=0) down to the bottom entity panel,
+    // so it also covers the top-left corner square that would otherwise be left uncovered between
+    // the info strip (which starts to the toolbar's right) and the toolbar (if it started below
+    // the strip). The info strip's left edge then aligns with the game viewport's left edge below
+    // it, giving a clean vertical line.
+    float entity_panel_height = fmaxf(1.0f, floorf(logical_screen.y * 0.275f));
+    float central_left = lpanel_viewport.local_end.x;
+    float toolbar_w = fminf(toolbar_logical_width, fmaxf(0.0f, rpanel_viewport.local_origin.x - central_left - 1.0f));
+    ConfigureViewportRegion(&toolbar_viewport,
+                            (Vector2d){central_left, 0.0f},
+                            (Vector2d){central_left + toolbar_w, logical_screen.y - entity_panel_height},
+                            viewport_basis_data[VIEWPORT_SPACE_LPANEL].u, viewport_basis_data[VIEWPORT_SPACE_LPANEL].v,
+                            (float)ui_pixels_per_unit,
+                            &screen_frame);
+
+    // The central column's content (info strip + game viewport) begins to the RIGHT of the
+    // toolbar band.
+    float central_content_left = toolbar_viewport.local_end.x;
+
+    // INFO STRIP: thin horizontal band across the top of the central column, starting right of
+    // the toolbar so the two never overlap.
     ConfigureViewportRegion(&info_strip_viewport,
-                            (Vector2d){lpanel_viewport.local_end.x, 0.0f},
+                            (Vector2d){central_content_left, 0.0f},
                             (Vector2d){rpanel_viewport.local_origin.x, strip_height},
                             viewport_basis_data[VIEWPORT_SPACE_LPANEL].u, viewport_basis_data[VIEWPORT_SPACE_LPANEL].v,
                             (float)ui_pixels_per_unit,
                             &screen_frame);
 
-    // GAME VIEWPORT: fills the gap between left and right panels, starting BELOW the info
-    // strip band so the strip and the world never overlap.
-    float entity_panel_height = fmaxf(1.0f, floorf(logical_screen.y * 0.275f));
+    // GAME VIEWPORT: fills the central column right of the toolbar, below the info strip and
+    // above the bottom entity panel, so toolbar / strip / world never overlap.
     ConfigureViewportRegion(&game_viewport,
-                            (Vector2d){lpanel_viewport.local_end.x, strip_height},
+                            (Vector2d){central_content_left, strip_height},
                             (Vector2d){rpanel_viewport.local_origin.x, logical_screen.y - entity_panel_height},
                             resolved_u, resolved_v,
                             (float)screen_pixels_per_unit,
