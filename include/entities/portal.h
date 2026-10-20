@@ -17,6 +17,11 @@ typedef struct PortalComponent
     int cooldown_frames;
     EntityId cooldown_entity_id;
     int cooldown_frames_remaining;
+
+    // Resolved physics-flag policy (opt-in; copied from PortalComponentParams). Only the
+    // position lock is opt-in for portals: SENSOR + NO_CONTACT_RESPONSE remain unconditional
+    // (a genuine behaviour dependency for portal overlap detection).
+    bool lock_position;           // true: attaching the portal locks the body's position.
 } PortalComponent;
 
 // Configurable portal component values supplied by a prefab or caller.
@@ -24,6 +29,9 @@ typedef struct PortalComponentParams
 {
     EntityRoleFlags entrant_roles;
     int cooldown_frames;
+    // Opt-in position lock. The create/parse path sets this true explicitly (C zero-inits
+    // omitted fields to false) so a created portal stays locked as today; attach may opt out.
+    bool lock_position;
 } PortalComponentParams;
 
 // A non-owning view joining a portal's base body and registered component.

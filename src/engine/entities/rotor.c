@@ -41,8 +41,24 @@ Newtonoid2d *RotorEntity_Create(const Newtonoid2dParams *params)
     }
 
     entity->shape_type = SHAPE_ROTOR;
-    EntityLifecycle_ApplyAttachedComponent(entity, ENTITY_COMPONENT_ROTOR, NULL);
     Newtonoid_ConfigureRestitution(entity, params->restitution);
     Newtonoid_ConfigureFriction(entity, params->friction);
     return entity;
+}
+
+// Initialise rotor component state from caller/prefab-configurable values. Seeds the
+// resolved physics-flag policy (position lock + auto-spin) so the attach lifecycle hook
+// and detach release rule read a single resolved source. Mirrors GearComponent_Initialise.
+bool RotorComponent_Initialise(RotorComponent *component, const RotorComponentParams *params)
+{
+    if (!component || !params)
+    {
+        return false;
+    }
+
+    *component = (RotorComponent){
+        .lock_position = params->lock_position,
+        .auto_spin = params->auto_spin,
+        .spin_rate = params->spin_rate};
+    return true;
 }

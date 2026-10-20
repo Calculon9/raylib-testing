@@ -184,7 +184,9 @@ static bool ParsePhysicsComponent(const cJSON *physics, Newtonoid2dParams *out_p
 	return true;
 }
 
-// Parse portal component from prefab JSON.
+// Parse portal component from prefab JSON. Seeds the historic physics-flag policy
+// (lock_position=true) explicitly so the create path keeps today's locked portal;
+// the prefab JSON schema is unchanged (no new keys read here).
 static bool ParsePortalComponent(const cJSON *portal, PortalComponentParams *out_params)
 {
 	if (!cJSON_IsObject(portal) || !out_params)
@@ -199,11 +201,18 @@ static bool ParsePortalComponent(const cJSON *portal, PortalComponentParams *out
 		return false;
 	}
 
+	// Historic default: a created portal is position-locked. Set explicitly because C
+	// zero-initialises omitted fields to false.
+	result.lock_position = true;
+
 	*out_params = result;
 	return true;
 }
 
-// Parse rotor component from prefab JSON.
+// Parse rotor component from prefab JSON. The rotor has no authored behaviour data yet, so
+// this only seeds the historic physics-flag policy (lock_position=true, auto_spin=true,
+// spin_rate=0 => historic 2.0f) explicitly so the create path keeps today's locked+spinning
+// rotor. The prefab JSON schema is unchanged (no new keys read here).
 static bool ParseRotorComponent(const cJSON *rotor, RotorComponentParams *out_params)
 {
 	if (!cJSON_IsObject(rotor) || !out_params)
@@ -211,14 +220,20 @@ static bool ParseRotorComponent(const cJSON *rotor, RotorComponentParams *out_pa
 		return false;
 	}
 
-	// Rotor component is currently a placeholder; initialise to zero.
-	*out_params = (RotorComponentParams){0};
+	// Historic defaults applied explicitly (C zero-inits omitted fields to false).
+	*out_params = (RotorComponentParams){
+		.lock_position = true,
+		.auto_spin = true,
+		.spin_rate = 0.0f};
 	return true;
 }
 
 // Parse gear component from prefab JSON. The gear carries its meshing identity (teeth,
 // module) plus driver configuration; runtime engagement state is derived in
 // GearComponent_Initialise. drive_angular_velocity is optional (defaults to 0 = driven).
+// Also seeds the historic physics-flag policy (lock_position=true, auto_spin=true,
+// spin_rate=0 => historic 2.0f) explicitly so the create path keeps today's locked+spinning
+// gear. The prefab JSON schema is unchanged (no new keys read here).
 static bool ParseGearComponent(const cJSON *gear, GearComponentParams *out_params)
 {
 	if (!cJSON_IsObject(gear) || !out_params)
@@ -227,6 +242,11 @@ static bool ParseGearComponent(const cJSON *gear, GearComponentParams *out_param
 	}
 
 	GearComponentParams result = {0};
+
+	// Historic defaults applied explicitly (C zero-inits omitted fields to false).
+	result.lock_position = true;
+	result.auto_spin = true;
+	result.spin_rate = 0.0f;
 
 	// Required: positive tooth count and positive module (both needed to form gear ratios).
 	if (!ReadPrefabPositiveInt(gear, "tooth_count", &result.tooth_count) ||

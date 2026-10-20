@@ -109,10 +109,15 @@ static void HandlePopupCreateClick(UIElement *button)
         return;
     }
 
-    // Handle rotor: set vertex count.
+    // Handle rotor: set vertex count and seed the historic physics-flag policy so a
+    // popup-created rotor stays locked + spinning (lock_position/auto_spin true, spin_rate
+    // 0 => historic 2.0f). Set explicitly because C zero-inits omitted fields to false.
     if (action->component_flags & CREATION_COMPONENT_ROTOR)
     {
         G_UIState.entity_create_params->physics.vertice_count = 4;
+        G_UIState.entity_create_params->rotor_params.lock_position = true;
+        G_UIState.entity_create_params->rotor_params.auto_spin = true;
+        G_UIState.entity_create_params->rotor_params.spin_rate = 0.0f;
     }
     // Handle gear: load from prefab and return.
     else if (action->component_flags & CREATION_COMPONENT_GEAR)

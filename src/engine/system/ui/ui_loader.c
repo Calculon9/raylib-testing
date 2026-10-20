@@ -830,8 +830,9 @@ static UIBuildResult BuildContainer(mxml_node_t *node, UIElement *parent,
     {
         container->colour_border = palette ? palette->button_border
                                            : ui_default_palette.button_border;
-        CreateUILabelDefault(container, title, ui_standard_button_size,
-                             ui_standard_field_padding, palette);
+        // Heading uses the larger title font (FONT_LARGE) so section titles sit above controls.
+        CreateUILabelTitleDefault(container, title, ui_standard_button_size,
+                                  ui_standard_field_padding, palette);
     }
 
     // Single-element builder: control == outer (offset consumed at construct time).

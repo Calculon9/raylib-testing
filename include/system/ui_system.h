@@ -41,6 +41,8 @@ typedef struct UIPalette
 	ColourRgba input_fill;
 	ColourRgba button_border;
 	ColourRgba button_fill;
+	ColourRgba toggle_on_fill;  // Fill for a source-bearing toggle button in its ON state.
+	ColourRgba toggle_off_fill; // Fill for a source-bearing toggle button in its OFF state (same hue, dimmed).
 	ColourRgba text;
 	ColourRgba label_text;
 	ColourRgba text_on_dark;

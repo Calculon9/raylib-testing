@@ -6,6 +6,7 @@
 #include "math/cvectors.h"
 #include "common/common.h"
 #include "ui/ui.h"
+#include "system/ui_system.h" // UIPalette toggle fills + ui_default_palette for toggle-button fill
 #include "raylib.h"
 
 // Stacked-layout statistics for a SPACING_STACKED parent. Declared up here (rather than
@@ -1401,12 +1402,17 @@ void UIElement_RefreshBinding(UIElement *e)
         if (value.type == BIND_NONE)
             return;
 
-        // Toggle presentation convention: compose "<authored text>: ON/OFF" from the query
-        // result. The authored base lives in `text`; the drawn result goes to `display_text`,
-        // leaving the base intact for the next refresh.
+        // Toggle presentation: the drawn label is just the authored base name; the ON/OFF state
+        // is carried by the element fill instead of a ": ON/OFF" suffix. The authored base lives
+        // in `text` (left intact); the drawn result goes to `display_text`. Fill is read from the
+        // active palette's toggle-on/off fields (bright amber ON, dimmed amber OFF). The element
+        // carries no palette handle, so ui_default_palette is read directly - matching the
+        // toolbar's existing palette fallback.
         bool on = (value.as.i != 0);
-        snprintf(e->data.button.display_text.string, sizeof(e->data.button.display_text.string),
-                 "%s: %s", e->data.button.text.string, on ? "ON" : "OFF");
+        safe_strncpy(e->data.button.display_text.string, e->data.button.text.string,
+                     sizeof(e->data.button.display_text.string));
+        e->colour_fill = on ? ui_default_palette.toggle_on_fill
+                            : ui_default_palette.toggle_off_fill;
         return;
     }
 

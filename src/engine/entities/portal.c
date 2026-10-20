@@ -46,7 +46,9 @@ bool PortalComponent_Initialise(PortalComponent *component, const PortalComponen
         .portal_destination_id = INVALID_ENTITY_ID,
         .cooldown_frames = params->cooldown_frames,
         .cooldown_entity_id = INVALID_ENTITY_ID,
-        .cooldown_frames_remaining = 0};
+        .cooldown_frames_remaining = 0,
+        // Resolved opt-in position lock; defaulting happens at the param/parse sites.
+        .lock_position = params->lock_position};
     return true;
 }
 

@@ -573,10 +573,16 @@ bool EntityRegistry_HasComponent(EntityId entity_id, EntityComponentType type)
 // Component Lifecycle Hooks
 // ============================================================================
 
-// Synchronise an entity's physical state (flags, velocity, sensor rules) when a component is attached.
+// Synchronise an entity's physical state (flags, velocity, sensor rules) when a component is
+// attached. The position-lock and auto-spin side effects are now OPT-IN: they are read from
+// the component's resolved policy (lock_position/auto_spin/spin_rate), which the create/parse
+// path defaults to historic behaviour (locked + spinning) and the attach path may opt out of.
+// Portal SENSOR + NO_CONTACT_RESPONSE + role-mask-NONE remain unconditional (a genuine portal
+// behaviour dependency); only the portal's position lock is gated on its policy. Every
+// dereference of component_data is NULL-guarded because the signature permits NULL (in which
+// case no opt-in flag is applied).
 void EntityLifecycle_ApplyAttachedComponent(Newtonoid2d *entity, EntityComponentType type, const void *component_data)
 {
-    (void)component_data;
     if (!entity)
     {
         return;
@@ -585,29 +591,50 @@ void EntityLifecycle_ApplyAttachedComponent(Newtonoid2d *entity, EntityComponent
     switch (type)
     {
     case ENTITY_COMPONENT_PORTAL:
-        // Configure portal sensor properties and position lock.
+    {
+        // Sensor + no-contact-response + cleared role mask are unconditional: portal overlap
+        // detection depends on them. Only the position lock is opt-in.
         entity->capabilities |= ENTITY_CAPABILITY_SENSOR;
-        entity->constraints |= (ENTITY_CONSTRAINT_POSITION_LOCKED | ENTITY_CONSTRAINT_NO_CONTACT_RESPONSE);
+        entity->constraints |= ENTITY_CONSTRAINT_NO_CONTACT_RESPONSE;
         entity->collision_role_mask = ENTITY_ROLE_NONE;
+
+        const PortalComponent *portal = (const PortalComponent *)component_data;
+        if (portal && portal->lock_position)
+        {
+            entity->constraints |= ENTITY_CONSTRAINT_POSITION_LOCKED;
+        }
         break;
+    }
 
     case ENTITY_COMPONENT_ROTOR:
-        // Configure rotor rotation and position lock.
-        entity->constraints |= ENTITY_CONSTRAINT_POSITION_LOCKED;
-        if (entity->angular_velocity == 0.0f)
+    {
+        // Lock and auto-spin only when the resolved rotor policy opts in.
+        const RotorComponent *rotor = (const RotorComponent *)component_data;
+        if (rotor && rotor->lock_position)
         {
-            entity->angular_velocity = 2.0f;
+            entity->constraints |= ENTITY_CONSTRAINT_POSITION_LOCKED;
+        }
+        if (rotor && rotor->auto_spin && entity->angular_velocity == 0.0f)
+        {
+            entity->angular_velocity = (rotor->spin_rate > 0.0f) ? rotor->spin_rate : 2.0f;
         }
         break;
+    }
 
     case ENTITY_COMPONENT_GEAR:
-        // Configure gear rotation and position lock.
-        entity->constraints |= ENTITY_CONSTRAINT_POSITION_LOCKED;
-        if (entity->angular_velocity == 0.0f)
+    {
+        // Lock and auto-spin only when the resolved gear policy opts in.
+        const GearComponent *gear = (const GearComponent *)component_data;
+        if (gear && gear->lock_position)
         {
-            entity->angular_velocity = 2.0f;
+            entity->constraints |= ENTITY_CONSTRAINT_POSITION_LOCKED;
+        }
+        if (gear && gear->auto_spin && entity->angular_velocity == 0.0f)
+        {
+            entity->angular_velocity = (gear->spin_rate > 0.0f) ? gear->spin_rate : 2.0f;
         }
         break;
+    }
 
     case ENTITY_COMPONENT_HEALTH:
         entity->capabilities |= ENTITY_CAPABILITY_DAMAGEABLE;
@@ -620,7 +647,45 @@ void EntityLifecycle_ApplyAttachedComponent(Newtonoid2d *entity, EntityComponent
     }
 }
 
-// Synchronise an entity's physical state (reverting flags, velocity, sensor rules) when a component is detached.
+// Return whether any OTHER still-attached structural component (portal/rotor/gear),
+// excluding the one being detached, has opted into the position lock. The detaching
+// component is still in its store when the detach hook runs (the hook precedes
+// ComponentStore_Remove in RemoveRotor/RemoveGear/RemovePortal), so it MUST be excluded via
+// `detaching` or the departing component would keep its own lock alive forever. Used by
+// detach to release the lock only when no remaining component still wants it.
+static bool AnyOtherAttachedComponentWantsLock(EntityId id, EntityComponentType detaching)
+{
+    if (detaching != ENTITY_COMPONENT_PORTAL)
+    {
+        const PortalComponent *portal = EntityRegistry_GetPortal(id);
+        if (portal && portal->lock_position)
+        {
+            return true;
+        }
+    }
+    if (detaching != ENTITY_COMPONENT_ROTOR)
+    {
+        const RotorComponent *rotor = EntityRegistry_GetRotor(id);
+        if (rotor && rotor->lock_position)
+        {
+            return true;
+        }
+    }
+    if (detaching != ENTITY_COMPONENT_GEAR)
+    {
+        const GearComponent *gear = EntityRegistry_GetGear(id);
+        if (gear && gear->lock_position)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Synchronise an entity's physical state (reverting flags, velocity, sensor rules) when a
+// component is detached. The position lock is now released UNLESS some OTHER surviving
+// constraining component still opts into it (resolved lock_position), rather than keying on
+// mere component presence, so detaching does not strand a lock the user never asked for.
 void EntityLifecycle_ApplyDetachedComponent(Newtonoid2d *entity, EntityComponentType type)
 {
     if (!entity)
@@ -641,29 +706,26 @@ void EntityLifecycle_ApplyDetachedComponent(Newtonoid2d *entity, EntityComponent
             entity->collision_role_mask = ENTITY_DEFAULT_COLLISION_ROLE_MASK;
         }
 
-        // Release position lock only if neither rotor nor gear is still attached.
-        if (!EntityRegistry_HasComponent(entity->id, ENTITY_COMPONENT_ROTOR) &&
-            !EntityRegistry_HasComponent(entity->id, ENTITY_COMPONENT_GEAR))
+        // Release position lock unless another surviving component still wants it.
+        if (!AnyOtherAttachedComponentWantsLock(entity->id, ENTITY_COMPONENT_PORTAL))
         {
             entity->constraints &= ~ENTITY_CONSTRAINT_POSITION_LOCKED;
         }
         break;
 
     case ENTITY_COMPONENT_ROTOR:
-        // Stop active rotation and release position lock if unconstrained.
+        // Stop active rotation and release position lock unless another component wants it.
         entity->angular_velocity = 0.0f;
-        if (!EntityRegistry_HasComponent(entity->id, ENTITY_COMPONENT_PORTAL) &&
-            !EntityRegistry_HasComponent(entity->id, ENTITY_COMPONENT_GEAR))
+        if (!AnyOtherAttachedComponentWantsLock(entity->id, ENTITY_COMPONENT_ROTOR))
         {
             entity->constraints &= ~ENTITY_CONSTRAINT_POSITION_LOCKED;
         }
         break;
 
     case ENTITY_COMPONENT_GEAR:
-        // Stop active rotation and release position lock if unconstrained.
+        // Stop active rotation and release position lock unless another component wants it.
         entity->angular_velocity = 0.0f;
-        if (!EntityRegistry_HasComponent(entity->id, ENTITY_COMPONENT_PORTAL) &&
-            !EntityRegistry_HasComponent(entity->id, ENTITY_COMPONENT_ROTOR))
+        if (!AnyOtherAttachedComponentWantsLock(entity->id, ENTITY_COMPONENT_GEAR))
         {
             entity->constraints &= ~ENTITY_CONSTRAINT_POSITION_LOCKED;
         }

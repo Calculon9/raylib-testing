@@ -40,6 +40,14 @@ typedef struct GearComponent
     int rotation_sign;            // +1 / -1 handedness propagated along the train (meshed externals oppose).
     int mesh_partner_count;       // Number of valid entries in mesh_partners.
     EntityId mesh_partners[GEAR_MAX_MESH_PARTNERS]; // Currently engaged neighbour gears.
+
+    // --- Resolved physics-flag policy (opt-in; copied from GearComponentParams) ---
+    // Held on the component so the attach/detach lifecycle hooks read a single resolved
+    // source rather than re-deriving. The create/parse path defaults these to historic
+    // behaviour (lock_position=true, auto_spin=true); the attach path may opt out.
+    bool lock_position;           // true: attach locks the body in place (POSITION_LOCKED).
+    bool auto_spin;               // true: attach seeds angular_velocity when the body is still.
+    float spin_rate;              // Auto-spin seed in rad/s; <= 0 means "use the historic 2.0f default".
 } GearComponent;
 
 // Configurable gear component values supplied by a prefab or caller. Only the authored
@@ -51,6 +59,13 @@ typedef struct GearComponentParams
     float module;                 // Gear module (tooth pitch); must be > 0.
     bool is_driver;               // Whether this gear is a torque source.
     float drive_angular_velocity; // Initial driver spin rate (rad/s); 0 for driven gears.
+
+    // --- Opt-in physics-flag policy (default to historic behaviour on the create path) ---
+    // The create/parse path must set lock_position=true and auto_spin=true explicitly (C
+    // zero-initialises omitted fields to false), preserving today's locked+spinning gear.
+    bool lock_position;           // true: attaching the gear locks the body's position.
+    bool auto_spin;               // true: attaching seeds angular_velocity when the body is still.
+    float spin_rate;              // Auto-spin seed in rad/s; <= 0 means "use the historic 2.0f default".
 } GearComponentParams;
 
 // Create an allocated gear entity from the supplied creation parameters.

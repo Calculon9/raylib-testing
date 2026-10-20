@@ -44,7 +44,6 @@ Newtonoid2d *GearEntity_Create(const Newtonoid2dParams *params)
     }
 
     entity->shape_type = SHAPE_GEAR;
-    EntityLifecycle_ApplyAttachedComponent(entity, ENTITY_COMPONENT_GEAR, NULL);
     Newtonoid_ConfigureRestitution(entity, params->restitution);
     Newtonoid_ConfigureFriction(entity, params->friction);
     return entity;
@@ -71,6 +70,11 @@ bool GearComponent_Initialise(GearComponent *component, const GearComponentParam
         // Runtime engagement state starts empty; the gear system fills it each frame.
         .rotation_sign = 1,
         .mesh_partner_count = 0,
-        .mesh_partners = {0}};
+        .mesh_partners = {0},
+        // Resolved physics-flag policy; defaulting happens at the param-construction/parse
+        // sites, so copy the caller's choice verbatim here.
+        .lock_position = params->lock_position,
+        .auto_spin = params->auto_spin,
+        .spin_rate = params->spin_rate};
     return true;
 }

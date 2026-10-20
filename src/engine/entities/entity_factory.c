@@ -90,7 +90,8 @@ Newtonoid2d *EntityFactory_Create(const EntityCreateParams *params)
     if (component_attached && (params->component_flags & CREATION_COMPONENT_ROTOR))
     {
         RotorComponent rotor = {0};
-        component_attached = EntityRegistry_AttachRotor(id, &rotor);
+        component_attached = RotorComponent_Initialise(&rotor, &params->rotor_params) &&
+                             EntityRegistry_AttachRotor(id, &rotor);
         if (component_attached)
         {
             EntityLifecycle_ApplyAttachedComponent(entity, ENTITY_COMPONENT_ROTOR, &rotor);

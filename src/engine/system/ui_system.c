@@ -111,6 +111,9 @@ static void InitUIPalettes(void)
     ui_classic_palette.input_fill = MakeColour(245, 241, 230, 255);
     ui_classic_palette.button_border = MakeColour(32, 42, 37, 255);
     ui_classic_palette.button_fill = MakeColour(230, 194, 119, 255);
+    // Toggle fills: ON reuses the amber button fill; OFF is the same hue dimmed towards the panel.
+    ui_classic_palette.toggle_on_fill = MakeColour(230, 194, 119, 255);
+    ui_classic_palette.toggle_off_fill = MakeColour(156, 132, 81, 255);
     ui_classic_palette.text = MakeColour(32, 42, 37, 255);
     ui_classic_palette.label_text = MakeColour(255, 255, 255, 255);
     ui_classic_palette.text_on_dark = MakeColour(245, 241, 230, 255);
@@ -126,6 +129,9 @@ static void InitUIPalettes(void)
     ui_earth_palette.input_fill = MakeColour(242, 211, 172, 255);
     ui_earth_palette.button_border = MakeColour(38, 101, 115, 255);
     ui_earth_palette.button_fill = MakeColour(166, 109, 60, 255);
+    // Toggle fills: ON reuses the terracotta button fill; OFF is the same hue dimmed towards the panel.
+    ui_earth_palette.toggle_on_fill = MakeColour(166, 109, 60, 255);
+    ui_earth_palette.toggle_off_fill = MakeColour(112, 74, 41, 255);
     ui_earth_palette.text = MakeColour(38, 101, 115, 255);
     ui_earth_palette.label_text = MakeColour(166, 109, 60, 255);
     ui_earth_palette.text_on_dark = MakeColour(242, 211, 172, 255);
@@ -141,7 +147,11 @@ static void InitUIPalettes(void)
     ui_harbor_palette.input_fill = MakeColour(239, 221, 184, 255);
     ui_harbor_palette.button_border = MakeColour(28, 58, 67, 255);
     ui_harbor_palette.button_fill = MakeColour(220, 158, 70, 255);
-    ui_harbor_palette.text = MakeColour(28, 58, 67, 255);
+    // Toggle fills: ON reuses the amber button fill; OFF is the same amber hue dimmed towards the panel.
+    ui_harbor_palette.toggle_on_fill = MakeColour(220, 158, 70, 255);
+    ui_harbor_palette.toggle_off_fill = MakeColour(150, 108, 48, 255);
+    // Contrast bump: near-black dark-teal ink (hue preserved) reads crisply on the sage container fill.
+    ui_harbor_palette.text = MakeColour(18, 30, 34, 255);
     ui_harbor_palette.label_text = MakeColour(220, 158, 70, 255);
     ui_harbor_palette.text_on_dark = MakeColour(239, 221, 184, 255);
     ui_harbor_palette.error = MakeColour(230, 41, 55, 255);
@@ -156,6 +166,9 @@ static void InitUIPalettes(void)
     ui_meadow_palette.input_fill = MakeColour(245, 241, 230, 255);
     ui_meadow_palette.button_border = MakeColour(38, 101, 115, 255);
     ui_meadow_palette.button_fill = MakeColour(230, 194, 119, 255);
+    // Toggle fills: ON reuses the amber button fill; OFF is the same hue dimmed towards the panel.
+    ui_meadow_palette.toggle_on_fill = MakeColour(230, 194, 119, 255);
+    ui_meadow_palette.toggle_off_fill = MakeColour(156, 132, 81, 255);
     ui_meadow_palette.text = MakeColour(32, 42, 37, 255);
     ui_meadow_palette.label_text = MakeColour(38, 101, 115, 255);
     ui_meadow_palette.text_on_dark = MakeColour(245, 241, 230, 255);
