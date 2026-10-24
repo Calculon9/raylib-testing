@@ -32,7 +32,10 @@ typedef enum
     POPUP_MENU_RECENT_VIEW,
     // Left-panel ancestry view: read-only display of the selected entity's ancestry
     // chain and relation. Appended LAST so no existing enumerator value shifts.
-    LPANEL_ANCESTRY_VIEW
+    LPANEL_ANCESTRY_VIEW,
+    // Entity Mgmt ancestry view: the state-manager's own read-only ancestry chain and
+    // relation display (the fifth view). Appended LAST so no existing enumerator value shifts.
+    STATE_MANAGER_ANCESTRY_VIEW
 } ViewType;
 
 //----------------------------------------------------------------------------------

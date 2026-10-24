@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-    <!-- Describes the state-manager panel; runtime wiring is in state_manager_system.c. -->
-    <!-- Views: PHYS, ATTRI, WORLD, CELL.                                                -->
+    <!-- Describes the state-manager panel; runtime wiring is in state_manager_system.c.   -->
+    <!-- Presented to the user as 'Entity Mgmt' and mounted on the former left-panel slot.  -->
+    <!-- Views: PHYS, ATTRI, WORLD, CELL, ANCESTRY.                                          -->
     <!--                                                                                 -->
     <!-- Stage 1 of the XML migration: InitStateManagerSystem loads this markup through  -->
     <!-- the generic UI loader (mirroring InitLPanel), then an id-registration pass       -->
@@ -30,6 +31,7 @@
         <Option text="ATTRI" view="attri_view" />
         <Option text="WORLD" view="world_view" />
         <Option text="CELL" view="cell_view" />
+        <Option text="ANCESTRY" view="ancestry_view" />
     </ViewSelector>
 
     <!-- ================= PHYS view ================= -->
@@ -151,6 +153,24 @@
             <Button type="simple" id="sm_cell_walkable" text="WALKABLE" />
             <Button type="simple" id="sm_cell_hazard" text="HAZARD" />
             <Button type="simple" id="sm_cell_spawn" text="SPAWN" />
+        </Container>
+    </View>
+
+    <!-- ================= ANCESTRY view ================= -->
+    <!-- Read-only display of the primary selection's ancestry chain and relation, migrated from -->
+    <!-- the former left panel. All rows are readonly <Textbox> controls carrying binding= (a    -->
+    <!-- value SOURCE only); the binding core refreshes each per frame from its BIND_STRING query -->
+    <!-- shim. Six pre-declared line slots cover the chain; lines beyond its length render blank. -->
+    <View id="ancestry_view" type="STATE_MANAGER_ANCESTRY_VIEW" enabled="false" scroll="x" layout="inline">
+        <Container id="ancestry" title="Ancestry" width="hug" height="fill" layout="stack_wrap">
+            <Textbox id="ancestry_selected" io="readonly" binding="ancestry.selected" size="5.25,0.5" width="fixed" height="fixed" />
+            <Textbox id="ancestry_line0" io="readonly" binding="ancestry.line0" size="5.25,0.5" width="fixed" height="fixed" />
+            <Textbox id="ancestry_line1" io="readonly" binding="ancestry.line1" size="5.25,0.5" width="fixed" height="fixed" />
+            <Textbox id="ancestry_line2" io="readonly" binding="ancestry.line2" size="5.25,0.5" width="fixed" height="fixed" />
+            <Textbox id="ancestry_line3" io="readonly" binding="ancestry.line3" size="5.25,0.5" width="fixed" height="fixed" />
+            <Textbox id="ancestry_line4" io="readonly" binding="ancestry.line4" size="5.25,0.5" width="fixed" height="fixed" />
+            <Textbox id="ancestry_line5" io="readonly" binding="ancestry.line5" size="5.25,0.5" width="fixed" height="fixed" />
+            <Textbox id="ancestry_relation" io="readonly" binding="ancestry.relation" size="5.25,0.5" width="fixed" height="fixed" />
         </Container>
     </View>
 </ViewHost>
