@@ -654,7 +654,9 @@ void InitUI(void)
     // Init Global UI State
     UIState_SetSelection(NULL, NULL, -1);
     G_UIState.focused_element = NULL;
-    InitLPanel();
+    // The lpanel is retired: it is no longer mounted in the UI lifecycle. Its files (and the
+    // space-basis getters) are kept only so diagnostics.c still links against the lpanel-space
+    // debug-basis target; the lpanel's viewport slot now hosts the Entity Mgmt panel.
     InitUtilityPanel();
     InitRPanel();
     InitStateManagerSystem();
@@ -677,8 +679,8 @@ void DestroyUI(void)
     // Clear popup visibility and submenu state while its elements are still valid.
     HidePopupMenu();
 
-    // Each panel owns and disposes its root, views, selectors, and cached pointers.
-    DestroyLPanel();
+    // Each panel owns and disposes its root, views, selectors, and cached pointers. The lpanel is
+    // retired (never initialised), so it is not destroyed here.
     DestroyRPanel();
     DestroyUtilityPanel();
     DestroyPopupMenu();
@@ -734,8 +736,9 @@ InputRouteResult UpdateUISystem(const InputFrame *input)
     int mouse_x = (int)input->pointer_position.x;
     int mouse_y = (int)input->pointer_position.y;
     UIElement *popup_root = GetPopupMenuRoot();
+    // The lpanel is retired, so its viewport is not hit-tested here; the Entity Mgmt (state
+    // manager) panel now covers that region and is hit-tested via GetStateManagerRoot.
     bool cursor_in_ui = ViewportRegion_ContainsPixel(&toolbar_viewport, input->pointer_position) ||
-                        ViewportRegion_ContainsPixel(&lpanel_viewport, input->pointer_position) ||
                         ViewportRegion_ContainsPixel(&rpanel_viewport, input->pointer_position) ||
                         ViewportRegion_ContainsPixel(&entity_panel_viewport, input->pointer_position) ||
                         ViewportRegion_ContainsPixel(&utility_panel_viewport, input->pointer_position) ||
@@ -789,7 +792,7 @@ InputRouteResult UpdateUISystem(const InputFrame *input)
 
 void DrawUI()
 {
-    DrawLPanel();
+    // The lpanel is retired (never initialised), so it is not drawn here.
     DrawRPanel();
     DrawStateManagerSystem();
     DrawUtilityPanel();
@@ -879,9 +882,10 @@ void UpdateGlobalUIState()
     // ----DEBUG //
 
     // COLLECT & UPDATE EDITING ENTITY PROPERTIES
-    // Determine if the Edit View is active.
+    // The lpanel DRAW edit view has been retired, so the editor fields are never the active view
+    // now; refresh with the edit view inactive so the fields stay cleared/idle.
     EntityCreateParams *params = G_UIState.entity_create_params;
-    bool edit_view_active = G_UIState.active_view == LPANEL_DRAW_VIEW;
+    bool edit_view_active = false;
     RefreshEntityEditorFields(edit_view_active, params);
 }
 

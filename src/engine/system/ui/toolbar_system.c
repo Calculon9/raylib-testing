@@ -25,6 +25,7 @@ input.
 #include "system/viewport_system.h"
 #include "system/ui_system.h"
 #include "system/command_system.h"      // CommandSystem_ResolveString (shared command resolver)
+#include "system/debug_overlay_system.h" // DebugOverlayId / IsDebugEnabled (toggle display source)
 #include "common/common.h"               // PI, ZERO_VECTOR_2D, LOG_ERROR
 #include "ui/ui.h"
 #include "ui/binding.h"
@@ -100,16 +101,64 @@ static BindingValue Toolbar_QueryToolActive(int tool_key)
 }
 
 // ============================================================================
+// Debug-toggle display machinery (rehomed from the retired lpanel STATE view)
+// ============================================================================
+
+// Map a toggle binding suffix to its DebugOverlayId. The three authored namespaces name each
+// toggle's true category and state owner (gizmo.* object overlays, view.* view/display settings,
+// debug.* developer diagnostics); all resolve through the DebugOverlayId facade + IsDebugEnabled,
+// so this mapping is purely about honest naming, not wiring. Returns false (leaving *out
+// untouched) for an unrecognised suffix so the caller can report the binding as unresolved.
+static bool Toolbar_ResolveOverlayName(const char *suffix, DebugOverlayId *out)
+{
+    if (!suffix || !out)
+        return false;
+
+    // debug.* (diagnostics)
+    if (!strcmp(suffix, "dashboard"))                 { *out = DEBUG_DASHBOARD;            return true; }
+    // view.* (view/display settings)
+    if (!strcmp(suffix, "viewport-grid"))             { *out = DEBUG_VIEWPORT_GRID;        return true; }
+    if (!strcmp(suffix, "world-grid"))                { *out = DEBUG_WORLD_GRID;           return true; }
+    if (!strcmp(suffix, "world-grid-labels"))         { *out = DEBUG_WORLD_GRID_LABELS;    return true; }
+    if (!strcmp(suffix, "universe-grid-labels"))      { *out = DEBUG_UNIVERSE_GRID_LABELS; return true; }
+    if (!strcmp(suffix, "ui-borders"))                { *out = DEBUG_UI_BORDERS;           return true; }
+    // gizmo.* (object inspection overlays)
+    if (!strcmp(suffix, "object-axes"))               { *out = DEBUG_OBJECT_AXES;          return true; }
+    if (!strcmp(suffix, "object-hull"))               { *out = DEBUG_OBJECT_HULL;          return true; }
+    if (!strcmp(suffix, "object-aabb"))               { *out = DEBUG_OBJECT_AABB;          return true; }
+
+    return false; // Unrecognised overlay name
+}
+
+// Query shim matching BindingQueryFn (BindingValue(int)): report whether the keyed debug overlay
+// is enabled, normalised to a canonical 0/1 BIND_INT so the bound toggle renders pressed/unpressed
+// (and its base-name text + amber-on/dim-off fill). The key carries the DebugOverlayId.
+static BindingValue Toolbar_QueryDebugEnabled(int overlay_key)
+{
+    return (BindingValue){ .type = BIND_INT,
+                           .as.i = IsDebugEnabled((DebugOverlayId)overlay_key) ? 1 : 0 };
+}
+
+// ============================================================================
 // UI loader resolvers (application-specific)
 // ============================================================================
 
-// Resolve a toolbar button's binding= name to a live query source over UIState_IsToolActive.
-// "tool.nudge" maps to the Nudge tool; anything else is unresolved.
+// Resolve a toolbar button's binding= name to a live query source. "tool.nudge" maps to the Nudge
+// tool's active-state query (radio-exclusive, unchanged). The gizmo.* / view.* / debug.* toggle
+// namespaces (rehomed from the lpanel STATE view) strip their prefix, resolve the suffix to a
+// DebugOverlayId and return a query over Toolbar_QueryDebugEnabled; an unknown overlay name is
+// unresolved. Anything else is unresolved.
 static UIBinding Toolbar_ResolveBinding(const char *binding_string, UILoaderContext *ctx)
 {
     (void)ctx;
 
-    if (binding_string && !strcmp(binding_string, "tool.nudge"))
+    if (!binding_string)
+    {
+        return (UIBinding){ .kind = UI_BIND_SRC_NONE };
+    }
+
+    // Nudge tool: radio-exclusive active-state source (kept unchanged).
+    if (!strcmp(binding_string, "tool.nudge"))
     {
         return (UIBinding){
             .kind = UI_BIND_SRC_QUERY,
@@ -117,6 +166,29 @@ static UIBinding Toolbar_ResolveBinding(const char *binding_string, UILoaderCont
             .query_key = (int)TOOL_NUDGE,
             .value_type = BIND_INT,
         };
+    }
+
+    // Debug-toggle namespaces: the prefix names the toggle's true category, the suffix is the
+    // overlay name. Each resolves to a live query over IsDebugEnabled (via the overlay facade).
+    const char *suffix = NULL;
+    if      (!strncmp(binding_string, "gizmo.", 6)) suffix = binding_string + 6;
+    else if (!strncmp(binding_string, "view.", 5))  suffix = binding_string + 5;
+    else if (!strncmp(binding_string, "debug.", 6)) suffix = binding_string + 6;
+
+    if (suffix)
+    {
+        DebugOverlayId id;
+        if (Toolbar_ResolveOverlayName(suffix, &id))
+        {
+            return (UIBinding){
+                .kind = UI_BIND_SRC_QUERY,
+                .query = Toolbar_QueryDebugEnabled,
+                .query_key = (int)id,
+                .value_type = BIND_INT,
+            };
+        }
+        // Unknown overlay name -> unresolved (loader warns).
+        return (UIBinding){ .kind = UI_BIND_SRC_NONE };
     }
 
     return (UIBinding){ .kind = UI_BIND_SRC_NONE };

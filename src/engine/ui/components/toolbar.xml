@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
-    <!-- Vertical tool toolbar: a thin far-left band of radio-exclusive tool toggle buttons. -->
-    <!-- Runtime construction is in toolbar_system.c. Each tool button carries binding= (a value -->
-    <!-- SOURCE reporting whether that tool is active, driving the pressed/unpressed visual) and -->
-    <!-- action= (a command that sets the active tool radio-exclusively), mirroring the lpanel -->
-    <!-- debug-toggle buttons. Buttons are stacked vertically as a single column of small squares. -->
+    <!-- Far-left toolbar band hosting a tool plus labelled on/off toggles. Runtime construction -->
+    <!-- is in toolbar_system.c. The first group is the radio-exclusive Nudge TOOL button (binding= -->
+    <!-- reports whether that tool is active; action= sets it radio-exclusively). A thin separator -->
+    <!-- then splits it from the second group: the nine INDEPENDENT visual toggles rehomed from the -->
+    <!-- retired lpanel STATE view. Each toggle carries binding= (its debug.*/view.*/gizmo.* display -->
+    <!-- source over IsDebugEnabled, rendered as base-name text + amber-on/dim-off fill) and action= -->
+    <!-- (toggle-* resolved by the shared command system). Elements are stacked vertically. -->
 <Container id="toolbar" title="" layout="stacked" width="fill" height="fill">
     <!-- Icon-only tool button. NO binding= here on purpose: a binding= display source makes the -->
     <!-- per-frame refresh walk WRITE the button's text (e.g. ": ON"/": OFF"), which a text="" -->
@@ -12,4 +14,18 @@
     <!-- is the glyph's look, not text. action="tool-nudge" still sets the active tool on click. -->
     <!-- surface="input" gives the flat info-strip tint (vs the bright BUTTON surface). -->
     <Button id="tool_nudge" type="simple" text="" surface="input" action="tool-nudge" size="0.8,0.45" />
+
+    <!-- Thin empty separator so the tool and the toggle group read as two distinct bands. -->
+    <Label id="toolbar_separator" text="" size="5.25,0.25" width="fixed" height="fixed" />
+
+    <!-- The nine independent visual toggles (rehomed from lpanel.xml's state_view). -->
+    <Button type="simple" text="Dashboard" binding="debug.dashboard" action="toggle-debug-dashboard" size="5.25,0.5" width="fixed" height="fixed" />
+    <Button type="simple" text="Viewport Grid" binding="view.viewport-grid" action="toggle-viewport-grid" size="5.25,0.5" width="fixed" height="fixed" />
+    <Button type="simple" text="World Grid" binding="view.world-grid" action="toggle-world-grid" size="5.25,0.5" width="fixed" height="fixed" />
+    <Button type="simple" text="World Grid Labels" binding="view.world-grid-labels" action="toggle-world-grid-labels" size="5.25,0.5" width="fixed" height="fixed" />
+    <Button type="simple" text="Universe Grid Labels" binding="view.universe-grid-labels" action="toggle-universe-grid-labels" size="5.25,0.5" width="fixed" height="fixed" />
+    <Button type="simple" text="UI Borders" binding="view.ui-borders" action="toggle-ui-borders" size="5.25,0.5" width="fixed" height="fixed" />
+    <Button type="simple" text="Object Axes" binding="gizmo.object-axes" action="toggle-object-axes" size="5.25,0.5" width="fixed" height="fixed" />
+    <Button type="simple" text="Object Hull" binding="gizmo.object-hull" action="toggle-object-hull" size="5.25,0.5" width="fixed" height="fixed" />
+    <Button type="simple" text="Object AABB" binding="gizmo.object-aabb" action="toggle-object-aabb" size="5.25,0.5" width="fixed" height="fixed" />
 </Container>

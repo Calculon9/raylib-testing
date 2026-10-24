@@ -39,11 +39,12 @@ ViewportRegion toolbar_viewport = {0};
 // panels reserving their own screen region rather than overlaying the world.
 static const float info_strip_logical_height = 0.6f;
 
-// Fixed logical width (game units) of the thin far-left toolbar band. Sized to fit a single column
-// of tool buttons whose labels (e.g. "Nudge") are legible; the left panel (and therefore the world
-// viewport, which derives its left edge from the left panel) is shifted right by this width so
-// nothing overlaps. Buttons inside the band are width="fill" so they span this width.
-static const float toolbar_logical_width = 0.95f;
+// Fixed logical width (game units) of the far-left toolbar band. The band now hosts the Nudge tool
+// plus a column of labelled on/off toggles (rehomed from the retired lpanel STATE view), so it is
+// sized to fit the widest label ("Universe Grid Labels"): 5.5 = the 5.25 fixed button width plus a
+// little padding. The left panel (and therefore the world viewport, which derives its left edge
+// from the left panel) is shifted right by this width so nothing overlaps.
+static const float toolbar_logical_width = 5.5f;
 
 // ============================================================================
 // Viewport Basis Vectors (used by SetViewportSpaceBasis / ResetViewportSpaceBasis)

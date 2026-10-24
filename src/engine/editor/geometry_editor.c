@@ -20,9 +20,12 @@ static bool GeometryEditor_IsEnabled(const World2d *world, const Newtonoid2d *se
 {
     // selected_object is already existence-validated by UIState_GetSelectedObject, so a
     // NULL check here is equivalent to (and far cheaper than) a universe-wide entity scan.
-    return world && world->mode == PAUSED &&
-           Universe_IsEntityOwnedByWorld(&G_Universe, world, selected_object) &&
-           G_UIState.active_view == LPANEL_DRAW_VIEW;
+    // The lpanel DRAW view (the former gate for geometry editing) has been retired, so geometry
+    // editing is currently disabled; the remaining preconditions are kept for when a replacement
+    // edit mode re-enables it.
+    (void)world;
+    (void)selected_object;
+    return false;
 }
 
 static void RefreshObjectGeometry(World2d *world, Newtonoid2d *object,

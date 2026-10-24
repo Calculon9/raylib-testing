@@ -723,12 +723,13 @@ void InitTextBuffers(UIElement *e, Text_64_IOState *t_bufs)
 
 UIElement *ResolveUIRootTarget(Vector2d mouse_coords)
 {
+    // The lpanel is retired (never mounted), so GetLPanelRoot() is not hit-tested here; the state
+    // manager (Entity Mgmt) root now covers that region.
     UIElement *roots[] = {
         GetPopupMenuRoot(),
         GetUtilityPanelRoot(),
         GetStateManagerRoot(),
         GetRPanelRoot(),
-        GetLPanelRoot(),
         GetToolbarRoot()};
 
     for (int i = 0; i < (int)ARRAY_COUNT(roots); i++)
