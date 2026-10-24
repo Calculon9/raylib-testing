@@ -63,15 +63,19 @@ static bool UIIcon_Fit(const UIElement *e, UIIconFit *out)
     return true;
 }
 
-// Resolve the ink a toggle glyph draws in. Design choice (recorded here): read e->colour_fill,
-// which the per-frame binding refresh (UIElement_RefreshBinding) already sets to the palette's
-// toggle_on_fill (bright, ON) or toggle_off_fill (dimmed, OFF) for a binding-bearing toggle. This
-// keeps the glyph tint in exact lock-step with the button fill and avoids duplicating the
-// name->DebugOverlayId mapping that Toolbar_ResolveOverlayName owns. The Nudge glyph does NOT use
-// this helper: its button carries no binding= and so has no toggle fill.
+// Resolve the ink a toggle glyph draws in. The glyph must CONTRAST with the button box it is
+// drawn on top of: the per-frame binding refresh (UIElement_RefreshBinding) fills the box with the
+// palette's toggle_on_fill (bright amber, ON) or toggle_off_fill (dim amber, OFF), so reading
+// e->colour_fill here would paint the glyph the exact colour of its box and render it invisible.
+// Use the palette's text ink (near-black, the same contrasting ink the Nudge glyph draws in when
+// inactive); it reads crisply against BOTH amber fills. The ON/OFF state is already conveyed by
+// the box fill, so a single constant contrasting ink is sufficient. The element carries no palette
+// handle, so ui_default_palette is read directly - matching the toolbar's existing fallback. The
+// Nudge glyph does NOT use this helper: it owns its own ink path (button_fill/text) in-line.
 static Color UIIcon_StateInk(const UIElement *e)
 {
-    return ToRaylibColor(e->colour_fill);
+    (void)e; // Ink no longer depends on the element's fill; kept for a uniform helper signature.
+    return ToRaylibColor(ui_default_palette.text);
 }
 
 // ============================================================================
