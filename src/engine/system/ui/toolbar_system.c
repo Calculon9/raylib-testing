@@ -18,8 +18,7 @@ input.
 #include <string.h>
 #include <math.h> // cosf / sinf
 
-#include "raylib.h"                      // DrawLineEx / DrawRectangleLinesEx / DrawCircleV, Vector2 / Color
-#include "system/draw_primitives.h"      // ToRaylibColor (ColourRgba -> raylib Color)
+#include "system/ui/ui_icons.h"          // UIIcon_Draw* glyphs (relocated Nudge + nine toggles)
 #include "system/ui/ui_loader.h"
 #include "system/view_host_system.h"
 #include "system/viewport_system.h"
@@ -204,88 +203,6 @@ static int Toolbar_ResolveCommand(const char *cmd_string, UILoaderContext *ctx)
 }
 
 // ============================================================================
-// Procedural icon (on_draw hook for the Nudge tool button)
-// ============================================================================
-
-// Draw the Nudge pictogram inside the element's box: an arrow pushing a small box with a couple
-// of motion dots trailing behind it. Monochrome, composed from raylib primitives and centred in
-// e->screen_box with padding. Attached via UIElement.on_draw so the renderer calls it on top of
-// the (flat) button box; no label is drawn because the button's text is empty.
-static void Toolbar_DrawNudgeIcon(UIElement *e)
-{
-    if (!e)
-    {
-        return;
-    }
-
-    // Pixel geometry of the host element.
-    float box_x = e->screen_box.coords.x;
-    float box_y = e->screen_box.coords.y;
-    float box_w = e->screen_box.dimensions.x;
-    float box_h = e->screen_box.dimensions.y;
-
-    // The toolbar tile is wide and short, so size the glyph off its HEIGHT (the limiting axis)
-    // and let it span most of that height; the composition is wider than tall and is centred
-    // horizontally in the (wider) box. Using ~0.8 of the height fills the tile instead of leaving
-    // the glyph tiny. glyph_size is the composition HEIGHT; width is derived from the layout.
-    float glyph_size = box_h * 0.8f;
-    if (glyph_size < 1.0f)
-    {
-        return; // Too small to render legibly.
-    }
-    // The composition spans ~1.6x its height horizontally (arrow + box + trailing dots). Centre
-    // that extent in the box.
-    float glyph_w = glyph_size * 1.6f;
-    float glyph_x = box_x + (box_w - glyph_w) * 0.5f;    // Left edge of the glyph extent.
-    float glyph_y = box_y + (box_h - glyph_size) * 0.5f; // Top edge of the glyph box.
-
-    // Active-tool feedback is the ICON's look (no text toggle on this button): draw in the bright
-    // button fill when Nudge is the active tool, otherwise the normal text ink. This is the
-    // radio-selected indicator for an icon-only button.
-    bool active = UIState_IsToolActive(TOOL_NUDGE);
-    Color ink = active ? ToRaylibColor(ui_default_palette.button_fill)
-                       : ToRaylibColor(ui_default_palette.text);
-    float stroke = fmaxf(1.5f, glyph_size * 0.12f);
-
-    // Vertical centre line of the whole composition.
-    float cy = glyph_y + glyph_size * 0.5f;
-
-    // Horizontal layout as fractions of the full composition WIDTH (glyph_w), left -> right:
-    //   arrow shaft : 0.00 .. 0.32
-    //   arrowhead tip: 0.38
-    //   box         : 0.42 .. 0.70 (its left side meets the arrow tip)
-    //   dots        : 0.82 and 0.96 (motion trail to the right of the box)
-    float arrow_start_x = glyph_x + glyph_w * 0.00f;
-    float arrow_tip_x   = glyph_x + glyph_w * 0.38f;
-    float box_left      = glyph_x + glyph_w * 0.42f;
-    float box_right     = glyph_x + glyph_w * 0.70f;
-
-    // --- Arrow shaft: a short horizontal line ending at the box's left edge. ---
-    DrawLineEx((Vector2){arrow_start_x, cy}, (Vector2){arrow_tip_x, cy}, stroke, ink);
-
-    // --- Arrowhead: two short diagonal strokes meeting at the tip (upper and lower). The head
-    //     reach scales with the composition HEIGHT so it stays proportional to the box. ---
-    float head_len = glyph_size * 0.18f; // Diagonal reach back from the tip.
-    DrawLineEx((Vector2){arrow_tip_x, cy},
-               (Vector2){arrow_tip_x - head_len, cy - head_len}, stroke, ink);
-    DrawLineEx((Vector2){arrow_tip_x, cy},
-               (Vector2){arrow_tip_x - head_len, cy + head_len}, stroke, ink);
-
-    // --- Box: a square outline whose left side sits just past the arrow tip. Its height is a
-    //     fraction of the composition HEIGHT so it reads as a chunky box. ---
-    float box_half = glyph_size * 0.28f; // Half the box height (square box).
-    Rectangle box_rect = { box_left, cy - box_half, box_right - box_left, box_half * 2.0f };
-    DrawRectangleLinesEx(box_rect, stroke, ink);
-
-    // --- Motion dots: two small filled dots trailing to the right of the box. ---
-    float dot_radius = fmaxf(1.0f, glyph_size * 0.09f);
-    float dot1_x = glyph_x + glyph_w * 0.82f;
-    float dot2_x = glyph_x + glyph_w * 0.96f;
-    DrawCircleV((Vector2){dot1_x, cy}, dot_radius, ink);
-    DrawCircleV((Vector2){dot2_x, cy}, dot_radius, ink);
-}
-
-// ============================================================================
 // Lifecycle
 // ============================================================================
 
@@ -329,14 +246,28 @@ void InitToolbar(void)
     ViewHostSystem_InitRoot(toolbar);      // Real UI_ELEMENT_ROOT + space + seed_box.
     AddElementToTree(root, toolbar->root);  // Re-parent XML container under the real root.
 
-    // 2b) Attach the procedural Nudge icon to the (icon-only) tool button by id. The button's
-    //     label text is empty in the markup, so the renderer draws the on_draw glyph on top of
-    //     the flat box. The binding="tool.nudge" / action="tool-nudge" wiring is untouched.
+    // 2b) Attach the procedural glyphs to their buttons by id (the glyphs now live in ui_icons.c).
+    //     Each button's label text is empty in the markup, so the renderer draws the on_draw glyph
+    //     on top of the flat box. Every binding=/action= wiring is untouched; only the on_draw hook
+    //     is added, one guarded line per button exactly as the Nudge button is wired.
     UIElement *nudge_btn = UILoader_FindById(root, "tool_nudge");
     if (nudge_btn)
     {
-        nudge_btn->on_draw = Toolbar_DrawNudgeIcon;
+        nudge_btn->on_draw = UIIcon_DrawNudge;
     }
+
+    // Toggle glyphs: look each up by id and attach its on_draw. The toggles keep their binding=,
+    // so each glyph tints itself from e->colour_fill (the refresh sets it to toggle_on_fill/off).
+    UIElement *b;
+    if ((b = UILoader_FindById(root, "toggle_dashboard")))            b->on_draw = UIIcon_DrawDashboard;
+    if ((b = UILoader_FindById(root, "toggle_viewport_grid")))        b->on_draw = UIIcon_DrawViewportGrid;
+    if ((b = UILoader_FindById(root, "toggle_world_grid")))           b->on_draw = UIIcon_DrawWorldGrid;
+    if ((b = UILoader_FindById(root, "toggle_world_grid_labels")))    b->on_draw = UIIcon_DrawWorldGridLabels;
+    if ((b = UILoader_FindById(root, "toggle_universe_grid_labels"))) b->on_draw = UIIcon_DrawUniverseGridLabels;
+    if ((b = UILoader_FindById(root, "toggle_ui_borders")))           b->on_draw = UIIcon_DrawUIBorders;
+    if ((b = UILoader_FindById(root, "toggle_object_axes")))          b->on_draw = UIIcon_DrawObjectAxes;
+    if ((b = UILoader_FindById(root, "toggle_object_hull")))          b->on_draw = UIIcon_DrawObjectHull;
+    if ((b = UILoader_FindById(root, "toggle_object_aabb")))          b->on_draw = UIIcon_DrawObjectAABB;
 
     // 3) Final layout update over the host's valid coordinate space.
     UpdateUISpace(toolbar->root, toolbar->seed_box);
