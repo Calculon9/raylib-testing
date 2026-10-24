@@ -179,7 +179,7 @@ static ViewType UILoader_LookupViewType(UILoaderContext *ctx, const UIElement *c
 static UIElement *UILoader_ParseElementNode(mxml_node_t *node, UIElement *parent, UILoaderContext *ctx);
 
 // Parser helper functions
-static const Spacing *UILoader_ParseLayout(const char *layout_str);
+static const Layout *UILoader_ParseLayout(const char *layout_str);
 
 // ============================================================================
 // Logging and Validation
@@ -818,7 +818,7 @@ static UIBuildResult BuildContainer(mxml_node_t *node, UIElement *parent,
     // consumed; the skeleton re-asserts the same enabled value afterwards (idempotent).
     UIElement *container = CreateUIContainer(parent, common->size, common->offset,
                             ui_standard_container_padding, palette,
-                            UI_PALETTE_SURFACE_CONTAINER, *common->layout,
+                            UI_PALETTE_SURFACE_CONTAINER, common->layout,
                             false, common->enabled);
     common->offset_consumed = true;
 
@@ -904,7 +904,7 @@ static UIBuildResult BuildView(mxml_node_t *node, UIElement *parent,
         ui_standard_container_padding,
         palette,
         UI_PALETTE_SURFACE_CONTAINER,
-        *common->layout,  // honour layout= (defaults to stack)
+        common->layout,  // honour layout= (defaults to stack)
         false,
         common->enabled   // honour enabled= (skeleton re-asserts the same value)
     );
@@ -945,18 +945,25 @@ static UIBuildResult BuildViewSelector(mxml_node_t *node, UIElement *parent,
         LOADER_WARNING(ctx, "Unrecognised view selector type; defaulting to enumerate");
     }
 
-    // Size and offset now come from the common pass (folded into the common-owns-it model).
-    // The registry seeds common.size with ui_standard_selector_container_size and the skeleton
-    // seeds the zero fixed offset, so attribute-less <ViewSelector> markup is byte-for-byte
-    // unchanged; only newly-authored size/offset/width/height take effect. The child spacing
-    // stays the hardcoded ui_zero_inline_spacing (a fixed horizontal toggle bar - layout
-    // authorability for the selector bar is intentionally NOT part of this change). The
-    // transparent surface, zero padding and colour_border styling are preserved exactly.
+    // Size and offset come from the common pass (folded into the common-owns-it model). The
+    // registry seeds common.size with ui_standard_selector_container_size and the skeleton seeds
+    // the zero fixed offset, so attribute-less <ViewSelector> markup is byte-for-byte unchanged.
+    //
+    // Child spacing (layout): the selector is AUTHORABLE now. When the markup supplies layout=,
+    // honour the resolved common->layout (e.g. inline_wrap so many tabs wrap onto a second row in
+    // a narrow panel); when layout= is ABSENT, keep the historic hardcoded ui_zero_inline_spacing
+    // (a tight non-wrapping horizontal toggle bar) so every existing selector is unchanged. We
+    // read the raw attribute to distinguish "authored" from "defaulted", because common->layout
+    // defaults to STACK when layout= is absent — using it unconditionally would wrongly flip every
+    // existing horizontal bar to a vertical stack. The transparent surface, zero padding and
+    // colour_border styling are preserved exactly.
+    const char *layout_attr = mxmlElementGetAttr(node, "layout");
+    Layout selector_spacing = layout_attr ? common->layout : ui_zero_inline_spacing;
     UIElement *toggle_cont = CreateUIContainer(
         parent, common->size,
         common->offset, ZERO_VECTOR_2D,
         palette, UI_PALETTE_SURFACE_TRANSPARENT,
-        ui_zero_inline_spacing, false, common->enabled);
+        selector_spacing, false, common->enabled);
     // Offset is passed into the constructor, so mark it consumed (no skeleton double-apply).
     common->offset_consumed = true;
 
@@ -1051,7 +1058,7 @@ static UIBuildResult BuildViewHost(mxml_node_t *node, UIElement *parent,
     UIElement *host = CreateUIContainer(parent, common->size,  // honour width=/height=/size= (defaults fill/fill)
                              common->offset,                    // honour offset=/offset-mode= (defaults zero fixed)
                              ui_standard_container_padding, palette,
-                             UI_PALETTE_SURFACE_CONTAINER, *common->layout,
+                             UI_PALETTE_SURFACE_CONTAINER, common->layout,
                              false, common->enabled);           // skeleton re-asserts the same enabled value
     common->offset_consumed = true;
 
@@ -1132,9 +1139,9 @@ static const UIElementBuilderRegistry *UILoader_FindBuilder(const char *tag_name
 // Common Attribute Extraction
 // ============================================================================
 
-// Helper: Parse layout attribute and return corresponding Spacing constant
+// Helper: Parse layout attribute and return corresponding Layout constant
 // Supported values: "stack", "stack_wrap", "inline_wrap"
-static const Spacing *UILoader_ParseLayout(const char *layout_str)
+static const Layout *UILoader_ParseLayout(const char *layout_str)
 {
     if (!layout_str)
         return &ui_standard_stack_spacing;  // Default
@@ -1156,6 +1163,41 @@ static const Spacing *UILoader_ParseLayout(const char *layout_str)
         return &ui_standard_inline_wrap_spacing;
     
     return &ui_standard_stack_spacing;  // Default
+}
+
+// Helper: Parse the gap= attribute into a per-axis spacing vector.
+// Accepts one or two space-separated floats (also tolerates comma separation to mirror the
+// size= convention): a single value mirrors to both axes; two values map to x then y.
+// Returns false when gap_str is NULL or no number could be parsed (caller keeps the preset
+// gap); returns true and writes *out when at least one value was parsed.
+static bool UILoader_ParseGap(const char *gap_str, Vector2d *out)
+{
+    if (!gap_str || !out)
+        return false;
+
+    float x = 0.0f, y = 0.0f;
+
+    // Prefer the space-separated offset-pair convention; fall back to comma separation so
+    // both "0.06 0.06" and "0.06,0.06" parse identically.
+    int parsed = sscanf(gap_str, "%f %f", &x, &y);
+    if (parsed < 2)
+        parsed = sscanf(gap_str, "%f,%f", &x, &y);
+
+    if (parsed == 2)
+    {
+        out->x = x;
+        out->y = y;
+        return true;
+    }
+    if (parsed == 1)
+    {
+        // A lone value applies to both axes.
+        out->x = out->y = x;
+        return true;
+    }
+
+    // Nothing parseable.
+    return false;
 }
 
 // Parse one per-axis mode keyword ("fixed"|"percent"|"fill"|"hug") into an AxisSizeMode.
@@ -1288,7 +1330,7 @@ static Vector2d UILoader_ParseSizeValues(const char *size_str)
 
 void UILoader_ExtractCommonAttrs(mxml_node_t *node, UILoaderContext *ctx, char *id_out,
                                  Size *size_out, Offset *offset_out,
-                                 bool *enabled_out, const Spacing **layout_out)
+                                 bool *enabled_out, Layout *layout_out)
 {
     if (!node)
         return;
@@ -1407,12 +1449,24 @@ void UILoader_ExtractCommonAttrs(mxml_node_t *node, UILoaderContext *ctx, char *
         *enabled_out = !enabled_attr || strcmp(enabled_attr, "false") != 0;  // Default true
     }
 
-    // Extract child spacing from layout=. Folding layout into the common pass makes it a
-    // single common concern; UILoader_ParseLayout returns a shared Spacing constant (never
-    // NULL, defaulting to &ui_standard_stack_spacing), so the field is always populated.
+    // Extract the resolved layout from layout= (plus an optional gap= override). The preset is
+    // copied BY VALUE so each element can carry its own gap without mutating the shared const
+    // presets. UILoader_ParseLayout never returns NULL (defaults to &ui_standard_stack_spacing),
+    // so the field is always populated. When gap= is present and parseable it overwrites only the
+    // gap vector; flow and gap_mode stay as the preset's values (literal units only for now).
     if (layout_out)
     {
-        *layout_out = UILoader_ParseLayout(mxmlElementGetAttr(node, "layout"));
+        *layout_out = *UILoader_ParseLayout(mxmlElementGetAttr(node, "layout"));
+
+        const char *gap_attr = mxmlElementGetAttr(node, "gap");
+        if (gap_attr)
+        {
+            Vector2d gap_override;
+            if (UILoader_ParseGap(gap_attr, &gap_override))
+                layout_out->gap = gap_override;  // override only the gap; keep flow + gap_mode
+            else
+                LOADER_WARNING(ctx, "Unrecognised gap= value; keeping layout preset gap");
+        }
     }
 }
 

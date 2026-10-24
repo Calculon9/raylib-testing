@@ -33,7 +33,10 @@ typedef enum
     LPANEL_ANCESTRY_VIEW,
     // Entity Mgmt ancestry view: the state-manager's own read-only ancestry chain and
     // relation display (the fifth view). Appended LAST so no existing enumerator value shifts.
-    STATE_MANAGER_ANCESTRY_VIEW
+    STATE_MANAGER_ANCESTRY_VIEW,
+    // Entity Mgmt components view: the attach/remove component manager (Phase 1). Appended
+    // LAST so no existing enumerator value shifts.
+    STATE_MANAGER_COMPONENTS_VIEW
 } ViewType;
 
 //----------------------------------------------------------------------------------

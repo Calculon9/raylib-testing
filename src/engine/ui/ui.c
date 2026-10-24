@@ -9,7 +9,7 @@
 #include "system/ui_system.h" // UIPalette toggle fills + ui_default_palette for toggle-button fill
 #include "raylib.h"
 
-// Stacked-layout statistics for a SPACING_STACKED parent. Declared up here (rather than
+// Stacked-layout statistics for a FLOW_STACKED parent. Declared up here (rather than
 // beside its collector) so the MEASURE pass can derive the stacked-fill remainder from the
 // SAME helpers the DISTRIBUTE pass uses while keeping declaration-before-use in C.
 typedef struct StackedLayoutStats
@@ -22,9 +22,9 @@ typedef struct StackedLayoutStats
 // Forward declarations for the shared stacked-layout helpers. The MEASURE pass
 // (MeasureElementContent) is defined before these helpers but must call them so both passes
 // derive the stacked-fill remainder from one source of truth (see stackwrap-unify-design.md).
-static Vector2d ResolveSpacingStep(Spacing spacing, Vector2d content_area_local, OffsetMode offset_mode);
+static Vector2d ResolveGapStep(Layout layout, Vector2d content_area_local, OffsetMode offset_mode);
 static StackedLayoutStats CollectStackedLayoutStats(const UIElement *parent, float content_area_h);
-static float ResolveStackedFillHeightPerChild(StackedLayoutStats stats, float content_area_h, float spacing_y);
+static float ResolveStackedFillHeightPerChild(StackedLayoutStats stats, float content_area_h, float gap_y);
 static float ResolveStackedChildReceivedHeight(const UIElement *child,
                                                float parent_content_height,
                                                float fill_height_per_child);
@@ -182,8 +182,8 @@ static Vector2d MeasureInlineWrapContent(UIElement *element, float content_width
         return ZERO_VECTOR_2D;
     }
 
-    float spacing_x = element->child_spacing.spacing.x;
-    float spacing_y = element->child_spacing.spacing.y;
+    float gap_x = element->child_spacing.gap.x;
+    float gap_y = element->child_spacing.gap.y;
     float measured_width = 0.0f;
     float measured_height = 0.0f;
     float row_width = 0.0f;
@@ -195,21 +195,21 @@ static Vector2d MeasureInlineWrapContent(UIElement *element, float content_width
     {
         Vector2d child_size = ResolveMeasuredChildSize(child, content_width);
         bool needs_wrap = row_width > 0.0f &&
-                          row_width + spacing_x + child_size.x > wrap_width;
+                          row_width + gap_x + child_size.x > wrap_width;
         if (needs_wrap)
         {
             measured_width = fmaxf(measured_width, row_width);
             measured_height += row_height;
             if (completed_rows > 0)
             {
-                measured_height += spacing_y;
+                measured_height += gap_y;
             }
             completed_rows++;
             row_width = 0.0f;
             row_height = 0.0f;
         }
 
-        float child_x = row_width > 0.0f ? row_width + spacing_x : row_width;
+        float child_x = row_width > 0.0f ? row_width + gap_x : row_width;
         row_width = child_x + child_size.x;
         row_height = fmaxf(row_height, child_size.y);
     }
@@ -220,7 +220,7 @@ static Vector2d MeasureInlineWrapContent(UIElement *element, float content_width
         measured_height += row_height;
         if (completed_rows > 0)
         {
-            measured_height += spacing_y;
+            measured_height += gap_y;
         }
     }
 
@@ -235,8 +235,8 @@ static Vector2d MeasureStackedWrapContent(UIElement *element, float content_widt
         return ZERO_VECTOR_2D;
     }
 
-    float spacing_x = element->child_spacing.spacing.x;
-    float spacing_y = element->child_spacing.spacing.y;
+    float gap_x = element->child_spacing.gap.x;
+    float gap_y = element->child_spacing.gap.y;
 
     // Determine the height at which columns wrap, keyed on the parent's height mode. Two sources:
     //  * A capped HUG height (old SIZE_CONTENT_MAX) uses its authored height (known at
@@ -268,13 +268,13 @@ static Vector2d MeasureStackedWrapContent(UIElement *element, float content_widt
     {
         Vector2d child_size = ResolveMeasuredChildSize(child, content_width);
         bool needs_wrap = column_height > 0.0f &&
-                          column_height + spacing_y + child_size.y > column_height_limit;
+                          column_height + gap_y + child_size.y > column_height_limit;
         if (needs_wrap)
         {
             measured_width += column_width;
             if (column_count > 0)
             {
-                measured_width += spacing_x;
+                measured_width += gap_x;
             }
             measured_height = fmaxf(measured_height, column_height);
             column_count++;
@@ -282,7 +282,7 @@ static Vector2d MeasureStackedWrapContent(UIElement *element, float content_widt
             column_height = 0.0f;
         }
 
-        float child_y = column_height > 0.0f ? column_height + spacing_y : column_height;
+        float child_y = column_height > 0.0f ? column_height + gap_y : column_height;
         column_height = child_y + child_size.y;
         column_width = fmaxf(column_width, child_size.x);
     }
@@ -311,11 +311,11 @@ static Vector2d MeasureElementContent(UIElement *element, float parent_content_w
     float content_width = fmaxf(0.0f, element_width - (2.0f * element->padding.x));
     float content_height = fmaxf(0.0f, element_height - (2.0f * element->padding.y));
     Vector2d measured = ZERO_VECTOR_2D;
-    float spacing_x = element->child_spacing.spacing.x;
-    float spacing_y = element->child_spacing.spacing.y;
+    float gap_x = element->child_spacing.gap.x;
+    float gap_y = element->child_spacing.gap.y;
     int child_count = 0;
 
-    if (element->child_spacing.spacing_type == SPACING_STACKED)
+    if (element->child_spacing.flow == FLOW_STACKED)
     {
         // TWO-SUB-PASS MEASURE for stacked parents, so the stacked-fill remainder a
         // both-FILL child receives is derived from CURRENT-frame child measurements and
@@ -344,16 +344,16 @@ static Vector2d MeasureElementContent(UIElement *element, float parent_content_w
         }
 
         // Derive the single stacked-fill remainder ONCE (O(N)) from the SAME function and
-        // inputs DISTRIBUTE uses. The spacing MUST be the RESOLVED OFFSET_FIXED step so a
-        // PERCENT spacing_mode (scaled by the content area) cannot re-diverge the remainder
+        // inputs DISTRIBUTE uses. The gap MUST be the RESOLVED OFFSET_FIXED step so a
+        // PERCENT gap_mode (scaled by the content area) cannot re-diverge the remainder
         // vs DISTRIBUTE, which derives it the same way (see Finding 2). For NONE mode the
         // resolved value equals the raw member, so this is behaviour-preserving today.
-        Vector2d measure_spacing_step =
-            ResolveSpacingStep(element->child_spacing,
-                               (Vector2d){content_width, content_height}, OFFSET_FIXED);
+        Vector2d measure_gap_step =
+            ResolveGapStep(element->child_spacing,
+                           (Vector2d){content_width, content_height}, OFFSET_FIXED);
         StackedLayoutStats stats = CollectStackedLayoutStats(element, content_height);
         float stacked_fill_height_per_child =
-            ResolveStackedFillHeightPerChild(stats, content_height, measure_spacing_step.y);
+            ResolveStackedFillHeightPerChild(stats, content_height, measure_gap_step.y);
 
         // Sub-pass 2: re-measure ONLY both-FILL children against the stacked remainder so a
         // both-FILL child (the view) and its stack_wrap descendants wrap their columns
@@ -384,17 +384,17 @@ static Vector2d MeasureElementContent(UIElement *element, float parent_content_w
             child->measured_content_size = MeasureElementContent(child, child_width, child_height);
             Vector2d child_size = ResolveMeasuredChildSize(child, content_width);
 
-            if (element->child_spacing.spacing_type == SPACING_INLINE)
+            if (element->child_spacing.flow == FLOW_INLINE)
             {
                 measured.x += child_size.x;
                 measured.y = fmaxf(measured.y, child_size.y);
             }
-            else if (element->child_spacing.spacing_type == SPACING_INLINE_WRAP)
+            else if (element->child_spacing.flow == FLOW_INLINE_WRAP)
             {
                 // Inline-wrap measurement is repeated below with row boundaries.
                 measured = ZERO_VECTOR_2D;
             }
-            else if (element->child_spacing.spacing_type == SPACING_STACKED_WRAP)
+            else if (element->child_spacing.flow == FLOW_STACKED_WRAP)
             {
                 // Stacked-wrap measurement is repeated below with column boundaries.
                 measured = ZERO_VECTOR_2D;
@@ -409,25 +409,25 @@ static Vector2d MeasureElementContent(UIElement *element, float parent_content_w
         }
     }
 
-    if (element->child_spacing.spacing_type == SPACING_INLINE_WRAP)
+    if (element->child_spacing.flow == FLOW_INLINE_WRAP)
     {
         measured = MeasureInlineWrapContent(element, content_width);
     }
-    else if (element->child_spacing.spacing_type == SPACING_STACKED_WRAP)
+    else if (element->child_spacing.flow == FLOW_STACKED_WRAP)
     {
         measured = MeasureStackedWrapContent(element, content_width, content_height);
     }
-    // else if (element->child_spacing.spacing_type == SPACING_STACKED_SMART_WRAP)
+    // else if (element->child_spacing.flow == FLOW_STACKED_SMART_WRAP)
     // {
     //     Implement a "Claimed Space" system where you have allocated, claimed & unclaimed. If there's unclaimed space then another element can go there (if it fits).
     // }
-    else if (child_count > 1 && element->child_spacing.spacing_type == SPACING_INLINE)
+    else if (child_count > 1 && element->child_spacing.flow == FLOW_INLINE)
     {
-        measured.x += spacing_x * (child_count - 1);
+        measured.x += gap_x * (child_count - 1);
     }
-    else if (child_count > 1 && element->child_spacing.spacing_type == SPACING_STACKED)
+    else if (child_count > 1 && element->child_spacing.flow == FLOW_STACKED)
     {
-        measured.y += spacing_y * (child_count - 1);
+        measured.y += gap_y * (child_count - 1);
     }
 
     measured.x += element->padding.x * 2.0f;
@@ -465,22 +465,22 @@ static float ResolveOffsetToFixed(float offset, float content_extent, OffsetMode
     return safe_offset;
 }
 
-static Vector2d ResolveSpacingStep(Spacing spacing, Vector2d content_area_local, OffsetMode offset_mode)
+static Vector2d ResolveGapStep(Layout layout, Vector2d content_area_local, OffsetMode offset_mode)
 {
-    Vector2d result = spacing.spacing;
+    Vector2d result = layout.gap;
 
-    if (spacing.spacing_mode == PERCENT && offset_mode == OFFSET_FIXED)
+    if (layout.gap_mode == PERCENT && offset_mode == OFFSET_FIXED)
     {
         result.x *= content_area_local.x;
         result.y *= content_area_local.y;
     }
-    else if (spacing.spacing_mode == NONE && offset_mode == OFFSET_PERCENT)
+    else if (layout.gap_mode == NONE && offset_mode == OFFSET_PERCENT)
     {
         result.x = content_area_local.x > 0.0f ? result.x / content_area_local.x : 0.0f;
         result.y = content_area_local.y > 0.0f ? result.y / content_area_local.y : 0.0f;
     }
 
-    return result; // If modes match, no conversion needed, just return the raw spacing
+    return result; // If modes match, no conversion needed, just return the raw gap
 }
 
 // Resolve the vertical size used while distributing a child within a parent.
@@ -567,19 +567,19 @@ static StackedLayoutStats CollectStackedLayoutStats(const UIElement *parent, flo
     return stats;
 }
 
-static float ResolveStackedFillHeightPerChild(StackedLayoutStats stats, float content_area_h, float spacing_y)
+static float ResolveStackedFillHeightPerChild(StackedLayoutStats stats, float content_area_h, float gap_y)
 {
     if (stats.child_count <= 0 || stats.fill_count <= 0)
     {
         return 0.0f;
     }
 
-    float total_spacing = spacing_y * (stats.child_count - 1);
-    float remaining_space = fmaxf(0.0f, content_area_h - stats.occupied_height - total_spacing);
+    float total_gap = gap_y * (stats.child_count - 1);
+    float remaining_space = fmaxf(0.0f, content_area_h - stats.occupied_height - total_gap);
     return remaining_space / stats.fill_count;
 }
 
-// Resolve the content height a single child receives from a stacked (SPACING_STACKED)
+// Resolve the content height a single child receives from a stacked (FLOW_STACKED)
 // parent, i.e. the stacked-fill remainder for a both-FILL child, matching exactly what
 // DistributeChildrenStacked caches and ResolveElementBox consumes. This is the SINGLE
 // source of truth shared by the MEASURE pass (MeasureElementContent) and the
@@ -598,9 +598,9 @@ static float ResolveStackedFillHeightPerChild(StackedLayoutStats stats, float co
 // single both-FILL child; (2) a fill_height_per_child derived from the SAME-FRAME child
 // measurements — the MEASURE caller must measure the parent's children BEFORE computing
 // the stacked stats, so the HUG selector's measured_content_size.y is this frame's value,
-// not the previous frame's; and (3) the SAME resolved spacing step — both callers must
-// feed the remainder helper a spacing derived via ResolveSpacingStep(child_spacing, ...,
-// OFFSET_FIXED), not the raw member spacing, so PERCENT-mode spacing (scaled by content
+// not the previous frame's; and (3) the SAME resolved gap step — both callers must
+// feed the remainder helper a gap derived via ResolveGapStep(child_spacing, ...,
+// OFFSET_FIXED), not the raw member gap, so PERCENT-mode gap (scaled by content
 // area) cannot re-diverge the remainder.
 //
 //   child                : the child whose received height we want.
@@ -610,7 +610,7 @@ static float ResolveStackedFillHeightPerChild(StackedLayoutStats stats, float co
 //   fill_height_per_child: the parent's single stacked-remainder-per-fill-child, computed
 //                          ONCE by the caller via CollectStackedLayoutStats +
 //                          ResolveStackedFillHeightPerChild over same-frame measurements
-//                          and the resolved OFFSET_FIXED spacing step.
+//                          and the resolved OFFSET_FIXED gap step.
 // Returns the height the child should see on its height axis:
 //   * both-FILL child  -> fill_height_per_child (same value cached_stacked_fill_height holds);
 //   * any other child  -> ResolveChildHeight (fixed/percent/hug/measured), unchanged.
@@ -638,12 +638,12 @@ static float ResolveStackedChildReceivedHeight(const UIElement *child,
     return ResolveChildHeight(child, parent_content_height, fill_height_per_child);
 }
 
-static void DistributeChildrenNormal(UIElement *parent, Vector2d spacing_step_fixed, Vector2d spacing_step_percent)
+static void DistributeChildrenNormal(UIElement *parent, Vector2d gap_step_fixed, Vector2d gap_step_percent)
 {
     int child_count = 0;
     ForEachEnabledChild(parent, child)
     {
-        Vector2d step = child->resolved_offset.offset_mode == OFFSET_PERCENT ? spacing_step_percent : spacing_step_fixed;
+        Vector2d step = child->resolved_offset.offset_mode == OFFSET_PERCENT ? gap_step_percent : gap_step_fixed;
         Vector2d distributed = (Vector2d){step.x * child_count, step.y * child_count};
 
         child->resolved_offset.offset.x = child->authored_offset.offset.x + distributed.x;
@@ -652,13 +652,13 @@ static void DistributeChildrenNormal(UIElement *parent, Vector2d spacing_step_fi
     }
 }
 
-static void DistributeChildrenStacked(UIElement *parent, Vector2d content_area_local, Vector2d spacing_step_fixed)
+static void DistributeChildrenStacked(UIElement *parent, Vector2d content_area_local, Vector2d gap_step_fixed)
 {
     StackedLayoutStats stats = CollectStackedLayoutStats(parent, content_area_local.y);
     if (stats.child_count == 0)
         return;
 
-    float fill_height_per_child = ResolveStackedFillHeightPerChild(stats, content_area_local.y, spacing_step_fixed.y);
+    float fill_height_per_child = ResolveStackedFillHeightPerChild(stats, content_area_local.y, gap_step_fixed.y);
 
     // PASS 2: Position elements using a single unified cursor
     float cursor_y = 0.0f;
@@ -693,11 +693,11 @@ static void DistributeChildrenStacked(UIElement *parent, Vector2d content_area_l
         }
 
         // Advance single unified cursor
-        cursor_y += child_h + spacing_step_fixed.y;
+        cursor_y += child_h + gap_step_fixed.y;
     }
 }
 
-static void DistributeChildrenInline(UIElement *parent, Vector2d content_area_local, Vector2d spacing_step_fixed)
+static void DistributeChildrenInline(UIElement *parent, Vector2d content_area_local, Vector2d gap_step_fixed)
 {
     float cursor_x = 0.0f;
 
@@ -740,11 +740,11 @@ static void DistributeChildrenInline(UIElement *parent, Vector2d content_area_lo
             child_width = child->size.dimensions.x;
             break;
         }
-        cursor_x += child_width + spacing_step_fixed.x;
+        cursor_x += child_width + gap_step_fixed.x;
     }
 }
 
-static void DistributeChildrenInlineWrap(UIElement *parent, Vector2d content_area_local, Vector2d spacing_step_fixed)
+static void DistributeChildrenInlineWrap(UIElement *parent, Vector2d content_area_local, Vector2d gap_step_fixed)
 {
     float cursor_x = 0.0f;
     float cursor_y = 0.0f;
@@ -754,16 +754,16 @@ static void DistributeChildrenInlineWrap(UIElement *parent, Vector2d content_are
     {
         Vector2d child_size = ResolveChildSizeFixed(child, content_area_local, 0.0f);
         bool needs_wrap = cursor_x > 0.0f &&
-                          cursor_x + spacing_step_fixed.x + child_size.x > content_area_local.x;
+                          cursor_x + gap_step_fixed.x + child_size.x > content_area_local.x;
 
         if (needs_wrap)
         {
             cursor_x = 0.0f;
-            cursor_y += row_height + spacing_step_fixed.y;
+            cursor_y += row_height + gap_step_fixed.y;
             row_height = 0.0f;
         }
 
-        float child_x = cursor_x > 0.0f ? cursor_x + spacing_step_fixed.x : cursor_x;
+        float child_x = cursor_x > 0.0f ? cursor_x + gap_step_fixed.x : cursor_x;
         if (child->resolved_offset.offset_mode == OFFSET_PERCENT)
         {
             child->resolved_offset.offset = (Vector2d){
@@ -783,7 +783,7 @@ static void DistributeChildrenInlineWrap(UIElement *parent, Vector2d content_are
 }
 
 static void DistributeChildrenStackedWrap(UIElement *parent, Vector2d content_area_local,
-                                          Vector2d spacing_step_fixed)
+                                          Vector2d gap_step_fixed)
 {
     float cursor_x = 0.0f;
     float cursor_y = 0.0f;
@@ -793,16 +793,16 @@ static void DistributeChildrenStackedWrap(UIElement *parent, Vector2d content_ar
     {
         Vector2d child_size = ResolveChildSizeFixed(child, content_area_local, 0.0f);
         bool needs_wrap = cursor_y > 0.0f &&
-                          cursor_y + spacing_step_fixed.y + child_size.y > content_area_local.y;
+                          cursor_y + gap_step_fixed.y + child_size.y > content_area_local.y;
 
         if (needs_wrap)
         {
             cursor_y = 0.0f;
-            cursor_x += column_width + spacing_step_fixed.x;
+            cursor_x += column_width + gap_step_fixed.x;
             column_width = 0.0f;
         }
 
-        float child_y = cursor_y > 0.0f ? cursor_y + spacing_step_fixed.y : cursor_y;
+        float child_y = cursor_y > 0.0f ? cursor_y + gap_step_fixed.y : cursor_y;
         if (child->resolved_offset.offset_mode == OFFSET_PERCENT)
         {
             child->resolved_offset.offset = (Vector2d){
@@ -830,34 +830,34 @@ static void DistributeChildrenWithContentArea(UIElement *e, Vector2d content_are
         return;
     }
 
-    Spacing s = e->child_spacing;
-    if (s.spacing_type == SPACING_NONE)
+    Layout s = e->child_spacing;
+    if (s.flow == FLOW_NONE)
     {
         return;
     }
 
-    Vector2d spacing_step_fixed = ResolveSpacingStep(s, content_area_local, OFFSET_FIXED);
-    Vector2d spacing_step_percent = ResolveSpacingStep(s, content_area_local, OFFSET_PERCENT);
+    Vector2d gap_step_fixed = ResolveGapStep(s, content_area_local, OFFSET_FIXED);
+    Vector2d gap_step_percent = ResolveGapStep(s, content_area_local, OFFSET_PERCENT);
 
-    if (s.spacing_type == SPACING_NORMAL)
+    if (s.flow == FLOW_NORMAL)
     {
-        DistributeChildrenNormal(e, spacing_step_fixed, spacing_step_percent);
+        DistributeChildrenNormal(e, gap_step_fixed, gap_step_percent);
     }
-    else if (s.spacing_type == SPACING_STACKED)
+    else if (s.flow == FLOW_STACKED)
     {
-        DistributeChildrenStacked(e, content_area_local, spacing_step_fixed);
+        DistributeChildrenStacked(e, content_area_local, gap_step_fixed);
     }
-    else if (s.spacing_type == SPACING_INLINE)
+    else if (s.flow == FLOW_INLINE)
     {
-        DistributeChildrenInline(e, content_area_local, spacing_step_fixed);
+        DistributeChildrenInline(e, content_area_local, gap_step_fixed);
     }
-    else if (s.spacing_type == SPACING_INLINE_WRAP)
+    else if (s.flow == FLOW_INLINE_WRAP)
     {
-        DistributeChildrenInlineWrap(e, content_area_local, spacing_step_fixed);
+        DistributeChildrenInlineWrap(e, content_area_local, gap_step_fixed);
     }
-    else if (s.spacing_type == SPACING_STACKED_WRAP)
+    else if (s.flow == FLOW_STACKED_WRAP)
     {
-        DistributeChildrenStackedWrap(e, content_area_local, spacing_step_fixed);
+        DistributeChildrenStackedWrap(e, content_area_local, gap_step_fixed);
     }
 }
 
@@ -1508,7 +1508,7 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box)
         box.dimensions.x = remaining_w;
         box.dimensions.y = remaining_h;
 
-        if (element->parent && element->parent->child_spacing.spacing_type == SPACING_STACKED)
+        if (element->parent && element->parent->child_spacing.flow == FLOW_STACKED)
         {
             // The parent's own distribution pass already computed this for every FILL
             // child in one scan; reuse it instead of rescanning all siblings here.

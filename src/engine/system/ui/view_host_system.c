@@ -73,7 +73,7 @@ void ViewHostSystem_HandleViewSelected(View *view)
 }
 
 ViewHostSystem *ViewHostSystem_Create(ViewportRegion *viewport, float scale, Vector2d padding,
-                                const UIPalette *palette, Spacing root_child_spacing)
+                                const UIPalette *palette, Layout root_child_spacing)
 {
     ViewHostSystem *panel = (ViewHostSystem *)AllocateBytes(sizeof(ViewHostSystem));
     if (!panel)
@@ -800,7 +800,7 @@ void ViewHostSystem_ResetSpaceBasis(ViewHostSystem *panel)
 ViewHostSystem *ViewHostSystem_CreateStandard(ViewportRegion *viewport, size_t view_count,
                                         const char *selector_labels[], size_t selector_label_count,
                                         ViewSelectionCallback selector_callback,
-                                        const UIPalette *palette, Spacing root_child_spacing)
+                                        const UIPalette *palette, Layout root_child_spacing)
 {
     ViewHostSystem *panel = ViewHostSystem_Create(viewport, 1.0f, (Vector2d){0.1f, 0.1f},
                                             palette, root_child_spacing);

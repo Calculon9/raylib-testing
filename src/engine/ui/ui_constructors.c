@@ -246,7 +246,7 @@ UIElement *CreateUIHoverItemDefault(UIElement *parent, const char *text, Size si
 
 UIElement *CreateUIContainer(UIElement *parent, Size size, Offset offset,
                              Vector2d padding, const UIPalette *palette,
-                             UIPaletteSurface surface, Spacing child_spacing,
+                             UIPaletteSurface surface, Layout child_spacing,
                              bool is_draggable, bool is_enabled)
 {
     if (!palette)
@@ -274,7 +274,7 @@ UIElement *CreateUIContainer(UIElement *parent, Size size, Offset offset,
 
 UIElement *CreateViewSection(UIElement *parent, const char *title,
                             Size section_size, Offset section_offset,
-                            const Spacing *child_spacing,
+                            const Layout *child_spacing,
                             const UIPalette *palette)
 {
     // Unified section constructor that accepts explicit offset and spacing.

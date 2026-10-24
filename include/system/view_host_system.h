@@ -44,7 +44,7 @@ typedef struct ViewHostSystem {
     float space_to_viewport_scale;
     Vector2d default_padding;
     const UIPalette *palette;
-    Spacing root_child_spacing;
+    Layout root_child_spacing;
     
     // Basis Override
     bool basis_override_enabled;
@@ -71,7 +71,7 @@ struct ViewSelector {
 
 // Create a new panel system instance
 ViewHostSystem* ViewHostSystem_Create(ViewportRegion *viewport, float scale, Vector2d padding,
-                                const UIPalette *palette, Spacing root_child_spacing);
+                                const UIPalette *palette, Layout root_child_spacing);
 
 // Destroy a panel system instance and everything it owns.
 void ViewHostSystem_Destroy(ViewHostSystem *panel);
@@ -151,7 +151,7 @@ void ViewHostSystem_ResetSpaceBasis(ViewHostSystem *panel);
 ViewHostSystem *ViewHostSystem_CreateStandard(ViewportRegion *viewport, size_t view_count,
                                         const char *selector_labels[], size_t selector_label_count,
                                         ViewSelectionCallback selector_callback,
-                                        const UIPalette *palette, Spacing root_child_spacing);
+                                        const UIPalette *palette, Layout root_child_spacing);
 
 // Create a toggle bar container at the top of the panel and a view selector.
 ViewSelector *ViewHostSystem_CreateStandardViewSelector(ViewHostSystem *panel,

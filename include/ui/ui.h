@@ -54,15 +54,15 @@ typedef enum
 } ButtonAction;
 typedef enum
 {
-    SPACING_NONE,
-    SPACING_STACKED, // Stack elements vertically in sibling order, using child height plus spacing.y. spacing.x is ignored.
-    SPACING_STACKED_WRAP, // Arrange elements vertically and wrap to the next column when content height is exceeded.
-    SPACING_STACKED_SMART_WRAP, // Arrange elements vertically and wrap to the next column when content height is exceeded.
-    SPACING_INLINE, // Arrange elements horizontally in sibling order, using child width plus spacing.x.
-    SPACING_INLINE_WRAP, // Arrange elements horizontally and wrap to the next row when content width is exceeded.
-    SPACING_NORMAL, // Add a per-index spacing offset on top of each child's authored/manual parent offset.
-    SPACING_OVERLAYED
-} SpacingType;
+    FLOW_NONE,
+    FLOW_STACKED, // Stack elements vertically in sibling order, using child height plus gap.y. gap.x is ignored.
+    FLOW_STACKED_WRAP, // Arrange elements vertically and wrap to the next column when content height is exceeded.
+    FLOW_STACKED_SMART_WRAP, // Arrange elements vertically and wrap to the next column when content height is exceeded.
+    FLOW_INLINE, // Arrange elements horizontally in sibling order, using child width plus gap.x.
+    FLOW_INLINE_WRAP, // Arrange elements horizontally and wrap to the next row when content width is exceeded.
+    FLOW_NORMAL, // Add a per-index gap offset on top of each child's authored/manual parent offset.
+    FLOW_OVERLAYED
+} FlowType;
 
 // Per-axis sizing mode. Each axis of an element resolves independently via one of these.
 typedef enum
@@ -129,12 +129,12 @@ typedef struct
 
 typedef struct
 {
-    Vector2d spacing;
-    NumberForm spacing_mode;
-    SpacingType spacing_type;
-} Spacing;
+    Vector2d gap;
+    NumberForm gap_mode;
+    FlowType flow;
+} Layout;
 
-#define UI_SPACING_NONE ((Spacing){{0.0f, 0.0f}, NONE, SPACING_NONE})
+#define UI_SPACING_NONE ((Layout){{0.0f, 0.0f}, NONE, FLOW_NONE})
 
 typedef struct
 {
@@ -198,7 +198,7 @@ typedef struct UIElement
     // LArray children;
     Offset resolved_offset;
     Offset authored_offset;
-    Spacing child_spacing;
+    Layout child_spacing;
     Vector2d padding;
     Vector2d scroll_offset; // Scroll offset in local units applied to child placement
     ColourRgba colour_border;

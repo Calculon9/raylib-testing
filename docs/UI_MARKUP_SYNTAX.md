@@ -43,6 +43,7 @@ per attribute). Attribute-less markup renders at each element's standard size.
 | `offset-mode` | `fixed` \| `percent` | `fixed` | `fixed` = world units; `percent` = fraction of the parent content area. |
 | `enabled` | `true` \| `false` | `true` | A disabled element is not laid out, drawn, or interacted with. |
 | `layout` | `stack` \| `stacked` \| `stack_wrap` \| `inline_wrap` | `stack` | How this element arranges its **children** (container-like elements only; leaf elements ignore it). See "Layout". |
+| `gap` | `"x y"` or `"v"` | layout preset gap | Inter-child spacing (literal units) that overrides the gap baked into the `layout=` preset. See "Layout". |
 | `surface` | `transparent` \| `container` \| `field_row` \| `input` \| `button` | constructor default | Theme-safe fill/border override: resolves the named surface role from the active palette and replaces the element's constructor-chosen `colour_fill`/`colour_border`. An absent or unrecognised value leaves the constructor colours unchanged. |
 
 Legacy offset spelling (still accepted): `x="…"`, `y="…"`, `offset-type="…"`. The
@@ -121,6 +122,12 @@ additive, not absolute positioning.
 `stack_wrap` pairs naturally with `width="hug" height="fill"`: the height fills the
 parent (giving columns a boundary to wrap against) and the width grows as columns
 are added.
+
+`gap="x y"` tunes the spacing inserted **between** successive children (not before
+the first or after the last), overriding the gap baked into the chosen `layout=`
+preset. Values are space-separated (comma also accepted); a single value applies to
+both axes. Units are literal (no percent gap yet). The relevant axis depends on the
+flow — `gap.y` spaces a `stack`/`stack_wrap`, `gap.x` spaces an `inline`/`inline_wrap`.
 
 ---
 

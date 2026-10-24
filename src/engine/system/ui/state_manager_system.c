@@ -37,6 +37,20 @@ typedef struct StateManagerComponentButton
     UIElement *button;
 } StateManagerComponentButton;
 
+// Attached-component row slot for the COMP view (Phase 1). A fixed positional slot: the
+// name Textbox is relabelled and the type is assigned per refresh to whichever attached
+// component the slot currently represents, so the one shared Remove handler reads the live
+// type from here. name_str caches &name_label->data.textbox.text at register time (the same
+// imperative-relabel pattern the CELL readouts use) so the refresh writes the label without
+// re-finding the element.
+typedef struct StateManagerComponentRow
+{
+    UIElement *name_label;       // readonly Textbox showing the component name
+    String64 *name_str;          // cached &name_label->data.textbox.text for imperative relabel
+    UIElement *remove_button;    // simple Button wired to HandleComponentRemoveClick
+    EntityComponentType type;    // component this slot currently represents (assigned per refresh)
+} StateManagerComponentRow;
+
 // UIElement and String64 references owned by the State Manager panel.
 typedef struct StateManagerUI
 {
@@ -45,6 +59,12 @@ typedef struct StateManagerUI
 
     // Component toggle buttons
     StateManagerComponentButton comp_buttons[4];
+
+    // COMP view (Phase 1): Add-component buttons (PORTAL/ROTOR/GEAR/HEALTH; RELATION/WORLD
+    // excluded) and the fixed attached-row slots (name + Remove). The refresh shows/hides and
+    // relabels these to mirror the selected entity's attached set.
+    StateManagerComponentButton add_buttons[4];
+    StateManagerComponentRow attached_rows[5];
 
     // Identity readouts
     UIElement *id_tbox;
@@ -380,6 +400,10 @@ static ViewType StateManager_ResolveViewType(const char *type_string, bool *reso
     if (type_string && !strcmp(type_string, "STATE_MANAGER_ANCESTRY_VIEW"))
     {
         return STATE_MANAGER_ANCESTRY_VIEW;
+    }
+    if (type_string && !strcmp(type_string, "STATE_MANAGER_COMPONENTS_VIEW"))
+    {
+        return STATE_MANAGER_COMPONENTS_VIEW;
     }
 
     // Unrecognised: report failure and default to the first state-manager view.
@@ -859,6 +883,78 @@ static void HandleCellFlagClick(UIElement *button)
     MarkStateManagerRefreshDirty();
 }
 
+// Build a default-initialised component payload for an addable type. Returns false if the
+// type cannot be attached with pure defaults (RELATION/WORLD/NONE). This is the single source
+// of truth for the "attach with defaults" path: both the PHYS-view component toggle and the
+// COMP-view Add buttons call it, so their defaults can never drift apart. ROTOR/GEAR keep the
+// current zero-initialised default to preserve existing behaviour.
+static bool StateManager_BuildDefaultComponent(EntityComponentType type, EntityComponent *out)
+{
+    if (!out)
+    {
+        return false;
+    }
+
+    EntityComponent comp = {.type = type};
+    switch (type)
+    {
+    case ENTITY_COMPONENT_PORTAL:
+    {
+        PortalComponentParams portal_params = {
+            .entrant_roles = ENTITY_ROLE_NEWTONOID | ENTITY_ROLE_PROJECTILE,
+            .cooldown_frames = 30};
+        PortalComponent_Initialise(&comp.data.portal, &portal_params);
+        break;
+    }
+    case ENTITY_COMPONENT_ROTOR:
+        memset(&comp.data.rotor, 0, sizeof(comp.data.rotor));
+        break;
+    case ENTITY_COMPONENT_GEAR:
+        memset(&comp.data.gear, 0, sizeof(comp.data.gear));
+        break;
+    case ENTITY_COMPONENT_HEALTH:
+    {
+        HealthComponentParams health_params = {.max_health = 3.0f};
+        if (!HealthComponent_Initialise(&comp.data.health, &health_params))
+        {
+            return false;
+        }
+        break;
+    }
+    case ENTITY_COMPONENT_RELATION:
+    case ENTITY_COMPONENT_NONE:
+    default:
+        // RELATION/WORLD/NONE are not attachable with pure defaults: refuse so Add can never
+        // fabricate them.
+        return false;
+    }
+
+    *out = comp;
+    return true;
+}
+
+// Return the UK-English all-caps display label for an attached component type. RELATION is a
+// literal here because no button spec carries its label (RELATION is never addable): it can
+// only appear in the Attached list when already present on the entity.
+static const char *ComponentTypeName(EntityComponentType type)
+{
+    switch (type)
+    {
+    case ENTITY_COMPONENT_PORTAL:
+        return "PORTAL";
+    case ENTITY_COMPONENT_ROTOR:
+        return "ROTOR";
+    case ENTITY_COMPONENT_GEAR:
+        return "GEAR";
+    case ENTITY_COMPONENT_RELATION:
+        return "RELATION";
+    case ENTITY_COMPONENT_HEALTH:
+        return "HEALTH";
+    default:
+        return "?"; // defensive: NONE/WORLD never reach here
+    }
+}
+
 // Toggle attachment of a component on the currently selected object.
 static void HandleComponentToggleClick(UIElement *button)
 {
@@ -877,39 +973,63 @@ static void HandleComponentToggleClick(UIElement *button)
     }
     else
     {
-        EntityComponent comp = {.type = type};
-        switch (type)
+        // Reuse the shared default-construction helper so the toggle and the COMP-view Add
+        // buttons attach identical defaults.
+        EntityComponent comp = {0};
+        if (!StateManager_BuildDefaultComponent(type, &comp))
         {
-        case ENTITY_COMPONENT_PORTAL:
-        {
-            PortalComponentParams portal_params = {
-                .entrant_roles = ENTITY_ROLE_NEWTONOID | ENTITY_ROLE_PROJECTILE,
-                .cooldown_frames = 30};
-            PortalComponent_Initialise(&comp.data.portal, &portal_params);
-            break;
-        }
-        case ENTITY_COMPONENT_ROTOR:
-            memset(&comp.data.rotor, 0, sizeof(comp.data.rotor));
-            break;
-        case ENTITY_COMPONENT_GEAR:
-            memset(&comp.data.gear, 0, sizeof(comp.data.gear));
-            break;
-        case ENTITY_COMPONENT_HEALTH:
-        {
-            HealthComponentParams health_params = {.max_health = 3.0f};
-            if (!HealthComponent_Initialise(&comp.data.health, &health_params))
-            {
-                return;
-            }
-            break;
-        }
-        case ENTITY_COMPONENT_RELATION:
-        case ENTITY_COMPONENT_NONE:
-        default:
             return;
         }
         EnqueueAttachComponent(object->id, &comp);
     }
+}
+
+// Attach the addable component the clicked Add button represents, with defaults, to the
+// currently selected entity (deferred via the existing command queue). One shared handler
+// serves all four Add buttons: the type is read from the button's interaction_user_data spec.
+static void HandleComponentAddClick(UIElement *button)
+{
+    Newtonoid2d *object = UIState_GetSelectedObject();
+    if (!object || object->id == INVALID_ENTITY_ID || !button || !button->interaction_user_data)
+    {
+        return;
+    }
+
+    const StateManagerComponentButton *spec = (const StateManagerComponentButton *)button->interaction_user_data;
+
+    // One-of-each guard (the registry is the real enforcer; this is a usability affordance).
+    if (EntityRegistry_HasComponent(object->id, spec->type))
+    {
+        return;
+    }
+
+    EntityComponent comp = {0};
+    if (!StateManager_BuildDefaultComponent(spec->type, &comp))
+    {
+        return;
+    }
+    // Existing command path: CMD_ATTACH_COMPONENT marks the panel dirty on success.
+    EnqueueAttachComponent(object->id, &comp);
+}
+
+// Remove the component the clicked row represents from the selected entity, immediately (no
+// confirmation), via the existing command queue. The row slot is positional, so the type is
+// read from the slot spec assigned during the last refresh.
+static void HandleComponentRemoveClick(UIElement *button)
+{
+    Newtonoid2d *object = UIState_GetSelectedObject();
+    if (!object || object->id == INVALID_ENTITY_ID || !button || !button->interaction_user_data)
+    {
+        return;
+    }
+
+    const StateManagerComponentRow *row = (const StateManagerComponentRow *)button->interaction_user_data;
+    if (row->type == ENTITY_COMPONENT_NONE)
+    {
+        return;
+    }
+    // Existing command path: CMD_REMOVE_COMPONENT marks the panel dirty on success.
+    EnqueueRemoveComponent(object->id, row->type);
 }
 
 // ============================================================================
@@ -1124,6 +1244,49 @@ static void StateManager_RegisterElements(UIElement *root)
                             .query_key = (int)s_sm_ui.comp_buttons[i].type },
             };
             s_sm_ui.comp_buttons[i].button->data.button.binding = Binding_Create(b);
+        }
+    }
+
+    // --- COMP view: Add-component buttons (PORTAL/ROTOR/GEAR/HEALTH only; RELATION/WORLD
+    //     excluded). Each carries its EntityComponentType in interaction_user_data so the one
+    //     shared HandleComponentAddClick handler serves every button. No query-source Binding:
+    //     the label is the static type name and visibility is driven by the refresh. ---
+    s_sm_ui.add_buttons[0] = (StateManagerComponentButton){"PORTAL", ENTITY_COMPONENT_PORTAL, StateManager_Find(root, "comp_add_portal")};
+    s_sm_ui.add_buttons[1] = (StateManagerComponentButton){"ROTOR",  ENTITY_COMPONENT_ROTOR,  StateManager_Find(root, "comp_add_rotor")};
+    s_sm_ui.add_buttons[2] = (StateManagerComponentButton){"GEAR",   ENTITY_COMPONENT_GEAR,   StateManager_Find(root, "comp_add_gear")};
+    s_sm_ui.add_buttons[3] = (StateManagerComponentButton){"HEALTH", ENTITY_COMPONENT_HEALTH, StateManager_Find(root, "comp_add_health")};
+    for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.add_buttons); i++)
+    {
+        if (s_sm_ui.add_buttons[i].button)
+        {
+            s_sm_ui.add_buttons[i].button->on_click = HandleComponentAddClick;
+            s_sm_ui.add_buttons[i].button->interaction_user_data = (void *)&s_sm_ui.add_buttons[i];
+        }
+    }
+
+    // --- COMP view: attached-row slots (name Textbox + Remove button). Each slot is positional;
+    //     its EntityComponentType is assigned per refresh. The Remove button carries the slot in
+    //     interaction_user_data so the shared HandleComponentRemoveClick reads the live type. The
+    //     name_str caches the Textbox display buffer for imperative relabel (CELL-readout pattern). ---
+    static const char *comp_row_name_ids[5]   = {"comp_row0_name", "comp_row1_name", "comp_row2_name",
+                                                  "comp_row3_name", "comp_row4_name"};
+    static const char *comp_row_remove_ids[5] = {"comp_row0_remove", "comp_row1_remove", "comp_row2_remove",
+                                                  "comp_row3_remove", "comp_row4_remove"};
+    for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.attached_rows); i++)
+    {
+        s_sm_ui.attached_rows[i].type = ENTITY_COMPONENT_NONE;
+
+        s_sm_ui.attached_rows[i].name_label = StateManager_Find(root, comp_row_name_ids[i]);
+        if (s_sm_ui.attached_rows[i].name_label)
+        {
+            s_sm_ui.attached_rows[i].name_str = &s_sm_ui.attached_rows[i].name_label->data.textbox.text;
+        }
+
+        s_sm_ui.attached_rows[i].remove_button = StateManager_Find(root, comp_row_remove_ids[i]);
+        if (s_sm_ui.attached_rows[i].remove_button)
+        {
+            s_sm_ui.attached_rows[i].remove_button->on_click = HandleComponentRemoveClick;
+            s_sm_ui.attached_rows[i].remove_button->interaction_user_data = (void *)&s_sm_ui.attached_rows[i];
         }
     }
 
@@ -1406,6 +1569,96 @@ static void RefreshCellView(const Cell *selected_cell)
     // query-source Binding; the UpdateFlagButtons call was removed (preserved in the LEGACY block).
 }
 
+// Refresh the COMP view (Phase 1: attach/remove only): rebuild the fixed Attached-row slots and
+// the Add-button visibility to mirror the selected entity's attached component set.
+//  * Attached section: one row per attached component in {PORTAL, ROTOR, GEAR, RELATION, HEALTH}
+//    (WORLD is a world-node tag and is never iterated). Each used slot is relabelled imperatively
+//    (binding-less, like the CELL readouts) and its type assigned so the shared Remove handler
+//    detaches the right component; unused slots are blanked and disabled.
+//  * Add section: one fixed button per addable type (PORTAL/ROTOR/GEAR/HEALTH); each is enabled
+//    only when the selection is valid and does NOT already have that component.
+// When no plain entity is selected (object == NULL, which also covers a world/cell primary since
+// UIState_GetSelectedObject() returns NULL for those), every slot is disabled: nothing actionable.
+static void RefreshComponentsView(const Newtonoid2d *object)
+{
+    bool is_valid = (object != NULL && object->id != INVALID_ENTITY_ID);
+
+    // Attached section: iterate the ordered attachable type list (WORLD excluded).
+    static const EntityComponentType attached_types[] = {
+        ENTITY_COMPONENT_PORTAL, ENTITY_COMPONENT_ROTOR, ENTITY_COMPONENT_GEAR,
+        ENTITY_COMPONENT_RELATION, ENTITY_COMPONENT_HEALTH};
+
+    size_t row = 0;
+    if (is_valid)
+    {
+        EntityDescription desc = EntityRegistry_Describe(object);
+        for (size_t t = 0; t < ARRAY_COUNT(attached_types) && row < ARRAY_COUNT(s_sm_ui.attached_rows); t++)
+        {
+            EntityComponentType type = attached_types[t];
+            if (desc.components[type] == NULL)
+            {
+                continue; // not attached: no row for this type
+            }
+
+            // Fill this slot: assign the live type (read by the Remove handler), relabel the name,
+            // and show both the name label and the Remove button.
+            s_sm_ui.attached_rows[row].type = type;
+            if (s_sm_ui.attached_rows[row].name_str)
+            {
+                UpdateString64(s_sm_ui.attached_rows[row].name_str->string, "%s", ComponentTypeName(type));
+            }
+            // Guard each slot pointer: EnableElement/DisableElement dereference without a NULL
+            // check, so a row id that failed to resolve in the id pass (e.g. a renamed markup id)
+            // would otherwise crash here. Mirrors the Add-button guard below.
+            if (s_sm_ui.attached_rows[row].name_label)
+            {
+                EnableElement(s_sm_ui.attached_rows[row].name_label);
+            }
+            if (s_sm_ui.attached_rows[row].remove_button)
+            {
+                EnableElement(s_sm_ui.attached_rows[row].remove_button);
+            }
+            row++;
+        }
+    }
+
+    // Disable the remaining (unused) row slots: clear the stale label and hide name + Remove.
+    for (size_t i = row; i < ARRAY_COUNT(s_sm_ui.attached_rows); i++)
+    {
+        s_sm_ui.attached_rows[i].type = ENTITY_COMPONENT_NONE;
+        // Guard each slot pointer before clearing/hiding: DisableElement dereferences without a
+        // NULL check, so an unresolved row id must not reach it (mirrors the fill path above).
+        if (s_sm_ui.attached_rows[i].name_label)
+        {
+            ClearString64(&s_sm_ui.attached_rows[i].name_label->data.textbox.text);
+            DisableElement(s_sm_ui.attached_rows[i].name_label);
+        }
+        if (s_sm_ui.attached_rows[i].remove_button)
+        {
+            DisableElement(s_sm_ui.attached_rows[i].remove_button);
+        }
+    }
+
+    // Add section: show a button only for an addable type the entity does not already have.
+    for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.add_buttons); i++)
+    {
+        if (!s_sm_ui.add_buttons[i].button)
+        {
+            continue;
+        }
+
+        bool offer = is_valid && !EntityRegistry_HasComponent(object->id, s_sm_ui.add_buttons[i].type);
+        if (offer)
+        {
+            EnableElement(s_sm_ui.add_buttons[i].button);
+        }
+        else
+        {
+            DisableElement(s_sm_ui.add_buttons[i].button);
+        }
+    }
+}
+
 // Push the selected object, world, cell, and capability state into the UI views.
 void UpdateStateManagerSelectedObject(void)
 {
@@ -1417,6 +1670,7 @@ void UpdateStateManagerSelectedObject(void)
     RefreshAttributeView(object);
     RefreshWorldView(world);
     RefreshCellView(cell);
+    RefreshComponentsView(object);
 }
 
 // ============================================================================
@@ -1713,7 +1967,7 @@ void DestroyStateManagerSystem(void)
 // --- CreateStateManagerView (no remaining caller once the builders are gone) ---
 //
 // // Create and register a state-manager view with its requested child layout.
-// static View *CreateStateManagerView(int view_id, bool is_draggable, bool is_enabled, Spacing child_spacing)
+// static View *CreateStateManagerView(int view_id, bool is_draggable, bool is_enabled, Layout child_spacing)
 // {
 //     View *view = ViewHostSystem_CreateView(state_manager_panel, view_id);
 //     UIElement *container = view ? view->container : NULL;

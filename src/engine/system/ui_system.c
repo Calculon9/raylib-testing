@@ -63,17 +63,17 @@ const Size ui_standard_container_size = {{1, 0.5}, AXIS_PERCENT, AXIS_PERCENT};
 const Size ui_fill_container_size = {{1.0f, 1.0f}, AXIS_FILL, AXIS_FILL};
 const Size ui_standard_selector_container_size = UI_SIZE_HUG;
 const Size ui_standard_selector_button_size = {{1.75f, 0.5f}, AXIS_FIXED, AXIS_FIXED};
-// NOTE: the middle field of each Spacing literal is NumberForm (NONE), NOT an AxisSizeMode.
-const Spacing ui_standard_stack_spacing = {{0.0f, 0.06f}, NONE, SPACING_STACKED};
-const Spacing ui_compact_stack_spacing = {{0.0f, 0.025f}, NONE, SPACING_STACKED};
-const Spacing ui_standard_stack_wrap_spacing = {{0.06f, 0.06f}, NONE, SPACING_STACKED_WRAP};
-const Spacing ui_standard_stack_smart_wrap_spacing = {{0.06f, 0.06f}, NONE, SPACING_STACKED_SMART_WRAP};
-const Spacing ui_compact_stack_wrap_spacing = {{0.025f, 0.025f}, NONE, SPACING_STACKED_WRAP};
-const Spacing ui_zero_x_stack_wrap_spacing = {{0.0f, 0.06f}, NONE, SPACING_STACKED_WRAP};
-const Spacing ui_standard_inline_wrap_spacing = {{0.06f, 0.06f}, NONE, SPACING_INLINE_WRAP};
-const Spacing ui_zero_x_inline_wrap_spacing = {{0.0f, 0.06f}, NONE, SPACING_INLINE_WRAP};
-const Spacing ui_standard_inline_spacing = {{0.06f, 0.0f}, NONE, SPACING_INLINE};
-const Spacing ui_zero_inline_spacing = {{0.0f, 0.0f}, NONE, SPACING_INLINE};
+// NOTE: the middle field of each Layout literal is NumberForm (NONE), NOT an AxisSizeMode.
+const Layout ui_standard_stack_spacing = {{0.0f, 0.06f}, NONE, FLOW_STACKED};
+const Layout ui_compact_stack_spacing = {{0.0f, 0.025f}, NONE, FLOW_STACKED};
+const Layout ui_standard_stack_wrap_spacing = {{0.06f, 0.06f}, NONE, FLOW_STACKED_WRAP};
+const Layout ui_standard_stack_smart_wrap_spacing = {{0.06f, 0.06f}, NONE, FLOW_STACKED_SMART_WRAP};
+const Layout ui_compact_stack_wrap_spacing = {{0.025f, 0.025f}, NONE, FLOW_STACKED_WRAP};
+const Layout ui_zero_x_stack_wrap_spacing = {{0.0f, 0.06f}, NONE, FLOW_STACKED_WRAP};
+const Layout ui_standard_inline_wrap_spacing = {{0.06f, 0.06f}, NONE, FLOW_INLINE_WRAP};
+const Layout ui_zero_x_inline_wrap_spacing = {{0.0f, 0.06f}, NONE, FLOW_INLINE_WRAP};
+const Layout ui_standard_inline_spacing = {{0.06f, 0.0f}, NONE, FLOW_INLINE};
+const Layout ui_zero_inline_spacing = {{0.0f, 0.0f}, NONE, FLOW_INLINE};
 
 UIPalette ui_classic_palette = {0};
 UIPalette ui_earth_palette = {0};
@@ -736,11 +736,13 @@ InputRouteResult UpdateUISystem(const InputFrame *input)
     int mouse_x = (int)input->pointer_position.x;
     int mouse_y = (int)input->pointer_position.y;
     UIElement *popup_root = GetPopupMenuRoot();
-    // The lpanel is retired, so its viewport is not hit-tested here; the Entity Mgmt (state
-    // manager) panel now covers that region and is hit-tested via GetStateManagerRoot.
+    // The Entity Mgmt (state manager) panel now occupies the lpanel viewport slot, so clicks over
+    // lpanel_viewport must count as UI (that is what lets its ViewSelector tabs and controls take
+    // input). The old entity_panel_viewport slot is now an empty reserved band with no panel, so
+    // it is NOT gated here (gating empty space as UI would wrongly swallow world clicks there).
     bool cursor_in_ui = ViewportRegion_ContainsPixel(&toolbar_viewport, input->pointer_position) ||
+                        ViewportRegion_ContainsPixel(&lpanel_viewport, input->pointer_position) ||
                         ViewportRegion_ContainsPixel(&rpanel_viewport, input->pointer_position) ||
-                        ViewportRegion_ContainsPixel(&entity_panel_viewport, input->pointer_position) ||
                         ViewportRegion_ContainsPixel(&utility_panel_viewport, input->pointer_position) ||
                         // Popup: treat the click as UI when the pointer is over ANY popup
                         // element (main column OR a submenu), not just the popup root's box.

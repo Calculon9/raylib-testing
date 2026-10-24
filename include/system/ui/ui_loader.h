@@ -202,7 +202,7 @@ typedef struct {
     Size size;                    // size=/width=/height= with per-axis mode inference (seeded with the per-type default)
     Offset offset;                // offset=/offset-mode= (+ legacy x/y/offset-type); default zero fixed
     bool enabled;                 // enabled= ("false" => false; default true)
-    const Spacing *layout;        // layout= -> shared Spacing constant (never NULL; defaults to &ui_standard_stack_spacing)
+    Layout layout;                // resolved layout (flow + gap): copied by value from the layout= preset, with gap optionally overridden by gap=
     bool offset_consumed;         // set by the builder when it passed `offset` into its constructor (skeleton must not re-apply)
 } UICommonAttrs;
 
@@ -375,9 +375,9 @@ bool UILoader_RegisterBuilder(const char *tag_name, UIElementBuilder builder,
  * @param size_out[optional] Output size spec
  * @param offset_out[optional] Output position/offset
  * @param enabled_out[optional] Output enabled flag (default true)
- * @param layout_out[optional] Output child spacing from layout= (shared Spacing constant, never NULL when set)
+ * @param layout_out[optional] Output resolved layout (flow + gap) copied by value from the layout= preset, with gap optionally overridden by gap=
  */
-void UILoader_ExtractCommonAttrs(mxml_node_t *node, UILoaderContext *ctx, char *id_out, Size *size_out, Offset *offset_out, bool *enabled_out, const Spacing **layout_out);
+void UILoader_ExtractCommonAttrs(mxml_node_t *node, UILoaderContext *ctx, char *id_out, Size *size_out, Offset *offset_out, bool *enabled_out, Layout *layout_out);
 
 // ============================================================================
 // Default Builder Registration

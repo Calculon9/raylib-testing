@@ -25,9 +25,9 @@ static Vector2d popup_spawn_position = {0.0f, 0.0f};
 // the retired imperative builders consumed were removed with those builders (see the
 // LEGACY block at the bottom of this file).
 static const Vector2d popup_menu_padding = {0.15f, 0.15f};
-static const Spacing popup_menu_root_spacing = UI_SPACING_NONE;
+static const Layout popup_menu_root_spacing = UI_SPACING_NONE;
 // NOTE: popup_menu_child_spacing's middle field is NumberForm (NONE), NOT an AxisSizeMode.
-static const Spacing popup_menu_child_spacing = {{0.0f, 0.025f}, NONE, SPACING_STACKED};
+static const Layout popup_menu_child_spacing = {{0.0f, 0.025f}, NONE, FLOW_STACKED};
 
 // Forward declarations for the loader-hybrid wiring pass (defined below InitPopupMenu
 // mirrors state_manager; the id-pass and its helpers are declared here so InitPopupMenu
@@ -684,7 +684,7 @@ void DestroyPopupMenu(void)
 //         popup_menu->root, popup_view_selector_size,
 //         (Offset){popup_view_selector_offset, OFFSET_FIXED},
 //         ZERO_VECTOR_2D, popup_menu->palette, UI_PALETTE_SURFACE_TRANSPARENT,
-//         (Spacing){{0.0f, 0.0f}, NONE, SPACING_INLINE}, false, true);
+//         (Layout){{0.0f, 0.0f}, NONE, SPACING_INLINE}, false, true);
 //     popup_view_selector_cont->colour_border = popup_menu->palette->container_border;
 //     const char *labels[] = {"CREATE", "RECENT"};
 //     popup_view_selector = ViewHostSystem_CreateHoverViewSelector(
