@@ -35,15 +35,15 @@
     </ViewSelector>
 
     <!-- ================= PHYS view ================= -->
-    <View id="phys_view" type="STATE_MANAGER_PHYSICS_VIEW" scroll="x" layout="inline">
-        <Container id="identity" title="Identity" width="hug" height="fill" layout="stack_wrap">
+    <View id="phys_view" type="STATE_MANAGER_PHYSICS_VIEW" scroll="y" layout="stack">
+        <Container id="identity" title="Identity" width="hug" height="hug" layout="stack">
             <TextField id="sm_id" label="Id:" type="integer" io="readonly" />
             <TextField id="sm_slot" label="Slot:" type="integer" io="readonly" />
             <TextField id="sm_generation" label="Generation:" type="integer" io="readonly" />
             <TextField id="sm_world" label="World" type="integer" io="readonly" />
         </Container>
 
-        <Container id="physics" title="Physics" width="hug" height="fill" layout="stack_wrap">
+        <Container id="physics" title="Physics" width="hug" height="hug" layout="stack">
             <TextField id="sm_mass" label="Mass" type="float" io="safe" />
             <TextField id="sm_restitution" label="Restitution" type="float" io="safe" />
             <TextField id="sm_friction" label="Friction" type="float" io="safe" />
@@ -55,7 +55,7 @@
             <TextField id="sm_angaccel" label="AngAccel" type="float" io="readonly" />
         </Container>
 
-        <Container id="geometry" title="Geometry" width="hug" height="fill" layout="stack_wrap">
+        <Container id="geometry" title="Geometry" width="hug" height="hug" layout="stack">
             <TextField id="sm_bounds_min" label="Bounds.min" type="vector2" io="readonly" />
             <TextField id="sm_geo_center" label="Geo.center" type="vector2" io="readonly" />
             <TextField id="sm_rotation" label="Rot" type="float" io="safe" />
@@ -63,13 +63,13 @@
             <TextField id="sm_basis_v" label="Basis v" type="vector2" io="safe" />
         </Container>
 
-        <Container id="gameplay" title="Gameplay" width="hug" height="fill" layout="stack_wrap">
+        <Container id="gameplay" title="Gameplay" width="hug" height="fill" layout="stack">
             <TextField id="sm_health" label="Health" type="float" io="safe" />
             <TextField id="sm_max_health" label="MaxHealth" type="float" io="safe" />
             <TextField id="sm_damage" label="Damage" type="float" io="safe" />
         </Container>
 
-        <Container id="components" title="Components" width="hug" height="fill" layout="stack_wrap">
+        <Container id="components" title="Components" width="hug" height="hug" layout="stack">
             <!-- Component toggles: wired in C (HandleComponentToggleClick) in the id pass. -->
             <Button type="simple" id="sm_comp_portal" text="PORTAL" />
             <Button type="simple" id="sm_comp_rotor" text="ROTOR" />
