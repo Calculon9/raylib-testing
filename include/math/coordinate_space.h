@@ -76,6 +76,7 @@ typedef struct Cell
     CellEffect effect;   // Behaviour applied by this cell to overlapping entities.
     float value;         // Scalar field value for generic cell data.
     Basis2d warp_basis;  // Local basis that warps the MOTION of an entity occupying this cell; identity = inert. Kept separate from flags/effect.
+    int tile_type;       // Authored tile identity; index into the shared tile palette. 0 = default (the cell uses the grid's own colour_fill). Plain value, no heap ownership — the Cell stays memcpy-safe.
 } Cell;
 
 // Lightweight coordinate-space geometry used by UI panels without a cell grid.

@@ -164,6 +164,12 @@ void InitUnitCells(Space2d *space)
       // so a zero-initialised cell would otherwise read as absent — hence it is set explicitly here.
       cell.flags |= CELL_FLAG_PRESENT;
 
+      // Default tile type 0: the cell's fill is sourced from the grid's own colour_fill, so a freshly
+      // built world is pixel-identical to before this field existed. Non-zero types are authored later
+      // (no authoring path exists yet) and resolve through the shared tile palette. Set explicitly here,
+      // at the sole fresh-build site, mirroring the self-documenting style used for warp_basis/PRESENT.
+      cell.tile_type = 0;
+
       // Scale the basis vectors (u,v) and add them to get the displacement from the origin
       Vector2d scaled_u = {j * space->frame.basis.u.x, j * space->frame.basis.u.y};
       Vector2d scaled_v = {i * space->frame.basis.v.x, i * space->frame.basis.v.y};
@@ -193,6 +199,8 @@ void ResetSpaceCells(Space2d *space)
    Cell *cells = (Cell *)space->cells.items;
    for (size_t cell_index = 0; cell_index < space->cells.count; cell_index++)
    {
+      // Only transient occupancy is cleared here. Authored per-cell state (warp_basis, tile_type and
+      // the carved PRESENT bit) is intentionally left untouched so it survives the per-frame reset.
       cells[cell_index].occupancy = 0;
       MemorySet(cells[cell_index].object_ids, 0, sizeof(cells[cell_index].object_ids));
    }
@@ -217,16 +225,30 @@ void RebuildSpaceCells(Space2d *space)
    // never reallocated, resized, or otherwise disturbed (OWNERSHIP.md: disposed only by DisposeDArray).
    size_t cell_count = space->cells.count;
    size_t snap_bytes = cell_count * sizeof(bool);
+   size_t tile_snap_bytes = cell_count * sizeof(int);
    bool *present_snapshot = NULL;
+   // Parallel scratch array carrying authored tile identity. InitUnitCells resets every cell to
+   // tile_type == 0, so without this a basis-edit rebuild would silently wipe authored tile types.
+   // It is preserved the same way the carved presence shape is. (warp_basis is deliberately NOT
+   // snapshotted — that pre-existing non-preservation is out of scope for this change.)
+   int *tile_snapshot = NULL;
    if (cell_count > 0 && space->cells.items)
    {
       present_snapshot = (bool *)AllocateBytes(snap_bytes);
+      tile_snapshot = (int *)AllocateBytes(tile_snap_bytes);
+      Cell *cells = (Cell *)space->cells.items;
       if (present_snapshot)
       {
-         Cell *cells = (Cell *)space->cells.items;
          for (size_t k = 0; k < cell_count; k++)
          {
             present_snapshot[k] = (cells[k].flags & CELL_FLAG_PRESENT) != 0;
+         }
+      }
+      if (tile_snapshot)
+      {
+         for (size_t k = 0; k < cell_count; k++)
+         {
+            tile_snapshot[k] = cells[k].tile_type;
          }
       }
    }
@@ -248,6 +270,18 @@ void RebuildSpaceCells(Space2d *space)
          }
       }
       Deallocate((void **)&present_snapshot, snap_bytes); // Balanced free; NULLs the pointer.
+   }
+
+   // Restore authored tile types the same way. If the allocation failed the fallback is the
+   // InitUnitCells default (all tile_type == 0 → the grid's own colour_fill) — safe, never a crash.
+   if (tile_snapshot)
+   {
+      Cell *cells = (Cell *)space->cells.items;
+      for (size_t k = 0; k < cell_count && k < space->cells.count; k++)
+      {
+         cells[k].tile_type = tile_snapshot[k];
+      }
+      Deallocate((void **)&tile_snapshot, tile_snap_bytes); // Balanced free; NULLs the pointer.
    }
 }
 

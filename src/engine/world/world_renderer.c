@@ -509,6 +509,39 @@ void DrawWorldRegion(World2d *world, Camera2d *universe_camera)
     // DrawCollisions(&world->collisions, world_to_pixel_mtx);
 }
 
+// Shared tile palette: maps a cell's tile_type index to its fill colour on the current flat-colour
+// renderer. Static data only — no heap allocations. The same index becomes an atlas key if/when a
+// texture system is added later, so stored cell data need not change. Index 0 is the DEFAULT
+// sentinel and is handled specially by TilePalette_ColourFor (see below and the index-0 rule): the
+// 0 slot here is a harmless placeholder and is never read for a default cell.
+static const ColourRgba tile_palette[] = {
+    BLANK_RGBA,                  // 0: DEFAULT sentinel — the real colour comes from grid_space->colour_fill
+    COLOUR_GAME_TERRACOTTA_RGBA, // 1
+    COLOUR_GAME_TEAL_RGBA,       // 2
+    COLOUR_GAME_OLIVE_RGBA,      // 3
+};
+
+// Resolve a cell's tile_type to its fill colour. Index 0 (the default) and any out-of-range index
+// fall back to default_colour — the grid's own colour_fill passed in by the caller — so unknown or
+// unseeded types are always safe and visible. The default_colour argument keeps the "0 = use the
+// grid's own fill" rule correct even for worlds that customise colour_fill. Bounds-safe by
+// construction: the palette element count is derived from sizeof.
+static ColourRgba TilePalette_ColourFor(int tile_type, ColourRgba default_colour)
+{
+    int count = (int)(sizeof(tile_palette) / sizeof(tile_palette[0]));
+    if (tile_type <= 0 || tile_type >= count)
+    {
+        return default_colour; // 0 = default; out-of-range = safe fallback to the grid colour.
+    }
+    return tile_palette[tile_type];
+}
+
+// Draw a grid space. Each PRESENT cell's FILL colour is now sourced per cell from the shared tile
+// palette via TilePalette_ColourFor(cell->tile_type, grid_space->colour_fill): a tile_type of 0
+// resolves to the grid's own colour_fill (pixel-identical to before this change), while non-zero
+// types read the palette. The grid LINES (grid_space->colour_line via the viewport-clipped
+// DrawTransformedLineClippedV path) and the debug labels are unchanged, and absent cells are still
+// skipped — only the per-cell fill colour source changed.
 void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
 {
     if (grid_space->space.cells.capacity < 1)
@@ -524,8 +557,10 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
     int rows = grid_space->space.rows;
     int totalUnits = columns * rows;
 
+    // Base/fallback fill colour for the grid. It is now passed into TilePalette_ColourFor as the
+    // default (used for tile_type 0 and any out-of-range index) rather than drawn directly; the
+    // raylib Color is computed per present cell from the resolved per-cell colour.
     ColourRgba colour_fill = grid_space->colour_fill;
-    Color fill = ToRaylibColor(colour_fill);
 
     // FILL: draw only PRESENT cells. For an all-present world the union of per-cell quads covers the
     // identical pixels as the previous single rectangle quad (same outer corners, same colour), so
@@ -538,6 +573,13 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
         }
         int i = k / columns;
         int j = k % columns;
+
+        // Source this cell's fill colour from its tile_type. tile_type 0 resolves to the grid's own
+        // colour_fill, so existing (all-type-0) worlds are pixel-identical; non-zero types read the
+        // palette. The cell is fetched via the same idiom used by the debug-label block below.
+        Cell *cell = (Cell *)((char *)grid_space->space.cells.items + ((size_t)k * grid_space->space.cells.elem_bytes));
+        ColourRgba cell_fill_rgba = TilePalette_ColourFor(cell->tile_type, colour_fill);
+        Color fill = ToRaylibColor(cell_fill_rgba);
 
         // Local corners of this unit cell, transformed to pixels through the world basis/placement.
         Vector2d cp0 = TransformCoordinates(world_to_pixel_mtx, (Vector2d){(float)j, (float)i});
