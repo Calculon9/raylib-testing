@@ -149,7 +149,7 @@ void UIIcon_DrawNudge(UIElement *e)
     //   box         : 0.42 .. 0.70 (its left side meets the arrow tip)
     //   dots        : 0.82 and 0.96 (motion trail to the right of the box)
     float arrow_start_x = glyph_x + glyph_w * 0.00f;
-    float arrow_tip_x   = glyph_x + glyph_w * 0.38f;
+    float arrow_tip_x   = glyph_x + glyph_w * 0.32f;
     float box_left      = glyph_x + glyph_w * 0.42f;
     float box_right     = glyph_x + glyph_w * 0.70f;
 

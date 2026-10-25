@@ -37,7 +37,7 @@ ViewportRegion toolbar_viewport = {0};
 // Fixed logical height (game units) of the info strip band carved from the top of the central
 // column. Kept small so it reads as a thin status strip, consistent with the other docked
 // panels reserving their own screen region rather than overlaying the world.
-static const float info_strip_logical_height = 0.6f;
+static const float info_strip_logical_height = 0.9f;
 
 // Fixed logical width (game units) of the far-left toolbar band. Deliberately kept EQUAL to the
 // info-strip band height (info_strip_logical_height) so the far-left toolbar's width matches the
