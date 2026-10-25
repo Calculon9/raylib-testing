@@ -470,10 +470,19 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
                 // Entity leaf arm lives in the world stage (it owns the snapshot statics).
                 g_game_press.armed_move = WorldSystem_ArmEntityDragById(drag_target.as.entity, false);
             }
-            else if (drag_target.kind == TARGET_KIND_WORLD)
+            else if (drag_target.kind == TARGET_KIND_WORLD &&
+                     UIState_GetActiveTool() != TOOL_CELL_PAINT)
             {
                 // World leaf arm: begin the container capture with the world's current origin as
                 // anchor (the same anchor the old lazy threshold-frame path used).
+                //
+                // Cell-paint precedence: while TOOL_CELL_PAINT is active the paint tool wins over the
+                // world-drag gate, so we SUPPRESS the WORLD_CONTAINER capture even for a selected
+                // (draggable) world. Without this guard, pressing inside a selected world arms a
+                // container capture, the frame is then handled on the CAPTURED path, and the
+                // no-capture click-commit site below (where the cell-paint ADD action lives) is
+                // skipped — which is exactly why cell paint failed on a selected world. Leaving the
+                // press unarmed keeps it on the no-capture click path so the paint ADD fires.
                 World2d *world = &G_Universe.worlds[drag_target.as.world_index];
                 DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_CONTAINER, world,
                                              world->grid_space.space.frame.origin_in_parent);
