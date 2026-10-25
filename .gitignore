@@ -55,5 +55,5 @@ debugging
 
 # debug information files
 *.dwo
-
+.worktrees/
 *.agents/

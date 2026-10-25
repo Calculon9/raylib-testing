@@ -25,6 +25,7 @@ typedef struct ViewportLayoutConfig
     float max_panel_ratio;             // Upper clamp on each individual panel ratio (was 0.45f).
     float max_combined_panel_ratio;    // Upper clamp on the combined left+right panel ratio (was 0.90f).
     float info_strip_logical_height;   // Logical (game-unit) height of the top info-strip band (was 0.9f).
+    float toolbar_logical_width;   // Logical (game-unit) height of the top info-strip band (was 0.9f).
     float entity_panel_height_factor;  // Bottom entity-panel height as a fraction of logical height (was inline 0.275f).
     float min_band_logical;            // Minimum logical height of a carved band (was inline fmaxf(1.0f, ...)).
     float band_edge_gap_logical;       // Logical gap reserved so a band never swallows its column (was the inline -1.0f gaps).
@@ -40,21 +41,12 @@ static ViewportLayoutConfig g_viewport_layout_config = {
     .min_panel_ratio            = 0.05f,
     .max_panel_ratio            = 0.45f,
     .max_combined_panel_ratio   = 0.90f,
-    .info_strip_logical_height  = 0.9f,
+    .info_strip_logical_height  = 0.7f,
+    .toolbar_logical_width      = 0.8f,
     .entity_panel_height_factor = 0.275f,
     .min_band_logical           = 1.0f,
     .band_edge_gap_logical      = 1.0f,
 };
-
-// Logical width (game units) of the far-left toolbar band. Deliberately DERIVED from the
-// info-strip band height so the toolbar's width stays exactly equal to the strip's height, with
-// no separate stored value that could drift. This preserves the former
-// `toolbar_logical_width = info_strip_logical_height` alias. Both extents live in the same
-// logical (game-unit) viewport space, so the equality is genuine.
-static inline float ViewportLayoutConfig_ToolbarLogicalWidth(const ViewportLayoutConfig *cfg)
-{
-    return cfg->info_strip_logical_height;
-}
 
 // Live, user-adjustable panel ratios (runtime state mutated by SetViewportPanelRatios). They are
 // initialised from the config defaults; InitViewportLayout reads the CURRENT values, not the
@@ -487,7 +479,7 @@ static void SolveDockLayout(const DockRow *rows, int row_count,
     // edge, spanning from the top (y=0) down to the bottom entity band (y = H - entity_height), so
     // it also covers the top-left corner beside the info strip. Width is clamped so it can never
     // swallow the whole central column.
-    float toolbar_w = fminf(ViewportLayoutConfig_ToolbarLogicalWidth(cfg), fmaxf(0.0f, rpanel_viewport.local_origin.x - central_left - cfg->band_edge_gap_logical));
+    float toolbar_w = fminf(cfg->toolbar_logical_width, fmaxf(0.0f, rpanel_viewport.local_origin.x - central_left - cfg->band_edge_gap_logical));
     DOCK_WRITE_REGION(DOCK_REGION_TOOLBAR,
                       ((Vector2d){central_left, 0.0f}),
                       ((Vector2d){central_left + toolbar_w, logical_screen.y - entity_panel_height}));
@@ -565,8 +557,8 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
         {DOCK_REGION_LPANEL, DOCK_EDGE_LEFT, DOCK_SIZE_RATIO, DOCK_REF_SCREEN_WIDTH, left_panel_ratio, DOCK_WITHIN_SCREEN},
         // RPANEL: right edge of the screen; width MIRRORS the solved left-panel width.
         {DOCK_REGION_RPANEL, DOCK_EDGE_RIGHT, DOCK_SIZE_LOGICAL, DOCK_REF_SCREEN_WIDTH, 0.0f, DOCK_WITHIN_SCREEN},
-        // TOOLBAR: left edge of the central column; width linked to the info-strip height.
-        {DOCK_REGION_TOOLBAR, DOCK_EDGE_LEFT, DOCK_SIZE_LOGICAL, DOCK_REF_SCREEN_WIDTH, ViewportLayoutConfig_ToolbarLogicalWidth(cfg), DOCK_WITHIN_CENTRAL},
+        // TOOLBAR: left edge of the central column.
+        {DOCK_REGION_TOOLBAR, DOCK_EDGE_LEFT, DOCK_SIZE_LOGICAL, DOCK_REF_SCREEN_WIDTH, cfg->toolbar_logical_width, DOCK_WITHIN_CENTRAL},
         // INFO_STRIP: top edge of the central content column; height = info_strip_logical_height.
         {DOCK_REGION_INFO_STRIP, DOCK_EDGE_TOP, DOCK_SIZE_LOGICAL, DOCK_REF_SCREEN_WIDTH, cfg->info_strip_logical_height, DOCK_WITHIN_CENTRAL},
         // GAME: fills the remainder of the central content column.

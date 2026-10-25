@@ -150,8 +150,8 @@ void UIIcon_DrawNudge(UIElement *e)
     //   dots        : 0.82 and 0.96 (motion trail to the right of the box)
     float arrow_start_x = glyph_x + glyph_w * 0.00f;
     float arrow_tip_x   = glyph_x + glyph_w * 0.32f;
-    float box_left      = glyph_x + glyph_w * 0.42f;
-    float box_right     = glyph_x + glyph_w * 0.70f;
+    float box_left      = glyph_x + glyph_w * 0.38f;
+    float box_right     = glyph_x + glyph_w * 0.62f;
 
     // --- Arrow shaft: a short horizontal line ending at the box's left edge. ---
     DrawLineEx((Vector2){arrow_start_x, cy}, (Vector2){arrow_tip_x, cy}, stroke, ink);
@@ -166,14 +166,14 @@ void UIIcon_DrawNudge(UIElement *e)
 
     // --- Box: a square outline whose left side sits just past the arrow tip. Its height is a
     //     fraction of the composition HEIGHT so it reads as a chunky box. ---
-    float box_half = glyph_size * 0.28f; // Half the box height (square box).
+    float box_half = glyph_size * 0.24f; // Half the box height (square box).
     Rectangle box_rect = { box_left, cy - box_half, box_right - box_left, box_half * 2.0f };
     DrawRectangleLinesEx(box_rect, stroke, ink);
 
     // --- Motion dots: two small filled dots trailing to the right of the box. ---
     float dot_radius = fmaxf(1.0f, glyph_size * 0.09f);
-    float dot1_x = glyph_x + glyph_w * 0.82f;
-    float dot2_x = glyph_x + glyph_w * 0.96f;
+    float dot1_x = glyph_x + glyph_w * 0.7f;
+    float dot2_x = glyph_x + glyph_w * 0.85f;
     DrawCircleV((Vector2){dot1_x, cy}, dot_radius, ink);
     DrawCircleV((Vector2){dot2_x, cy}, dot_radius, ink);
 }

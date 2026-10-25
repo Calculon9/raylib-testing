@@ -5,13 +5,13 @@
     <!-- BIND_STRING query result via Binding_RefreshText (no ON/OFF toggle composition - -->
     <!-- that path is exclusive to bound <Button> toggles). Leaves do NOT auto-size to text, -->
     <!-- so each field carries an explicit fixed size. -->
-<Container id="info_strip" title="" layout="inline" width="fill" height="hug">    
+<Container id="info_strip" layout="inline" width="fill" height="fill">    
     <!-- Cursor-coordinate fields. Root: pointer in the root world's frame (always shown). -->
     <!-- Child: pointer in a hovered nested world's local frame, or a dash over root/empty space. -->
     <!-- Height 0.5 matches the two fields above; width 10.0 fits the short coord labels and keeps -->
     <!-- all four fields on one row in the wide central-column strip (see info-strip-coords-design.md). -->
-    <Textbox id="info_strip_rootcoords" io="readonly" binding="infostrip.rootcoords" size="4.5,0.5" width="fixed" height="fixed" />
-    <Textbox id="info_strip_childcoords" io="readonly" binding="infostrip.childcoords" size="4.5,0.5" width="fixed" height="fixed" />
-    <Textbox id="info_strip_hover" io="readonly" binding="infostrip.hover" size="6.5,0.5" width="fixed" height="fixed" />
-    <Textbox id="info_strip_selection" io="readonly" binding="infostrip.selection" size="6.5,0.5" width="fixed" height="fixed" />
+    <Textbox id="info_strip_rootcoords" io="readonly" binding="infostrip.rootcoords" size="4.5,0.5" />
+    <Textbox id="info_strip_childcoords" io="readonly" binding="infostrip.childcoords" size="4.5,0.5"/>
+    <Textbox id="info_strip_hover" io="readonly" binding="infostrip.hover" size="6.5,0.5" />
+    <Textbox id="info_strip_selection" io="readonly" binding="infostrip.selection" size="6.5,0.5" />
 </Container>

@@ -8,26 +8,26 @@
     <!-- Like the Nudge button, every toggle uses surface="input" for one shared flat base, and -->
     <!-- conveys ON/OFF through its GLYPH INK (bright when on, normal when off) rather than an amber -->
     <!-- box-fill swap. Elements are stacked vertically. -->
-<Container id="toolbar" title="" layout="stacked" width="fill" height="fill">
+<Container id="toolbar" layout="stacked" width="hug" height="fill">
     <!-- Icon-only tool button. NO binding= here on purpose: a binding= display source makes the -->
     <!-- per-frame refresh walk WRITE the button's text (e.g. ": ON"/": OFF"), which a text="" -->
     <!-- cannot suppress. Instead the active-tool state drives the ICON appearance inside the -->
     <!-- on_draw hook (Toolbar_DrawNudgeIcon reads UIState_IsToolActive), so the toggle feedback -->
     <!-- is the glyph's look, not text. action="tool-nudge" still sets the active tool on click. -->
     <!-- surface="input" gives the flat info-strip tint (vs the bright BUTTON surface). -->
-    <Button id="tool_nudge" type="simple" text="" surface="input" action="tool-nudge" size="0.76,0.45" />
+    <Button id="tool_nudge" type="simple" surface="input" action="tool-nudge" size="0.67,0.45" />
 
     <!-- Thin empty separator so the tool and the toggle group read as two distinct bands. -->
-    <Label id="toolbar_separator" text="" size="5.25,0.25" width="fixed" height="fixed" />
+    <Label id="toolbar_separator" size="1,0.25" width="fixed" height="fixed" />
 
     <!-- The nine independent visual toggles (rehomed from lpanel.xml's state_view). -->
-    <Button id="toggle_dashboard" type="simple" text="" surface="input" binding="debug.dashboard" action="toggle-debug-dashboard" size="0.76,0.45" />
-    <Button id="toggle_viewport_grid" type="simple" text="" surface="input" binding="view.viewport-grid" action="toggle-viewport-grid" size="0.76,0.45" />
-    <Button id="toggle_world_grid" type="simple" text="" surface="input" binding="view.world-grid" action="toggle-world-grid" size="0.76,0.45" />
-    <Button id="toggle_world_grid_labels" type="simple" text="" surface="input" binding="view.world-grid-labels" action="toggle-world-grid-labels" size="0.76,0.45" />
-    <Button id="toggle_universe_grid_labels" type="simple" text="" surface="input" binding="view.universe-grid-labels" action="toggle-universe-grid-labels" size="0.76,0.45" />
-    <Button id="toggle_ui_borders" type="simple" text="" surface="input" binding="view.ui-borders" action="toggle-ui-borders" size="0.76,0.45" />
-    <Button id="toggle_object_axes" type="simple" text="" surface="input" binding="gizmo.object-axes" action="toggle-object-axes" size="0.76,0.45" />
-    <Button id="toggle_object_hull" type="simple" text="" surface="input" binding="gizmo.object-hull" action="toggle-object-hull" size="0.76,0.45" />
-    <Button id="toggle_object_aabb" type="simple" text="" surface="input" binding="gizmo.object-aabb" action="toggle-object-aabb" size="0.76,0.45" />
+    <Button id="toggle_dashboard" type="simple" surface="input" binding="debug.dashboard" action="toggle-debug-dashboard" size="0.67,0.45" />
+    <Button id="toggle_viewport_grid" type="simple" surface="input" binding="view.viewport-grid" action="toggle-viewport-grid" size="0.67,0.45" />
+    <Button id="toggle_world_grid" type="simple" surface="input" binding="view.world-grid" action="toggle-world-grid" size="0.67,0.45" />
+    <Button id="toggle_world_grid_labels" type="simple" surface="input" binding="view.world-grid-labels" action="toggle-world-grid-labels" size="0.67,0.45" />
+    <Button id="toggle_universe_grid_labels" type="simple" surface="input" binding="view.universe-grid-labels" action="toggle-universe-grid-labels" size="0.67,0.45" />
+    <Button id="toggle_ui_borders" type="simple" surface="input" binding="view.ui-borders" action="toggle-ui-borders" size="0.67,0.45" />
+    <Button id="toggle_object_axes" type="simple" surface="input" binding="gizmo.object-axes" action="toggle-object-axes" size="0.67,0.45" />
+    <Button id="toggle_object_hull" type="simple" surface="input" binding="gizmo.object-hull" action="toggle-object-hull" size="0.67,0.45" />
+    <Button id="toggle_object_aabb" type="simple" surface="input" binding="gizmo.object-aabb" action="toggle-object-aabb" size="0.67,0.45" />
 </Container>
