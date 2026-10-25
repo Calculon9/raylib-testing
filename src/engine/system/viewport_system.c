@@ -8,15 +8,61 @@
 // ============================================================================
 // Configuration & Constants
 // ============================================================================
+
+// Screen-partition layout configuration. Gathers ALL of the hard-coded screen-partition
+// literals that were previously scattered through InitViewportLayout (and the clamp bounds in
+// SetViewportTargetLogicalHeight / SetViewportPanelRatios) into one declared data struct. This
+// is a pure extraction of magic numbers: every field below holds exactly the literal it
+// replaces, so the computed viewport regions are byte-identical to before. The relative math,
+// region order and clamp semantics are unchanged; only the SOURCE of each number moved here.
+typedef struct ViewportLayoutConfig
+{
+    float default_left_panel_ratio;    // Initial left-panel width as a fraction of logical width (was 0.175f).
+    float default_right_panel_ratio;   // Initial right-panel width as a fraction of logical width (was 0.175f).
+    float min_target_logical_height;   // Lower clamp on the target game logical height (was 8.0f).
+    float max_target_logical_height;   // Upper clamp on the target game logical height (was 400.0f).
+    float min_panel_ratio;             // Lower clamp on each individual panel ratio (was 0.05f).
+    float max_panel_ratio;             // Upper clamp on each individual panel ratio (was 0.45f).
+    float max_combined_panel_ratio;    // Upper clamp on the combined left+right panel ratio (was 0.90f).
+    float info_strip_logical_height;   // Logical (game-unit) height of the top info-strip band (was 0.9f).
+    float entity_panel_height_factor;  // Bottom entity-panel height as a fraction of logical height (was inline 0.275f).
+    float min_band_logical;            // Minimum logical height of a carved band (was inline fmaxf(1.0f, ...)).
+    float band_edge_gap_logical;       // Logical gap reserved so a band never swallows its column (was the inline -1.0f gaps).
+} ViewportLayoutConfig;
+
+// Single file-scope instance of the layout configuration. Values confirmed against the former
+// inline literals; see the field comments above for the one-to-one mapping.
+static ViewportLayoutConfig g_viewport_layout_config = {
+    .default_left_panel_ratio   = 0.175f,
+    .default_right_panel_ratio  = 0.175f,
+    .min_target_logical_height  = 8.0f,
+    .max_target_logical_height  = 400.0f,
+    .min_panel_ratio            = 0.05f,
+    .max_panel_ratio            = 0.45f,
+    .max_combined_panel_ratio   = 0.90f,
+    .info_strip_logical_height  = 0.9f,
+    .entity_panel_height_factor = 0.275f,
+    .min_band_logical           = 1.0f,
+    .band_edge_gap_logical      = 1.0f,
+};
+
+// Logical width (game units) of the far-left toolbar band. Deliberately DERIVED from the
+// info-strip band height so the toolbar's width stays exactly equal to the strip's height, with
+// no separate stored value that could drift. This preserves the former
+// `toolbar_logical_width = info_strip_logical_height` alias. Both extents live in the same
+// logical (game-unit) viewport space, so the equality is genuine.
+static inline float ViewportLayoutConfig_ToolbarLogicalWidth(const ViewportLayoutConfig *cfg)
+{
+    return cfg->info_strip_logical_height;
+}
+
+// Live, user-adjustable panel ratios (runtime state mutated by SetViewportPanelRatios). They are
+// initialised from the config defaults; InitViewportLayout reads the CURRENT values, not the
+// defaults.
 static float left_panel_ratio = 0.175f;
 static float right_panel_ratio = 0.175f;
 static float target_game_logical_height = 9.0f;
 static int ui_ppu_override = 0;
-static const float min_target_logical_height = 8.0f;
-static const float max_target_logical_height = 400.0f;
-static const float min_panel_ratio = 0.05f;
-static const float max_panel_ratio = 0.45f;
-static const float max_combined_panel_ratio = 0.90f;
 static int debug_grid_enabled = 0;
 
 #ifndef VIEWPORT_VERBOSE_LOGGING
@@ -33,21 +79,6 @@ ViewportRegion entity_panel_viewport = {0};
 ViewportRegion utility_panel_viewport = {0};
 ViewportRegion info_strip_viewport = {0};
 ViewportRegion toolbar_viewport = {0};
-
-// Fixed logical height (game units) of the info strip band carved from the top of the central
-// column. Kept small so it reads as a thin status strip, consistent with the other docked
-// panels reserving their own screen region rather than overlaying the world.
-static const float info_strip_logical_height = 0.9f;
-
-// Fixed logical width (game units) of the far-left toolbar band. Deliberately kept EQUAL to the
-// info-strip band height (info_strip_logical_height) so the far-left toolbar's width matches the
-// top info strip's height exactly; referencing the same constant keeps the two linked if either is
-// retuned later. Both extents live in the same logical (game-unit) viewport space, so the match is
-// genuine. The central column content (info strip + game viewport) derives its left edge from the
-// toolbar's right edge, so narrowing the band simply widens the game viewport with no overlap/gap.
-// NOTE: the toolbar's buttons (sized in toolbar.xml) are intentionally left unchanged; at this
-// narrower width the existing wide buttons may overflow the band.
-static const float toolbar_logical_width = info_strip_logical_height;
 
 // ============================================================================
 // Viewport Basis Vectors (used by SetViewportSpaceBasis / ResetViewportSpaceBasis)
@@ -158,7 +189,9 @@ static void DrawViewportRegionGrid(Vector2d origin, Vector2d basis_u, Vector2d b
 
 void SetViewportTargetLogicalHeight(float logical_height)
 {
-    target_game_logical_height = ClampFloat(logical_height, min_target_logical_height, max_target_logical_height);
+    target_game_logical_height = ClampFloat(logical_height,
+                                            g_viewport_layout_config.min_target_logical_height,
+                                            g_viewport_layout_config.max_target_logical_height);
 }
 
 void SetViewportUIScaleScalar(int ui_pixels_per_unit_override)
@@ -168,13 +201,17 @@ void SetViewportUIScaleScalar(int ui_pixels_per_unit_override)
 
 void SetViewportPanelRatios(float left_panel_ratio, float right_panel_ratio)
 {
-    float left = ClampFloat(left_panel_ratio, min_panel_ratio, max_panel_ratio);
-    float right = ClampFloat(right_panel_ratio, min_panel_ratio, max_panel_ratio);
+    float left = ClampFloat(left_panel_ratio,
+                            g_viewport_layout_config.min_panel_ratio,
+                            g_viewport_layout_config.max_panel_ratio);
+    float right = ClampFloat(right_panel_ratio,
+                             g_viewport_layout_config.min_panel_ratio,
+                             g_viewport_layout_config.max_panel_ratio);
 
     // Keep enough width for the world region.
-    if ((left + right) > max_combined_panel_ratio)
+    if ((left + right) > g_viewport_layout_config.max_combined_panel_ratio)
     {
-        float scale = max_combined_panel_ratio / (left + right);
+        float scale = g_viewport_layout_config.max_combined_panel_ratio / (left + right);
         left *= scale;
         right *= scale;
     }
@@ -289,6 +326,9 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
     // STATIC so its memory address stays valid after this function returns
     static Frame2d screen_frame;
 
+    // Read the partition literals from the single layout configuration (see ViewportLayoutConfig).
+    const ViewportLayoutConfig *cfg = &g_viewport_layout_config;
+
     int screen_pixels_per_unit = game_pixels_per_unit_override;
     if (screen_pixels_per_unit <= 0)
     {
@@ -334,7 +374,7 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
     // between the left and right panels). Carved out FIRST so the game viewport below can
     // account for its height and the strip never overlaps the world render region. The band
     // height is clamped so it can never consume the whole central column on very short windows.
-    float strip_height = fminf(info_strip_logical_height, fmaxf(0.0f, logical_screen.y - 1.0f));
+    float strip_height = fminf(cfg->info_strip_logical_height, fmaxf(0.0f, logical_screen.y - cfg->band_edge_gap_logical));
 
     // TOOLBAR BAND: a thin vertical tool strip carved from the LEFT EDGE of the central column,
     // flush against the left panel's right edge and spanning the game viewport's vertical extent
@@ -348,9 +388,9 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
     // the info strip (which starts to the toolbar's right) and the toolbar (if it started below
     // the strip). The info strip's left edge then aligns with the game viewport's left edge below
     // it, giving a clean vertical line.
-    float entity_panel_height = fmaxf(1.0f, floorf(logical_screen.y * 0.275f));
+    float entity_panel_height = fmaxf(cfg->min_band_logical, floorf(logical_screen.y * cfg->entity_panel_height_factor));
     float central_left = lpanel_viewport.local_end.x;
-    float toolbar_w = fminf(toolbar_logical_width, fmaxf(0.0f, rpanel_viewport.local_origin.x - central_left - 1.0f));
+    float toolbar_w = fminf(ViewportLayoutConfig_ToolbarLogicalWidth(cfg), fmaxf(0.0f, rpanel_viewport.local_origin.x - central_left - cfg->band_edge_gap_logical));
     ConfigureViewportRegion(&toolbar_viewport,
                             (Vector2d){central_left, 0.0f},
                             (Vector2d){central_left + toolbar_w, logical_screen.y - entity_panel_height},
