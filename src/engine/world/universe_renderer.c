@@ -67,14 +67,20 @@ static void DrawUniverseGrid(const Universe *universe, CameraViewBox camera_view
     {
         Vector2d line_start = {x, -uni_half_h};
         Vector2d line_end = {x, uni_half_h};
-        DrawTransformedLineV(line_start, line_end, camera_to_pixel_mtx, COLOUR_GAME_OLIVE_RGBA);
+        // Clip to the game viewport pixel rect so grid lines do not bleed into panels.
+        DrawTransformedLineClippedV(line_start, line_end, camera_to_pixel_mtx,
+                                    COLOUR_GAME_OLIVE_RGBA,
+                                    game_viewport.pixel_origin, game_viewport.pixel_end);
     }
 
     for (float y = start_y; y <= world_max_y; y += grid_cell_size)
     {
         Vector2d line_start = {-uni_half_w, y};
         Vector2d line_end = {uni_half_w, y};
-        DrawTransformedLineV(line_start, line_end, camera_to_pixel_mtx, COLOUR_GAME_OLIVE_RGBA);
+        // Clip to the game viewport pixel rect so grid lines do not bleed into panels.
+        DrawTransformedLineClippedV(line_start, line_end, camera_to_pixel_mtx,
+                                    COLOUR_GAME_OLIVE_RGBA,
+                                    game_viewport.pixel_origin, game_viewport.pixel_end);
     }
 
     DrawTransformedLineEx((Vector2d){world_min_x, 0.0f}, (Vector2d){world_max_x, 0.0f},

@@ -558,7 +558,9 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
 
         Vector2d line_origin = VectorSum_2d(origin, row_offset);
         Vector2d line_end = VectorSum_2d(line_origin, width_extent);
-        DrawTransformedLineV(line_origin, line_end, world_to_pixel_mtx, colour);
+        // Clip to the game viewport pixel rect so grid lines do not bleed into panels.
+        DrawTransformedLineClippedV(line_origin, line_end, world_to_pixel_mtx, colour,
+                                    game_viewport.pixel_origin, game_viewport.pixel_end);
     }
 
     for (int i = 0; i <= columns; i++)
@@ -568,7 +570,9 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
 
         Vector2d line_origin = VectorSum_2d(origin, column_offset);
         Vector2d line_end = VectorSum_2d(line_origin, height_extent);
-        DrawTransformedLineV(line_origin, line_end, world_to_pixel_mtx, colour);
+        // Clip to the game viewport pixel rect so grid lines do not bleed into panels.
+        DrawTransformedLineClippedV(line_origin, line_end, world_to_pixel_mtx, colour,
+                                    game_viewport.pixel_origin, game_viewport.pixel_end);
     }
 
     int totalUnits = columns * rows;

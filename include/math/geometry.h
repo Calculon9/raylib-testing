@@ -73,6 +73,11 @@ Matrix2x2 AABB2d_FromPoints(const Vector2d *points, int point_count);
 Matrix2x2 AABB2d_FromOriginDimensions(Vector2d origin, Vector2d dimensions);
 bool AABB2d_Overlaps(Matrix2x2 box1, Matrix2x2 box2);
 bool AABB2d_Contains(Matrix2x2 container, Matrix2x2 box);
+// Clips segment [*a,*b] to the axis-aligned rectangle [rect_min, rect_max] using the
+// Liang-Barsky algorithm. Mutates *a and *b to the clipped endpoints. Returns true if
+// any part of the segment lies inside the rectangle, false if it is entirely outside
+// (in which case *a and *b are left unmodified). Pure math; no raylib dependency.
+bool ClipSegmentToRect(Vector2d *a, Vector2d *b, Vector2d rect_min, Vector2d rect_max);
 Matrix2x2 CalcAABBCoords_Tight(Vector2d *vertices, int vertice_count, Vector2d vertice_offset);
 Vector2d CalcGeometricCentre_FromBox(Matrix2x2 box_coords);
 void CenterVerticesToExtents(LArray *points);

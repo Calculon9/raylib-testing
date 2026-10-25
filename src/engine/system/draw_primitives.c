@@ -7,6 +7,7 @@ DRAW PRIMITIVES MODULE
 
 #include "raylib.h"
 #include "camera/camera.h"
+#include "math/geometry.h"
 
 Color ToRaylibColor(ColourRgba colour)
 {
@@ -41,6 +42,41 @@ void DrawTransformedLineEx(Vector2d start, Vector2d end, Matrix3x3 tfrm_mtx, flo
 void DrawTransformedLineV(Vector2d start, Vector2d end, Matrix3x3 tfrm_mtx, ColourRgba line_colour)
 {
     DrawTransformedLineEx(start, end, tfrm_mtx, 1.0f, line_colour);
+}
+
+// As DrawTransformedLineEx, but clips the transformed pixel-space segment to the
+// axis-aligned rectangle [clip_min, clip_max] before rasterising, so the line never
+// bleeds outside the game viewport. Clipping after the transform keeps it correct under
+// camera rotation and zoom; segments fully outside the rectangle are skipped.
+void DrawTransformedLineClippedEx(Vector2d start, Vector2d end, Matrix3x3 tfrm_mtx,
+                                  float line_width, ColourRgba line_colour,
+                                  Vector2d clip_min, Vector2d clip_max)
+{
+    // Transform both endpoints to pixel space (same path as DrawTransformedLineEx).
+    Vector2d line_pixel_origin = {0};
+    Vector2d line_pixel_end = {0};
+    TransformLineEndpoints(start, end, tfrm_mtx, &line_pixel_origin, &line_pixel_end);
+
+    // Clip the pixel-space segment to the axis-aligned viewport rectangle. Correct
+    // under camera rotation because the clip rect is axis-aligned in pixel space.
+    if (!ClipSegmentToRect(&line_pixel_origin, &line_pixel_end, clip_min, clip_max))
+    {
+        return; // Segment lies entirely outside the viewport; nothing to draw.
+    }
+
+    DrawLineEx((Vector2){line_pixel_origin.x, line_pixel_origin.y},
+               (Vector2){line_pixel_end.x, line_pixel_end.y}, line_width,
+               ToRaylibColor(line_colour));
+}
+
+// Thin wrapper over DrawTransformedLineClippedEx with a 1.0f line width, mirroring
+// DrawTransformedLineV for the grid draw sites.
+void DrawTransformedLineClippedV(Vector2d start, Vector2d end, Matrix3x3 tfrm_mtx,
+                                 ColourRgba line_colour,
+                                 Vector2d clip_min, Vector2d clip_max)
+{
+    DrawTransformedLineClippedEx(start, end, tfrm_mtx, 1.0f, line_colour,
+                                 clip_min, clip_max);
 }
 
 void DrawTransformedArrowV(Vector2d start, Vector2d end, Matrix3x3 tfrm_mtx, ColourRgba line_colour)

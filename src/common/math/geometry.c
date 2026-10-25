@@ -274,6 +274,61 @@ bool AABB2d_Contains(Matrix2x2 container, Matrix2x2 box)
            box.col1.y >= container.col1.y && box.col2.y <= container.col2.y;
 }
 
+// Clips the segment running from *a to *b against the axis-aligned rectangle spanning
+// [rect_min, rect_max] using the Liang-Barsky algorithm. On success the endpoints are
+// mutated in place to the clipped segment and true is returned; when the segment lies
+// entirely outside the rectangle false is returned and *a/*b are left untouched. This is
+// pure math (no raylib), used to keep grid lines inside the game viewport pixel rect.
+bool ClipSegmentToRect(Vector2d *a, Vector2d *b, Vector2d rect_min, Vector2d rect_max)
+{
+    // Segment direction; the clip solves for the parameter window [t0, t1] along it.
+    Vector2d d = {b->x - a->x, b->y - a->y};
+    float t0 = 0.0f;
+    float t1 = 1.0f;
+
+    // The four clip edges expressed as (p, q) pairs: left, right, top, bottom.
+    float p[4] = {-d.x, d.x, -d.y, d.y};
+    float q[4] = {a->x - rect_min.x, rect_max.x - a->x, a->y - rect_min.y, rect_max.y - a->y};
+
+    for (int edge = 0; edge < 4; edge++)
+    {
+        if (p[edge] == 0.0f)
+        {
+            // Segment parallel to this edge: outside if it starts beyond the boundary.
+            if (q[edge] < 0.0f)
+            {
+                return false;
+            }
+        }
+        else
+        {
+            float r = q[edge] / p[edge];
+            if (p[edge] < 0.0f)
+            {
+                // Entering the edge: tighten the window's near end.
+                t0 = fmaxf(t0, r);
+            }
+            else
+            {
+                // Leaving the edge: tighten the window's far end.
+                t1 = fminf(t1, r);
+            }
+
+            if (t0 > t1)
+            {
+                return false; // Window collapsed: segment is entirely outside the rect.
+            }
+        }
+    }
+
+    // Derive the clipped end before overwriting *a (new_a depends on the original *a).
+    Vector2d new_b = {a->x + t1 * d.x, a->y + t1 * d.y};
+    Vector2d new_a = {a->x + t0 * d.x, a->y + t0 * d.y};
+    *a = new_a;
+    *b = new_b;
+    return true;
+}
+
 // Returns the boxed coords from a collection of vertice vectors with an offset applied to the vertices (e.g. to account for the position of the shape in world space, rather than just the local vertices)
 Matrix2x2 CalcAABBCoords_Tight(Vector2d *vertices, int vertice_count, Vector2d vertice_offset)
 {
