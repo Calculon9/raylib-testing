@@ -1385,6 +1385,9 @@ void DisposeUIElement(UIElement *e)
 // never goes stale no matter what changed the underlying state. Does nothing for elements with
 // no binding or a source-less (command-only / sink-only) binding, so it is cheap to call on
 // every element every frame.
+// EXCEPTION: a bound button that also carries an on_draw glyph (the toolbar's icon toggles) keeps
+// its authored flat surface=input fill and conveys ON/OFF through the glyph ink instead, mirroring
+// the Nudge button; for those the amber box-fill swap is deliberately skipped (see below).
 void UIElement_RefreshBinding(UIElement *e)
 {
     if (!e)
@@ -1411,8 +1414,14 @@ void UIElement_RefreshBinding(UIElement *e)
         bool on = (value.as.i != 0);
         safe_strncpy(e->data.button.display_text.string, e->data.button.text.string,
                      sizeof(e->data.button.display_text.string));
-        e->colour_fill = on ? ui_default_palette.toggle_on_fill
-                            : ui_default_palette.toggle_off_fill;
+        // Icon toggles (an on_draw glyph present) keep their authored flat surface=input fill and
+        // show ON/OFF via the glyph ink (UIIcon_StateInk), exactly like the Nudge button - so the
+        // amber box-fill swap is skipped for them, leaving the shared flat base intact.
+        if (e->on_draw == NULL)
+        {
+            e->colour_fill = on ? ui_default_palette.toggle_on_fill
+                                : ui_default_palette.toggle_off_fill;
+        }
         return;
     }
 

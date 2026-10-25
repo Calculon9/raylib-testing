@@ -6,7 +6,9 @@ One home and one visual language for the toolbar's procedural glyphs. The reloca
 glyph plus nine toggle glyphs, each attached to a button's UIElement.on_draw hook by id in
 InitToolbar. Every glyph is centred in e->screen_box, sized off the box HEIGHT (the toolbar tiles
 are wide and short, so height is the limiting axis), monochrome, and composed from the same raylib
-primitives the Nudge glyph has always used.
+primitives the Nudge glyph has always used. All ten buttons share one flat surface=input base; the
+ON/OFF state of each toggle is shown the Nudge way, through the GLYPH INK (bright button_fill when
+ON, normal text ink when OFF via UIIcon_StateInk), not an amber box-fill swap.
 *
 **********************************************************************************************/
 #include "system/ui/ui_icons.h"
@@ -18,6 +20,7 @@ primitives the Nudge glyph has always used.
 #include "system/ui_system.h"       // ui_default_palette, UIState_IsToolActive, TOOL_NUDGE
 #include "common/common.h"          // PI (float)
 #include "ui/ui.h"                  // UIElement / UIBox
+#include "ui/binding.h"             // Binding_ReadSource / BindingValue / BIND_SRC_NONE (toggle truth)
 
 // ============================================================================
 // Shared glyph helpers (file-local)
@@ -63,19 +66,36 @@ static bool UIIcon_Fit(const UIElement *e, UIIconFit *out)
     return true;
 }
 
-// Resolve the ink a toggle glyph draws in. The glyph must CONTRAST with the button box it is
-// drawn on top of: the per-frame binding refresh (UIElement_RefreshBinding) fills the box with the
-// palette's toggle_on_fill (bright amber, ON) or toggle_off_fill (dim amber, OFF), so reading
-// e->colour_fill here would paint the glyph the exact colour of its box and render it invisible.
-// Use the palette's text ink (near-black, the same contrasting ink the Nudge glyph draws in when
-// inactive); it reads crisply against BOTH amber fills. The ON/OFF state is already conveyed by
-// the box fill, so a single constant contrasting ink is sufficient. The element carries no palette
-// handle, so ui_default_palette is read directly - matching the toolbar's existing fallback. The
-// Nudge glyph does NOT use this helper: it owns its own ink path (button_fill/text) in-line.
+// Resolve the ink a toggle glyph draws in, mirroring the Nudge button EXACTLY: the glyph sits on a
+// flat surface=input box (no amber fill swap), so ON/OFF is conveyed by the ink alone - bright
+// button_fill when the toggle is ON, normal text ink when OFF. The toggle's live on/off truth is
+// read from its OWN binding source (the same IsDebugEnabled query the per-frame refresh uses), so
+// the ink can never drift from the binding and no suffix->id map is duplicated. A button with no
+// readable source, or a non-int / zero read, falls back to the normal text ink - the same fallback
+// the Nudge glyph uses when inactive. The element carries no palette handle, so ui_default_palette
+// is read directly, matching the toolbar's existing fallback. The Nudge glyph does NOT use this
+// helper: it owns its own ink path (button_fill/text, keyed on UIState_IsToolActive) in-line.
 static Color UIIcon_StateInk(const UIElement *e)
 {
-    (void)e; // Ink no longer depends on the element's fill; kept for a uniform helper signature.
-    return ToRaylibColor(ui_default_palette.text);
+    bool on = false; // OFF unless the toggle's own binding reports a non-zero (ON) value.
+    // Button-type check is inlined (not IsBtn, which takes a non-const pointer) so this helper can
+    // keep its const UIElement * signature; it mirrors IsBtn's three button-type cases exactly.
+    bool is_button = e && (e->type == UI_ELEMENT_BUTTON_SIMPLE ||
+                           e->type == UI_ELEMENT_BUTTON_ENUMERATE ||
+                           e->type == UI_ELEMENT_BUTTON_SUBMIT);
+    if (is_button)
+    {
+        const Binding *binding = e->data.button.binding;
+        if (binding && binding->source.kind != BIND_SRC_NONE)
+        {
+            BindingValue value = Binding_ReadSource(&binding->source);
+            on = (value.type != BIND_NONE && value.as.i != 0);
+        }
+    }
+
+    // Identical inks to the Nudge button: bright amber ON, normal near-black ink OFF.
+    return on ? ToRaylibColor(ui_default_palette.button_fill)
+              : ToRaylibColor(ui_default_palette.text);
 }
 
 // ============================================================================
@@ -159,7 +179,7 @@ void UIIcon_DrawNudge(UIElement *e)
 }
 
 // ============================================================================
-// Toggle glyphs (ink from UIIcon_StateInk: bright ON / dimmed OFF)
+// Toggle glyphs (ink from UIIcon_StateInk: bright button_fill ON / normal text ink OFF)
 // ============================================================================
 
 // Dashboard (debug.dashboard): a gauge dial. A thin ring (circle outline, approximated by a
@@ -174,7 +194,7 @@ void UIIcon_DrawDashboard(UIElement *e)
         return;
     }
     Color ink = UIIcon_StateInk(e);
-
+    
     // Dial rim: a ring drawn as a closed line loop of N points around the centre (a single-ink
     // outline, respecting the stroke width without a filled disc).
     float radius = f.half * 0.85f;
