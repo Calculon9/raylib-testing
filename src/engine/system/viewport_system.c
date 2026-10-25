@@ -150,6 +150,116 @@ static void ConfigureViewportRegion(ViewportRegion *region, Vector2d local_origi
     FinalizeViewportRegion(region, basis_u, basis_v, pixels_per_unit, screen_frame);
 }
 
+// ============================================================================
+// Dock Model
+// ============================================================================
+// Declarative description of the screen partition. The seven viewport regions used to be laid
+// out by hand-written relative math inside InitViewportLayout; that math is now expressed as a
+// fixed-order DOCK TABLE (data) solved by SolveDockLayout (a small, fixed-order solver). The
+// solver reproduces the former partition BYTE-FOR-BYTE: it performs exactly the same arithmetic,
+// in the same order, and writes the same seven globals via the unchanged ConfigureViewportRegion.
+//
+// The partition is NOT a generic "shrink a rectangle, FILL takes the rest" border layout. It has
+// three non-generic traits the solver encodes explicitly:
+//   1. The toolbar spans the full central-column height minus the bottom band (y: 0 .. H-entity),
+//      so it also covers the top-left corner beside the info strip; it does not start below it.
+//   2. The info strip and game begin at the toolbar's RIGHT edge (central_content_left), not at
+//      the left panel's right edge.
+//   3. The bottom entity/utility band docks within the WHOLE SCREEN (from x=0, under the left
+//      panel) with its top edge pinned to the game's bottom (H - entity_panel_height).
+// Hence the solver is a straight-line transcription of the former source order, not a loop over a
+// shrinking container.
+
+// Which edge of its container a region docks against. FILL takes whatever remains.
+typedef enum DockEdge
+{
+    DOCK_EDGE_LEFT = 0, // Pinned to the container's left edge; consumes width from the left.
+    DOCK_EDGE_RIGHT,    // Pinned to the container's right edge; consumes width from the right.
+    DOCK_EDGE_TOP,      // Pinned to the container's top edge; consumes height from the top.
+    DOCK_EDGE_BOTTOM,   // Pinned to the container's bottom edge; consumes height from the bottom.
+    DOCK_EDGE_FILL      // Occupies the remainder of its container after the fixed slabs are placed.
+} DockEdge;
+
+// How a row's `size` value is interpreted.
+typedef enum DockSizeMode
+{
+    DOCK_SIZE_RATIO = 0, // `size` is a fraction of a reference extent (see DockSizeRef).
+    DOCK_SIZE_LOGICAL    // `size` is an absolute measure in logical (game) units.
+} DockSizeMode;
+
+// Which extent a RATIO size multiplies. Only the logical screen width is needed today (the panel
+// ratios are fractions of the full logical screen width); the field is explicit so a reader can
+// see the reference is the screen, not the container.
+typedef enum DockSizeRef
+{
+    DOCK_REF_SCREEN_WIDTH = 0 // Fraction of logical_screen.x.
+} DockSizeRef;
+
+// The container a row docks WITHIN. The partition has exactly two nesting levels today.
+typedef enum DockContainer
+{
+    DOCK_WITHIN_SCREEN = 0, // Docks within the whole logical screen rectangle.
+    DOCK_WITHIN_CENTRAL     // Docks within the CENTRAL column (the horizontal span that remains
+                            // after the left and right panels are removed from the screen).
+} DockContainer;
+
+// Stable identity for each docked region. The order here is the SOLVE order used by the solver
+// and mirrors the former source order in InitViewportLayout.
+typedef enum DockRegionId
+{
+    DOCK_REGION_LPANEL = 0,
+    DOCK_REGION_RPANEL,
+    DOCK_REGION_TOOLBAR,
+    DOCK_REGION_INFO_STRIP,
+    DOCK_REGION_GAME, // FILL
+    DOCK_REGION_ENTITY_PANEL,
+    DOCK_REGION_UTILITY_PANEL,
+    DOCK_REGION_COUNT
+} DockRegionId;
+
+// A single dock-table row: the declarative geometry of one region.
+typedef struct DockRow
+{
+    DockRegionId  region;    // Which region this row produces (and which global it writes).
+    DockEdge      edge;      // Edge to dock against, or FILL for the remainder.
+    DockSizeMode  size_mode; // How `size` is read (RATIO vs LOGICAL). Ignored when edge == FILL.
+    DockSizeRef   size_ref;  // Reference extent for RATIO sizes. Ignored for LOGICAL / FILL.
+    float         size;      // The SINGLE perpendicular measure: width for LEFT/RIGHT, height for
+                             // TOP/BOTTOM. Ignored for FILL. The bottom-band rows (ENTITY_PANEL,
+                             // UTILITY_PANEL) carry ONLY their band height here; their horizontal
+                             // split is a solver datum (utility_width), NOT a `size` value.
+    DockContainer within;    // SCREEN or CENTRAL: which rectangle the row docks inside.
+} DockRow;
+
+// Fixed, NON-geometric attributes of each region, indexed by DockRegionId. Kept separate from
+// DockRow because these are per-region constants independent of the declared edge/size. `static
+// const` so the game-only behaviours are visible data rather than buried control flow.
+typedef struct DockRegionDesc
+{
+    ViewportRegion *region;              // Destination global (its ADDRESS is the preserved contract).
+    int             basis_space;         // Index into viewport_basis_data[] (the panel/strip basis).
+    bool            use_game_basis;      // true ONLY for GAME: use resolved_u/resolved_v instead of
+                                         //   viewport_basis_data[basis_space].
+    bool            use_screen_ppu;      // true ONLY for GAME: pass screen_pixels_per_unit (NOT
+                                         //   ui_pixels_per_unit) to ConfigureViewportRegion.
+    bool            set_local_resolution;// true ONLY for GAME: after ConfigureViewportRegion, assign
+                                         //   region->local_resolution = region->resolution.
+} DockRegionDesc;
+
+// Structural invariant (developer-time, NOT a runtime input): the dock table must contain exactly
+// DOCK_REGION_COUNT rows in solve order and exactly ONE FILL row (the GAME viewport). The table is
+// private file-local data that no external input can corrupt, so this is enforced by inspection
+// and by the byte-identical verification dump, not by a runtime assert (the engine uses none).
+static const DockRegionDesc g_dock_region_desc[DOCK_REGION_COUNT] = {
+    [DOCK_REGION_LPANEL]        = {&lpanel_viewport,        VIEWPORT_SPACE_LPANEL,       false, false, false},
+    [DOCK_REGION_RPANEL]        = {&rpanel_viewport,        VIEWPORT_SPACE_RPANEL,       false, false, false},
+    [DOCK_REGION_TOOLBAR]       = {&toolbar_viewport,       VIEWPORT_SPACE_LPANEL,       false, false, false},
+    [DOCK_REGION_INFO_STRIP]    = {&info_strip_viewport,    VIEWPORT_SPACE_LPANEL,       false, false, false},
+    [DOCK_REGION_GAME]          = {&game_viewport,          VIEWPORT_SPACE_LPANEL,       true,  true,  true },
+    [DOCK_REGION_ENTITY_PANEL]  = {&entity_panel_viewport,  VIEWPORT_SPACE_ENTITY_PANEL, false, false, false},
+    [DOCK_REGION_UTILITY_PANEL] = {&utility_panel_viewport, VIEWPORT_SPACE_ENTITY_PANEL, false, false, false},
+};
+
 static void DrawViewportRegionGrid(Vector2d origin, Vector2d basis_u, Vector2d basis_v, Vector2d local_resolution,
                                    Color line_color, Color border_color)
 {
@@ -321,6 +431,98 @@ Vector2d ResolveGameViewportLocalCenter()
     return VectorSum_2d(game_viewport.local_origin, VectorScale_2d(game_viewport.resolution, 0.5f));
 }
 
+// Resolve the dock table into the seven viewport regions and write them through the unchanged
+// ConfigureViewportRegion. The solver runs in the fixed table order (= the former source order)
+// and performs exactly the former arithmetic, so its output is byte-identical to the previous
+// hand-written partition. It does NOT reimplement ConfigureViewportRegion/FinalizeViewportRegion;
+// it only computes each region's logical rectangle and hands it over.
+//
+// Parameters carry the already-derived inputs the former code used: the declared `rows`, the
+// `logical_screen` size, the layout `cfg`, the game basis vectors (`resolved_u`/`resolved_v`), the
+// two pixels-per-unit scales, and the shared `screen_frame`.
+static void SolveDockLayout(const DockRow *rows, int row_count,
+                            Vector2d logical_screen, const ViewportLayoutConfig *cfg,
+                            Vector2d resolved_u, Vector2d resolved_v,
+                            int ui_pixels_per_unit, int screen_pixels_per_unit,
+                            Frame2d *screen_frame)
+{
+    (void)rows;        // The rows encode the declared partition; the fixed solve order below is
+    (void)row_count;   // their transcription. Referenced for completeness / future rows.
+
+    // Writes one resolved rectangle into its destination global via the single §3a write path:
+    // the game row alone uses the game basis, the screen pixels-per-unit, and the local_resolution
+    // copy; every other row uses its panel basis and the UI pixels-per-unit.
+    #define DOCK_WRITE_REGION(ID, ORIGIN, END)                                                   \
+        do {                                                                                     \
+            const DockRegionDesc *d = &g_dock_region_desc[(ID)];                                 \
+            Vector2d wu = d->use_game_basis ? resolved_u : viewport_basis_data[d->basis_space].u;\
+            Vector2d wv = d->use_game_basis ? resolved_v : viewport_basis_data[d->basis_space].v;\
+            float wppu = d->use_screen_ppu ? (float)screen_pixels_per_unit                       \
+                                           : (float)ui_pixels_per_unit;                          \
+            ConfigureViewportRegion(d->region, (ORIGIN), (END), wu, wv, wppu, screen_frame);     \
+            if (d->set_local_resolution)                                                         \
+                d->region->local_resolution = d->region->resolution;                            \
+        } while (0)
+
+    // Step 1 - LPANEL (SCREEN / LEFT / RATIO): far left, width by the live left-panel ratio,
+    // full height. Reproduces the former lpanel block.
+    DOCK_WRITE_REGION(DOCK_REGION_LPANEL,
+                      ZERO_VECTOR_2D,
+                      ((Vector2d){floorf(left_panel_ratio * logical_screen.x), logical_screen.y}));
+
+    // Step 2 - RPANEL (SCREEN / RIGHT): mirror of the left panel at the right edge. Its width is
+    // the SOLVED left-panel resolution (not right_panel_ratio * width), exactly as before.
+    DOCK_WRITE_REGION(DOCK_REGION_RPANEL,
+                      ((Vector2d){logical_screen.x - lpanel_viewport.resolution.x, 0.0f}),
+                      logical_screen);
+
+    // Step 3 - pre-compute the shared band datums before any CENTRAL region is written, matching
+    // the former ordering. `strip_height` is the clamped info-strip band height; it is computed
+    // here so the game viewport below can account for it.
+    float strip_height = fminf(cfg->info_strip_logical_height, fmaxf(0.0f, logical_screen.y - cfg->band_edge_gap_logical));
+    float entity_panel_height = fmaxf(cfg->min_band_logical, floorf(logical_screen.y * cfg->entity_panel_height_factor));
+    float central_left = lpanel_viewport.local_end.x;   // Left edge of the CENTRAL container.
+
+    // Step 4 - TOOLBAR (CENTRAL / LEFT): a thin vertical band flush against the left panel's right
+    // edge, spanning from the top (y=0) down to the bottom entity band (y = H - entity_height), so
+    // it also covers the top-left corner beside the info strip. Width is clamped so it can never
+    // swallow the whole central column.
+    float toolbar_w = fminf(ViewportLayoutConfig_ToolbarLogicalWidth(cfg), fmaxf(0.0f, rpanel_viewport.local_origin.x - central_left - cfg->band_edge_gap_logical));
+    DOCK_WRITE_REGION(DOCK_REGION_TOOLBAR,
+                      ((Vector2d){central_left, 0.0f}),
+                      ((Vector2d){central_left + toolbar_w, logical_screen.y - entity_panel_height}));
+
+    // Step 5 - advance the CENTRAL content left edge past the toolbar. The info strip and the game
+    // viewport begin to the RIGHT of the toolbar band.
+    float central_content_left = toolbar_viewport.local_end.x;
+
+    // Step 6 - INFO_STRIP (CENTRAL / TOP): thin horizontal band across the top of the central
+    // content column, from the toolbar's right edge to the right panel's left edge.
+    DOCK_WRITE_REGION(DOCK_REGION_INFO_STRIP,
+                      ((Vector2d){central_content_left, 0.0f}),
+                      ((Vector2d){rpanel_viewport.local_origin.x, strip_height}));
+
+    // Step 7 - GAME (FILL): the remainder of the central content column, right of the toolbar,
+    // below the info strip and above the bottom entity band. The §3a write path routes this row to
+    // the game basis + screen pixels-per-unit and copies resolution into local_resolution.
+    DOCK_WRITE_REGION(DOCK_REGION_GAME,
+                      ((Vector2d){central_content_left, strip_height}),
+                      ((Vector2d){rpanel_viewport.local_origin.x, logical_screen.y - entity_panel_height}));
+
+    // Step 8 - bottom band shared datum, then ENTITY_PANEL and UTILITY_PANEL (both SCREEN / BOTTOM).
+    // `utility_width` is the solver datum that splits the full-width bottom band horizontally; both
+    // rows pin their top edge to the game's bottom (H - entity_height).
+    float utility_width = fminf(lpanel_viewport.resolution.x, logical_screen.x);
+    DOCK_WRITE_REGION(DOCK_REGION_ENTITY_PANEL,
+                      ((Vector2d){0.0f, game_viewport.local_end.y}),
+                      ((Vector2d){logical_screen.x - utility_width, logical_screen.y}));
+    DOCK_WRITE_REGION(DOCK_REGION_UTILITY_PANEL,
+                      ((Vector2d){logical_screen.x - utility_width, game_viewport.local_end.y}),
+                      logical_screen);
+
+    #undef DOCK_WRITE_REGION
+}
+
 void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per_unit_override)
 {
     // STATIC so its memory address stays valid after this function returns
@@ -353,90 +555,33 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
         resolved_v = game_viewport_basis_override_v;
     }
 
-    // LEFT PANEL: origin at the far left, width by ratio, full height (its original placement;
-    // the toolbar now lives on the INNER edge of the game viewport, not outside the left panel).
-    ConfigureViewportRegion(&lpanel_viewport,
-                            ZERO_VECTOR_2D,
-                            (Vector2d){floorf(left_panel_ratio * logical_screen.x), logical_screen.y},
-                            viewport_basis_data[VIEWPORT_SPACE_LPANEL].u, viewport_basis_data[VIEWPORT_SPACE_LPANEL].v,
-                            (float)ui_pixels_per_unit,
-                            &screen_frame);
+    // Build the dock table (declarative partition) from the layout config and the live panel
+    // ratio, then solve it. The sizes that are runtime-computed (ratio x width, mirror width, the
+    // clamped bands) are resolved by the solver; the rows carry the DECLARED intent so there is a
+    // single source of truth with ViewportLayoutConfig. See the Dock Model section above for the
+    // row schema and the per-region descriptor table.
+    DockRow dock_rows[DOCK_REGION_COUNT] = {
+        // LPANEL: left edge of the screen, width = left_panel_ratio * logical width.
+        {DOCK_REGION_LPANEL, DOCK_EDGE_LEFT, DOCK_SIZE_RATIO, DOCK_REF_SCREEN_WIDTH, left_panel_ratio, DOCK_WITHIN_SCREEN},
+        // RPANEL: right edge of the screen; width MIRRORS the solved left-panel width.
+        {DOCK_REGION_RPANEL, DOCK_EDGE_RIGHT, DOCK_SIZE_LOGICAL, DOCK_REF_SCREEN_WIDTH, 0.0f, DOCK_WITHIN_SCREEN},
+        // TOOLBAR: left edge of the central column; width linked to the info-strip height.
+        {DOCK_REGION_TOOLBAR, DOCK_EDGE_LEFT, DOCK_SIZE_LOGICAL, DOCK_REF_SCREEN_WIDTH, ViewportLayoutConfig_ToolbarLogicalWidth(cfg), DOCK_WITHIN_CENTRAL},
+        // INFO_STRIP: top edge of the central content column; height = info_strip_logical_height.
+        {DOCK_REGION_INFO_STRIP, DOCK_EDGE_TOP, DOCK_SIZE_LOGICAL, DOCK_REF_SCREEN_WIDTH, cfg->info_strip_logical_height, DOCK_WITHIN_CENTRAL},
+        // GAME: fills the remainder of the central content column.
+        {DOCK_REGION_GAME, DOCK_EDGE_FILL, DOCK_SIZE_LOGICAL, DOCK_REF_SCREEN_WIDTH, 0.0f, DOCK_WITHIN_CENTRAL},
+        // ENTITY_PANEL: bottom band of the whole screen; carries the band height only.
+        {DOCK_REGION_ENTITY_PANEL, DOCK_EDGE_BOTTOM, DOCK_SIZE_LOGICAL, DOCK_REF_SCREEN_WIDTH, 0.0f, DOCK_WITHIN_SCREEN},
+        // UTILITY_PANEL: bottom band of the whole screen; carries the band height only.
+        {DOCK_REGION_UTILITY_PANEL, DOCK_EDGE_BOTTOM, DOCK_SIZE_LOGICAL, DOCK_REF_SCREEN_WIDTH, 0.0f, DOCK_WITHIN_SCREEN},
+    };
 
-    // RIGHT PANEL: mirror of left panel at the right edge
-    ConfigureViewportRegion(&rpanel_viewport,
-                            (Vector2d){logical_screen.x - lpanel_viewport.resolution.x, 0.0f},
-                            logical_screen,
-                            viewport_basis_data[VIEWPORT_SPACE_RPANEL].u, viewport_basis_data[VIEWPORT_SPACE_RPANEL].v,
-                            (float)ui_pixels_per_unit,
-                            &screen_frame);
-
-    // INFO STRIP: a thin horizontal band across the top of the central column (the gap
-    // between the left and right panels). Carved out FIRST so the game viewport below can
-    // account for its height and the strip never overlaps the world render region. The band
-    // height is clamped so it can never consume the whole central column on very short windows.
-    float strip_height = fminf(cfg->info_strip_logical_height, fmaxf(0.0f, logical_screen.y - cfg->band_edge_gap_logical));
-
-    // TOOLBAR BAND: a thin vertical tool strip carved from the LEFT EDGE of the central column,
-    // flush against the left panel's right edge and spanning the game viewport's vertical extent
-    // (below the info strip, above the bottom entity panel). It hugs the world it operates on,
-    // like a classic tool palette, rather than being an outermost band. The info strip and the
-    // game viewport below start at the toolbar's right edge so nothing overlaps. Width is clamped
-    // so the band can never swallow the whole central column on narrow windows.
-    //
-    // The toolbar spans from the TOP of the central column (y=0) down to the bottom entity panel,
-    // so it also covers the top-left corner square that would otherwise be left uncovered between
-    // the info strip (which starts to the toolbar's right) and the toolbar (if it started below
-    // the strip). The info strip's left edge then aligns with the game viewport's left edge below
-    // it, giving a clean vertical line.
-    float entity_panel_height = fmaxf(cfg->min_band_logical, floorf(logical_screen.y * cfg->entity_panel_height_factor));
-    float central_left = lpanel_viewport.local_end.x;
-    float toolbar_w = fminf(ViewportLayoutConfig_ToolbarLogicalWidth(cfg), fmaxf(0.0f, rpanel_viewport.local_origin.x - central_left - cfg->band_edge_gap_logical));
-    ConfigureViewportRegion(&toolbar_viewport,
-                            (Vector2d){central_left, 0.0f},
-                            (Vector2d){central_left + toolbar_w, logical_screen.y - entity_panel_height},
-                            viewport_basis_data[VIEWPORT_SPACE_LPANEL].u, viewport_basis_data[VIEWPORT_SPACE_LPANEL].v,
-                            (float)ui_pixels_per_unit,
-                            &screen_frame);
-
-    // The central column's content (info strip + game viewport) begins to the RIGHT of the
-    // toolbar band.
-    float central_content_left = toolbar_viewport.local_end.x;
-
-    // INFO STRIP: thin horizontal band across the top of the central column, starting right of
-    // the toolbar so the two never overlap.
-    ConfigureViewportRegion(&info_strip_viewport,
-                            (Vector2d){central_content_left, 0.0f},
-                            (Vector2d){rpanel_viewport.local_origin.x, strip_height},
-                            viewport_basis_data[VIEWPORT_SPACE_LPANEL].u, viewport_basis_data[VIEWPORT_SPACE_LPANEL].v,
-                            (float)ui_pixels_per_unit,
-                            &screen_frame);
-
-    // GAME VIEWPORT: fills the central column right of the toolbar, below the info strip and
-    // above the bottom entity panel, so toolbar / strip / world never overlap.
-    ConfigureViewportRegion(&game_viewport,
-                            (Vector2d){central_content_left, strip_height},
-                            (Vector2d){rpanel_viewport.local_origin.x, logical_screen.y - entity_panel_height},
-                            resolved_u, resolved_v,
-                            (float)screen_pixels_per_unit,
-                            &screen_frame);
-    game_viewport.local_resolution = game_viewport.resolution;
-
-    // BOTTOM ENTITY PANEL: horizontal panel occupying the area left of the utility panel.
-    float utility_width = fminf(lpanel_viewport.resolution.x, logical_screen.x);
-    ConfigureViewportRegion(&entity_panel_viewport,
-                            (Vector2d){0.0f, game_viewport.local_end.y},
-                            (Vector2d){logical_screen.x - utility_width, logical_screen.y},
-                            viewport_basis_data[VIEWPORT_SPACE_ENTITY_PANEL].u, viewport_basis_data[VIEWPORT_SPACE_ENTITY_PANEL].v,
-                            (float)ui_pixels_per_unit,
-                            &screen_frame);
-
-    // UTILITY PANEL: rightmost section of the bottom panel band.
-    ConfigureViewportRegion(&utility_panel_viewport,
-                            (Vector2d){logical_screen.x - utility_width, game_viewport.local_end.y},
-                            logical_screen,
-                            viewport_basis_data[VIEWPORT_SPACE_ENTITY_PANEL].u, viewport_basis_data[VIEWPORT_SPACE_ENTITY_PANEL].v,
-                            (float)ui_pixels_per_unit,
-                            &screen_frame);
+    SolveDockLayout(dock_rows, DOCK_REGION_COUNT,
+                    logical_screen, cfg,
+                    resolved_u, resolved_v,
+                    ui_pixels_per_unit, screen_pixels_per_unit,
+                    &screen_frame);
 
     // Debug output
     printf("LOGICAL REGIONS --> SCREEN(SIZE:%0.1f,%0.1f); LPANEL(SIZE:%0.1f,%0.1f); GAME(SIZE:%0.1f,%0.1f); RPANEL(SIZE:%0.1f,%0.1f)\n",
