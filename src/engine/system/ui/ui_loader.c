@@ -816,8 +816,11 @@ static UIBuildResult BuildContainer(mxml_node_t *node, UIElement *parent,
     // Size, offset, layout and enabled all come from the common pass (size seeded with
     // ui_standard_container_size). The offset is passed into CreateUIContainer, so mark it
     // consumed; the skeleton re-asserts the same enabled value afterwards (idempotent).
+    // Padding: use the authored padding= when present, else the historic default inset, so
+    // attribute-less markup is byte-identical to today.
+    Vector2d pad = common->padding_authored ? common->padding : ui_standard_container_padding;
     UIElement *container = CreateUIContainer(parent, common->size, common->offset,
-                            ui_standard_container_padding, palette,
+                            pad, palette,
                             UI_PALETTE_SURFACE_CONTAINER, common->layout,
                             false, common->enabled);
     common->offset_consumed = true;
@@ -897,11 +900,13 @@ static UIBuildResult BuildView(mxml_node_t *node, UIElement *parent,
     // Create container with UI_ELEMENT_VIEW type so post-processor can find it. Size/offset/
     // layout/enabled all come from the common pass; the offset is consumed at construct time
     // so the skeleton does not re-apply it.
+    // Padding: authored padding= when present, else the historic default inset (byte-identical).
+    Vector2d pad = common->padding_authored ? common->padding : ui_standard_container_padding;
     UIElement *container = CreateUIContainer(
         parent,
         common->size,     // honour width=/height=/size= (defaults to fill/fill)
         common->offset,   // honour offset=/offset-mode= (defaults to zero fixed)
-        ui_standard_container_padding,
+        pad,
         palette,
         UI_PALETTE_SURFACE_CONTAINER,
         common->layout,  // honour layout= (defaults to stack)
@@ -959,9 +964,12 @@ static UIBuildResult BuildViewSelector(mxml_node_t *node, UIElement *parent,
     // colour_border styling are preserved exactly.
     const char *layout_attr = mxmlElementGetAttr(node, "layout");
     Layout selector_spacing = layout_attr ? common->layout : ui_zero_inline_spacing;
+    // Padding: authored padding= when present, else the selector's historic zero inset
+    // (so the default is unchanged but a selector can opt into padding).
+    Vector2d pad = common->padding_authored ? common->padding : ZERO_VECTOR_2D;
     UIElement *toggle_cont = CreateUIContainer(
         parent, common->size,
-        common->offset, ZERO_VECTOR_2D,
+        common->offset, pad,
         palette, UI_PALETTE_SURFACE_TRANSPARENT,
         selector_spacing, false, common->enabled);
     // Offset is passed into the constructor, so mark it consumed (no skeleton double-apply).
@@ -1055,9 +1063,11 @@ static UIBuildResult BuildViewHost(mxml_node_t *node, UIElement *parent,
     // A plain fill-size container; the real UI_ELEMENT_ROOT is built by
     // ViewHostSystem_InitRoot in InitLPanel and this container is re-parented under
     // it. parent is NULL at the document root.
+    // Padding: authored padding= when present, else the historic default inset (byte-identical).
+    Vector2d pad = common->padding_authored ? common->padding : ui_standard_container_padding;
     UIElement *host = CreateUIContainer(parent, common->size,  // honour width=/height=/size= (defaults fill/fill)
                              common->offset,                    // honour offset=/offset-mode= (defaults zero fixed)
-                             ui_standard_container_padding, palette,
+                             pad, palette,
                              UI_PALETTE_SURFACE_CONTAINER, common->layout,
                              false, common->enabled);           // skeleton re-asserts the same enabled value
     common->offset_consumed = true;
@@ -1330,7 +1340,8 @@ static Vector2d UILoader_ParseSizeValues(const char *size_str)
 
 void UILoader_ExtractCommonAttrs(mxml_node_t *node, UILoaderContext *ctx, char *id_out,
                                  Size *size_out, Offset *offset_out,
-                                 bool *enabled_out, Layout *layout_out)
+                                 bool *enabled_out, Layout *layout_out,
+                                 Vector2d *padding_out, bool *authored_out)
 {
     if (!node)
         return;
@@ -1441,7 +1452,26 @@ void UILoader_ExtractCommonAttrs(mxml_node_t *node, UILoaderContext *ctx, char *
         OffsetMode mode = UILoader_ParseOffsetMode(offset_mode_attr);
         *offset_out = (Offset){{x, y}, mode};
     }
-    
+
+    // Extract the inner padding (inset between the container box edge and its children's
+    // content rectangle). Parses exactly like size=/offset= via UILoader_ParseSizeValues:
+    // a uniform "u" => (u,u) insets all four sides equally; "h,v" insets left+right by h and
+    // top+bottom by v. Units are logical game units (no conversion). Only recorded as authored
+    // when padding= is actually present, so an absent attribute leaves *padding_out at the
+    // caller-seeded default and the builder keeps its own default inset. No warning on
+    // malformed input: UILoader_ParseSizeValues degrades to {0,0}, matching size=/offset=.
+    if (padding_out)
+    {
+        const char *padding_attr = mxmlElementGetAttr(node, "padding");
+        if (padding_attr)
+        {
+            *padding_out = UILoader_ParseSizeValues(padding_attr);
+            if (authored_out)
+                *authored_out = true;
+        }
+        // else: leave *padding_out as the caller-seeded default; *authored_out stays false.
+    }
+
     // Extract enabled state
     if (enabled_out)
     {
@@ -1505,8 +1535,11 @@ static UIElement *UILoader_ParseElementNode(mxml_node_t *node, UIElement *parent
     common.size    = builder_entry->default_size;            // per-type size default seed
     common.offset  = (Offset){{0.0f, 0.0f}, OFFSET_FIXED};   // historic universal offset default
     common.offset_consumed = false;
+    common.padding = ZERO_VECTOR_2D;                         // safe base; builders apply their own default when not authored
+    common.padding_authored = false;                         // set true by extraction only when padding= is present
     UILoader_ExtractCommonAttrs(node, ctx, common.id, &common.size,
-                                &common.offset, &common.enabled, &common.layout);
+                                &common.offset, &common.enabled, &common.layout,
+                                &common.padding, &common.padding_authored);
 
     // --- DISPATCH the variable step ------------------------------------------
     // The builder reads its own special attrs, calls the right constructor (passing size

@@ -44,6 +44,7 @@ per attribute). Attribute-less markup renders at each element's standard size.
 | `enabled` | `true` \| `false` | `true` | A disabled element is not laid out, drawn, or interacted with. |
 | `layout` | `stack` \| `stacked` \| `stack_wrap` \| `inline_wrap` | `stack` | How this element arranges its **children** (container-like elements only; leaf elements ignore it). See "Layout". |
 | `gap` | `"x y"` or `"v"` | layout preset gap | Inter-child spacing (literal units) that overrides the gap baked into the `layout=` preset. See "Layout". |
+| `padding` | `"h,v"` or `"v"` | container's constructor default | Inner inset (logical game units) between a container's own box edge and its children's content rectangle. A single `"v"` insets all four sides equally; `"h,v"` insets left+right by `h` and top+bottom by `v`. **Containers only** — see "Padding" below. |
 | `surface` | `transparent` \| `container` \| `field_row` \| `input` \| `button` | constructor default | Theme-safe fill/border override: resolves the named surface role from the active palette and replaces the element's constructor-chosen `colour_fill`/`colour_border`. An absent or unrecognised value leaves the constructor colours unchanged. |
 
 Legacy offset spelling (still accepted): `x="…"`, `y="…"`, `offset-type="…"`. The
@@ -104,6 +105,39 @@ additive, not absolute positioning.
 - The parent's `layout` still drives the base placement; the offset is added on
   top. A large offset can push an element out of its expected flow (and possibly
   outside a clipped region), so prefer it for small nudges rather than re-layout.
+
+---
+
+## Padding (inner inset)
+
+`padding` sets an **inner inset** between a container's own box edge and the
+content rectangle its children lay out into. It parses exactly like `size`/`offset`
+and is measured in logical game units:
+
+```xml
+<Container title="Flags" padding="0.5" />       <!-- 0.5 inset on all four sides -->
+<Container title="Info"  padding="0.5,0.25" />   <!-- 0.5 left+right, 0.25 top+bottom -->
+<Container title="Flush" padding="0" />          <!-- removes the container's default inset -->
+```
+
+- **Containers only.** `padding` applies to `Container`, `View`, `ViewHost` and
+  `ViewSelector`. On any other element it is read but ignored (leaf elements such
+  as `Button`/`Label`/`TextField`/`Textbox` keep their own built-in text/visual
+  padding).
+- **Uniform vs per-axis.** A single `"v"` insets all four sides equally; `"h,v"`
+  insets left+right by `h` and top+bottom by `v`. The value is a per-side amount on
+  each axis.
+- **Default.** When `padding` is absent, the container keeps its constructor
+  default inset (non-zero for most containers; zero for `ViewSelector`). Authoring
+  `padding="0"` explicitly removes that default inset.
+- **Composition.** The content rectangle is shrunk by the padding *before* children
+  are placed, so:
+  - A `fill` child fills the box **minus** the padding.
+  - A `hug` container grows by `2 × padding` on the hugged axis (it wraps its
+    children plus the inset).
+  - `percent`/`fixed` children resolve against the already-padded content extent.
+  - Inter-child `gap` and child `offset` still apply **inside** the padded area —
+    both compose with padding independently.
 
 ---
 

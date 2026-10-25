@@ -204,6 +204,8 @@ typedef struct {
     bool enabled;                 // enabled= ("false" => false; default true)
     Layout layout;                // resolved layout (flow + gap): copied by value from the layout= preset, with gap optionally overridden by gap=
     bool offset_consumed;         // set by the builder when it passed `offset` into its constructor (skeleton must not re-apply)
+    Vector2d padding;             // padding= inner inset (logical units), (h,v) per-side: h insets left+right, v insets top+bottom
+    bool padding_authored;        // true only when padding= was present on the node (guards each builder's own default inset)
 } UICommonAttrs;
 
 // ============================================================================
@@ -376,8 +378,10 @@ bool UILoader_RegisterBuilder(const char *tag_name, UIElementBuilder builder,
  * @param offset_out[optional] Output position/offset
  * @param enabled_out[optional] Output enabled flag (default true)
  * @param layout_out[optional] Output resolved layout (flow + gap) copied by value from the layout= preset, with gap optionally overridden by gap=
+ * @param padding_out[optional] Output inner inset parsed from padding= (uniform "u" or "h,v", logical units); left at the caller's seed when padding= is absent
+ * @param authored_out[optional] Output flag set true only when padding= was present on the node (guards builder defaults)
  */
-void UILoader_ExtractCommonAttrs(mxml_node_t *node, UILoaderContext *ctx, char *id_out, Size *size_out, Offset *offset_out, bool *enabled_out, Layout *layout_out);
+void UILoader_ExtractCommonAttrs(mxml_node_t *node, UILoaderContext *ctx, char *id_out, Size *size_out, Offset *offset_out, bool *enabled_out, Layout *layout_out, Vector2d *padding_out, bool *authored_out);
 
 // ============================================================================
 // Default Builder Registration
