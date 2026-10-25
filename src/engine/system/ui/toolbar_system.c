@@ -256,6 +256,14 @@ void InitToolbar(void)
         nudge_btn->on_draw = UIIcon_DrawNudge;
     }
 
+    // Cell paint tool glyph, wired exactly like the Nudge button (one guarded line). The button has
+    // no binding=, so its active-state feedback comes from the on_draw glyph reading the active tool.
+    UIElement *cell_paint_btn = UILoader_FindById(root, "tool_cell_paint");
+    if (cell_paint_btn)
+    {
+        cell_paint_btn->on_draw = UIIcon_DrawCellPaint;
+    }
+
     // Toggle glyphs: look each up by id and attach its on_draw. The toggles keep their binding=,
     // so each glyph tints itself from e->colour_fill (the refresh sets it to toggle_on_fill/off).
     UIElement *b;

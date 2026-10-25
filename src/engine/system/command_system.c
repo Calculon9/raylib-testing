@@ -114,6 +114,8 @@ int CommandSystem_ResolveString(const char *cmd_string)
     // Tool-toolbar actions
     else if (!strcmp(cmd_string, "tool-nudge"))
         return CMD_TOOL_NUDGE;
+    else if (!strcmp(cmd_string, "tool-cell-paint"))
+        return CMD_TOOL_CELL_PAINT;
     
     return 0;  // Unresolved
 }
@@ -223,6 +225,31 @@ bool EnqueueRemoveComponent(EntityId entity_id, EntityComponentType component_ty
     return EnqueueCommandWithQueueLog(CMD_REMOVE_COMPONENT, &cmd, sizeof(cmd), "CMD_REMOVE_COMPONENT");
 }
 
+// Enqueue marking a cell PRESENT (add). Validates the world index (nested or root sentinel) and a
+// non-negative cell index; the handler bounds-guards the index again at drain time.
+bool EnqueueAddCell(int world_index, int cell_index)
+{
+    if ((world_index < 0 && world_index != UNIVERSE_ROOT_WORLD_INDEX) || cell_index < 0)
+    {
+        return false;
+    }
+
+    CellPresenceCommand payload = {.world_index = world_index, .cell_index = cell_index};
+    return EnqueueCommandWithQueueLog(CMD_ADD_CELL, &payload, sizeof(payload), "CMD_ADD_CELL");
+}
+
+// Enqueue marking a cell ABSENT (delete). Same validation contract as EnqueueAddCell.
+bool EnqueueDeleteCell(int world_index, int cell_index)
+{
+    if ((world_index < 0 && world_index != UNIVERSE_ROOT_WORLD_INDEX) || cell_index < 0)
+    {
+        return false;
+    }
+
+    CellPresenceCommand payload = {.world_index = world_index, .cell_index = cell_index};
+    return EnqueueCommandWithQueueLog(CMD_DELETE_CELL, &payload, sizeof(payload), "CMD_DELETE_CELL");
+}
+
 // ============================================================================
 // Command Execution
 // ============================================================================
@@ -274,6 +301,11 @@ void ExecuteCommand(CommandType type, const void *data)
     if (type == CMD_TOOL_NUDGE)
     {
         UIState_SetActiveTool(UIState_IsToolActive(TOOL_NUDGE) ? TOOL_NONE : TOOL_NUDGE);
+        return;
+    }
+    if (type == CMD_TOOL_CELL_PAINT)
+    {
+        UIState_SetActiveTool(UIState_IsToolActive(TOOL_CELL_PAINT) ? TOOL_NONE : TOOL_CELL_PAINT);
         return;
     }
     
@@ -347,6 +379,27 @@ static void ExecuteCommandInternal(Command *c)
                 UIState_ClearSelectedObject();
             }
             LOG_INFO("Processed CMD_DELETE_ENTITY -> deleted id=%d\n", entity_id);
+        }
+    }
+    else if (c->type == CMD_ADD_CELL || c->type == CMD_DELETE_CELL)
+    {
+        int world_index = c->data.cell_presence.world_index;
+        int cell_index = c->data.cell_presence.cell_index;
+
+        // Universe_GetWorld resolves both nested indices and the UNIVERSE_ROOT_WORLD_INDEX sentinel,
+        // so a single call covers root and nested, matching the sibling entity/move handlers.
+        World2d *world = Universe_GetWorld(&G_Universe, world_index);
+        if (world)
+        {
+            bool present = (c->type == CMD_ADD_CELL);
+            if (Space_SetCellPresent(&world->grid_space.space, cell_index, present))
+            {
+                // Bounds stay rectangular this round, but refresh anyway so a structural cell change
+                // has a single bounds-refresh hook (cheap; mirrors create/basis-edit/drag).
+                World_RefreshBoundsFromFrame(world);
+                LOG_INFO("Processed %s -> world_index=%d cell_index=%d\n",
+                         present ? "CMD_ADD_CELL" : "CMD_DELETE_CELL", world_index, cell_index);
+            }
         }
     }
     else if (c->type == CMD_CREATE_WORLD)

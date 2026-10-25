@@ -14,6 +14,7 @@ so a stored TargetRef stays stale-safe across frames.
 #define TARGET_RESOLVER_H
 
 #include <stddef.h>
+#include <stdbool.h>
 #include "entities/entity_id.h"
 #include "math/cvectors.h"
 
@@ -66,6 +67,14 @@ typedef struct TargetRef
 // Reuses ResolveClosestEntityAt (entity/cell pick) and Universe_FindWorldAt (world pick).
 // Returns a TARGET_KIND_NONE ref when nothing is found or `u` is NULL.
 TargetRef Target_ResolveAtPoint(const Universe *u, Vector2d universe_point);
+
+// Resolve a universe-space point to the owning world and the dense cell index under it, IGNORING
+// presence (so an absent/carved cell still resolves — needed by the cell-paint ADD tool to fill an
+// empty slot). Returns true and fills *out_world_index (nested index or UNIVERSE_ROOT_WORLD_INDEX)
+// and *out_cell_index (>= 0) when the point lands on a cell slot; returns false otherwise. Reuses
+// the same world-pick + frame transform as Target_ResolveAtPoint so the logic lives in one place.
+bool Target_ResolveCellIndexAtPoint(const Universe *u, Vector2d universe_point,
+                                    int *out_world_index, int *out_cell_index);
 
 // Synthesise human-readable display text for a ref into the caller buffer (always NUL
 // terminated when out_bytes > 0). Entity labels are composed as

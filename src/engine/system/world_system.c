@@ -756,6 +756,10 @@ static InputRouteResult TryHandleEntityDragRelease(const InputFrame *input,
             Toolbar_ApplyNudgeToEntity(captured->id);
         }
 
+        // Cell paint is handled at the universe no-capture commit site (Site A), not here: a cell
+        // press never arms a DRAG_TARGET_WORLD_ENTITY capture (it escalates to a container drag or
+        // arms nothing), so this release site only ever carries an entity. No cell action here.
+
         return INPUT_ROUTE_HANDLED;
     }
 

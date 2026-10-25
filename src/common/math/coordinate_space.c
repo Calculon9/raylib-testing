@@ -158,6 +158,12 @@ void InitUnitCells(Space2d *space)
       // at the fresh-build site only.
       cell.warp_basis = IDENTITY_BASIS_2D;
 
+      // Default: every freshly built cell is PRESENT (occupied). This is the invariant that keeps
+      // existing worlds byte-identical until the user carves a cell out: InitUnitCells is the sole
+      // fresh-build site, so a new world fills the whole rectangle present. PRESENT is a *set* bit,
+      // so a zero-initialised cell would otherwise read as absent — hence it is set explicitly here.
+      cell.flags |= CELL_FLAG_PRESENT;
+
       // Scale the basis vectors (u,v) and add them to get the displacement from the origin
       Vector2d scaled_u = {j * space->frame.basis.u.x, j * space->frame.basis.u.y};
       Vector2d scaled_v = {i * space->frame.basis.v.x, i * space->frame.basis.v.y};
@@ -204,9 +210,91 @@ void RebuildSpaceCells(Space2d *space)
       return;
    }
 
+   // Snapshot the presence mask before InitUnitCells refills the rectangle as all-present, so a
+   // carved (non-rectangular) shape survives a basis-edit rebuild. columns/rows are invariant across
+   // a basis edit (there is no resize API), so cell_index k addresses the same cell before and after
+   // the rebuild. The snapshot is a transient scratch array, freed below — the dense cells buffer is
+   // never reallocated, resized, or otherwise disturbed (OWNERSHIP.md: disposed only by DisposeDArray).
+   size_t cell_count = space->cells.count;
+   size_t snap_bytes = cell_count * sizeof(bool);
+   bool *present_snapshot = NULL;
+   if (cell_count > 0 && space->cells.items)
+   {
+      present_snapshot = (bool *)AllocateBytes(snap_bytes);
+      if (present_snapshot)
+      {
+         Cell *cells = (Cell *)space->cells.items;
+         for (size_t k = 0; k < cell_count; k++)
+         {
+            present_snapshot[k] = (cells[k].flags & CELL_FLAG_PRESENT) != 0;
+         }
+      }
+   }
+
    space->unitArea = fabsf((space->frame.basis.u.x * space->frame.basis.v.y) -
                            (space->frame.basis.u.y * space->frame.basis.v.x));
-   InitUnitCells(space);
+   InitUnitCells(space); // Refills geometry and sets every cell PRESENT by default.
+
+   // Restore the carved shape. If the snapshot allocation failed the fallback is all-present (the
+   // InitUnitCells default) — safe and visible, never a crash.
+   if (present_snapshot)
+   {
+      Cell *cells = (Cell *)space->cells.items;
+      for (size_t k = 0; k < cell_count && k < space->cells.count; k++)
+      {
+         if (!present_snapshot[k])
+         {
+            cells[k].flags &= ~CELL_FLAG_PRESENT;
+         }
+      }
+      Deallocate((void **)&present_snapshot, snap_bytes); // Balanced free; NULLs the pointer.
+   }
+}
+
+// Return whether the cell at cell_index is PRESENT (really there). NULL space / NULL buffer /
+// out-of-range index all read as absent.
+bool Cell_IsPresent(const Space2d *space, int cell_index)
+{
+   if (!space || !space->cells.items)
+   {
+      return false;
+   }
+   if (cell_index < 0 || cell_index >= (int)space->cells.count)
+   {
+      return false;
+   }
+   const Cell *cells = (const Cell *)space->cells.items;
+   return (cells[cell_index].flags & CELL_FLAG_PRESENT) != 0;
+}
+
+// Mark the cell at cell_index present/absent by toggling CELL_FLAG_PRESENT in place. An out-of-range
+// index is a no-op returning false. Returns whether the stored presence bit actually changed. Never
+// reallocates, resizes, or changes cells.count.
+bool Space_SetCellPresent(Space2d *space, int cell_index, bool present)
+{
+   if (!space || !space->cells.items)
+   {
+      return false;
+   }
+   if (cell_index < 0 || cell_index >= (int)space->cells.count)
+   {
+      return false;
+   }
+   Cell *cells = (Cell *)space->cells.items;
+   bool was_present = (cells[cell_index].flags & CELL_FLAG_PRESENT) != 0;
+   if (was_present == present)
+   {
+      return false; // No change.
+   }
+   if (present)
+   {
+      cells[cell_index].flags |= CELL_FLAG_PRESENT;
+   }
+   else
+   {
+      cells[cell_index].flags &= ~CELL_FLAG_PRESENT;
+   }
+   return true;
 }
 
 int GetIndexFromCoords(Space2d *space, Vector2d local_coords)

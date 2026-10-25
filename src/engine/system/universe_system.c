@@ -304,6 +304,7 @@ InputRouteResult UpdateUniverseSystem(const InputFrame *input, InputRouteResult 
         // are order-independent, so enqueue them directly while scanning.
         int world_indices[UNIVERSE_MAX_WORLDS]; // bounded by the universe's world cap (stack, no alloc)
         int world_count = 0;
+        int cell_ref_count = 0; // count of selected CELL members (drives the ordering rule below)
 
         TargetRef *member = NULL;
         LArray_ForEach(&G_UIState.selection_set, TargetRef *, member)
@@ -320,8 +321,10 @@ InputRouteResult UpdateUniverseSystem(const InputFrame *input, InputRouteResult 
                     }
                     break;
                 case TARGET_KIND_CELL:
+                    cell_ref_count++; // defer: enqueued after the world deletes, gated by the rule below
+                    break;
                 default:
-                    // CELL (and any NONE) members have no delete action in this stage; skip.
+                    // NONE members have no delete action in this stage; skip.
                     break;
             }
         }
@@ -332,6 +335,29 @@ InputRouteResult UpdateUniverseSystem(const InputFrame *input, InputRouteResult 
         for (int i = 0; i < world_count; i++)
         {
             EnqueueDeleteWorld(world_indices[i]); // reuse the existing world-delete path
+        }
+
+        // Cell deletes carry a POSITIONAL world_index. If any world is deleted in this same batch,
+        // Universe_DeleteWorld compacts the world array and those positional indices can no longer be
+        // trusted, so skip all cell deletes to avoid editing the wrong (shifted) world. Deleting a
+        // world already removes its cells, so nothing is lost. The common case (cells only, or cells
+        // plus entities) enqueues normally in a second pass over the still-intact set.
+        if (world_count > 0 && cell_ref_count > 0)
+        {
+            LOG_INFO("DELETE batch also removes %d world(s); skipping %d cell delete(s) to avoid wrong-world edits.\n",
+                     world_count, cell_ref_count);
+        }
+        else if (cell_ref_count > 0)
+        {
+            TargetRef *cell_member = NULL;
+            LArray_ForEach(&G_UIState.selection_set, TargetRef *, cell_member)
+            {
+                if (cell_member->kind == TARGET_KIND_CELL)
+                {
+                    // Mark absent; the handler bounds-guards a stale index at drain time.
+                    EnqueueDeleteCell(cell_member->as.cell.world_index, cell_member->as.cell.cell_index);
+                }
+            }
         }
 
         // Clear the set now that every member has been enqueued: enqueue-all-then-clear keeps the
@@ -547,6 +573,21 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
             g_game_press.select_ref.kind == TARGET_KIND_ENTITY)
         {
             Toolbar_ApplyNudgeToEntity(g_game_press.select_ref.as.entity);
+        }
+        else if (tool_click && UIState_GetActiveTool() == TOOL_CELL_PAINT)
+        {
+            // Cell paint: resolve the cell under the pointer presence-agnostically (so a carved-out
+            // absent cell is still addressable for re-adding) and enqueue a cell-ADD (mark PRESENT).
+            // Does NOT read select_ref, since an absent cell no longer surfaces a TARGET_KIND_CELL
+            // ref. Additive: this runs only on a genuine click with no drag/capture, so normal
+            // selection/drag is never suppressed.
+            int paint_world_index = UNIVERSE_ROOT_WORLD_INDEX;
+            int paint_cell_index = -1;
+            if (Target_ResolveCellIndexAtPoint(&G_Universe, mouse_universe_coords,
+                                               &paint_world_index, &paint_cell_index))
+            {
+                EnqueueAddCell(paint_world_index, paint_cell_index);
+            }
         }
 
         g_game_press.valid = false;

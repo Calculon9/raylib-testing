@@ -56,8 +56,9 @@ typedef struct UIPalette
 // confirmed-click commit site so a genuine drag never sprays the action.
 typedef enum ActiveTool
 {
-	TOOL_NONE = 0, // No tool active; only normal selection/drag/marquee behaviour runs.
-	TOOL_NUDGE,    // Nudge tool: a confirmed click adds a random-direction linear impulse.
+	TOOL_NONE = 0,   // No tool active; only normal selection/drag/marquee behaviour runs.
+	TOOL_NUDGE,      // Nudge tool: a confirmed click adds a random-direction linear impulse.
+	TOOL_CELL_PAINT, // Cell paint tool: a confirmed click marks the cell under the pointer PRESENT.
 } ActiveTool;
 
 // Forward declarations keep selection APIs lightweight without pulling full physics/world headers.

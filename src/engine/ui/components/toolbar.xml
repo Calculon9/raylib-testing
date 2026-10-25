@@ -17,6 +17,13 @@
     <!-- surface="input" gives the flat info-strip tint (vs the bright BUTTON surface). -->
     <Button id="tool_nudge" type="simple" surface="input" action="tool-nudge" size="0.67,0.45" />
 
+    <!-- Cell paint TOOL button, cloned from Nudge above. Same rationale: NO binding= (a display -->
+    <!-- source would make the refresh write button text that text="" cannot suppress); the active- -->
+    <!-- tool feedback is driven by the on_draw icon (UIIcon_DrawCellPaint reads -->
+    <!-- UIState_IsToolActive(TOOL_CELL_PAINT)). action="tool-cell-paint" sets the tool radio- -->
+    <!-- exclusively, so paint and nudge are mutually exclusive. -->
+    <Button id="tool_cell_paint" type="simple" surface="input" action="tool-cell-paint" size="0.67,0.45" />
+
     <!-- Thin empty separator so the tool and the toggle group read as two distinct bands. -->
     <Label id="toolbar_separator" size="1,0.25" width="fixed" height="fixed" />
 

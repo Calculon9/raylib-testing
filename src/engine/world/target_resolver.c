@@ -191,8 +191,11 @@ TargetRef Target_ResolveAtPoint(const Universe *u, Vector2d universe_point)
         return ref;
     }
 
-    // No entity: surface the cell if the pick landed in one.
-    if (cell_index >= 0)
+    // No entity: surface the cell if the pick landed in a PRESENT one. An absent (carved-out) cell
+    // falls through to the WORLD ref below, so clicking empty carved space selects the world behind
+    // it. Entity picking ran above and short-circuits on a hit, so an entity standing over an absent
+    // cell is still returned as TARGET_KIND_ENTITY and stays fully selectable.
+    if (cell_index >= 0 && Cell_IsPresent(&pick_world->grid_space.space, cell_index))
     {
         ref.kind = TARGET_KIND_CELL;
         ref.as.cell.world_index = resolved_world_index;
@@ -204,6 +207,57 @@ TargetRef Target_ResolveAtPoint(const Universe *u, Vector2d universe_point)
     ref.kind = TARGET_KIND_WORLD;
     ref.as.world_index = resolved_world_index;
     return ref;
+}
+
+// Resolve a universe-space point to the owning world and the dense cell index under it, IGNORING
+// presence. Mirrors the first half of Target_ResolveAtPoint (world pick + frame transform), then
+// GetIndexFromCoords — no presence/entity test — so a carved (absent) cell is still addressable.
+bool Target_ResolveCellIndexAtPoint(const Universe *u, Vector2d universe_point,
+                                    int *out_world_index, int *out_cell_index)
+{
+    if (!u)
+    {
+        return false;
+    }
+
+    Universe *mutable_u = (Universe *)u;
+
+    int world_index = Universe_FindWorldAt(mutable_u, universe_point);
+
+    World2d *pick_world = NULL;
+    Vector2d local_point = universe_point;
+    int resolved_world_index = UNIVERSE_ROOT_WORLD_INDEX;
+
+    if (world_index >= 0 && world_index < mutable_u->world_count)
+    {
+        // Nested world: transform the universe point into the world's local frame.
+        pick_world = &mutable_u->worlds[world_index];
+        local_point = Frame_TransformPoint_FromParent(universe_point, &pick_world->grid_space.space.frame);
+        resolved_world_index = world_index;
+    }
+    else
+    {
+        // Root world holds objects in universe-space coordinates; the point is already local.
+        pick_world = &mutable_u->root_world;
+        local_point = universe_point;
+        resolved_world_index = UNIVERSE_ROOT_WORLD_INDEX;
+    }
+
+    int cell_index = GetIndexFromCoords(&pick_world->grid_space.space, local_point);
+    if (cell_index < 0)
+    {
+        return false; // Point missed the rectangle: no cell slot under it.
+    }
+
+    if (out_world_index)
+    {
+        *out_world_index = resolved_world_index;
+    }
+    if (out_cell_index)
+    {
+        *out_cell_index = cell_index;
+    }
+    return true;
 }
 
 // Synthesise display text for a ref. Always NUL-terminates the buffer when out_bytes > 0.

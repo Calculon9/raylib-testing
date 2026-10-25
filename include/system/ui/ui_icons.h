@@ -20,6 +20,9 @@ tint because the Nudge button carries no binding=.
 // Relocated Nudge tool glyph: an arrow pushing a small box with a couple of trailing motion dots.
 void UIIcon_DrawNudge(UIElement *e);
 
+// Cell Paint tool glyph: a 2x2 grid of cells with one cell filled ("paint a cell").
+void UIIcon_DrawCellPaint(UIElement *e);
+
 // Dashboard toggle (debug.dashboard): a gauge dial (circle ring + short radial needle).
 void UIIcon_DrawDashboard(UIElement *e);
 

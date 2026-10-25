@@ -16,6 +16,8 @@ typedef enum
     CMD_DELETE_WORLD = 6,
     CMD_ATTACH_COMPONENT = 7,
     CMD_REMOVE_COMPONENT = 8,
+    CMD_ADD_CELL = 9,
+    CMD_DELETE_CELL = 10,
     
     // Toggle actions
     CMD_TOGGLE_DEBUG_DASHBOARD = 100,
@@ -31,6 +33,7 @@ typedef enum
     // Tool-toolbar actions. These are NOT CMD_TOGGLE_* commands, so they are not intercepted by
     // the CMD_TOGGLE_* -> debug-overlay mapping; each toggles its tool radio-exclusively instead.
     CMD_TOOL_NUDGE = 200,
+    CMD_TOOL_CELL_PAINT = 201,
 } CommandType;
 
 typedef struct
@@ -55,6 +58,14 @@ typedef struct
     EntityComponentType component_type;
 } RemoveComponentCommand;
 
+// Payload for CMD_ADD_CELL / CMD_DELETE_CELL: identifies a single cell by its owning world and its
+// positional (dense) cell index. Toggling presence never changes the cell's index identity.
+typedef struct
+{
+    int world_index;   // Owning world index (nested index or UNIVERSE_ROOT_WORLD_INDEX).
+    int cell_index;    // Linear positional cell index within that world's grid space.
+} CellPresenceCommand;
+
 typedef struct
 {
     CommandType type;
@@ -67,6 +78,7 @@ typedef struct
         MoveEntityCommand move_entity;
         AttachComponentCommand attach_component;
         RemoveComponentCommand remove_component;
+        CellPresenceCommand cell_presence;   // CMD_ADD_CELL / CMD_DELETE_CELL
     } data;
 } Command;
 
@@ -99,6 +111,9 @@ bool EnqueueMoveEntity(EntityId entity_id, int source_world_index,
 bool EnqueueAttachComponent(EntityId entity_id, const EntityComponent *component);
 // Enqueue detaching a component from an existing entity.
 bool EnqueueRemoveComponent(EntityId entity_id, EntityComponentType component_type);
+// Enqueue marking a cell PRESENT (add) / ABSENT (delete) by its owning world and positional index.
+bool EnqueueAddCell(int world_index, int cell_index);
+bool EnqueueDeleteCell(int world_index, int cell_index);
 void ProcessCommandQueue(void);
 
 #endif

@@ -520,62 +520,72 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
     // placement are applied once by world_to_pixel_mtx.
     Vector2d origin = ZERO_VECTOR_2D;
 
-    Vector2d corner_local_0 = origin;
-    Vector2d corner_local_1 = (Vector2d){(float)grid_space->space.columns, 0.0f};
-    Vector2d corner_local_2 = (Vector2d){(float)grid_space->space.columns, (float)grid_space->space.rows};
-    Vector2d corner_local_3 = (Vector2d){0.0f, (float)grid_space->space.rows};
-
-    Vector2d corner_pixel_0 = TransformCoordinates(world_to_pixel_mtx, corner_local_0);
-    Vector2d corner_pixel_1 = TransformCoordinates(world_to_pixel_mtx, corner_local_1);
-    Vector2d corner_pixel_2 = TransformCoordinates(world_to_pixel_mtx, corner_local_2);
-    Vector2d corner_pixel_3 = TransformCoordinates(world_to_pixel_mtx, corner_local_3);
+    int columns = grid_space->space.columns;
+    int rows = grid_space->space.rows;
+    int totalUnits = columns * rows;
 
     ColourRgba colour_fill = grid_space->colour_fill;
-    ColourRgba colour_line = grid_space->colour_line;
     Color fill = ToRaylibColor(colour_fill);
-    DrawTriangle((Vector2){corner_pixel_2.x, corner_pixel_2.y},
-                 (Vector2){corner_pixel_1.x, corner_pixel_1.y},
-                 (Vector2){corner_pixel_0.x, corner_pixel_0.y},
-                 fill);
-    DrawTriangle((Vector2){corner_pixel_3.x, corner_pixel_3.y},
-                 (Vector2){corner_pixel_2.x, corner_pixel_2.y},
-                 (Vector2){corner_pixel_0.x, corner_pixel_0.y},
-                 fill);
+
+    // FILL: draw only PRESENT cells. For an all-present world the union of per-cell quads covers the
+    // identical pixels as the previous single rectangle quad (same outer corners, same colour), so
+    // existing worlds render unchanged; carving a cell simply omits its quad (non-rectangular look).
+    for (int k = 0; k < totalUnits; k++)
+    {
+        if (!Cell_IsPresent(&grid_space->space, k))
+        {
+            continue;
+        }
+        int i = k / columns;
+        int j = k % columns;
+
+        // Local corners of this unit cell, transformed to pixels through the world basis/placement.
+        Vector2d cp0 = TransformCoordinates(world_to_pixel_mtx, (Vector2d){(float)j, (float)i});
+        Vector2d cp1 = TransformCoordinates(world_to_pixel_mtx, (Vector2d){(float)(j + 1), (float)i});
+        Vector2d cp2 = TransformCoordinates(world_to_pixel_mtx, (Vector2d){(float)(j + 1), (float)(i + 1)});
+        Vector2d cp3 = TransformCoordinates(world_to_pixel_mtx, (Vector2d){(float)j, (float)(i + 1)});
+
+        DrawTriangle((Vector2){cp2.x, cp2.y}, (Vector2){cp1.x, cp1.y}, (Vector2){cp0.x, cp0.y}, fill);
+        DrawTriangle((Vector2){cp3.x, cp3.y}, (Vector2){cp2.x, cp2.y}, (Vector2){cp0.x, cp0.y}, fill);
+    }
 
     if (!IsDebugEnabled(DEBUG_WORLD_GRID))
     {
         return;
     }
 
-    int columns = grid_space->space.columns;
-    int rows = grid_space->space.rows;
-
     ColourRgba colour = grid_space->colour_line;
-    for (int j = 0; j <= rows; j++)
-    {
-        Vector2d row_offset = (Vector2d){0.0f, (float)j};
-        Vector2d width_extent = (Vector2d){(float)columns, 0.0f};
 
-        Vector2d line_origin = VectorSum_2d(origin, row_offset);
-        Vector2d line_end = VectorSum_2d(line_origin, width_extent);
+    // LINES: draw per-present-cell borders rather than full-span rectangle lines, so a carved shape
+    // shows its own outline. For an all-present world the set of drawn edges equals the full grid
+    // (every interior line is a shared edge, every outer line a boundary edge), so appearance is
+    // unchanged. Shared interior edges are drawn twice (identical overdraw, same colour) — acceptable.
+    // The viewport clipping is preserved verbatim via the same DrawTransformedLineClippedV path.
+    for (int k = 0; k < totalUnits; k++)
+    {
+        if (!Cell_IsPresent(&grid_space->space, k))
+        {
+            continue;
+        }
+        int i = k / columns;
+        int j = k % columns;
+
+        Vector2d bl = (Vector2d){(float)j, (float)i};
+        Vector2d br = (Vector2d){(float)(j + 1), (float)i};
+        Vector2d tl = (Vector2d){(float)j, (float)(i + 1)};
+        Vector2d tr = (Vector2d){(float)(j + 1), (float)(i + 1)};
+
         // Clip to the game viewport pixel rect so grid lines do not bleed into panels.
-        DrawTransformedLineClippedV(line_origin, line_end, world_to_pixel_mtx, colour,
-                                    game_viewport.pixel_origin, game_viewport.pixel_end);
+        DrawTransformedLineClippedV(bl, br, world_to_pixel_mtx, colour,
+                                    game_viewport.pixel_origin, game_viewport.pixel_end); // bottom
+        DrawTransformedLineClippedV(tl, tr, world_to_pixel_mtx, colour,
+                                    game_viewport.pixel_origin, game_viewport.pixel_end); // top
+        DrawTransformedLineClippedV(bl, tl, world_to_pixel_mtx, colour,
+                                    game_viewport.pixel_origin, game_viewport.pixel_end); // left
+        DrawTransformedLineClippedV(br, tr, world_to_pixel_mtx, colour,
+                                    game_viewport.pixel_origin, game_viewport.pixel_end); // right
     }
 
-    for (int i = 0; i <= columns; i++)
-    {
-        Vector2d column_offset = (Vector2d){(float)i, 0.0f};
-        Vector2d height_extent = (Vector2d){0.0f, (float)rows};
-
-        Vector2d line_origin = VectorSum_2d(origin, column_offset);
-        Vector2d line_end = VectorSum_2d(line_origin, height_extent);
-        // Clip to the game viewport pixel rect so grid lines do not bleed into panels.
-        DrawTransformedLineClippedV(line_origin, line_end, world_to_pixel_mtx, colour,
-                                    game_viewport.pixel_origin, game_viewport.pixel_end);
-    }
-
-    int totalUnits = columns * rows;
     DArray cells = grid_space->space.cells;
     Color text_colour = ToRaylibColor(COLOUR_GAME_PARCHMENT_RGBA);
 
@@ -597,6 +607,10 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
 
     for (int k = 0; k < totalUnits; k++)
     {
+        if (!Cell_IsPresent(&grid_space->space, k))
+        {
+            continue; // Absent (carved) cells carry no label.
+        }
         int i = k / columns;
         int j = k % columns;
         Cell *cell = (Cell *)((char *)cells.items + (k * cells.elem_bytes));

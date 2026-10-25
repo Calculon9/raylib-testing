@@ -179,6 +179,49 @@ void UIIcon_DrawNudge(UIElement *e)
 }
 
 // ============================================================================
+// Cell paint tool glyph
+// ============================================================================
+
+// Draw the Cell Paint pictogram: a small 2x2 grid of cells with one cell filled, reading as
+// "paint a cell". Monochrome, centred in e->screen_box, composed from raylib primitives with no
+// heap allocation. Like the Nudge glyph the ink follows the active-tool state directly (bright
+// button_fill when TOOL_CELL_PAINT is active, normal text ink otherwise) because this button has
+// no binding= to read. Attached via UIElement.on_draw, mirroring the other toolbar glyphs.
+void UIIcon_DrawCellPaint(UIElement *e)
+{
+    UIIconFit f;
+    if (!UIIcon_Fit(e, &f))
+    {
+        return;
+    }
+
+    // Active-tool feedback is the icon's ink (no text toggle on this button).
+    bool active = UIState_IsToolActive(TOOL_CELL_PAINT);
+    Color ink = active ? ToRaylibColor(ui_default_palette.button_fill)
+                       : ToRaylibColor(ui_default_palette.text);
+
+    // 2x2 grid geometry centred on the fit.
+    float left = f.cx - f.half;
+    float top = f.cy - f.half;
+    float span = f.half * 2.0f;
+    float half_span = span * 0.5f;
+
+    // Outer frame.
+    Rectangle frame = { left, top, span, span };
+    DrawRectangleLinesEx(frame, f.stroke, ink);
+
+    // Interior divider lines (one vertical, one horizontal) splitting the frame into 2x2 cells.
+    DrawLineEx((Vector2){ f.cx, top }, (Vector2){ f.cx, top + span }, f.stroke, ink);
+    DrawLineEx((Vector2){ left, f.cy }, (Vector2){ left + span, f.cy }, f.stroke, ink);
+
+    // One filled cell (top-left quadrant) to read as "a painted cell". Inset slightly so the fill
+    // sits inside the stroked borders rather than overlapping them.
+    float inset = f.stroke;
+    Rectangle filled = { left + inset, top + inset, half_span - inset * 1.5f, half_span - inset * 1.5f };
+    DrawRectangleRec(filled, ink);
+}
+
+// ============================================================================
 // Toggle glyphs (ink from UIIcon_StateInk: bright button_fill ON / normal text ink OFF)
 // ============================================================================
 
