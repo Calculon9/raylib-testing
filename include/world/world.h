@@ -57,6 +57,13 @@ typedef struct World2d
 
 void DrawNewtonoids(LArray *newtonoids, Matrix3x3 space_to_pixel_mtx);
 
+// Shared tile palette accessors (the palette table itself stays file-local in world_renderer.c).
+// TilePalette_TypeCount returns the number of palette entries (valid tile_type values are
+// 0 .. count-1); TilePalette_ColourForType resolves a tile_type to its fill colour, falling back
+// to default_colour for index 0 and any out-of-range index. ColourRgba is in scope via common.h.
+int        TilePalette_TypeCount(void);
+ColourRgba TilePalette_ColourForType(int tile_type, ColourRgba default_colour);
+
 typedef struct
 {
     WorldCmdType type;

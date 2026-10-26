@@ -43,6 +43,14 @@ bool ui_borders_enabled = false;
 // Currently active tool for the vertical tool toolbar. Radio-exclusive: at most one tool is
 // active at a time, defaulting to TOOL_NONE (no additive tool action runs).
 static ActiveTool g_active_tool = TOOL_NONE;
+
+// Active tile type for the cell-paint tool. Module-owned like g_active_tool: a single small
+// integer the paint-commit reads to stamp painted cells and the cycle toolbar button advances.
+// Defaults to 1 (the first non-default, visibly-coloured palette type) so a fresh paint click
+// produces an immediately visible colour change rather than repainting with the grid's own fill
+// (tile_type 0 renders as the grid colour, i.e. identical to an unpainted cell). The value is
+// always kept within the palette range by UIState_SetActiveTileType.
+static int g_active_tile_type = 1;
 // ------------------TOTAL SCREEN-------------------------
 // Logical->pixel-space conversion properties
 
@@ -642,6 +650,40 @@ void UIState_SetActiveTool(ActiveTool tool)
 bool UIState_IsToolActive(ActiveTool tool)
 {
     return g_active_tool == tool;
+}
+
+// Return the active tile type for the cell-paint tool (always a valid palette index).
+int UIState_GetActiveTileType(void)
+{
+    return g_active_tile_type;
+}
+
+// Set the active tile type, wrapping it into the palette range (0 .. TilePalette_TypeCount()-1) so
+// the stored value is always a drawable index. The palette count comes from the renderer (single
+// source of truth) via the exposed accessor and is never duplicated here; negative inputs wrap
+// correctly and a degenerate count (< 1) falls back to 0.
+void UIState_SetActiveTileType(int tile_type)
+{
+    int count = TilePalette_TypeCount();
+    if (count < 1)
+    {
+        g_active_tile_type = 0;
+        return;
+    }
+    int wrapped = tile_type % count;
+    if (wrapped < 0)
+    {
+        wrapped += count;
+    }
+    g_active_tile_type = wrapped;
+}
+
+// Advance the active tile type to the next palette index, wrapping 0->1->..->(count-1)->0. Driven
+// by the cycle toolbar button; returns the new active type.
+int UIState_CycleActiveTileType(void)
+{
+    UIState_SetActiveTileType(g_active_tile_type + 1);
+    return g_active_tile_type;
 }
 
 void InitUI(void)

@@ -51,6 +51,7 @@ static Vector2d info_strip_pointer_pixel = {0};  // Last pointer pixel captured 
 static bool     info_strip_pointer_in_view = false; // Pointer inside game_viewport this frame.
 static char     info_strip_rootcoords_text[64];  // Backing buffer for the Root coord label.
 static char     info_strip_childcoords_text[64]; // Backing buffer for the Child coord label.
+static char     info_strip_tile_text[32];        // Backing buffer for the active paint-tile label.
 
 // ============================================================================
 // Binding query shims (return BIND_STRING, mirroring LPanel's INT query shims)
@@ -206,13 +207,24 @@ static BindingValue InfoStrip_QueryChildCoords(int key)
     return (BindingValue){ .type = BIND_STRING, .as.s = info_strip_childcoords_text };
 }
 
+// Compose the ACTIVE PAINT tile-type label. Read-only: reports the UIState active tile type so the
+// user always knows what a paint click will stamp. Returns a BIND_STRING value pointing at the
+// panel-owned buffer; the key is unused.
+static BindingValue InfoStrip_QueryActiveTile(int key)
+{
+    (void)key;
+    snprintf(info_strip_tile_text, sizeof(info_strip_tile_text), "Tile: %d",
+             UIState_GetActiveTileType());
+    return (BindingValue){ .type = BIND_STRING, .as.s = info_strip_tile_text };
+}
+
 // ============================================================================
 // UI loader resolvers (application-specific)
 // ============================================================================
 
-// Resolve the strip's binding names to query sources returning BIND_STRING values. Four names
-// are recognised: "infostrip.hover", "infostrip.selection", "infostrip.rootcoords" and
-// "infostrip.childcoords"; anything else is unresolved.
+// Resolve the strip's binding names to query sources returning BIND_STRING values. Five names
+// are recognised: "infostrip.hover", "infostrip.selection", "infostrip.rootcoords",
+// "infostrip.childcoords" and "infostrip.tile"; anything else is unresolved.
 static UIBinding InfoStrip_ResolveBinding(const char *binding_string, UILoaderContext *ctx)
 {
     (void)ctx;
@@ -257,6 +269,16 @@ static UIBinding InfoStrip_ResolveBinding(const char *binding_string, UILoaderCo
         return (UIBinding){
             .kind = UI_BIND_SRC_QUERY,
             .query = InfoStrip_QueryChildCoords,
+            .query_key = 0,
+            .value_type = BIND_STRING,
+        };
+    }
+
+    if (!strcmp(binding_string, "infostrip.tile"))
+    {
+        return (UIBinding){
+            .kind = UI_BIND_SRC_QUERY,
+            .query = InfoStrip_QueryActiveTile,
             .query_key = 0,
             .value_type = BIND_STRING,
         };
@@ -385,6 +407,7 @@ void DestroyInfoStrip(void)
     // Reset the coord shim state so a later re-init starts clean (no stale pixel/label).
     info_strip_rootcoords_text[0] = '\0';
     info_strip_childcoords_text[0] = '\0';
+    info_strip_tile_text[0] = '\0';
     info_strip_pointer_in_view = false;
     info_strip_pointer_pixel = (Vector2d){0};
 }

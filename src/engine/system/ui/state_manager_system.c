@@ -119,6 +119,7 @@ typedef struct StateManagerUI
     String64 *cell_occu_str;
     String64 *cell_value_str;
     String64 *cell_fill_str;
+    String64 *cell_tile_type_str; // read-only tile_type readout (mirrors the other cell readouts)
     UIElement *cell_warp_u_tbox; // editable Warp U (warp_basis.u) — dynamic query/write bound
     UIElement *cell_warp_v_tbox; // editable Warp V (warp_basis.v) — dynamic query/write bound
 } StateManagerUI;
@@ -1207,6 +1208,11 @@ static void StateManager_RegisterElements(UIElement *root)
     {
         s_sm_ui.cell_fill_str = &cell_fill_tbox->data.textbox.text;
     }
+    UIElement *cell_tile_type_tbox = StateManager_Find(root, "sm_cell_tile_type");
+    if (cell_tile_type_tbox)
+    {
+        s_sm_ui.cell_tile_type_str = &cell_tile_type_tbox->data.textbox.text;
+    }
 
     // --- Editable cell warp basis (DYNAMIC query/write, like the portal fields; NOT a readonly
     // readout, so there is no String64 and no RefreshCellView entry — the generic per-frame
@@ -1556,6 +1562,11 @@ static void RefreshCellView(const Cell *selected_cell)
         {
             UpdateString64(s_sm_ui.cell_fill_str->string, "%0.1f", fill);
         }
+        // Read-only tile_type readout: show the selected cell's authored tile type directly.
+        if (s_sm_ui.cell_tile_type_str)
+        {
+            UpdateString64(s_sm_ui.cell_tile_type_str->string, "%d", selected_cell->tile_type);
+        }
     }
     else
     {
@@ -1563,6 +1574,7 @@ static void RefreshCellView(const Cell *selected_cell)
         ClearString64(s_sm_ui.cell_occu_str);
         ClearString64(s_sm_ui.cell_value_str);
         ClearString64(s_sm_ui.cell_fill_str);
+        ClearString64(s_sm_ui.cell_tile_type_str);
     }
 
     // Cell flag ON/OFF labels are now driven by the generic refresh walk via each button's

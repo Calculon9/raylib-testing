@@ -152,6 +152,16 @@ ActiveTool UIState_GetActiveTool(void);
 void UIState_SetActiveTool(ActiveTool tool);
 // Query whether a specific tool is the active one (used by toolbar button bindings).
 bool UIState_IsToolActive(ActiveTool tool);
+
+// Active tile type for the cell-paint tool (module-owned, like the active tool). The paint-commit
+// reads this to stamp painted cells; the cycle toolbar button advances it. The stored value is
+// always clamped/wrapped to the shared tile palette range (0 .. TilePalette_TypeCount()-1).
+// Return the current active tile type.
+int  UIState_GetActiveTileType(void);
+// Set the active tile type, clamped/wrapped into the palette range so it is always a valid index.
+void UIState_SetActiveTileType(int tile_type);
+// Advance the active tile type to the next palette index (wraps back to 0); returns the new value.
+int  UIState_CycleActiveTileType(void);
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------

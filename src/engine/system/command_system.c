@@ -116,6 +116,8 @@ int CommandSystem_ResolveString(const char *cmd_string)
         return CMD_TOOL_NUDGE;
     else if (!strcmp(cmd_string, "tool-cell-paint"))
         return CMD_TOOL_CELL_PAINT;
+    else if (!strcmp(cmd_string, "cycle-tile-type"))
+        return CMD_CYCLE_TILE_TYPE;
     
     return 0;  // Unresolved
 }
@@ -227,14 +229,16 @@ bool EnqueueRemoveComponent(EntityId entity_id, EntityComponentType component_ty
 
 // Enqueue marking a cell PRESENT (add). Validates the world index (nested or root sentinel) and a
 // non-negative cell index; the handler bounds-guards the index again at drain time.
-bool EnqueueAddCell(int world_index, int cell_index)
+bool EnqueueAddCell(int world_index, int cell_index, int tile_type)
 {
     if ((world_index < 0 && world_index != UNIVERSE_ROOT_WORLD_INDEX) || cell_index < 0)
     {
         return false;
     }
 
-    CellPresenceCommand payload = {.world_index = world_index, .cell_index = cell_index};
+    // Carry the tile type to stamp on the cell when it is marked present (paint). Index validation
+    // is unchanged; tile_type is already clamped to a valid palette index by the active-type owner.
+    CellPresenceCommand payload = {.world_index = world_index, .cell_index = cell_index, .tile_type = tile_type};
     return EnqueueCommandWithQueueLog(CMD_ADD_CELL, &payload, sizeof(payload), "CMD_ADD_CELL");
 }
 
@@ -306,6 +310,13 @@ void ExecuteCommand(CommandType type, const void *data)
     if (type == CMD_TOOL_CELL_PAINT)
     {
         UIState_SetActiveTool(UIState_IsToolActive(TOOL_CELL_PAINT) ? TOOL_NONE : TOOL_CELL_PAINT);
+        return;
+    }
+    // Plain action: advance the active paint tile type, wrapping within the palette. Does NOT touch
+    // the active tool, so it never disturbs the nudge/cell-paint radio selection.
+    if (type == CMD_CYCLE_TILE_TYPE)
+    {
+        UIState_CycleActiveTileType();
         return;
     }
     
@@ -394,6 +405,20 @@ static void ExecuteCommandInternal(Command *c)
             bool present = (c->type == CMD_ADD_CELL);
             if (Space_SetCellPresent(&world->grid_space.space, cell_index, present))
             {
+                if (c->type == CMD_ADD_CELL)
+                {
+                    // Paint: stamp the carried tile type onto the now-present cell. Re-typing an
+                    // already-present cell is intended (painting a present cell just changes its
+                    // colour). The cell is resolved by index via the same dense-buffer idiom
+                    // DrawGridSpace uses (no by-index Cell* accessor exists); Space_SetCellPresent
+                    // has already bounds-checked cell_index above, so the pointer is valid.
+                    // tile_type is a plain int, so this is a trivial assignment with no allocation
+                    // and no change to the memcpy-safe Cell layout. DELETE never runs this branch,
+                    // so deleting a cell never resets its tile_type.
+                    Space2d *space = &world->grid_space.space;
+                    Cell *cell = (Cell *)((char *)space->cells.items + (size_t)cell_index * space->cells.elem_bytes);
+                    cell->tile_type = c->data.cell_presence.tile_type;
+                }
                 // Bounds stay rectangular this round, but refresh anyway so a structural cell change
                 // has a single bounds-refresh hook (cheap; mirrors create/basis-edit/drag).
                 World_RefreshBoundsFromFrame(world);

@@ -23,6 +23,11 @@ void UIIcon_DrawNudge(UIElement *e);
 // Cell Paint tool glyph: a 2x2 grid of cells with one cell filled ("paint a cell").
 void UIIcon_DrawCellPaint(UIElement *e);
 
+// Tile-type CYCLE button glyph: the same cell-paint composition, but TINTED to the ACTIVE TILE
+// TYPE's palette colour (via TilePalette_ColourForType) rather than by active-tool state, so the
+// swatch the user is about to paint is always visible on the button.
+void UIIcon_DrawTileCycle(UIElement *e);
+
 // Dashboard toggle (debug.dashboard): a gauge dial (circle ring + short radial needle).
 void UIIcon_DrawDashboard(UIElement *e);
 

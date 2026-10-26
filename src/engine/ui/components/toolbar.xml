@@ -24,6 +24,14 @@
     <!-- exclusively, so paint and nudge are mutually exclusive. -->
     <Button id="tool_cell_paint" type="simple" surface="input" action="tool-cell-paint" size="0.67,0.45" />
 
+    <!-- Tile-type CYCLE button (plain ACTION, not a radio tool). action="cycle-tile-type" advances -->
+    <!-- the active paint tile type on each click (0/1/2/3 -> wrap); it never sets the active TOOL and -->
+    <!-- is NOT mutually exclusive with the nudge/cell-paint radio tools. NO binding= here (a display -->
+    <!-- source would make the per-frame refresh WRITE the button text); the feedback is the on_draw -->
+    <!-- icon (UIIcon_DrawTileCycle), which TINTS to the active tile type's palette colour. -->
+    <!-- surface="input" and size match the sibling tool buttons. -->
+    <Button id="tool_cycle_tile_type" type="simple" surface="input" action="cycle-tile-type" size="0.67,0.45" />
+
     <!-- Thin empty separator so the tool and the toggle group read as two distinct bands. -->
     <Label id="toolbar_separator" size="1,0.25" width="fixed" height="fixed" />
 

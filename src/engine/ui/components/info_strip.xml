@@ -14,4 +14,7 @@
     <Textbox id="info_strip_childcoords" io="readonly" binding="infostrip.childcoords" size="4.5,0.5"/>
     <Textbox id="info_strip_hover" io="readonly" binding="infostrip.hover" size="6.5,0.5" />
     <Textbox id="info_strip_selection" io="readonly" binding="infostrip.selection" size="6.5,0.5" />
+    <!-- Active paint tile type (read-only, "Tile: <n>"), surfaced via the same BIND_STRING query -->
+    <!-- shim pattern as the fields above. Narrow (3.0) so the five fields still sit on one row. -->
+    <Textbox id="info_strip_tile" io="readonly" binding="infostrip.tile" size="3.0,0.5" />
 </Container>

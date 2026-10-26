@@ -264,6 +264,15 @@ void InitToolbar(void)
         cell_paint_btn->on_draw = UIIcon_DrawCellPaint;
     }
 
+    // Tile-type CYCLE button: plain ACTION (no binding=), so its feedback is the on_draw glyph,
+    // which tints to the active tile type's palette colour. action="cycle-tile-type" resolves to
+    // CMD_CYCLE_TILE_TYPE through the shared command system on click.
+    UIElement *tile_cycle_btn = UILoader_FindById(root, "tool_cycle_tile_type");
+    if (tile_cycle_btn)
+    {
+        tile_cycle_btn->on_draw = UIIcon_DrawTileCycle;
+    }
+
     // Toggle glyphs: look each up by id and attach its on_draw. The toggles keep their binding=,
     // so each glyph tints itself from e->colour_fill (the refresh sets it to toggle_on_fill/off).
     UIElement *b;

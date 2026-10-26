@@ -18,6 +18,7 @@ ON, normal text ink when OFF via UIIcon_StateInk), not an amber box-fill swap.
 #include "raylib.h"                 // DrawLineEx / DrawRectangleLinesEx / DrawCircleV, Vector2 / Color
 #include "system/draw_primitives.h" // ToRaylibColor (ColourRgba -> raylib Color)
 #include "system/ui_system.h"       // ui_default_palette, UIState_IsToolActive, TOOL_NUDGE
+#include "world/world.h"            // TilePalette_TypeCount / TilePalette_ColourForType (active-type tint)
 #include "common/common.h"          // PI (float)
 #include "ui/ui.h"                  // UIElement / UIBox
 #include "ui/binding.h"             // Binding_ReadSource / BindingValue / BIND_SRC_NONE (toggle truth)
@@ -216,6 +217,45 @@ void UIIcon_DrawCellPaint(UIElement *e)
 
     // One filled cell (top-left quadrant) to read as "a painted cell". Inset slightly so the fill
     // sits inside the stroked borders rather than overlapping them.
+    float inset = f.stroke;
+    Rectangle filled = { left + inset, top + inset, half_span - inset * 1.5f, half_span - inset * 1.5f };
+    DrawRectangleRec(filled, ink);
+}
+
+// Tile-type CYCLE button glyph. Unlike the tool glyphs (which tint by active-tool state), this
+// plain ACTION button tints to the ACTIVE TILE TYPE's palette colour via TilePalette_ColourForType,
+// so the swatch the user is about to paint is always visible. Composition mirrors UIIcon_DrawCellPaint
+// (2x2 frame + one filled quadrant). Monochrome shape in the resolved ink, no heap allocation.
+void UIIcon_DrawTileCycle(UIElement *e)
+{
+    UIIconFit f;
+    if (!UIIcon_Fit(e, &f))
+    {
+        return;
+    }
+
+    // Resolve the active type's colour. tile_type 0 has no palette colour of its own (it means
+    // "use the grid's own fill"), so for the swatch we pass the panel text ink as the default,
+    // giving a sensible neutral glyph for the 0 case while non-zero types show their real colour.
+    int active = UIState_GetActiveTileType();
+    ColourRgba swatch = TilePalette_ColourForType(active, ui_default_palette.text);
+    Color ink = ToRaylibColor(swatch);
+
+    // 2x2 grid geometry centred on the fit (same as UIIcon_DrawCellPaint).
+    float left = f.cx - f.half;
+    float top = f.cy - f.half;
+    float span = f.half * 2.0f;
+    float half_span = span * 0.5f;
+
+    // Outer frame.
+    Rectangle frame = { left, top, span, span };
+    DrawRectangleLinesEx(frame, f.stroke, ink);
+
+    // Interior divider lines (one vertical, one horizontal) splitting the frame into 2x2 cells.
+    DrawLineEx((Vector2){ f.cx, top }, (Vector2){ f.cx, top + span }, f.stroke, ink);
+    DrawLineEx((Vector2){ left, f.cy }, (Vector2){ left + span, f.cy }, f.stroke, ink);
+
+    // One filled cell (top-left quadrant), inset so the fill sits inside the stroked borders.
     float inset = f.stroke;
     Rectangle filled = { left + inset, top + inset, half_span - inset * 1.5f, half_span - inset * 1.5f };
     DrawRectangleRec(filled, ink);

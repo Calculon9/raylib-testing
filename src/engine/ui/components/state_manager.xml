@@ -146,6 +146,8 @@
             <TextField id="sm_cell_occu" label="Occu" type="integer" io="readonly" />
             <TextField id="sm_cell_value" label="Value" type="float" io="readonly" />
             <TextField id="sm_cell_fill" label="Fill" type="float" io="readonly" />
+            <!-- Read-only tile_type readout (authoring stays paint-only; the Cell View never edits it). -->
+            <TextField id="sm_cell_tile_type" label="Tile" type="integer" io="readonly" />
             <TextField id="sm_cell_warp_u" label="Warp U" type="vector2" io="safe" />
             <TextField id="sm_cell_warp_v" label="Warp V" type="vector2" io="safe" />
         </Container>

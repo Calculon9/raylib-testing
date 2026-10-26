@@ -536,6 +536,23 @@ static ColourRgba TilePalette_ColourFor(int tile_type, ColourRgba default_colour
     return tile_palette[tile_type];
 }
 
+// Return the number of entries in the shared tile palette (valid tile_type values are
+// 0 .. count-1). Exposed so UI code (the active-type clamp/wrap and the cycle button) reuses the
+// palette's own size as the single source of truth rather than duplicating the literal count. The
+// table itself stays file-local; only this count and the colour lookup below are published.
+int TilePalette_TypeCount(void)
+{
+    return (int)(sizeof(tile_palette) / sizeof(tile_palette[0]));
+}
+
+// Public wrapper over the file-local TilePalette_ColourFor so UI code (the cycle button's tinted
+// icon) can read the colour for a given tile_type with the same "0/out-of-range -> default_colour"
+// contract. Keeps the static resolver and its DrawGridSpace call site unchanged.
+ColourRgba TilePalette_ColourForType(int tile_type, ColourRgba default_colour)
+{
+    return TilePalette_ColourFor(tile_type, default_colour);
+}
+
 // Draw a grid space. Each PRESENT cell's FILL colour is now sourced per cell from the shared tile
 // palette via TilePalette_ColourFor(cell->tile_type, grid_space->colour_fill): a tile_type of 0
 // resolves to the grid's own colour_fill (pixel-identical to before this change), while non-zero

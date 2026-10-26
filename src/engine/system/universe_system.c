@@ -595,7 +595,10 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
             if (Target_ResolveCellIndexAtPoint(&G_Universe, mouse_universe_coords,
                                                &paint_world_index, &paint_cell_index))
             {
-                EnqueueAddCell(paint_world_index, paint_cell_index);
+                // Stamp the active paint tile type on commit; EnqueueAddCell marks the cell present
+                // AND carries the type to the handler. Re-painting a present cell is allowed (it
+                // just changes the cell's colour).
+                EnqueueAddCell(paint_world_index, paint_cell_index, UIState_GetActiveTileType());
             }
         }
 

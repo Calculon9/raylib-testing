@@ -34,6 +34,8 @@ typedef enum
     // the CMD_TOGGLE_* -> debug-overlay mapping; each toggles its tool radio-exclusively instead.
     CMD_TOOL_NUDGE = 200,
     CMD_TOOL_CELL_PAINT = 201,
+    CMD_CYCLE_TILE_TYPE = 202,   // Plain action: advance the active paint tile type. Never changes
+                                 // the active tool (not a radio tool); only cycles the paint type.
 } CommandType;
 
 typedef struct
@@ -64,6 +66,7 @@ typedef struct
 {
     int world_index;   // Owning world index (nested index or UNIVERSE_ROOT_WORLD_INDEX).
     int cell_index;    // Linear positional cell index within that world's grid space.
+    int tile_type;     // Tile type to stamp on ADD (paint). Ignored by DELETE. 0 = grid default.
 } CellPresenceCommand;
 
 typedef struct
@@ -112,7 +115,9 @@ bool EnqueueAttachComponent(EntityId entity_id, const EntityComponent *component
 // Enqueue detaching a component from an existing entity.
 bool EnqueueRemoveComponent(EntityId entity_id, EntityComponentType component_type);
 // Enqueue marking a cell PRESENT (add) / ABSENT (delete) by its owning world and positional index.
-bool EnqueueAddCell(int world_index, int cell_index);
+// EnqueueAddCell also carries the tile_type to stamp on the cell when it is marked present (paint);
+// DELETE never reads or resets tile_type.
+bool EnqueueAddCell(int world_index, int cell_index, int tile_type);
 bool EnqueueDeleteCell(int world_index, int cell_index);
 void ProcessCommandQueue(void);
 
