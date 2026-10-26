@@ -403,22 +403,31 @@ static void ExecuteCommandInternal(Command *c)
         if (world)
         {
             bool present = (c->type == CMD_ADD_CELL);
-            if (Space_SetCellPresent(&world->grid_space.space, cell_index, present))
+            Space2d *space = &world->grid_space.space;
+            // Idempotent presence toggle: true only when the stored bit actually flipped. Re-adding an
+            // already-present cell (or re-deleting an absent one) returns false here.
+            bool presence_changed = Space_SetCellPresent(space, cell_index, present);
+
+            // Paint re-type: the tile_type stamp is INDEPENDENT of presence_changed. Painting a cell
+            // that is ALREADY present does not flip the presence bit, but it must still re-type the
+            // cell (so you can recolour an existing cell by painting over it). Gating the stamp on
+            // presence_changed was the bug: it skipped re-typing for present cells. DELETE never runs
+            // this branch, so deleting a cell never resets its tile_type. tile_type is a plain int, so
+            // this is a trivial assignment with no allocation and no change to the memcpy-safe Cell
+            // layout. The cell is resolved by index via the same dense-buffer idiom DrawGridSpace uses
+            // (no by-index Cell* accessor exists); we bounds-check cell_index independently here since
+            // the stamp no longer relies on Space_SetCellPresent having returned true.
+            if (c->type == CMD_ADD_CELL && space->cells.items &&
+                cell_index >= 0 && cell_index < (int)space->cells.count)
             {
-                if (c->type == CMD_ADD_CELL)
-                {
-                    // Paint: stamp the carried tile type onto the now-present cell. Re-typing an
-                    // already-present cell is intended (painting a present cell just changes its
-                    // colour). The cell is resolved by index via the same dense-buffer idiom
-                    // DrawGridSpace uses (no by-index Cell* accessor exists); Space_SetCellPresent
-                    // has already bounds-checked cell_index above, so the pointer is valid.
-                    // tile_type is a plain int, so this is a trivial assignment with no allocation
-                    // and no change to the memcpy-safe Cell layout. DELETE never runs this branch,
-                    // so deleting a cell never resets its tile_type.
-                    Space2d *space = &world->grid_space.space;
-                    Cell *cell = (Cell *)((char *)space->cells.items + (size_t)cell_index * space->cells.elem_bytes);
-                    cell->tile_type = c->data.cell_presence.tile_type;
-                }
+                Cell *cell = (Cell *)((char *)space->cells.items + (size_t)cell_index * space->cells.elem_bytes);
+                cell->tile_type = c->data.cell_presence.tile_type;
+            }
+
+            // Refresh bounds only when the structure actually changed (presence flipped). A pure
+            // re-type leaves occupancy identical, so the rectangular bounds cannot have moved.
+            if (presence_changed)
+            {
                 // Bounds stay rectangular this round, but refresh anyway so a structural cell change
                 // has a single bounds-refresh hook (cheap; mirrors create/basis-edit/drag).
                 World_RefreshBoundsFromFrame(world);
