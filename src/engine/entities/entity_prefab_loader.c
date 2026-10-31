@@ -5,7 +5,7 @@
 
 #include "cJSON.h"
 #include "entities/entity_prefab.h"
-#include "raylib.h"
+#include "filesystem/filesystem.h" // FS_ReadFileText / FS_FreeFileText
 
 // Read a finite JSON number in range and convert it to a float.
 static bool ReadPrefabFloat(const cJSON *value, double minimum, double maximum,
@@ -386,7 +386,7 @@ bool EntityPrefab_LoadFile(const char *file_path, EntityCreateParams *out_params
 		return false;
 	}
 
-	char *file_text = LoadFileText(file_path);
+	char *file_text = FS_ReadFileText(file_path);
 	if (!file_text)
 	{
 		LOG_WARN("Cannot read entity prefab: %s\n", file_path);
@@ -399,7 +399,7 @@ bool EntityPrefab_LoadFile(const char *file_path, EntityCreateParams *out_params
 	{
 		cJSON_Delete(root);
 	}
-	UnloadFileText(file_text);
+	FS_FreeFileText(file_text);
 
 	if (!is_valid)
 	{

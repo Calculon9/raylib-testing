@@ -15,7 +15,7 @@ entry's surface.surface_vectors.items is NULL. The accessors degrade gracefully 
 #include <stdbool.h>
 #include <stdio.h> // snprintf
 
-#include "raylib.h" // LoadDirectoryFilesEx / UnloadDirectoryFiles / GetFileNameWithoutExt
+#include "filesystem/filesystem.h" // FS_ListDirectoryFiles / FS_FreeFileList / FS_FileStem
 #include "entities/entity_prefab.h" // EntityPrefab_LoadFile
 #include "collections/linear_array.h" // LArray and its API
 #include "common/common.h" // LOG_ERROR
@@ -47,10 +47,11 @@ void InitEntityCatalogue(void)
 
     g_catalogue = MakeLArray(8, sizeof(CatalogueEntry));
 
-    // raylib enumeration: non-recursive, filtered to .json. The returned list is raylib-owned and
-    // released with UnloadDirectoryFiles inside this function.
-    FilePathList files = LoadDirectoryFilesEx("prefabs", ".json", false);
-    for (unsigned int i = 0; i < files.count; i++)
+    // Custom enumeration: non-recursive, filtered to .json. The returned list is heap-owned and
+    // released with FS_FreeFileList inside this function. "prefabs" resolves relative to the
+    // runtime working directory, exactly as the raylib enumeration did.
+    FS_FileList files = FS_ListDirectoryFiles("prefabs", ".json");
+    for (int i = 0; i < files.count; i++)
     {
         CatalogueEntry entry = {0};
         if (!EntityPrefab_LoadFile(files.paths[i], &entry.params))
@@ -60,15 +61,15 @@ void InitEntityCatalogue(void)
             continue;
         }
 
-        // Derive the id from the file stem (e.g. gear_0.json -> "gear_0"), copied into the fixed
-        // buffer so the entry retains no pointer into the raylib-owned path list. The stem equals
-        // the authored prefab_id in the existing files; the loader does not return the JSON id.
-        const char *stem = GetFileNameWithoutExt(files.paths[i]);
-        snprintf(entry.prefab_id, sizeof(entry.prefab_id), "%s", stem ? stem : "");
+        // Derive the id from the file stem (e.g. gear_0.json -> "gear_0"), written straight into
+        // the fixed buffer so the entry retains no pointer into the owned path list. The stem
+        // equals the authored prefab_id in the existing files; the loader does not return the
+        // JSON id.
+        FS_FileStem(files.paths[i], entry.prefab_id, sizeof(entry.prefab_id));
 
         LArray_Push(&g_catalogue, &entry);
     }
-    UnloadDirectoryFiles(files); // Release raylib's path list immediately (nothing retained from it).
+    FS_FreeFileList(&files); // Release the path list immediately (nothing retained from it).
 
     g_initialised = true;
 }
