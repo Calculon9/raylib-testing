@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+    <!-- Contextual DETAIL STRIP: always-present, read-only details of the CURRENT detail context. -->
+    <!-- Runtime construction is in detail_strip_system.c. For v1 the context is always the ACTIVE -->
+    <!-- PREFAB (the spawn tool/selecter context); the fields show its id, role/type, which -->
+    <!-- components it carries, and a couple of key physics values. Each leaf is a read-only -->
+    <!-- <Textbox> carrying binding= (a BIND_STRING query source) only, refreshed verbatim by the -->
+    <!-- binding core, mirroring info_strip.xml. Leaves carry explicit fixed sizes (they do not -->
+    <!-- auto-size to text). -->
+<Container id="detail_strip" layout="inline" width="fill" height="fill">
+    <Textbox id="detail_prefab_id"         io="readonly" binding="detailstrip.prefab_id"  size="6.0,0.5" />
+    <Textbox id="detail_prefab_type"       io="readonly" binding="detailstrip.type"       size="5.0,0.5" />
+    <Textbox id="detail_prefab_components" io="readonly" binding="detailstrip.components"  size="8.0,0.5" />
+    <Textbox id="detail_prefab_physics"    io="readonly" binding="detailstrip.physics"    size="8.0,0.5" />
+</Container>

@@ -36,6 +36,9 @@ typedef enum
     CMD_TOOL_CELL_PAINT = 201,
     CMD_CYCLE_TILE_TYPE = 202,   // Plain action: advance the active paint tile type. Never changes
                                  // the active tool (not a radio tool); only cycles the paint type.
+    CMD_TOOL_SPAWN = 203,        // Radio tool: click-to-place the active prefab into the root world.
+    CMD_CYCLE_PREFAB = 204,      // Plain action: advance the active spawn prefab. Never changes the
+                                 // active tool (not a radio tool); only cycles the prefab.
 } CommandType;
 
 typedef struct

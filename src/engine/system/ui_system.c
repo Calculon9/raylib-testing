@@ -33,6 +33,8 @@
 #include "system/ui/ui_loader.h"
 #include "world/target_resolver.h"
 #include "entities/entity_registry.h"
+#include "entities/entity_catalogue.h"
+#include "system/ui/detail_strip_system.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -51,6 +53,12 @@ static ActiveTool g_active_tool = TOOL_NONE;
 // (tile_type 0 renders as the grid colour, i.e. identical to an unpainted cell). The value is
 // always kept within the palette range by UIState_SetActiveTileType.
 static int g_active_tile_type = 1;
+
+// Active prefab for the spawn tool. Module-owned exactly like g_active_tile_type: a single small
+// index the spawn commit reads (to pick the catalogue entry) and the cycle toolbar button advances.
+// Defaults to 0 (the first catalogue entry). Always kept within the catalogue range by
+// UIState_SetActivePrefab; when the catalogue is empty it stays 0 and spawning is a no-op.
+static int g_active_prefab = 0;
 // ------------------TOTAL SCREEN-------------------------
 // Logical->pixel-space conversion properties
 
@@ -686,6 +694,41 @@ int UIState_CycleActiveTileType(void)
     return g_active_tile_type;
 }
 
+// Return the active prefab index for the spawn tool (always a valid catalogue index, or 0 when the
+// catalogue is empty).
+int UIState_GetActivePrefab(void)
+{
+    return g_active_prefab;
+}
+
+// Set the active prefab, wrapping it into the catalogue range (0 .. Catalogue_Count()-1) so the
+// stored value is always a valid entry index. The count comes from the catalogue (single source of
+// truth) and is never duplicated here; negative inputs wrap correctly and an empty catalogue
+// (count < 1) falls back to 0. Mirrors UIState_SetActiveTileType.
+void UIState_SetActivePrefab(int index)
+{
+    int count = Catalogue_Count();
+    if (count < 1)
+    {
+        g_active_prefab = 0;
+        return;
+    }
+    int wrapped = index % count;
+    if (wrapped < 0)
+    {
+        wrapped += count;
+    }
+    g_active_prefab = wrapped;
+}
+
+// Advance the active prefab to the next catalogue index, wrapping back to 0. Driven by the cycle
+// toolbar button; returns the new active prefab index.
+int UIState_CycleActivePrefab(void)
+{
+    UIState_SetActivePrefab(g_active_prefab + 1);
+    return g_active_prefab;
+}
+
 void InitUI(void)
 {
     InitUIPalettes();
@@ -704,6 +747,7 @@ void InitUI(void)
     InitStateManagerSystem();
     InitPopupMenu();
     InitInfoStrip();
+    InitDetailStrip();
     InitToolbar();
     G_UIState.active_view = LPANEL_STATE_VIEW;
 }
@@ -728,6 +772,7 @@ void DestroyUI(void)
     DestroyPopupMenu();
     DestroyStateManagerSystem();
     DestroyInfoStrip();
+    DestroyDetailStrip();
     DestroyToolbar();
 
     // Destroy the global element pool so the next allocation creates a clean pool.
@@ -842,6 +887,7 @@ void DrawUI()
     DrawUtilityPanel();
     DrawPopupMenu();
     DrawInfoStrip();
+    DrawDetailStrip();
     DrawToolbar();
 }
 

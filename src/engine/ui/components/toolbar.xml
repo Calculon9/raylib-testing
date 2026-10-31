@@ -32,6 +32,22 @@
     <!-- surface="input" and size match the sibling tool buttons. -->
     <Button id="tool_cycle_tile_type" type="simple" surface="input" action="cycle-tile-type" size="0.67,0.45" />
 
+    <!-- Spawn TOOL button (radio, click-to-place). NO binding= here (a display source would make -->
+    <!-- the per-frame refresh WRITE the button text that text="" cannot suppress); the active-tool -->
+    <!-- feedback is driven by the on_draw glyph (UIIcon_DrawToolSpawn reads -->
+    <!-- UIState_IsToolActive(TOOL_SPAWN)). action="tool-spawn" sets the tool radio-exclusively, so -->
+    <!-- spawn, nudge and cell-paint are mutually exclusive. surface="input" and size match the -->
+    <!-- sibling tool buttons. -->
+    <Button id="tool_spawn" type="simple" surface="input" action="tool-spawn" size="0.67,0.45" />
+
+    <!-- Prefab CYCLE button (plain ACTION, not a radio tool). action="cycle-prefab" advances the -->
+    <!-- active spawn prefab on each click (wraps within the catalogue); it never sets the active -->
+    <!-- TOOL and is NOT mutually exclusive with the radio tools. NO binding= here (a display source -->
+    <!-- would make the per-frame refresh WRITE the button text); the feedback is the on_draw glyph -->
+    <!-- (UIIcon_DrawPrefabCycle), a generic spawn/prefab glyph. surface="input" and size match the -->
+    <!-- sibling tool buttons. -->
+    <Button id="tool_cycle_prefab" type="simple" surface="input" action="cycle-prefab" size="0.67,0.45" />
+
     <!-- Thin empty separator so the tool and the toggle group read as two distinct bands. -->
     <Label id="toolbar_separator" size="1,0.25" width="fixed" height="fixed" />
 

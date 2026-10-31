@@ -70,6 +70,7 @@ ViewportRegion rpanel_viewport = {0};
 ViewportRegion entity_panel_viewport = {0};
 ViewportRegion utility_panel_viewport = {0};
 ViewportRegion info_strip_viewport = {0};
+ViewportRegion detail_strip_viewport = {0};
 ViewportRegion toolbar_viewport = {0};
 
 // ============================================================================
@@ -204,6 +205,7 @@ typedef enum DockRegionId
     DOCK_REGION_TOOLBAR,
     DOCK_REGION_INFO_STRIP,
     DOCK_REGION_GAME, // FILL
+    DOCK_REGION_DETAIL_STRIP,
     DOCK_REGION_ENTITY_PANEL,
     DOCK_REGION_UTILITY_PANEL,
     DOCK_REGION_COUNT
@@ -248,6 +250,7 @@ static const DockRegionDesc g_dock_region_desc[DOCK_REGION_COUNT] = {
     [DOCK_REGION_TOOLBAR]       = {&toolbar_viewport,       VIEWPORT_SPACE_LPANEL,       false, false, false},
     [DOCK_REGION_INFO_STRIP]    = {&info_strip_viewport,    VIEWPORT_SPACE_LPANEL,       false, false, false},
     [DOCK_REGION_GAME]          = {&game_viewport,          VIEWPORT_SPACE_LPANEL,       true,  true,  true },
+    [DOCK_REGION_DETAIL_STRIP]  = {&detail_strip_viewport,  VIEWPORT_SPACE_LPANEL,       false, false, false},
     [DOCK_REGION_ENTITY_PANEL]  = {&entity_panel_viewport,  VIEWPORT_SPACE_ENTITY_PANEL, false, false, false},
     [DOCK_REGION_UTILITY_PANEL] = {&utility_panel_viewport, VIEWPORT_SPACE_ENTITY_PANEL, false, false, false},
 };
@@ -494,22 +497,44 @@ static void SolveDockLayout(const DockRow *rows, int row_count,
                       ((Vector2d){central_content_left, 0.0f}),
                       ((Vector2d){rpanel_viewport.local_origin.x, strip_height}));
 
+    // Detail strip height: SAME as the info-strip band height (and clamped identically) — the
+    // detail strip reuses the computed strip_height datum rather than any new literal, so it is the
+    // same height as the info strip by construction. The central content column now carries two
+    // thin bands: the info strip at the TOP and the detail strip at the BOTTOM, with the game
+    // viewport filling between them above the bottom entity band.
+    float detail_strip_height = strip_height;
+    // Former game bottom edge (also the entity/utility band top). Decoupled from the game viewport
+    // so carving the detail strip from the game's bottom leaves every OTHER region unchanged.
+    float entity_band_top = logical_screen.y - entity_panel_height;
+    // New game bottom edge: raised by exactly one strip height to make room for the detail strip.
+    float game_bottom = entity_band_top - detail_strip_height;
+
     // Step 7 - GAME (FILL): the remainder of the central content column, right of the toolbar,
-    // below the info strip and above the bottom entity band. The §3a write path routes this row to
-    // the game basis + screen pixels-per-unit and copies resolution into local_resolution.
+    // below the info strip and ABOVE the detail strip (which is itself above the bottom entity
+    // band). The §3a write path routes this row to the game basis + screen pixels-per-unit and
+    // copies resolution into local_resolution.
     DOCK_WRITE_REGION(DOCK_REGION_GAME,
                       ((Vector2d){central_content_left, strip_height}),
-                      ((Vector2d){rpanel_viewport.local_origin.x, logical_screen.y - entity_panel_height}));
+                      ((Vector2d){rpanel_viewport.local_origin.x, game_bottom}));
+
+    // Step 7b - DETAIL_STRIP (CENTRAL / BOTTOM): thin horizontal band across the bottom of the
+    // central content column, from the toolbar's right edge to the right panel's left edge, sitting
+    // directly below the game viewport and above the bottom entity band. Its bottom edge meets the
+    // entity band top exactly, so there is no overlap or gap.
+    DOCK_WRITE_REGION(DOCK_REGION_DETAIL_STRIP,
+                      ((Vector2d){central_content_left, game_bottom}),
+                      ((Vector2d){rpanel_viewport.local_origin.x, entity_band_top}));
 
     // Step 8 - bottom band shared datum, then ENTITY_PANEL and UTILITY_PANEL (both SCREEN / BOTTOM).
     // `utility_width` is the solver datum that splits the full-width bottom band horizontally; both
-    // rows pin their top edge to the game's bottom (H - entity_height).
+    // rows pin their top edge to `entity_band_top` (their ORIGINAL top, H - entity_height) rather
+    // than the game viewport's now-smaller bottom, so they are byte-identical to before.
     float utility_width = fminf(lpanel_viewport.resolution.x, logical_screen.x);
     DOCK_WRITE_REGION(DOCK_REGION_ENTITY_PANEL,
-                      ((Vector2d){0.0f, game_viewport.local_end.y}),
+                      ((Vector2d){0.0f, entity_band_top}),
                       ((Vector2d){logical_screen.x - utility_width, logical_screen.y}));
     DOCK_WRITE_REGION(DOCK_REGION_UTILITY_PANEL,
-                      ((Vector2d){logical_screen.x - utility_width, game_viewport.local_end.y}),
+                      ((Vector2d){logical_screen.x - utility_width, entity_band_top}),
                       logical_screen);
 
     #undef DOCK_WRITE_REGION
@@ -563,6 +588,10 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
         {DOCK_REGION_INFO_STRIP, DOCK_EDGE_TOP, DOCK_SIZE_LOGICAL, DOCK_REF_SCREEN_WIDTH, cfg->info_strip_logical_height, DOCK_WITHIN_CENTRAL},
         // GAME: fills the remainder of the central content column.
         {DOCK_REGION_GAME, DOCK_EDGE_FILL, DOCK_SIZE_LOGICAL, DOCK_REF_SCREEN_WIDTH, 0.0f, DOCK_WITHIN_CENTRAL},
+        // DETAIL_STRIP: bottom edge of the central content column; the solver sets its height to the
+        // info-strip datum (detail_strip_height = strip_height), so this row size is NOT read — it
+        // carries 0.0f only for row symmetry, exactly as the GAME (FILL) row does.
+        {DOCK_REGION_DETAIL_STRIP, DOCK_EDGE_BOTTOM, DOCK_SIZE_LOGICAL, DOCK_REF_SCREEN_WIDTH, 0.0f, DOCK_WITHIN_CENTRAL},
         // ENTITY_PANEL: bottom band of the whole screen; carries the band height only.
         {DOCK_REGION_ENTITY_PANEL, DOCK_EDGE_BOTTOM, DOCK_SIZE_LOGICAL, DOCK_REF_SCREEN_WIDTH, 0.0f, DOCK_WITHIN_SCREEN},
         // UTILITY_PANEL: bottom band of the whole screen; carries the band height only.

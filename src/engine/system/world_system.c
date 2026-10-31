@@ -26,6 +26,7 @@
 #include "input/drag_interaction.h"
 #include "combat/projectile.h"
 #include "entities/entity_registry.h"
+#include "entities/entity_catalogue.h"
 #include "entities/health.h"
 
 // World-level defaults used by the gameplay screen and debug spawning controls.
@@ -1011,4 +1012,7 @@ void UnloadGameplayScreen(void)
 {
     ShutdownJobSystem();
     EntityRegistry_Shutdown();
+    // Release the prefab catalogue populated in InitGameplayScreen (symmetry with the other
+    // boot-time inits torn down here).
+    DisposeEntityCatalogue();
 }

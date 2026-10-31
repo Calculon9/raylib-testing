@@ -273,6 +273,23 @@ void InitToolbar(void)
         tile_cycle_btn->on_draw = UIIcon_DrawTileCycle;
     }
 
+    // Spawn TOOL button: no binding=, so its active-state feedback comes from the on_draw glyph
+    // reading the active tool. action="tool-spawn" resolves to CMD_TOOL_SPAWN through the shared
+    // command system on click.
+    UIElement *spawn_btn = UILoader_FindById(root, "tool_spawn");
+    if (spawn_btn)
+    {
+        spawn_btn->on_draw = UIIcon_DrawToolSpawn;
+    }
+
+    // Prefab CYCLE button: plain ACTION (no binding=), so its feedback is the generic on_draw glyph.
+    // action="cycle-prefab" resolves to CMD_CYCLE_PREFAB through the shared command system on click.
+    UIElement *prefab_cycle_btn = UILoader_FindById(root, "tool_cycle_prefab");
+    if (prefab_cycle_btn)
+    {
+        prefab_cycle_btn->on_draw = UIIcon_DrawPrefabCycle;
+    }
+
     // Toggle glyphs: look each up by id and attach its on_draw. The toggles keep their binding=,
     // so each glyph tints itself from e->colour_fill (the refresh sets it to toggle_on_fill/off).
     UIElement *b;

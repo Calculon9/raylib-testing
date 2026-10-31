@@ -19,6 +19,7 @@
 #include "system/ui_system.h"
 #include "system/universe_system.h"
 #include "system/viewport_system.h"
+#include "entities/entity_catalogue.h"
 #include "system/ui/rpanel_system.h"
 #include "system/debug_overlay_system.h"
 #include "editor/geometry_editor.h"
@@ -382,6 +383,9 @@ void InitGameplayScreen(void)
     SetViewportTargetLogicalHeight(viewport_target_game_logical_height);
     SetViewportUIScaleScalar(viewport_ui_pixels_per_unit_override);
     InitViewportLayout(screenWidth, screenHeight, screen_resolution_scalar);
+    // Populate the prefab catalogue before the UI mounts: the toolbar selecter and the detail
+    // strip both read Catalogue_Count()/GetParams() as soon as InitUI builds them.
+    InitEntityCatalogue();
     InitUniverseSystem(); // Initialise the universe system with independent universe coordinates
     InitWorldSystem();
     InitUI();

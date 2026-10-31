@@ -23,6 +23,7 @@ UNIVERSE SYSTEM MODULE
 #include "world/world_internal.h"
 #include "world/target_resolver.h"
 #include "entities/entity_registry.h"
+#include "entities/entity_catalogue.h"
 
 static int create_world_auto_select = 0;
 static bool camera_diagnostic_printed = false;
@@ -471,18 +472,20 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
                 g_game_press.armed_move = WorldSystem_ArmEntityDragById(drag_target.as.entity, false);
             }
             else if (drag_target.kind == TARGET_KIND_WORLD &&
-                     UIState_GetActiveTool() != TOOL_CELL_PAINT)
+                     UIState_GetActiveTool() != TOOL_CELL_PAINT &&
+                     UIState_GetActiveTool() != TOOL_SPAWN)
             {
                 // World leaf arm: begin the container capture with the world's current origin as
                 // anchor (the same anchor the old lazy threshold-frame path used).
                 //
-                // Cell-paint precedence: while TOOL_CELL_PAINT is active the paint tool wins over the
-                // world-drag gate, so we SUPPRESS the WORLD_CONTAINER capture even for a selected
-                // (draggable) world. Without this guard, pressing inside a selected world arms a
-                // container capture, the frame is then handled on the CAPTURED path, and the
-                // no-capture click-commit site below (where the cell-paint ADD action lives) is
-                // skipped — which is exactly why cell paint failed on a selected world. Leaving the
-                // press unarmed keeps it on the no-capture click path so the paint ADD fires.
+                // Cell-paint/spawn precedence: while TOOL_CELL_PAINT or TOOL_SPAWN is active that
+                // tool wins over the world-drag gate, so we SUPPRESS the WORLD_CONTAINER capture
+                // even for a selected (draggable) world. Without this guard, pressing inside a
+                // selected world arms a container capture, the frame is then handled on the CAPTURED
+                // path, and the no-capture click-commit site below (where the cell-paint ADD and the
+                // spawn commit live) is skipped — which is exactly why cell paint failed on a
+                // selected world. Leaving the press unarmed keeps it on the no-capture click path so
+                // the tool commit fires.
                 World2d *world = &G_Universe.worlds[drag_target.as.world_index];
                 DragInteraction_BeginCapture(game_drag_ctx, DRAG_TARGET_WORLD_CONTAINER, world,
                                              world->grid_space.space.frame.origin_in_parent);
@@ -599,6 +602,23 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
                 // AND carries the type to the handler. Re-painting a present cell is allowed (it
                 // just changes the cell's colour).
                 EnqueueAddCell(paint_world_index, paint_cell_index, UIState_GetActiveTileType());
+            }
+        }
+        else if (tool_click && UIState_GetActiveTool() == TOOL_SPAWN)
+        {
+            // Spawn tool: place the active catalogue prefab at the cursor in the ROOT WORLD. Reuse
+            // the existing CMD_CREATE_ENTITY path (root world only) — no new spawn command, no
+            // nested-world targeting. mouse_universe_coords is already the root-world-local position
+            // (it is exactly the value the popup assigns to anchor_position), so it is the spawn
+            // anchor directly. Additive: this runs only on a genuine click with no drag/capture.
+            const EntityCreateParams *src = Catalogue_GetParams(UIState_GetActivePrefab());
+            if (src) // NULL when the catalogue is empty; a click then does nothing.
+            {
+                // Shallow copy is safe: a prefab-loaded EntityCreateParams has
+                // physics.surface.surface_vectors.items == NULL, so the copy aliases no heap buffer.
+                EntityCreateParams params = *src;
+                params.physics.anchor_position = mouse_universe_coords; // Resolve cursor -> anchor.
+                EnqueueCreateEntity(&params); // Deferred spawn into the root world (selects on spawn).
             }
         }
 

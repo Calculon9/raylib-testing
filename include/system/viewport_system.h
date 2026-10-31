@@ -49,6 +49,11 @@ extern ViewportRegion utility_panel_viewport;
 // panels) that hosts the read-only info strip. Carved out of the game viewport's top so the
 // strip never overlaps the world render region.
 extern ViewportRegion info_strip_viewport;
+// Thin horizontal band across the BOTTOM of the central content column (between the left and right
+// panels, below the game viewport and above the bottom entity band) that hosts the read-only
+// contextual detail strip. Same height as the info strip. Carved out of the game viewport's bottom
+// so the strip never overlaps the world render region.
+extern ViewportRegion detail_strip_viewport;
 // Thin vertical band reserved on the FAR LEFT of the screen (outside/left of the left panel) that
 // hosts the vertical tool toolbar. Carved out of the left edge so it never overlaps the left
 // panel, the world render region, or the right panel.

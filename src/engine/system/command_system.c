@@ -118,6 +118,10 @@ int CommandSystem_ResolveString(const char *cmd_string)
         return CMD_TOOL_CELL_PAINT;
     else if (!strcmp(cmd_string, "cycle-tile-type"))
         return CMD_CYCLE_TILE_TYPE;
+    else if (!strcmp(cmd_string, "tool-spawn"))
+        return CMD_TOOL_SPAWN;
+    else if (!strcmp(cmd_string, "cycle-prefab"))
+        return CMD_CYCLE_PREFAB;
     
     return 0;  // Unresolved
 }
@@ -312,11 +316,25 @@ void ExecuteCommand(CommandType type, const void *data)
         UIState_SetActiveTool(UIState_IsToolActive(TOOL_CELL_PAINT) ? TOOL_NONE : TOOL_CELL_PAINT);
         return;
     }
+    if (type == CMD_TOOL_SPAWN)
+    {
+        // Radio tool toggle, identical shape to CMD_TOOL_CELL_PAINT: activating replaces the active
+        // tool; clicking the active tool again clears it to TOOL_NONE.
+        UIState_SetActiveTool(UIState_IsToolActive(TOOL_SPAWN) ? TOOL_NONE : TOOL_SPAWN);
+        return;
+    }
     // Plain action: advance the active paint tile type, wrapping within the palette. Does NOT touch
     // the active tool, so it never disturbs the nudge/cell-paint radio selection.
     if (type == CMD_CYCLE_TILE_TYPE)
     {
         UIState_CycleActiveTileType();
+        return;
+    }
+    // Plain action: advance the active spawn prefab, wrapping within the catalogue. Does NOT touch
+    // the active tool, so it never disturbs the nudge/cell-paint/spawn radio selection.
+    if (type == CMD_CYCLE_PREFAB)
+    {
+        UIState_CycleActivePrefab();
         return;
     }
     

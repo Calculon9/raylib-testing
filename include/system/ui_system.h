@@ -59,6 +59,7 @@ typedef enum ActiveTool
 	TOOL_NONE = 0,   // No tool active; only normal selection/drag/marquee behaviour runs.
 	TOOL_NUDGE,      // Nudge tool: a confirmed click adds a random-direction linear impulse.
 	TOOL_CELL_PAINT, // Cell paint tool: a confirmed click marks the cell under the pointer PRESENT.
+	TOOL_SPAWN,      // Spawn tool: a confirmed click places the active prefab into the root world.
 } ActiveTool;
 
 // Forward declarations keep selection APIs lightweight without pulling full physics/world headers.
@@ -162,6 +163,17 @@ int  UIState_GetActiveTileType(void);
 void UIState_SetActiveTileType(int tile_type);
 // Advance the active tile type to the next palette index (wraps back to 0); returns the new value.
 int  UIState_CycleActiveTileType(void);
+
+// Active prefab for the spawn tool (module-owned, like the active tile type). The spawn commit uses
+// this to choose the catalogue entry; the cycle toolbar button advances it. The stored value is
+// always clamped/wrapped to the catalogue range (0 .. Catalogue_Count()-1).
+// Return the current active prefab index.
+int  UIState_GetActivePrefab(void);
+// Set the active prefab, clamped/wrapped into the catalogue range so it is always a valid index
+// (or 0 when the catalogue is empty).
+void UIState_SetActivePrefab(int index);
+// Advance the active prefab to the next catalogue index (wraps back to 0); returns the new value.
+int  UIState_CycleActivePrefab(void);
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------

@@ -28,6 +28,16 @@ void UIIcon_DrawCellPaint(UIElement *e);
 // swatch the user is about to paint is always visible on the button.
 void UIIcon_DrawTileCycle(UIElement *e);
 
+// Spawn TOOL glyph: a generic place/crosshair pictogram (a small shape outline with a crosshair),
+// drawn in the active-tool ink (bright button_fill when TOOL_SPAWN is active, normal text ink
+// otherwise), exactly like the other tool glyphs.
+void UIIcon_DrawToolSpawn(UIElement *e);
+
+// Prefab CYCLE button glyph: a single GENERIC spawn/prefab pictogram (a box with a small "next"
+// chevron), drawn in the normal text ink. Deliberately NOT a per-prefab shape preview and NOT
+// tinted per entry (a prefab is an arbitrary shape, not a colour), so one glyph fits every prefab.
+void UIIcon_DrawPrefabCycle(UIElement *e);
+
 // Dashboard toggle (debug.dashboard): a gauge dial (circle ring + short radial needle).
 void UIIcon_DrawDashboard(UIElement *e);
 

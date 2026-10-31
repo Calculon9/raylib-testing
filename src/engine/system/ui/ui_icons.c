@@ -262,6 +262,70 @@ void UIIcon_DrawTileCycle(UIElement *e)
 }
 
 // ============================================================================
+// Spawn tool + prefab cycle glyphs
+// ============================================================================
+
+// Draw the Spawn TOOL pictogram: a small square shape outline with a crosshair centred over it,
+// reading as "place a thing here". Monochrome, centred in e->screen_box, composed from raylib
+// primitives with no heap allocation. Like the other tool glyphs the ink follows the active-tool
+// state directly (bright button_fill when TOOL_SPAWN is active, normal text ink otherwise) because
+// this button has no binding= to read. Attached via UIElement.on_draw.
+void UIIcon_DrawToolSpawn(UIElement *e)
+{
+    UIIconFit f;
+    if (!UIIcon_Fit(e, &f))
+    {
+        return;
+    }
+
+    // Active-tool feedback is the icon's ink (no text toggle on this button).
+    bool active = UIState_IsToolActive(TOOL_SPAWN);
+    Color ink = active ? ToRaylibColor(ui_default_palette.button_fill)
+                       : ToRaylibColor(ui_default_palette.text);
+
+    // A small square shape outline sitting inside the glyph box (the "thing" being placed).
+    float shape_half = f.half * 0.6f;
+    Rectangle shape = { f.cx - shape_half, f.cy - shape_half, shape_half * 2.0f, shape_half * 2.0f };
+    DrawRectangleLinesEx(shape, f.stroke, ink);
+
+    // Crosshair centred on the shape: a horizontal and a vertical stroke spanning the full glyph
+    // extent, so the placement point reads clearly.
+    DrawLineEx((Vector2){ f.cx - f.half, f.cy }, (Vector2){ f.cx + f.half, f.cy }, f.stroke, ink);
+    DrawLineEx((Vector2){ f.cx, f.cy - f.half }, (Vector2){ f.cx, f.cy + f.half }, f.stroke, ink);
+}
+
+// Draw the Prefab CYCLE pictogram: a box with a small "next" chevron to its right, reading as
+// "advance to the next prefab". GENERIC by design — a single glyph for every prefab, drawn in the
+// normal text ink (no per-entry tint, no per-prefab shape preview). Composed from raylib primitives
+// with no heap allocation. Attached via UIElement.on_draw; the button carries no binding=.
+void UIIcon_DrawPrefabCycle(UIElement *e)
+{
+    UIIconFit f;
+    if (!UIIcon_Fit(e, &f))
+    {
+        return;
+    }
+
+    // Plain-action glyph: a single neutral ink (no active-tool/per-entry tint).
+    Color ink = ToRaylibColor(ui_default_palette.text);
+
+    // A box on the left half of the glyph box (the prefab) ...
+    float box_half = f.half * 0.6f;
+    float box_cx = f.cx - f.half * 0.3f; // Shift left to leave room for the chevron.
+    Rectangle box = { box_cx - box_half, f.cy - box_half, box_half * 2.0f, box_half * 2.0f };
+    DrawRectangleLinesEx(box, f.stroke, ink);
+
+    // ... and a small ">" chevron to its right (two strokes meeting at a point) indicating "next".
+    float chev_x = f.cx + f.half * 0.45f;   // Chevron tip x.
+    float chev_back = f.half * 0.35f;       // Horizontal reach back from the tip.
+    float chev_rise = f.half * 0.4f;        // Vertical reach of each arm.
+    DrawLineEx((Vector2){ chev_x - chev_back, f.cy - chev_rise }, (Vector2){ chev_x, f.cy },
+               f.stroke, ink);
+    DrawLineEx((Vector2){ chev_x - chev_back, f.cy + chev_rise }, (Vector2){ chev_x, f.cy },
+               f.stroke, ink);
+}
+
+// ============================================================================
 // Toggle glyphs (ink from UIIcon_StateInk: bright button_fill ON / normal text ink OFF)
 // ============================================================================
 
