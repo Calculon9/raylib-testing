@@ -258,12 +258,11 @@ void InitDetailStrip(void)
         return;
     }
 
-    // 1) Load the authoritative markup with the strip's own resolvers. The path is the WORKTREE
-    //    component path (NOT the main-repo literal baked into info_strip_system.c): the new
-    //    component is authored in the worktree, so that is where the running configuration resolves
-    //    it; the main-repo location does not contain this file and would silently fail to load.
+    // 1) Load the authoritative markup with the strip's own resolvers. The path is the main-repo
+    //    component location, matching the convention used by info_strip_system.c / toolbar_system.c
+    //    / state_manager_system.c (they all load from src/engine/ui/components/).
     UIElement *root = UILoader_LoadFromFileWithResolvers(
-        "C:\\Projects\\raylib-testing\\.worktrees\\prefab-spawner\\src\\engine\\ui\\components\\detail_strip.xml",
+        "C:\\Projects\\raylib-testing\\src\\engine\\ui\\components\\detail_strip.xml",
         &ui_default_palette,
         DetailStrip_ResolveBinding,
         DetailStrip_ResolveCommand,
