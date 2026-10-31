@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "name": "",
+  "prefab_id": "sprite_0",
+  "preset": "standard",
+  "components": {
+    "sprite": {
+      "texture_path": "resources/mecha.png",
+      "size": [1.0, 1.0],
+      "offset": [0.0, 0.0],
+      "tint": [255, 255, 255, 255]
+    },
+    "physics": {
+      "width": 1.0,
+      "height": 1.0,
+      "mass": 1.0,
+      "restitution": 0.9,
+      "friction": 0.5,
+      "velocity": [0.0, 0.0],
+      "acceleration": [0.0, 0.0]
+    }
+  }
+}

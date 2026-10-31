@@ -120,6 +120,15 @@ Newtonoid2d *EntityFactory_Create(const EntityCreateParams *params)
         }
     }
 
+    if (component_attached && (params->component_flags & CREATION_COMPONENT_SPRITE))
+    {
+        // A sprite sets no physics capability flag, so there is no EntityLifecycle_Apply* call here
+        // (its lifecycle arms are no-ops). The geometry constructor selected above is also untouched.
+        SpriteComponent sprite = {0};
+        component_attached = SpriteComponent_Initialise(&sprite, &params->sprite_params) &&
+                             EntityRegistry_AttachSprite(id, &sprite);
+    }
+
     if (!component_attached)
     {
         FreeAllocatedEntity(entity);

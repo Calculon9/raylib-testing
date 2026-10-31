@@ -1,6 +1,7 @@
 #include <float.h>
 #include <limits.h>
 #include <math.h>
+#include <stdio.h> // snprintf
 #include <string.h>
 
 #include "cJSON.h"
@@ -295,6 +296,81 @@ static bool ParseHealthComponent(const cJSON *health, HealthComponentParams *out
 	return true;
 }
 
+// Parse sprite configuration from prefab JSON (mirrors ParseHealthComponent). Reads a required
+// non-empty "texture_path" string, a required positive two-element "size" array, an optional
+// two-element "offset" array (default {0,0}), and an optional four-element RGBA "tint" array
+// (0-255 ints, default white). The path is copied into the inline buffer so the resulting params
+// retain no pointer into the parsed cJSON document (which is freed before the catalogue uses them).
+static bool ParseSpriteComponent(const cJSON *sprite, SpriteComponentParams *out_params)
+{
+	if (!cJSON_IsObject(sprite) || !out_params)
+	{
+		return false;
+	}
+
+	SpriteComponentParams result = {0};
+
+	// texture_path: required, non-empty string. Copy inline (snprintf truncates safely).
+	const cJSON *texture_path = cJSON_GetObjectItemCaseSensitive(sprite, "texture_path");
+	const char *path_text = cJSON_GetStringValue(texture_path);
+	if (!path_text || path_text[0] == '\0')
+	{
+		return false;
+	}
+	snprintf(result.texture_path, sizeof result.texture_path, "%s", path_text);
+
+	// size: required two-element array, both components strictly positive.
+	if (!ReadPrefabVector2(sprite, "size", &result.size) ||
+		result.size.x <= 0.0f || result.size.y <= 0.0f)
+	{
+		return false;
+	}
+
+	// offset: optional; default centred on the anchor. A present-but-malformed offset is an error.
+	const cJSON *offset = cJSON_GetObjectItemCaseSensitive(sprite, "offset");
+	if (offset)
+	{
+		if (!ReadPrefabVector2(sprite, "offset", &result.offset))
+		{
+			return false;
+		}
+	}
+	else
+	{
+		result.offset = (Vector2d){0.0f, 0.0f};
+	}
+
+	// tint: optional; default opaque white. A present-but-malformed tint is an error.
+	const cJSON *tint = cJSON_GetObjectItemCaseSensitive(sprite, "tint");
+	if (tint)
+	{
+		if (!cJSON_IsArray(tint) || cJSON_GetArraySize(tint) != 4)
+		{
+			return false;
+		}
+		float channels[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+		for (int c = 0; c < 4; c++)
+		{
+			if (!ReadPrefabFloat(cJSON_GetArrayItem(tint, c), 0.0, 255.0, &channels[c]))
+			{
+				return false;
+			}
+		}
+		result.tint = (ColourRgba){
+			.r = (unsigned char)channels[0],
+			.g = (unsigned char)channels[1],
+			.b = (unsigned char)channels[2],
+			.a = (unsigned char)channels[3]};
+	}
+	else
+	{
+		result.tint = (ColourRgba){.r = 255, .g = 255, .b = 255, .a = 255};
+	}
+
+	*out_params = result;
+	return true;
+}
+
 // Decode a generic prefab into entity creation parameters by dispatching component parsers.
 static bool DecodePrefab(const cJSON *root, EntityCreateParams *out_params)
 {
@@ -372,6 +448,17 @@ static bool DecodePrefab(const cJSON *root, EntityCreateParams *out_params)
 			return false;
 		}
 		params.component_flags |= CREATION_COMPONENT_HEALTH;
+	}
+
+	// Parse sprite only when the prefab declares the component.
+	const cJSON *sprite = cJSON_GetObjectItemCaseSensitive(components, "sprite");
+	if (sprite)
+	{
+		if (!ParseSpriteComponent(sprite, &params.sprite_params))
+		{
+			return false;
+		}
+		params.component_flags |= CREATION_COMPONENT_SPRITE;
 	}
 
 	*out_params = params;

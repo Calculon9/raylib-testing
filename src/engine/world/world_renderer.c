@@ -18,6 +18,7 @@
 #include "world/universe.h"
 #include "world/universe_renderer.h"
 #include "world/target_resolver.h"
+#include "entities/entity_registry.h" // EntityRegistry_GetSprite (pulls sprite.h / texture_registry.h)
 #include "system/ui/ui_state.h"
 #include "input/drag_interaction.h"
 
@@ -693,10 +694,29 @@ void DrawNewtonoids(LArray *newtonoids, Matrix3x3 space_to_pixel_mtx)
     {
         Vector2d obj_center_coords = newtonoid->anchor_position;
         LArray surf_vectors = newtonoid->surface.surface_vectors;
-        DrawRotatedObjectVertices(surf_vectors.items, surf_vectors.count, obj_center_coords,
-                                  newtonoid->local_axis_x, newtonoid->local_axis_y,
-                                  space_to_pixel_mtx, newtonoid->line_colour,
-                                  newtonoid->fill_colour);
+
+        // Sprite-bearing entities draw a texture INSTEAD OF the polygon fill/outline; every other
+        // entity keeps the exact polygon call (byte-identical output). Sprites currently draw in
+        // entity-iteration order — no z-index sort pass yet (a deliberate Layer-1 deferral).
+        SpriteComponent *sprite = EntityRegistry_GetSprite(newtonoid->id);
+        if (sprite != NULL && sprite->texture_id != INVALID_TEXTURE_ID)
+        {
+            // Sprite centre = anchor + offset rotated into the entity's basis (local_axis_x/y) —
+            // the SAME basis the polygon uses, so the sprite rides the entity's rotation identically.
+            Vector2d world_centre = VectorSum_2d(
+                newtonoid->anchor_position,
+                VectorSum_2d(VectorScale_2d(newtonoid->local_axis_x, sprite->offset.x),
+                             VectorScale_2d(newtonoid->local_axis_y, sprite->offset.y)));
+            DrawTextureInWorld(sprite->texture_id, world_centre, sprite->size,
+                               space_to_pixel_mtx, sprite->tint);
+        }
+        else
+        {
+            DrawRotatedObjectVertices(surf_vectors.items, surf_vectors.count, obj_center_coords,
+                                      newtonoid->local_axis_x, newtonoid->local_axis_y,
+                                      space_to_pixel_mtx, newtonoid->line_colour,
+                                      newtonoid->fill_colour);
+        }
         Vector2d world_vertices[MAX_SHAPE_VERTICES];
         int vertices_count = (int)surf_vectors.count;
         if (vertices_count > MAX_SHAPE_VERTICES)

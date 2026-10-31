@@ -167,4 +167,13 @@ HealthComponent *EntityRegistry_GetHealth(EntityId entity_id);
 // Remove the HealthComponent from an EntityId. Returns false if none was attached.
 bool EntityRegistry_RemoveHealth(EntityId entity_id);
 
+// Attach a SpriteComponent to an EntityId. Returns false if invalid or already attached.
+bool EntityRegistry_AttachSprite(EntityId entity_id, const SpriteComponent *sprite);
+
+// Retrieve the SpriteComponent attached to an EntityId, or NULL if not attached.
+SpriteComponent *EntityRegistry_GetSprite(EntityId entity_id);
+
+// Remove the SpriteComponent from an EntityId. Returns false if none was attached.
+bool EntityRegistry_RemoveSprite(EntityId entity_id);
+
 #endif

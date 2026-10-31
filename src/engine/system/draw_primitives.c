@@ -5,9 +5,12 @@ DRAW PRIMITIVES MODULE
 **********************************************************************************************/
 #include "system/draw_primitives.h"
 
+#include <math.h> // atan2f
+
 #include "raylib.h"
 #include "camera/camera.h"
 #include "math/geometry.h"
+#include "system/texture_registry.h" // TextureRegistry_Get
 
 Color ToRaylibColor(ColourRgba colour)
 {
@@ -128,4 +131,44 @@ void DrawTransformedArrowV(Vector2d start, Vector2d end, Matrix3x3 tfrm_mtx, Col
                (Vector2){arrow_right_pixel.x, arrow_right_pixel.y},
                2.0f,
               color);
+}
+
+// Draw a whole texture as a world-space quad (see the A3-limitation note on the declaration in
+// draw_primitives.h). Decomposes the affine world->pixel matrix into the position + per-axis size +
+// single-rotation model DrawTexturePro understands, then issues one DrawTexturePro call. raylib is
+// the floor here, exactly as DrawTriangle / DrawLineEx are for the vector primitives above.
+void DrawTextureInWorld(TextureId texture_id, Vector2d world_centre, Vector2d world_size,
+                        Matrix3x3 space_to_pixel_mtx, ColourRgba tint)
+{
+    // Resolve the borrowed texture; skip the draw entirely if the handle is unset/unknown. The load
+    // failure (if any) was already logged once at LoadOrGet time, so the draw stays silent to avoid
+    // per-frame log spam.
+    const Texture2D *texture = TextureRegistry_Get(texture_id);
+    if (texture == NULL)
+    {
+        return; // Nothing to draw (INVALID_TEXTURE_ID or not found) — silent, non-fatal.
+    }
+
+    // Map the world centre into pixel space with the SAME matrix the geometry uses.
+    Vector2d pixel_centre = TransformCoordinates(space_to_pixel_mtx, world_centre);
+
+    // Per-axis world-unit -> pixel scale = magnitude of each basis column (col1 = U basis,
+    // col2 = V basis). This captures zoom and non-uniform per-axis scale; it does NOT capture
+    // shear (see the A3 limitation on the declaration).
+    Vector2d basis_u = {space_to_pixel_mtx.col1.x, space_to_pixel_mtx.col1.y};
+    Vector2d basis_v = {space_to_pixel_mtx.col2.x, space_to_pixel_mtx.col2.y};
+    float pixel_w = world_size.x * VectorMagnitude_2d(basis_u);
+    float pixel_h = world_size.y * VectorMagnitude_2d(basis_v);
+
+    // Rotation folded into the matrix (camera rotation + any world-basis rotation): the angle of
+    // the U basis column. DrawTexturePro wants degrees.
+    float angle_deg = atan2f(basis_u.y, basis_u.x) * (180.0f / PI);
+
+    // Whole texture as the source rectangle (no atlas/sub-rect in this foundation).
+    Rectangle src = {0.0f, 0.0f, (float)texture->width, (float)texture->height};
+    // Destination centred on the pixel centre; origin at half-size so rotation pivots on centre.
+    Rectangle dst = {(float)pixel_centre.x, (float)pixel_centre.y, pixel_w, pixel_h};
+    Vector2 origin = {pixel_w * 0.5f, pixel_h * 0.5f};
+
+    DrawTexturePro(*texture, src, dst, origin, angle_deg, ToRaylibColor(tint));
 }

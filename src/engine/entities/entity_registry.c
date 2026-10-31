@@ -53,6 +53,7 @@ typedef struct EntityRegistry
     ComponentStore relation_components;
     ComponentStore health_components;
     ComponentStore world_components;
+    ComponentStore sprite_components;
     bool is_initialised;        // Initialisation state flag.
 } EntityRegistry;
 
@@ -280,7 +281,8 @@ void EntityRegistry_Init(void)
         ComponentStore_Init(&registry.portal_components, sizeof(PortalComponent), 8) &&
         ComponentStore_Init(&registry.relation_components, sizeof(RelationComponent), 8) &&
         ComponentStore_Init(&registry.health_components, sizeof(HealthComponent), 8) &&
-        ComponentStore_Init(&registry.world_components, sizeof(WorldComponent), 8);
+        ComponentStore_Init(&registry.world_components, sizeof(WorldComponent), 8) &&
+        ComponentStore_Init(&registry.sprite_components, sizeof(SpriteComponent), 8);
 
     if (!component_stores_ready)
     {
@@ -291,6 +293,7 @@ void EntityRegistry_Init(void)
         ComponentStore_Clear(&registry.relation_components);
         ComponentStore_Clear(&registry.health_components);
         ComponentStore_Clear(&registry.world_components);
+        ComponentStore_Clear(&registry.sprite_components);
         ClearSlotMap(&registry.id_slots);
         return;
     }
@@ -313,6 +316,7 @@ void EntityRegistry_Shutdown(void)
     ComponentStore_Clear(&registry.relation_components);
     ComponentStore_Clear(&registry.health_components);
     ComponentStore_Clear(&registry.world_components);
+    ComponentStore_Clear(&registry.sprite_components);
     registry.is_initialised = false;
 }
 
@@ -342,8 +346,10 @@ void EntityRegistry_ReleaseId(EntityId entity_id)
         return;
     }
 
-    // Also remove any attached components before invalidating the ID.
-    for (int type = 1; type <= ENTITY_COMPONENT_HEALTH; type++)
+    // Also remove any attached components before invalidating the ID. Bound is ENTITY_COMPONENT_MAX
+    // (not ENTITY_COMPONENT_HEALTH): the old bound stopped at HEALTH and so leaked the WORLD slot on
+    // every release; extending it covers WORLD and the new SPRITE slot in one edit.
+    for (int type = 1; type <= ENTITY_COMPONENT_MAX; type++)
     {
         EntityRegistry_RemoveComponent(entity_id, (EntityComponentType)type);
     }
@@ -511,6 +517,8 @@ bool EntityRegistry_AttachComponent(EntityId entity_id, EntityComponentType type
         return EntityRegistry_AttachHealth(entity_id, (const HealthComponent *)component_data);
     case ENTITY_COMPONENT_WORLD:
         return EntityRegistry_AttachWorld(entity_id, (const WorldComponent *)component_data);
+    case ENTITY_COMPONENT_SPRITE:
+        return EntityRegistry_AttachSprite(entity_id, (const SpriteComponent *)component_data);
     case ENTITY_COMPONENT_NONE:
     default:
         return false;
@@ -534,6 +542,8 @@ void *EntityRegistry_GetComponent(EntityId entity_id, EntityComponentType type)
         return (void *)EntityRegistry_GetHealth(entity_id);
     case ENTITY_COMPONENT_WORLD:
         return (void *)EntityRegistry_GetWorld(entity_id);
+    case ENTITY_COMPONENT_SPRITE:
+        return (void *)EntityRegistry_GetSprite(entity_id);
     case ENTITY_COMPONENT_NONE:
     default:
         return NULL;
@@ -557,6 +567,8 @@ bool EntityRegistry_RemoveComponent(EntityId entity_id, EntityComponentType type
         return EntityRegistry_RemoveHealth(entity_id);
     case ENTITY_COMPONENT_WORLD:
         return EntityRegistry_RemoveWorld(entity_id);
+    case ENTITY_COMPONENT_SPRITE:
+        return EntityRegistry_RemoveSprite(entity_id);
     case ENTITY_COMPONENT_NONE:
     default:
         return false;
@@ -1052,4 +1064,42 @@ bool EntityRegistry_RemoveHealth(EntityId entity_id)
     }
 
     return ComponentStore_Remove(&registry.health_components, entity_id);
+}
+
+// Attach a SpriteComponent to an EntityId. Returns false if invalid or already attached.
+// No lifecycle hook: a sprite is a pure visual and sets NO physics capability flag (unlike health's
+// DAMAGEABLE), so EntityLifecycle_Apply* has nothing to arm for it.
+bool EntityRegistry_AttachSprite(EntityId entity_id, const SpriteComponent *sprite)
+{
+    if (!registry.is_initialised || !SpriteComponent_IsValid(sprite) ||
+        !EntityRegistry_IsIdActive(entity_id) ||
+        !ComponentStore_Attach(&registry.sprite_components, entity_id, sprite))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+// Retrieve the SpriteComponent attached to an EntityId, or NULL if not attached.
+SpriteComponent *EntityRegistry_GetSprite(EntityId entity_id)
+{
+    if (!registry.is_initialised || !EntityRegistry_IsIdActive(entity_id))
+    {
+        return NULL;
+    }
+
+    return (SpriteComponent *)ComponentStore_Get(&registry.sprite_components, entity_id);
+}
+
+// Remove a SpriteComponent from an EntityId. Returns false if none was attached.
+// No lifecycle hook (see EntityRegistry_AttachSprite).
+bool EntityRegistry_RemoveSprite(EntityId entity_id)
+{
+    if (!registry.is_initialised || !EntityRegistry_IsIdActive(entity_id))
+    {
+        return false;
+    }
+
+    return ComponentStore_Remove(&registry.sprite_components, entity_id);
 }

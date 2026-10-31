@@ -16,6 +16,7 @@ typedef enum EntityCreationComponentFlags
     CREATION_COMPONENT_ROTOR = (1U << 1),
     CREATION_COMPONENT_GEAR = (1U << 2),
     CREATION_COMPONENT_HEALTH = (1U << 3),
+    CREATION_COMPONENT_SPRITE = (1U << 4),
 } EntityCreationComponentFlags;
 
 // Entity creation parameters with optional component configuration.
@@ -27,6 +28,7 @@ typedef struct EntityCreateParams
     RotorComponentParams rotor_params;
     GearComponentParams gear_params;
     HealthComponentParams health_params;
+    SpriteComponentParams sprite_params;
     // Bitmask indicating which components to attach (EntityCreationComponentFlags).
     unsigned int component_flags;
 } EntityCreateParams;

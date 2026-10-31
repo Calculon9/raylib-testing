@@ -23,6 +23,7 @@ UNIVERSE SYSTEM MODULE
 #include "world/world_internal.h"
 #include "world/target_resolver.h"
 #include "entities/entity_registry.h"
+#include "system/texture_registry.h"
 #include "entities/entity_catalogue.h"
 
 static int create_world_auto_select = 0;
@@ -250,6 +251,9 @@ void InitUniverseSystem(void)
     extern float gravity;
 
     EntityRegistry_Init();
+    // Initialise the engine-owned texture registry here, beside the entity registry: this site runs
+    // after InitWindow so the GL context exists when LoadOrGet uploads textures to the GPU.
+    TextureRegistry_Init();
     Vector2d universe_resolution = UniverseRenderer_GetResolution();
     G_Universe.resolution = universe_resolution;
     Universe_Init(&G_Universe, ZERO_VECTOR_2D, (Vector2d){7, 5}, gravity);

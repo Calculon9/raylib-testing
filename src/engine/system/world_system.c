@@ -27,6 +27,7 @@
 #include "combat/projectile.h"
 #include "entities/entity_registry.h"
 #include "entities/entity_catalogue.h"
+#include "system/texture_registry.h"
 #include "entities/health.h"
 
 // World-level defaults used by the gameplay screen and debug spawning controls.
@@ -1012,6 +1013,9 @@ void UnloadGameplayScreen(void)
 {
     ShutdownJobSystem();
     EntityRegistry_Shutdown();
+    // Unload every registered GPU texture here (before CloseWindow in main) so the GL context is
+    // still live; the registry is the sole UnloadTexture owner, beside the entity-registry teardown.
+    TextureRegistry_Shutdown();
     // Release the prefab catalogue populated in InitGameplayScreen (symmetry with the other
     // boot-time inits torn down here).
     DisposeEntityCatalogue();

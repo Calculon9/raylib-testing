@@ -6,6 +6,7 @@
 #include "entities/rotor.h"
 #include "entities/gear.h"
 #include "entities/health.h"
+#include "entities/sprite.h"
 #include "entities/entity_id.h"
 
 // ============================================================================
@@ -77,11 +78,12 @@ typedef enum EntityComponentType
     ENTITY_COMPONENT_GEAR = 3,
     ENTITY_COMPONENT_RELATION = 4,
     ENTITY_COMPONENT_HEALTH = 5,
-    ENTITY_COMPONENT_WORLD = 6    // Presence tag: this EntityId is a world node (see WorldComponent).
+    ENTITY_COMPONENT_WORLD = 6,   // Presence tag: this EntityId is a world node (see WorldComponent).
+    ENTITY_COMPONENT_SPRITE = 7   // Visual sprite drawn in place of the entity polygon (see SpriteComponent).
 } EntityComponentType;
 
 // Highest valid component type, for iteration bounds (e.g. EntityRegistry_Describe).
-#define ENTITY_COMPONENT_MAX ENTITY_COMPONENT_WORLD
+#define ENTITY_COMPONENT_MAX ENTITY_COMPONENT_SPRITE
 
 // Runtime component payload used by command_system to route attachments to registry stores.
 typedef struct EntityComponent
@@ -95,6 +97,7 @@ typedef struct EntityComponent
         RelationComponent relation;
         HealthComponent health;
         WorldComponent world;
+        SpriteComponent sprite;
     } data;
 } EntityComponent;
 
