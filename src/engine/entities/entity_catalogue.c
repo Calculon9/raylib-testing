@@ -4,7 +4,7 @@ ENTITY CATALOGUE MODULE (implementation)
 *
 Enumerates prefabs/*.json once at boot and parses each file into a flat LArray of CatalogueEntry
 value structs. Storage is a single file-local LArray with a heap internal buffer; disposal is
-shallow (DisposeLArray once) because a prefab-loaded EntityCreateParams owns no heap buffer: the
+shallow (ClearLArray once) because a prefab-loaded EntityCreateParams owns no heap buffer: the
 prefab loader zero-initialises physics.surface and never fills surface.surface_vectors, so each
 entry's surface.surface_vectors.items is NULL. The accessors degrade gracefully (empty catalogue
 => count 0, id "", params NULL) so a missing init never crashes a consumer.
@@ -82,7 +82,13 @@ void DisposeEntityCatalogue(void)
     {
         return;
     }
-    DisposeLArray(&g_catalogue); // Frees the internal buffer; the stack struct remains.
+    // g_catalogue is a file-local VALUE struct (made with MakeLArray), not a heap-allocated
+    // LArray from AllocLArray. DisposeLArray() frees the internal buffer AND free()s the LArray
+    // struct pointer itself - which here is &g_catalogue, a static address, so that free() is
+    // undefined behaviour and segfaults on shutdown. ClearLArray() releases only the internal
+    // buffer and leaves the struct intact, matching how every other value/embedded LArray in the
+    // engine is torn down (see world.c, ui_system.c, view_host_system.c).
+    ClearLArray(&g_catalogue);   // Frees the internal buffer; the static struct remains.
     g_catalogue = (LArray){0};   // Clear so a later re-init starts from a clean state.
     g_initialised = false;
 }
