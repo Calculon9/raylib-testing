@@ -80,6 +80,20 @@ static UIElement *FindScrollableAncestor(UIElement *target)
     return NULL;
 }
 
+// Find the nearest element at or above `target` that carries an on_scroll handler.
+static UIElement *FindScrollHandler(UIElement *target)
+{
+    for (UIElement *element = target; element; element = element->parent)
+    {
+        if (element->on_scroll)
+        {
+            return element;
+        }
+    }
+
+    return NULL;
+}
+
 static void ResetTextBuffers(Text_64_IOState *tbox_buffers)
 {
     if (!tbox_buffers)
@@ -211,16 +225,28 @@ void ProcessUIInput(const InputFrame *input, bool cursor_in_region)
 
     if (input->wheel_delta != 0.0f)
     {
-        UIElement *scrollable = FindScrollableAncestor(target);
-        if (scrollable)
+        // An element-level wheel handler (e.g. a toolbar tool button that cycles its
+        // selection) takes precedence over panel scrolling. Only when no ancestor of the
+        // hovered element carries one do we fall through to the scrollable-ancestor path,
+        // so existing scroll panels keep working unchanged.
+        UIElement *scroll_target = FindScrollHandler(target);
+        if (scroll_target)
         {
-            if (scrollable->is_scrollable_x && !scrollable->is_scrollable_y)
+            scroll_target->on_scroll(scroll_target, input->wheel_delta);
+        }
+        else
+        {
+            UIElement *scrollable = FindScrollableAncestor(target);
+            if (scrollable)
             {
-                ScrollUIElementX(scrollable, -input->wheel_delta * 0.75f);
-            }
-            else
-            {
-                ScrollUIElementY(scrollable, -input->wheel_delta * 0.75f);
+                if (scrollable->is_scrollable_x && !scrollable->is_scrollable_y)
+                {
+                    ScrollUIElementX(scrollable, -input->wheel_delta * 0.75f);
+                }
+                else
+                {
+                    ScrollUIElementY(scrollable, -input->wheel_delta * 0.75f);
+                }
             }
         }
     }

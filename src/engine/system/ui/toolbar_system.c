@@ -139,6 +139,44 @@ static BindingValue Toolbar_QueryDebugEnabled(int overlay_key)
 }
 
 // ============================================================================
+// Wheel-cycle handlers (on_scroll hooks for the consolidated tool buttons)
+// ============================================================================
+
+// Cycle the active paint tile type by the wheel direction while the cell-paint button is
+// hovered. Forward (delta>0) advances via the existing UIState_CycleActiveTileType; backward
+// (delta<0) steps to active-1 via UIState_SetActiveTileType, which wraps negatives correctly.
+// Selection is independent of the active tool (preserving today's cycle semantics), so there is
+// no tool-active gate. The outer wheel gate in ProcessUIInput means a zero delta never reaches here.
+static void Toolbar_ScrollCycleTileType(UIElement *e, float delta)
+{
+    (void)e;
+    if (delta > 0.0f)
+    {
+        UIState_CycleActiveTileType();
+    }
+    else if (delta < 0.0f)
+    {
+        UIState_SetActiveTileType(UIState_GetActiveTileType() - 1);
+    }
+}
+
+// Spawn-prefab counterpart of Toolbar_ScrollCycleTileType, same shape over the prefab API: the
+// wheel cycles the active spawn prefab while the spawn button is hovered, independent of the
+// active tool. Backward steps rely on UIState_SetActivePrefab wrapping negatives correctly.
+static void Toolbar_ScrollCyclePrefab(UIElement *e, float delta)
+{
+    (void)e;
+    if (delta > 0.0f)
+    {
+        UIState_CycleActivePrefab();
+    }
+    else if (delta < 0.0f)
+    {
+        UIState_SetActivePrefab(UIState_GetActivePrefab() - 1);
+    }
+}
+
+// ============================================================================
 // UI loader resolvers (application-specific)
 // ============================================================================
 
@@ -256,38 +294,27 @@ void InitToolbar(void)
         nudge_btn->on_draw = UIIcon_DrawNudge;
     }
 
-    // Cell paint tool glyph, wired exactly like the Nudge button (one guarded line). The button has
-    // no binding=, so its active-state feedback comes from the on_draw glyph reading the active tool.
+    // Cell paint tool glyph, wired exactly like the Nudge button. The button has no binding=, so
+    // its active-state feedback comes from the on_draw glyph reading the active tool. The on_scroll
+    // hook consolidates the retired tile-type cycle button onto this one: CLICK toggles the tool
+    // (unchanged action="tool-cell-paint" -> CMD_TOOL_CELL_PAINT), WHEEL cycles the active tile
+    // type. Click and wheel are independent base fields, so neither disturbs the other.
     UIElement *cell_paint_btn = UILoader_FindById(root, "tool_cell_paint");
     if (cell_paint_btn)
     {
         cell_paint_btn->on_draw = UIIcon_DrawCellPaint;
-    }
-
-    // Tile-type CYCLE button: plain ACTION (no binding=), so its feedback is the on_draw glyph,
-    // which tints to the active tile type's palette colour. action="cycle-tile-type" resolves to
-    // CMD_CYCLE_TILE_TYPE through the shared command system on click.
-    UIElement *tile_cycle_btn = UILoader_FindById(root, "tool_cycle_tile_type");
-    if (tile_cycle_btn)
-    {
-        tile_cycle_btn->on_draw = UIIcon_DrawTileCycle;
+        cell_paint_btn->on_scroll = Toolbar_ScrollCycleTileType; // wheel cycles tile type
     }
 
     // Spawn TOOL button: no binding=, so its active-state feedback comes from the on_draw glyph
-    // reading the active tool. action="tool-spawn" resolves to CMD_TOOL_SPAWN through the shared
-    // command system on click.
+    // reading the active tool. action="tool-spawn" resolves to CMD_TOOL_SPAWN on click. The
+    // on_scroll hook consolidates the retired prefab cycle button onto this one: WHEEL cycles the
+    // active spawn prefab (independent of the click toggle).
     UIElement *spawn_btn = UILoader_FindById(root, "tool_spawn");
     if (spawn_btn)
     {
         spawn_btn->on_draw = UIIcon_DrawToolSpawn;
-    }
-
-    // Prefab CYCLE button: plain ACTION (no binding=), so its feedback is the generic on_draw glyph.
-    // action="cycle-prefab" resolves to CMD_CYCLE_PREFAB through the shared command system on click.
-    UIElement *prefab_cycle_btn = UILoader_FindById(root, "tool_cycle_prefab");
-    if (prefab_cycle_btn)
-    {
-        prefab_cycle_btn->on_draw = UIIcon_DrawPrefabCycle;
+        spawn_btn->on_scroll = Toolbar_ScrollCyclePrefab;        // wheel cycles prefab
     }
 
     // Toggle glyphs: look each up by id and attach its on_draw. The toggles keep their binding=,

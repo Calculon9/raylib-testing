@@ -20,23 +20,16 @@ tint because the Nudge button carries no binding=.
 // Relocated Nudge tool glyph: an arrow pushing a small box with a couple of trailing motion dots.
 void UIIcon_DrawNudge(UIElement *e);
 
-// Cell Paint tool glyph: a 2x2 grid of cells with one cell filled ("paint a cell").
+// Cell Paint tool glyph: a 2x2 grid of cells with one cell filled ("paint a cell"). The frame
+// ink follows the active-tool state while the inner swatch shows the ACTIVE TILE TYPE's palette
+// colour (merged in from the retired tile-type cycle glyph), so the one consolidated button shows
+// both the tool-active state and the colour the mouse wheel selects.
 void UIIcon_DrawCellPaint(UIElement *e);
-
-// Tile-type CYCLE button glyph: the same cell-paint composition, but TINTED to the ACTIVE TILE
-// TYPE's palette colour (via TilePalette_ColourForType) rather than by active-tool state, so the
-// swatch the user is about to paint is always visible on the button.
-void UIIcon_DrawTileCycle(UIElement *e);
 
 // Spawn TOOL glyph: a generic place/crosshair pictogram (a small shape outline with a crosshair),
 // drawn in the active-tool ink (bright button_fill when TOOL_SPAWN is active, normal text ink
 // otherwise), exactly like the other tool glyphs.
 void UIIcon_DrawToolSpawn(UIElement *e);
-
-// Prefab CYCLE button glyph: a single GENERIC spawn/prefab pictogram (a box with a small "next"
-// chevron), drawn in the normal text ink. Deliberately NOT a per-prefab shape preview and NOT
-// tinted per entry (a prefab is an arbitrary shape, not a colour), so one glyph fits every prefab.
-void UIIcon_DrawPrefabCycle(UIElement *e);
 
 // Dashboard toggle (debug.dashboard): a gauge dial (circle ring + short radial needle).
 void UIIcon_DrawDashboard(UIElement *e);

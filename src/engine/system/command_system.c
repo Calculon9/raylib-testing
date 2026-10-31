@@ -116,12 +116,8 @@ int CommandSystem_ResolveString(const char *cmd_string)
         return CMD_TOOL_NUDGE;
     else if (!strcmp(cmd_string, "tool-cell-paint"))
         return CMD_TOOL_CELL_PAINT;
-    else if (!strcmp(cmd_string, "cycle-tile-type"))
-        return CMD_CYCLE_TILE_TYPE;
     else if (!strcmp(cmd_string, "tool-spawn"))
         return CMD_TOOL_SPAWN;
-    else if (!strcmp(cmd_string, "cycle-prefab"))
-        return CMD_CYCLE_PREFAB;
     
     return 0;  // Unresolved
 }
@@ -323,20 +319,10 @@ void ExecuteCommand(CommandType type, const void *data)
         UIState_SetActiveTool(UIState_IsToolActive(TOOL_SPAWN) ? TOOL_NONE : TOOL_SPAWN);
         return;
     }
-    // Plain action: advance the active paint tile type, wrapping within the palette. Does NOT touch
-    // the active tool, so it never disturbs the nudge/cell-paint radio selection.
-    if (type == CMD_CYCLE_TILE_TYPE)
-    {
-        UIState_CycleActiveTileType();
-        return;
-    }
-    // Plain action: advance the active spawn prefab, wrapping within the catalogue. Does NOT touch
-    // the active tool, so it never disturbs the nudge/cell-paint/spawn radio selection.
-    if (type == CMD_CYCLE_PREFAB)
-    {
-        UIState_CycleActivePrefab();
-        return;
-    }
+    // The active tile type / spawn prefab are no longer cycled via a command: the consolidated
+    // cell-paint / spawn buttons cycle them directly from their mouse-wheel (on_scroll) handlers
+    // (Toolbar_ScrollCycleTileType / Toolbar_ScrollCyclePrefab -> UIState_Cycle*/_SetActive*), so
+    // the former CMD_CYCLE_TILE_TYPE / CMD_CYCLE_PREFAB commands have been retired.
     
     // Standard deferred commands - convert to Command struct for consistency
     Command cmd = {.type = type};

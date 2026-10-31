@@ -185,9 +185,11 @@ void UIIcon_DrawNudge(UIElement *e)
 
 // Draw the Cell Paint pictogram: a small 2x2 grid of cells with one cell filled, reading as
 // "paint a cell". Monochrome, centred in e->screen_box, composed from raylib primitives with no
-// heap allocation. Like the Nudge glyph the ink follows the active-tool state directly (bright
-// button_fill when TOOL_CELL_PAINT is active, normal text ink otherwise) because this button has
-// no binding= to read. Attached via UIElement.on_draw, mirroring the other toolbar glyphs.
+// heap allocation. This one glyph now carries BOTH cues for the consolidated cell-paint button:
+// the FRAME/divider ink follows the active-tool state (bright button_fill when TOOL_CELL_PAINT is
+// active, normal text ink otherwise, unchanged behaviour of this glyph), and the inner swatch is
+// filled with the ACTIVE TILE TYPE's palette colour (merged in from the retired DrawTileCycle),
+// so the colour the wheel selects is always visible. Attached via UIElement.on_draw.
 void UIIcon_DrawCellPaint(UIElement *e)
 {
     UIIconFit f;
@@ -196,10 +198,15 @@ void UIIcon_DrawCellPaint(UIElement *e)
         return;
     }
 
-    // Active-tool feedback is the icon's ink (no text toggle on this button).
+    // Outline/divider ink = active-tool state (unchanged behaviour of this glyph).
     bool active = UIState_IsToolActive(TOOL_CELL_PAINT);
     Color ink = active ? ToRaylibColor(ui_default_palette.button_fill)
                        : ToRaylibColor(ui_default_palette.text);
+
+    // Inner swatch = current paint tile colour (merged in from the retired DrawTileCycle).
+    // tile_type 0 has no palette colour of its own, so fall back to the panel text ink.
+    ColourRgba swatch = TilePalette_ColourForType(UIState_GetActiveTileType(), ui_default_palette.text);
+    Color swatch_ink = ToRaylibColor(swatch);
 
     // 2x2 grid geometry centred on the fit.
     float left = f.cx - f.half;
@@ -207,7 +214,7 @@ void UIIcon_DrawCellPaint(UIElement *e)
     float span = f.half * 2.0f;
     float half_span = span * 0.5f;
 
-    // Outer frame.
+    // Outer frame in the tool-active ink.
     Rectangle frame = { left, top, span, span };
     DrawRectangleLinesEx(frame, f.stroke, ink);
 
@@ -215,54 +222,15 @@ void UIIcon_DrawCellPaint(UIElement *e)
     DrawLineEx((Vector2){ f.cx, top }, (Vector2){ f.cx, top + span }, f.stroke, ink);
     DrawLineEx((Vector2){ left, f.cy }, (Vector2){ left + span, f.cy }, f.stroke, ink);
 
-    // One filled cell (top-left quadrant) to read as "a painted cell". Inset slightly so the fill
-    // sits inside the stroked borders rather than overlapping them.
+    // One filled cell (top-left quadrant) in the ACTIVE TILE COLOUR, reading as "the swatch you are
+    // about to paint". Inset slightly so the fill sits inside the stroked borders.
     float inset = f.stroke;
     Rectangle filled = { left + inset, top + inset, half_span - inset * 1.5f, half_span - inset * 1.5f };
-    DrawRectangleRec(filled, ink);
-}
-
-// Tile-type CYCLE button glyph. Unlike the tool glyphs (which tint by active-tool state), this
-// plain ACTION button tints to the ACTIVE TILE TYPE's palette colour via TilePalette_ColourForType,
-// so the swatch the user is about to paint is always visible. Composition mirrors UIIcon_DrawCellPaint
-// (2x2 frame + one filled quadrant). Monochrome shape in the resolved ink, no heap allocation.
-void UIIcon_DrawTileCycle(UIElement *e)
-{
-    UIIconFit f;
-    if (!UIIcon_Fit(e, &f))
-    {
-        return;
-    }
-
-    // Resolve the active type's colour. tile_type 0 has no palette colour of its own (it means
-    // "use the grid's own fill"), so for the swatch we pass the panel text ink as the default,
-    // giving a sensible neutral glyph for the 0 case while non-zero types show their real colour.
-    int active = UIState_GetActiveTileType();
-    ColourRgba swatch = TilePalette_ColourForType(active, ui_default_palette.text);
-    Color ink = ToRaylibColor(swatch);
-
-    // 2x2 grid geometry centred on the fit (same as UIIcon_DrawCellPaint).
-    float left = f.cx - f.half;
-    float top = f.cy - f.half;
-    float span = f.half * 2.0f;
-    float half_span = span * 0.5f;
-
-    // Outer frame.
-    Rectangle frame = { left, top, span, span };
-    DrawRectangleLinesEx(frame, f.stroke, ink);
-
-    // Interior divider lines (one vertical, one horizontal) splitting the frame into 2x2 cells.
-    DrawLineEx((Vector2){ f.cx, top }, (Vector2){ f.cx, top + span }, f.stroke, ink);
-    DrawLineEx((Vector2){ left, f.cy }, (Vector2){ left + span, f.cy }, f.stroke, ink);
-
-    // One filled cell (top-left quadrant), inset so the fill sits inside the stroked borders.
-    float inset = f.stroke;
-    Rectangle filled = { left + inset, top + inset, half_span - inset * 1.5f, half_span - inset * 1.5f };
-    DrawRectangleRec(filled, ink);
+    DrawRectangleRec(filled, swatch_ink);
 }
 
 // ============================================================================
-// Spawn tool + prefab cycle glyphs
+// Spawn tool glyph
 // ============================================================================
 
 // Draw the Spawn TOOL pictogram: a small square shape outline with a crosshair centred over it,
@@ -292,37 +260,6 @@ void UIIcon_DrawToolSpawn(UIElement *e)
     // extent, so the placement point reads clearly.
     DrawLineEx((Vector2){ f.cx - f.half, f.cy }, (Vector2){ f.cx + f.half, f.cy }, f.stroke, ink);
     DrawLineEx((Vector2){ f.cx, f.cy - f.half }, (Vector2){ f.cx, f.cy + f.half }, f.stroke, ink);
-}
-
-// Draw the Prefab CYCLE pictogram: a box with a small "next" chevron to its right, reading as
-// "advance to the next prefab". GENERIC by design — a single glyph for every prefab, drawn in the
-// normal text ink (no per-entry tint, no per-prefab shape preview). Composed from raylib primitives
-// with no heap allocation. Attached via UIElement.on_draw; the button carries no binding=.
-void UIIcon_DrawPrefabCycle(UIElement *e)
-{
-    UIIconFit f;
-    if (!UIIcon_Fit(e, &f))
-    {
-        return;
-    }
-
-    // Plain-action glyph: a single neutral ink (no active-tool/per-entry tint).
-    Color ink = ToRaylibColor(ui_default_palette.text);
-
-    // A box on the left half of the glyph box (the prefab) ...
-    float box_half = f.half * 0.6f;
-    float box_cx = f.cx - f.half * 0.3f; // Shift left to leave room for the chevron.
-    Rectangle box = { box_cx - box_half, f.cy - box_half, box_half * 2.0f, box_half * 2.0f };
-    DrawRectangleLinesEx(box, f.stroke, ink);
-
-    // ... and a small ">" chevron to its right (two strokes meeting at a point) indicating "next".
-    float chev_x = f.cx + f.half * 0.45f;   // Chevron tip x.
-    float chev_back = f.half * 0.35f;       // Horizontal reach back from the tip.
-    float chev_rise = f.half * 0.4f;        // Vertical reach of each arm.
-    DrawLineEx((Vector2){ chev_x - chev_back, f.cy - chev_rise }, (Vector2){ chev_x, f.cy },
-               f.stroke, ink);
-    DrawLineEx((Vector2){ chev_x - chev_back, f.cy + chev_rise }, (Vector2){ chev_x, f.cy },
-               f.stroke, ink);
 }
 
 // ============================================================================

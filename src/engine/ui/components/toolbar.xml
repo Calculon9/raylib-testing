@@ -22,31 +22,23 @@
     <!-- tool feedback is driven by the on_draw icon (UIIcon_DrawCellPaint reads -->
     <!-- UIState_IsToolActive(TOOL_CELL_PAINT)). action="tool-cell-paint" sets the tool radio- -->
     <!-- exclusively, so paint and nudge are mutually exclusive. -->
+    <!-- CLICK toggles the tool (action="tool-cell-paint" -> CMD_TOOL_CELL_PAINT); MOUSE WHEEL while -->
+    <!-- hovering cycles the active tile type (on_scroll = Toolbar_ScrollCycleTileType, wired by id -->
+    <!-- in InitToolbar). The glyph (UIIcon_DrawCellPaint) shows BOTH the tool-active state (frame -->
+    <!-- ink) and the active tile colour (inner swatch), so the retired separate cycle button is -->
+    <!-- fully consolidated here. -->
     <Button id="tool_cell_paint" type="simple" surface="input" action="tool-cell-paint" size="0.67,0.45" />
-
-    <!-- Tile-type CYCLE button (plain ACTION, not a radio tool). action="cycle-tile-type" advances -->
-    <!-- the active paint tile type on each click (0/1/2/3 -> wrap); it never sets the active TOOL and -->
-    <!-- is NOT mutually exclusive with the nudge/cell-paint radio tools. NO binding= here (a display -->
-    <!-- source would make the per-frame refresh WRITE the button text); the feedback is the on_draw -->
-    <!-- icon (UIIcon_DrawTileCycle), which TINTS to the active tile type's palette colour. -->
-    <!-- surface="input" and size match the sibling tool buttons. -->
-    <Button id="tool_cycle_tile_type" type="simple" surface="input" action="cycle-tile-type" size="0.67,0.45" />
 
     <!-- Spawn TOOL button (radio, click-to-place). NO binding= here (a display source would make -->
     <!-- the per-frame refresh WRITE the button text that text="" cannot suppress); the active-tool -->
     <!-- feedback is driven by the on_draw glyph (UIIcon_DrawToolSpawn reads -->
     <!-- UIState_IsToolActive(TOOL_SPAWN)). action="tool-spawn" sets the tool radio-exclusively, so -->
     <!-- spawn, nudge and cell-paint are mutually exclusive. surface="input" and size match the -->
-    <!-- sibling tool buttons. -->
+    <!-- sibling tool buttons. CLICK toggles the tool; MOUSE WHEEL while hovering cycles the active -->
+    <!-- spawn prefab (on_scroll = Toolbar_ScrollCyclePrefab, wired by id in InitToolbar), so the -->
+    <!-- retired separate prefab cycle button is consolidated onto this one. The prefab identity is -->
+    <!-- read out in the always-present detail/info strips (the spawn glyph stays generic). -->
     <Button id="tool_spawn" type="simple" surface="input" action="tool-spawn" size="0.67,0.45" />
-
-    <!-- Prefab CYCLE button (plain ACTION, not a radio tool). action="cycle-prefab" advances the -->
-    <!-- active spawn prefab on each click (wraps within the catalogue); it never sets the active -->
-    <!-- TOOL and is NOT mutually exclusive with the radio tools. NO binding= here (a display source -->
-    <!-- would make the per-frame refresh WRITE the button text); the feedback is the on_draw glyph -->
-    <!-- (UIIcon_DrawPrefabCycle), a generic spawn/prefab glyph. surface="input" and size match the -->
-    <!-- sibling tool buttons. -->
-    <Button id="tool_cycle_prefab" type="simple" surface="input" action="cycle-prefab" size="0.67,0.45" />
 
     <!-- Thin empty separator so the tool and the toggle group read as two distinct bands. -->
     <Label id="toolbar_separator" size="1,0.25" width="fixed" height="fixed" />

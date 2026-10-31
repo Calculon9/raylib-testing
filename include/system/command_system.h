@@ -33,12 +33,15 @@ typedef enum
     // Tool-toolbar actions. These are NOT CMD_TOGGLE_* commands, so they are not intercepted by
     // the CMD_TOGGLE_* -> debug-overlay mapping; each toggles its tool radio-exclusively instead.
     CMD_TOOL_NUDGE = 200,
-    CMD_TOOL_CELL_PAINT = 201,
-    CMD_CYCLE_TILE_TYPE = 202,   // Plain action: advance the active paint tile type. Never changes
-                                 // the active tool (not a radio tool); only cycles the paint type.
+    CMD_TOOL_CELL_PAINT = 201,   // Radio tool: cell paint. CLICK toggles the tool; the active tile
+                                 // type is now cycled by the mouse wheel over this button, not a
+                                 // separate command (see Toolbar_ScrollCycleTileType). Gap at 202
+                                 // left by the retired CMD_CYCLE_TILE_TYPE is harmless (explicit
+                                 // literals, not persisted/index-mapped).
     CMD_TOOL_SPAWN = 203,        // Radio tool: click-to-place the active prefab into the root world.
-    CMD_CYCLE_PREFAB = 204,      // Plain action: advance the active spawn prefab. Never changes the
-                                 // active tool (not a radio tool); only cycles the prefab.
+                                 // The active prefab is now cycled by the mouse wheel over this
+                                 // button (Toolbar_ScrollCyclePrefab); gap at 204 left by the
+                                 // retired CMD_CYCLE_PREFAB is likewise harmless.
 } CommandType;
 
 typedef struct

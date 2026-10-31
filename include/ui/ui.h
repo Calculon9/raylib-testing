@@ -24,6 +24,10 @@ WORLD MODULE
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
 typedef void (*UIEventHandler)(UIElement *e);
+// Per-element mouse-wheel handler. Mirrors UIEventHandler but carries the wheel delta
+// so the handler can choose a direction (delta>0 forward, delta<0 backward). Dispatched
+// by presence from ProcessUIInput, exactly like on_click/on_hover.
+typedef void (*UIScrollHandler)(UIElement *e, float delta);
 
 typedef enum
 {
@@ -227,6 +231,8 @@ typedef struct UIElement
     UIEventHandler on_draw;             // when non-NULL, the renderer calls it to draw custom per-element
                                         // content on top of the element's box; presence-dispatched, reads
                                         // e->screen_box for geometry. No new type or data union change.
+    UIScrollHandler on_scroll;          // fired on mouse wheel while this element (or its scroll
+                                        // target) is hovered; NULL => fall through to scroll panels
     void *interaction_user_data;        // unified opaque per-element state pointer for click/hover handlers (buttons + former hover items)
     void *interaction_data_bind;        // base data_bind, used by the hover-view-selector LABEL only (see §8)
 
