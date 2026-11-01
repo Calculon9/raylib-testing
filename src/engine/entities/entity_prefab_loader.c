@@ -154,7 +154,12 @@ static bool ParsePhysicsComponent(const cJSON *physics, Newtonoid2dParams *out_p
 
 	Newtonoid2dParams result = {0};
 	result.shape_type = SHAPE_AUTO;
-	result.vertice_count = MAX_SHAPE_VERTICES;
+	// Default to a 4-vertex box: with SHAPE_AUTO, a vertice_count of 4 resolves to SHAPE_SQUARE
+	// (a proper width x height rectangle), which is a far less surprising baseline collider for a
+	// plain prefab than the old smooth 64-gon circle. Component prefabs (gear/rotor/portal) override
+	// this anyway (gear derives it from tooth_count; portal/rotor build their own geometry), so this
+	// default only affects plain physics prefabs that omit vertice_count.
+	result.vertice_count = 4;
 	result.anchor_position = ZERO_VECTOR_2D;
 
 	if (!ReadPrefabFloatMember(physics, "width", 0.0, FLT_MAX, &result.width) ||
@@ -170,8 +175,9 @@ static bool ParsePhysicsComponent(const cJSON *physics, Newtonoid2dParams *out_p
 	}
 
 	// Optional vertice_count: shape builders (e.g. gear/rotor) read this as their primitive
-	// facet/tooth count. Absent keeps the default (MAX_SHAPE_VERTICES, a smooth polygon);
-	// when present it must be a positive integer within the vertex budget.
+	// facet/tooth count. Absent keeps the default (4, a box/SHAPE_SQUARE); when present it must be
+	// a positive integer within the vertex budget (e.g. 3 = triangle, or a higher count for a
+	// smooth polygon up to MAX_SHAPE_VERTICES).
 	if (cJSON_GetObjectItemCaseSensitive(physics, "vertice_count"))
 	{
 		if (!ReadPrefabPositiveInt(physics, "vertice_count", &result.vertice_count) ||
