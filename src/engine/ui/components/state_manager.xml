@@ -227,7 +227,7 @@
         <Container id="geo_summary" title="Surface" width="hug" height="hug" layout="stack">
             <TextField id="geo_vertex_count" label="Vertices" type="integer" io="readonly" />
         </Container>
-        <Container id="geo_vertices" title="Vertices (local)" width="hug" height="fill" layout="stack_wrap">
+        <Container id="geo_vertices" title="Vertices (local)" width="hug" height="fill" layout="stack">
             <TextField id="geo_vertex0"  label="V0"  type="vector2" io="readonly" />
             <TextField id="geo_vertex1"  label="V1"  type="vector2" io="readonly" />
             <TextField id="geo_vertex2"  label="V2"  type="vector2" io="readonly" />
