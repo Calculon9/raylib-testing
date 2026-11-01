@@ -25,6 +25,7 @@ UNIVERSE SYSTEM MODULE
 #include "entities/entity_registry.h"
 #include "system/texture_registry.h"
 #include "entities/entity_catalogue.h"
+#include "world/tile_catalogue.h" // InitTileCatalogue (data-driven tile palette)
 
 static int create_world_auto_select = 0;
 static bool camera_diagnostic_printed = false;
@@ -254,6 +255,10 @@ void InitUniverseSystem(void)
     // Initialise the engine-owned texture registry here, beside the entity registry: this site runs
     // after InitWindow so the GL context exists when LoadOrGet uploads textures to the GPU.
     TextureRegistry_Init();
+    // Load the data-driven tile palette. MUST run AFTER TextureRegistry_Init (tile definitions
+    // resolve their optional texture_path to a TextureId at load time) and before InitUI reads
+    // TilePalette_TypeCount for the active-tile clamp.
+    InitTileCatalogue();
     Vector2d universe_resolution = UniverseRenderer_GetResolution();
     G_Universe.resolution = universe_resolution;
     Universe_Init(&G_Universe, ZERO_VECTOR_2D, (Vector2d){7, 5}, gravity);

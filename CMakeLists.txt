@@ -94,6 +94,7 @@ if ("${PLATFORM}" STREQUAL "Web")
         TARGET ${PROJECT_NAME} PRE_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/src/resources $<TARGET_FILE_DIR:${PROJECT_NAME}>/../resources
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/src/engine/prefabs $<TARGET_FILE_DIR:${PROJECT_NAME}>/../prefabs
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/src/engine/tiles $<TARGET_FILE_DIR:${PROJECT_NAME}>/../tiles
     )
     #DEPENDS ${PROJECT_NAME}
 else()
@@ -101,6 +102,7 @@ else()
         TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/src/resources $<TARGET_FILE_DIR:${PROJECT_NAME}>/resources
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/src/engine/prefabs $<TARGET_FILE_DIR:${PROJECT_NAME}>/prefabs
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/src/engine/tiles $<TARGET_FILE_DIR:${PROJECT_NAME}>/tiles
     )
     #DEPENDS ${PROJECT_NAME}
 endif()
@@ -114,7 +116,7 @@ target_link_libraries(${PROJECT_NAME} mxml)
 if ("${PLATFORM}" STREQUAL "Web")
     # Tell Emscripten to build an example.html file.
     set_target_properties(${PROJECT_NAME} PROPERTIES SUFFIX ".html")
-    target_link_options(${PROJECT_NAME} PUBLIC -sUSE_GLFW=3 PUBLIC --preload-file resources PUBLIC --preload-file prefabs)
+    target_link_options(${PROJECT_NAME} PUBLIC -sUSE_GLFW=3 PUBLIC --preload-file resources PUBLIC --preload-file prefabs PUBLIC --preload-file tiles)
 endif()
 
 # Checks if OSX and links appropriate frameworks (Only required on MacOS)

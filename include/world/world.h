@@ -10,6 +10,7 @@ WORLD MODULE
 #include "math/coordinate_space.h"
 #include "events/events.h"
 #include "system/systems.h"
+#include "system/texture_registry.h" // TextureId (for TilePalette_TextureForType)
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
@@ -57,12 +58,15 @@ typedef struct World2d
 
 void DrawNewtonoids(LArray *newtonoids, Matrix3x3 space_to_pixel_mtx);
 
-// Shared tile palette accessors (the palette table itself stays file-local in world_renderer.c).
+// Shared tile palette accessors, backed by the data-driven tile catalogue (tile_catalogue.c).
 // TilePalette_TypeCount returns the number of palette entries (valid tile_type values are
 // 0 .. count-1); TilePalette_ColourForType resolves a tile_type to its fill colour, falling back
-// to default_colour for index 0 and any out-of-range index. ColourRgba is in scope via common.h.
+// to default_colour for index 0 and any out-of-range index; TilePalette_TextureForType resolves a
+// tile_type to its texture handle (INVALID_TEXTURE_ID for index 0, out-of-range, or a type with no
+// texture). ColourRgba is in scope via common.h; TextureId via system/texture_registry.h.
 int        TilePalette_TypeCount(void);
 ColourRgba TilePalette_ColourForType(int tile_type, ColourRgba default_colour);
+TextureId  TilePalette_TextureForType(int tile_type);
 
 typedef struct
 {

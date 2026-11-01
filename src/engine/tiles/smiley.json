@@ -1,0 +1,6 @@
+{
+    "schema_version": 1,
+    "name": "smiley",
+    "fill_colour": [128, 128, 128, 255],
+    "texture_path": "resources/smiley.png"
+}

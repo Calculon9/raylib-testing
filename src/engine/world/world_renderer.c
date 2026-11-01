@@ -13,6 +13,7 @@
 #include "system/debug_overlay_system.h"
 #include "system/systems.h"
 #include "world/world.h"
+#include "world/tile_catalogue.h" // TilePalette_TextureForType (texture accessor)
 #include "world/world_internal.h"
 #include "world/object_gizmos.h"
 #include "world/universe.h"
@@ -510,56 +511,14 @@ void DrawWorldRegion(World2d *world, Camera2d *universe_camera)
     // DrawCollisions(&world->collisions, world_to_pixel_mtx);
 }
 
-// Shared tile palette: maps a cell's tile_type index to its fill colour on the current flat-colour
-// renderer. Static data only — no heap allocations. The same index becomes an atlas key if/when a
-// texture system is added later, so stored cell data need not change. Index 0 is the DEFAULT
-// sentinel and is handled specially by TilePalette_ColourFor (see below and the index-0 rule): the
-// 0 slot here is a harmless placeholder and is never read for a default cell.
-static const ColourRgba tile_palette[] = {
-    BLANK_RGBA,                  // 0: DEFAULT sentinel — the real colour comes from grid_space->colour_fill
-    COLOUR_GAME_TERRACOTTA_RGBA, // 1
-    COLOUR_GAME_TEAL_RGBA,       // 2
-    COLOUR_GAME_OLIVE_RGBA,      // 3
-};
-
-// Resolve a cell's tile_type to its fill colour. Index 0 (the default) and any out-of-range index
-// fall back to default_colour — the grid's own colour_fill passed in by the caller — so unknown or
-// unseeded types are always safe and visible. The default_colour argument keeps the "0 = use the
-// grid's own fill" rule correct even for worlds that customise colour_fill. Bounds-safe by
-// construction: the palette element count is derived from sizeof.
-static ColourRgba TilePalette_ColourFor(int tile_type, ColourRgba default_colour)
-{
-    int count = (int)(sizeof(tile_palette) / sizeof(tile_palette[0]));
-    if (tile_type <= 0 || tile_type >= count)
-    {
-        return default_colour; // 0 = default; out-of-range = safe fallback to the grid colour.
-    }
-    return tile_palette[tile_type];
-}
-
-// Return the number of entries in the shared tile palette (valid tile_type values are
-// 0 .. count-1). Exposed so UI code (the active-type clamp/wrap and the cycle button) reuses the
-// palette's own size as the single source of truth rather than duplicating the literal count. The
-// table itself stays file-local; only this count and the colour lookup below are published.
-int TilePalette_TypeCount(void)
-{
-    return (int)(sizeof(tile_palette) / sizeof(tile_palette[0]));
-}
-
-// Public wrapper over the file-local TilePalette_ColourFor so UI code (the cycle button's tinted
-// icon) can read the colour for a given tile_type with the same "0/out-of-range -> default_colour"
-// contract. Keeps the static resolver and its DrawGridSpace call site unchanged.
-ColourRgba TilePalette_ColourForType(int tile_type, ColourRgba default_colour)
-{
-    return TilePalette_ColourFor(tile_type, default_colour);
-}
-
-// Draw a grid space. Each PRESENT cell's FILL colour is now sourced per cell from the shared tile
-// palette via TilePalette_ColourFor(cell->tile_type, grid_space->colour_fill): a tile_type of 0
-// resolves to the grid's own colour_fill (pixel-identical to before this change), while non-zero
-// types read the palette. The grid LINES (grid_space->colour_line via the viewport-clipped
+// Draw a grid space. Each PRESENT cell resolves its tile_type through the data-driven tile palette
+// (tile_catalogue.c): if the tile_type carries a texture, the cell draws one textured quad into its
+// world cell via DrawTextureInWorld; otherwise it falls back to the FILL colour from
+// TilePalette_ColourForType(cell->tile_type, grid_space->colour_fill) — a tile_type of 0 resolves
+// to the grid's own colour_fill (pixel-identical to before this change), while non-zero types read
+// the palette. The grid LINES (grid_space->colour_line via the viewport-clipped
 // DrawTransformedLineClippedV path) and the debug labels are unchanged, and absent cells are still
-// skipped — only the per-cell fill colour source changed.
+// skipped — only the per-cell fill source changed.
 void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
 {
     if (grid_space->space.cells.capacity < 1)
@@ -575,8 +534,8 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
     int rows = grid_space->space.rows;
     int totalUnits = columns * rows;
 
-    // Base/fallback fill colour for the grid. It is now passed into TilePalette_ColourFor as the
-    // default (used for tile_type 0 and any out-of-range index) rather than drawn directly; the
+    // Base/fallback fill colour for the grid. It is now passed into TilePalette_ColourForType as
+    // the default (used for tile_type 0 and any out-of-range index) rather than drawn directly; the
     // raylib Color is computed per present cell from the resolved per-cell colour.
     ColourRgba colour_fill = grid_space->colour_fill;
 
@@ -592,11 +551,31 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
         int i = k / columns;
         int j = k % columns;
 
-        // Source this cell's fill colour from its tile_type. tile_type 0 resolves to the grid's own
-        // colour_fill, so existing (all-type-0) worlds are pixel-identical; non-zero types read the
-        // palette. The cell is fetched via the same idiom used by the debug-label block below.
+        // Source this cell's render data from its tile_type. The cell is fetched via the same idiom
+        // used by the debug-label block below.
         Cell *cell = (Cell *)((char *)grid_space->space.cells.items + ((size_t)k * grid_space->space.cells.elem_bytes));
-        ColourRgba cell_fill_rgba = TilePalette_ColourFor(cell->tile_type, colour_fill);
+
+        // Textured path (Part 2): when the tile_type carries a valid texture, draw ONE textured quad
+        // into the cell's world quad and skip the colour fill. The unit cell spans [j, j+1] x
+        // [i, i+1] in world-local coords, so its centre is (j + 0.5, i + 0.5) and its size is one
+        // unit per axis — the exact local quad the colour path fills. DrawTextureInWorld uses the
+        // same world_to_pixel_mtx, so the texture tracks camera pan/zoom/rotation identically to the
+        // colour quads. Rotation is 0 (cells are axis-aligned); tint is opaque white (no modulation).
+        // First pass = one quad per cell: no UV tiling, seamless multi-cell textures, or warp_basis
+        // distortion (explicitly deferred).
+        TextureId cell_texture = TilePalette_TextureForType(cell->tile_type);
+        if (cell_texture != INVALID_TEXTURE_ID)
+        {
+            Vector2d cell_centre = (Vector2d){(float)j + 0.5f, (float)i + 0.5f};
+            Vector2d cell_size = (Vector2d){1.0f, 1.0f};
+            DrawTextureInWorld(cell_texture, cell_centre, cell_size, world_to_pixel_mtx,
+                               (ColourRgba){255, 255, 255, 255}, 0.0f);
+            continue; // Textured cell drawn; do not also draw the colour fill.
+        }
+
+        // Colour-fill path (unchanged): tile_type 0 resolves to the grid's own colour_fill, so
+        // existing (all-type-0) worlds are pixel-identical; non-zero types read the palette.
+        ColourRgba cell_fill_rgba = TilePalette_ColourForType(cell->tile_type, colour_fill);
         Color fill = ToRaylibColor(cell_fill_rgba);
 
         // Local corners of this unit cell, transformed to pixels through the world basis/placement.
