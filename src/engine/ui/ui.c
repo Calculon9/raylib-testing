@@ -343,13 +343,21 @@ static Vector2d MeasureLeafLabelContent(const UIElement *element)
         return fallback; // Empty label contributes only its padding box.
     }
 
-    // Pixel advance per glyph at this label's font scale.
+    // Pixel metrics per glyph at this label's font scale. Measure the run the SAME way the
+    // renderer draws it (ConsumeTextRow in ui_renderer.c): the first glyph occupies a full
+    // cell (glyph_cell_width, the glyph bitmap width) and every subsequent glyph steps by
+    // glyph_advance (cell width minus inter-glyph spacing). Using advance for the final glyph
+    // too would under-measure the run by (cell_width - advance), leaving the last character's
+    // cell poking past the hug box, which the clipped draw path then trims off.
     int glyph_advance = BitmapFont_GetGlyphAdvance(&element->data.label.font);
-    if (glyph_advance <= 0)
+    int glyph_cell_width = BitmapFont_GetGlyphCellWidth(&element->data.label.font);
+    if (glyph_advance <= 0 || glyph_cell_width <= 0)
     {
         return fallback; // Degenerate font: never contribute a negative/zero text width.
     }
-    float text_pixels = (float)glyph_count * (float)glyph_advance;
+    // First glyph = full cell; remaining (glyph_count - 1) glyphs = one advance each.
+    float text_pixels = (float)glyph_cell_width +
+                        (float)(glyph_count - 1) * (float)glyph_advance;
 
     // Reuse the engine's pixel->UI-unit ratio from the owning root: UI units per pixel is
     // space.columns / screen_box.dimensions.x (same quantity ResolvePixelToLocalDragScale

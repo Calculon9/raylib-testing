@@ -151,7 +151,7 @@ void TextureRegistry_Shutdown(void)
         }
     }
 
-    DisposeLArray(&g_textures); // Frees the internal buffer; the stack struct remains.
+    ClearLArray(&g_textures); // Frees the internal buffer; the stack struct remains.
     g_textures = (LArray){0};   // Clear so a later re-init starts from a clean state.
     g_initialised = false;
 }
