@@ -463,7 +463,9 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
         // PRESS: resolve the selection ref once and remember the press. Do NOT touch the
         // SelectionSet or the navigation cursor on this frame.
         g_game_press = (GamePress){
-            .select_ref   = Target_ResolveAtPoint(&G_Universe, mouse_universe_coords),
+            // Pass the raw pixel alongside the universe point: the universe point drives the
+            // "which world" pick, the pixel drives the basis-correct per-world local point.
+            .select_ref   = Target_ResolveAtPoint(&G_Universe, mouse_universe_coords, mouse_pixel_coords),
             .valid        = true,
             .modified     = input->ctrl_down || input->shift_down,
             .armed_move   = false,
@@ -604,7 +606,7 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
             // selection/drag is never suppressed.
             int paint_world_index = UNIVERSE_ROOT_WORLD_INDEX;
             int paint_cell_index = -1;
-            if (Target_ResolveCellIndexAtPoint(&G_Universe, mouse_universe_coords,
+            if (Target_ResolveCellIndexAtPoint(&G_Universe, mouse_universe_coords, mouse_pixel_coords,
                                                &paint_world_index, &paint_cell_index))
             {
                 // Stamp the active paint tile type on commit; EnqueueAddCell marks the cell present

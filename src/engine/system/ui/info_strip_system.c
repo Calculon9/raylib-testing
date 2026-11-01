@@ -330,7 +330,9 @@ void InfoStrip_UpdateHover(const InputFrame *input)
 
     // Pixel -> universe (root-world-local) point, matching the existing hover/pick convention.
     Vector2d universe_point = ResolvePixelToWorldFrame(&G_Universe.root_world, input->pointer_position);
-    info_strip_hover_ref = Target_ResolveAtPoint(&G_Universe, universe_point);
+    // Pass the raw pixel too: the resolver uses it for the basis-correct per-world local point,
+    // so hover highlighting is now correct under a non-orthonormal basis (same fix as selection).
+    info_strip_hover_ref = Target_ResolveAtPoint(&G_Universe, universe_point, input->pointer_position);
 }
 
 // ============================================================================

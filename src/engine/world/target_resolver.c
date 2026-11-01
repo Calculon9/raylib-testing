@@ -24,7 +24,19 @@ as TARGET_KIND_WORLD with world_index == UNIVERSE_ROOT_WORLD_INDEX.
 #include "entities/entity_registry.h"
 #include "math/affine_space_ops.h"
 #include "world/world.h"
-#include "world/world_internal.h" // ResolveClosestEntityAt
+#include "world/world_internal.h" // ResolveClosestEntityAt, ResolvePixelToWorldFrame
+
+// TEMPORARY dev-only sanity check (OFF by default, MUST stay 0 in shipped commits).
+// When set to 1 it logs the per-world local click point computed BOTH the old way
+// (Frame_TransformPoint_FromParent — orthonormal-only dot-product projection) and the new way
+// (ResolvePixelToWorldFrame — true affine inverse). Used during development to confirm the two
+// AGREE for an identity/REGULAR basis and DIVERGE for a non-orthonormal basis, proving the fix
+// changes behaviour exactly where expected. No debug logging ships when this is 0.
+#define TARGET_RESOLVER_DEBUG_LOCALPOINT 0
+
+#if TARGET_RESOLVER_DEBUG_LOCALPOINT
+#include "raylib.h" // TraceLog
+#endif
 
 //----------------------------------------------------------------------------------
 // Internal helpers
@@ -142,7 +154,7 @@ static void Target_DescribeEntity(TargetRef ref, char *out, size_t out_bytes)
 //----------------------------------------------------------------------------------
 
 // Resolve a universe-space point to whatever is under it (entity > cell > world > none).
-TargetRef Target_ResolveAtPoint(const Universe *u, Vector2d universe_point)
+TargetRef Target_ResolveAtPoint(const Universe *u, Vector2d universe_point, Vector2d pixel_coords)
 {
     TargetRef ref = {0};
     ref.kind = TARGET_KIND_NONE;
@@ -166,11 +178,28 @@ TargetRef Target_ResolveAtPoint(const Universe *u, Vector2d universe_point)
 
     if (world_index >= 0 && world_index < mutable_u->world_count)
     {
-        // Nested world: transform the universe (parent-space) point into the world's local
-        // frame so the entity/cell pick is performed in the correct coordinate space.
+        // Nested world: compute the world's local point from the raw pixel using the full affine
+        // inverse (ResolvePixelToWorldFrame -> MatrixInvert_3x3 of the world-to-pixel chain), the
+        // SAME true inverse the geometry editor and renderer use. The previous
+        // Frame_TransformPoint_FromParent inverted the frame by dot-product projection, which is
+        // only the true inverse for an orthonormal basis, so selection missed under any
+        // sheared/scaled/rotated basis. This is the fix: it is correct for ANY basis.
         pick_world = &mutable_u->worlds[world_index];
-        local_point = Frame_TransformPoint_FromParent(universe_point, &pick_world->grid_space.space.frame);
+        local_point = ResolvePixelToWorldFrame(pick_world, pixel_coords);
         resolved_world_index = world_index;
+
+#if TARGET_RESOLVER_DEBUG_LOCALPOINT
+        // TEMPORARY: compute the local point the OLD way too and log both, so a developer can see
+        // they AGREE under an identity/REGULAR basis and DIVERGE under a non-orthonormal one.
+        {
+            Vector2d old_local = Frame_TransformPoint_FromParent(universe_point,
+                                     &pick_world->grid_space.space.frame);
+            TraceLog(LOG_INFO,
+                     "[select-sanity] world %d: old(proj)=(%.3f, %.3f) new(inverse)=(%.3f, %.3f)",
+                     world_index, (double)old_local.x, (double)old_local.y,
+                     (double)local_point.x, (double)local_point.y);
+        }
+#endif
     }
     else
     {
@@ -212,7 +241,7 @@ TargetRef Target_ResolveAtPoint(const Universe *u, Vector2d universe_point)
 // Resolve a universe-space point to the owning world and the dense cell index under it, IGNORING
 // presence. Mirrors the first half of Target_ResolveAtPoint (world pick + frame transform), then
 // GetIndexFromCoords — no presence/entity test — so a carved (absent) cell is still addressable.
-bool Target_ResolveCellIndexAtPoint(const Universe *u, Vector2d universe_point,
+bool Target_ResolveCellIndexAtPoint(const Universe *u, Vector2d universe_point, Vector2d pixel_coords,
                                     int *out_world_index, int *out_cell_index)
 {
     if (!u)
@@ -230,9 +259,11 @@ bool Target_ResolveCellIndexAtPoint(const Universe *u, Vector2d universe_point,
 
     if (world_index >= 0 && world_index < mutable_u->world_count)
     {
-        // Nested world: transform the universe point into the world's local frame.
+        // Nested world: compute the local point from the raw pixel via the full affine inverse
+        // (ResolvePixelToWorldFrame), matching Target_ResolveAtPoint. Basis-correct for any basis,
+        // unlike the orthonormal-only Frame_TransformPoint_FromParent projection used before.
         pick_world = &mutable_u->worlds[world_index];
-        local_point = Frame_TransformPoint_FromParent(universe_point, &pick_world->grid_space.space.frame);
+        local_point = ResolvePixelToWorldFrame(pick_world, pixel_coords);
         resolved_world_index = world_index;
     }
     else

@@ -66,14 +66,21 @@ typedef struct TargetRef
 // world-at-point; a cell is surfaced only when the pick yields one and no entity won.
 // Reuses ResolveClosestEntityAt (entity/cell pick) and Universe_FindWorldAt (world pick).
 // Returns a TARGET_KIND_NONE ref when nothing is found or `u` is NULL.
-TargetRef Target_ResolveAtPoint(const Universe *u, Vector2d universe_point);
+// `universe_point` drives the universe-level "which world" pick (Universe_FindWorldAt);
+// `pixel_coords` is the raw screen pixel used to compute the per-world local point via the
+// true affine inverse (ResolvePixelToWorldFrame), so picking is correct for any basis — not
+// just orthonormal ones. (The universe point alone cannot be inverted correctly for a
+// sheared/scaled/rotated world basis.)
+TargetRef Target_ResolveAtPoint(const Universe *u, Vector2d universe_point, Vector2d pixel_coords);
 
 // Resolve a universe-space point to the owning world and the dense cell index under it, IGNORING
 // presence (so an absent/carved cell still resolves — needed by the cell-paint ADD tool to fill an
 // empty slot). Returns true and fills *out_world_index (nested index or UNIVERSE_ROOT_WORLD_INDEX)
 // and *out_cell_index (>= 0) when the point lands on a cell slot; returns false otherwise. Reuses
-// the same world-pick + frame transform as Target_ResolveAtPoint so the logic lives in one place.
-bool Target_ResolveCellIndexAtPoint(const Universe *u, Vector2d universe_point,
+// the same world-pick + true-inverse local point as Target_ResolveAtPoint so the logic lives in
+// one place. `pixel_coords` is the raw screen pixel used for the basis-correct per-world local
+// point (see Target_ResolveAtPoint).
+bool Target_ResolveCellIndexAtPoint(const Universe *u, Vector2d universe_point, Vector2d pixel_coords,
                                     int *out_world_index, int *out_cell_index);
 
 // Synthesise human-readable display text for a ref into the caller buffer (always NUL
