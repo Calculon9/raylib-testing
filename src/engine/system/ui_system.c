@@ -59,6 +59,12 @@ static int g_active_tile_type = 1;
 // Defaults to 0 (the first catalogue entry). Always kept within the catalogue range by
 // UIState_SetActivePrefab; when the catalogue is empty it stays 0 and spawning is a no-op.
 static int g_active_prefab = 0;
+
+// Independent on/off state for the in-world geometry (vertex) editor. NOT part of the
+// radio-exclusive tool set: toggling it never changes g_active_tool, and it is not a debug
+// overlay. GeometryEditor_IsEnabled reads it (together with a non-NULL selection) as the single
+// gate for vertex-handle input and rendering. Defaults OFF.
+static bool g_geometry_edit_active = false;
 // ------------------TOTAL SCREEN-------------------------
 // Logical->pixel-space conversion properties
 
@@ -727,6 +733,26 @@ int UIState_CycleActivePrefab(void)
 {
     UIState_SetActivePrefab(g_active_prefab + 1);
     return g_active_prefab;
+}
+
+// Report whether the in-world geometry editor is currently active.
+bool UIState_IsGeometryEditActive(void)
+{
+    return g_geometry_edit_active;
+}
+
+// Set the geometry-editor active state explicitly (independent of the active tool).
+void UIState_SetGeometryEditActive(bool active)
+{
+    g_geometry_edit_active = active;
+}
+
+// Flip the geometry-editor active state; returns the new state. Driven by the toolbar toggle
+// command (CMD_TOGGLE_GEOMETRY_EDIT).
+bool UIState_ToggleGeometryEdit(void)
+{
+    g_geometry_edit_active = !g_geometry_edit_active;
+    return g_geometry_edit_active;
 }
 
 void InitUI(void)

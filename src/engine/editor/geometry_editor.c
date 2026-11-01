@@ -18,14 +18,13 @@ static VertexHandleTarget vertex_handle_target = {0};
 
 static bool GeometryEditor_IsEnabled(const World2d *world, const Newtonoid2d *selected_object)
 {
-    // selected_object is already existence-validated by UIState_GetSelectedObject, so a
-    // NULL check here is equivalent to (and far cheaper than) a universe-wide entity scan.
-    // The lpanel DRAW view (the former gate for geometry editing) has been retired, so geometry
-    // editing is currently disabled; the remaining preconditions are kept for when a replacement
-    // edit mode re-enables it.
+    // Geometry editing is gated on the independent UIState flag (driven by the toolbar toggle)
+    // AND a live selection: the editor only ever operates on the selected object, so a NULL
+    // selection can never be edited. selected_object is already existence-validated by
+    // UIState_GetSelectedObject at the call sites, so a NULL check here is equivalent to (and far
+    // cheaper than) a universe-wide entity scan.
     (void)world;
-    (void)selected_object;
-    return false;
+    return UIState_IsGeometryEditActive() && (selected_object != NULL);
 }
 
 static void RefreshObjectGeometry(World2d *world, Newtonoid2d *object,

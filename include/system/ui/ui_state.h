@@ -36,7 +36,11 @@ typedef enum
     STATE_MANAGER_ANCESTRY_VIEW,
     // Entity Mgmt components view: the attach/remove component manager (Phase 1). Appended
     // LAST so no existing enumerator value shifts.
-    STATE_MANAGER_COMPONENTS_VIEW
+    STATE_MANAGER_COMPONENTS_VIEW,
+    // Entity Mgmt geometry view: read-only listing of the selected entity's surface vectors
+    // (vertex count + per-vertex local vectors). Appended LAST so no existing enumerator value
+    // shifts.
+    STATE_MANAGER_GEOMETRY_VIEW
 } ViewType;
 
 //----------------------------------------------------------------------------------

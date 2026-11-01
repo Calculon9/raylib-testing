@@ -330,6 +330,11 @@ void InitToolbar(void)
     if ((b = UILoader_FindById(root, "toggle_object_hull")))          b->on_draw = UIIcon_DrawObjectHull;
     if ((b = UILoader_FindById(root, "toggle_object_aabb")))          b->on_draw = UIIcon_DrawObjectAABB;
 
+    // Independent geometry-edit toggle: no binding=, so (like the tool buttons) its glyph owns its
+    // ink path, reading UIState_IsGeometryEditActive. action="toggle-geometry-edit" resolves to
+    // CMD_TOGGLE_GEOMETRY_EDIT on click.
+    if ((b = UILoader_FindById(root, "toggle_geometry_edit")))        b->on_draw = UIIcon_DrawGeometryEdit;
+
     // 3) Final layout update over the host's valid coordinate space.
     UpdateUISpace(toolbar->root, toolbar->seed_box);
 }

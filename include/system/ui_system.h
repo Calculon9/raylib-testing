@@ -174,6 +174,16 @@ int  UIState_GetActivePrefab(void);
 void UIState_SetActivePrefab(int index);
 // Advance the active prefab to the next catalogue index (wraps back to 0); returns the new value.
 int  UIState_CycleActivePrefab(void);
+
+// Independent on/off state for the in-world geometry (vertex) editor (module-owned, like the
+// active tool). It is NOT radio-exclusive with the tools and is NOT a debug overlay; the geometry
+// editor's single enable gate reads it together with a non-NULL selection.
+// Report whether the geometry editor is currently active.
+bool UIState_IsGeometryEditActive(void);
+// Set the geometry-editor active state explicitly (independent of the active tool).
+void UIState_SetGeometryEditActive(bool active);
+// Flip the geometry-editor active state (driven by the toolbar toggle); returns the new state.
+bool UIState_ToggleGeometryEdit(void);
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------

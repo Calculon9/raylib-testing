@@ -33,6 +33,7 @@
         <Option text="CELL" view="cell_view" />
         <Option text="ANCESTRY" view="ancestry_view" />
         <Option text="COMP" view="components_view" />
+        <Option text="GEOMETRY" view="geometry_view" />
     </ViewSelector>
 
     <!-- ================= PHYS view ================= -->
@@ -212,6 +213,85 @@
             <Button type="simple" id="comp_add_rotor"  text="ROTOR"  size="4,0.5" width="fixed" height="fixed" />
             <Button type="simple" id="comp_add_gear"   text="GEAR"   size="4,0.5" width="fixed" height="fixed" />
             <Button type="simple" id="comp_add_health" text="HEALTH" size="4,0.5" width="fixed" height="fixed" />
+        </Container>
+    </View>
+
+    <!-- ================= GEOMETRY view (v1: readonly surface vectors) ================= -->
+    <!-- Read-only listing of the selected entity's surface vectors. The vertex COUNT is a           -->
+    <!-- readonly integer; each vertex is a readonly vector2 row in LOCAL coordinates (as stored,     -->
+    <!-- relative to the anchor). A fixed pool of geo_vertexN slots (0..MAX_SHAPE_VERTICES-1) is      -->
+    <!-- shown/hidden/relabelled per selection by RefreshGeometryView, exactly like the COMP          -->
+    <!-- comp_rowN and ANCESTRY ancestry_lineN fixed slots. No binding= on the rows: they are         -->
+    <!-- refreshed imperatively via the TextboxField/RefreshTextboxFields path.                        -->
+    <View id="geometry_view" type="STATE_MANAGER_GEOMETRY_VIEW" scroll="y" layout="stack">
+        <Container id="geo_summary" title="Surface" width="hug" height="hug" layout="stack">
+            <TextField id="geo_vertex_count" label="Vertices" type="integer" io="readonly" />
+        </Container>
+        <Container id="geo_vertices" title="Vertices (local)" width="hug" height="fill" layout="stack_wrap">
+            <TextField id="geo_vertex0"  label="V0"  type="vector2" io="readonly" />
+            <TextField id="geo_vertex1"  label="V1"  type="vector2" io="readonly" />
+            <TextField id="geo_vertex2"  label="V2"  type="vector2" io="readonly" />
+            <TextField id="geo_vertex3"  label="V3"  type="vector2" io="readonly" />
+            <TextField id="geo_vertex4"  label="V4"  type="vector2" io="readonly" />
+            <TextField id="geo_vertex5"  label="V5"  type="vector2" io="readonly" />
+            <TextField id="geo_vertex6"  label="V6"  type="vector2" io="readonly" />
+            <TextField id="geo_vertex7"  label="V7"  type="vector2" io="readonly" />
+            <TextField id="geo_vertex8"  label="V8"  type="vector2" io="readonly" />
+            <TextField id="geo_vertex9"  label="V9"  type="vector2" io="readonly" />
+            <TextField id="geo_vertex10" label="V10" type="vector2" io="readonly" />
+            <TextField id="geo_vertex11" label="V11" type="vector2" io="readonly" />
+            <TextField id="geo_vertex12" label="V12" type="vector2" io="readonly" />
+            <TextField id="geo_vertex13" label="V13" type="vector2" io="readonly" />
+            <TextField id="geo_vertex14" label="V14" type="vector2" io="readonly" />
+            <TextField id="geo_vertex15" label="V15" type="vector2" io="readonly" />
+            <TextField id="geo_vertex16" label="V16" type="vector2" io="readonly" />
+            <TextField id="geo_vertex17" label="V17" type="vector2" io="readonly" />
+            <TextField id="geo_vertex18" label="V18" type="vector2" io="readonly" />
+            <TextField id="geo_vertex19" label="V19" type="vector2" io="readonly" />
+            <TextField id="geo_vertex20" label="V20" type="vector2" io="readonly" />
+            <TextField id="geo_vertex21" label="V21" type="vector2" io="readonly" />
+            <TextField id="geo_vertex22" label="V22" type="vector2" io="readonly" />
+            <TextField id="geo_vertex23" label="V23" type="vector2" io="readonly" />
+            <TextField id="geo_vertex24" label="V24" type="vector2" io="readonly" />
+            <TextField id="geo_vertex25" label="V25" type="vector2" io="readonly" />
+            <TextField id="geo_vertex26" label="V26" type="vector2" io="readonly" />
+            <TextField id="geo_vertex27" label="V27" type="vector2" io="readonly" />
+            <TextField id="geo_vertex28" label="V28" type="vector2" io="readonly" />
+            <TextField id="geo_vertex29" label="V29" type="vector2" io="readonly" />
+            <TextField id="geo_vertex30" label="V30" type="vector2" io="readonly" />
+            <TextField id="geo_vertex31" label="V31" type="vector2" io="readonly" />
+            <TextField id="geo_vertex32" label="V32" type="vector2" io="readonly" />
+            <TextField id="geo_vertex33" label="V33" type="vector2" io="readonly" />
+            <TextField id="geo_vertex34" label="V34" type="vector2" io="readonly" />
+            <TextField id="geo_vertex35" label="V35" type="vector2" io="readonly" />
+            <TextField id="geo_vertex36" label="V36" type="vector2" io="readonly" />
+            <TextField id="geo_vertex37" label="V37" type="vector2" io="readonly" />
+            <TextField id="geo_vertex38" label="V38" type="vector2" io="readonly" />
+            <TextField id="geo_vertex39" label="V39" type="vector2" io="readonly" />
+            <TextField id="geo_vertex40" label="V40" type="vector2" io="readonly" />
+            <TextField id="geo_vertex41" label="V41" type="vector2" io="readonly" />
+            <TextField id="geo_vertex42" label="V42" type="vector2" io="readonly" />
+            <TextField id="geo_vertex43" label="V43" type="vector2" io="readonly" />
+            <TextField id="geo_vertex44" label="V44" type="vector2" io="readonly" />
+            <TextField id="geo_vertex45" label="V45" type="vector2" io="readonly" />
+            <TextField id="geo_vertex46" label="V46" type="vector2" io="readonly" />
+            <TextField id="geo_vertex47" label="V47" type="vector2" io="readonly" />
+            <TextField id="geo_vertex48" label="V48" type="vector2" io="readonly" />
+            <TextField id="geo_vertex49" label="V49" type="vector2" io="readonly" />
+            <TextField id="geo_vertex50" label="V50" type="vector2" io="readonly" />
+            <TextField id="geo_vertex51" label="V51" type="vector2" io="readonly" />
+            <TextField id="geo_vertex52" label="V52" type="vector2" io="readonly" />
+            <TextField id="geo_vertex53" label="V53" type="vector2" io="readonly" />
+            <TextField id="geo_vertex54" label="V54" type="vector2" io="readonly" />
+            <TextField id="geo_vertex55" label="V55" type="vector2" io="readonly" />
+            <TextField id="geo_vertex56" label="V56" type="vector2" io="readonly" />
+            <TextField id="geo_vertex57" label="V57" type="vector2" io="readonly" />
+            <TextField id="geo_vertex58" label="V58" type="vector2" io="readonly" />
+            <TextField id="geo_vertex59" label="V59" type="vector2" io="readonly" />
+            <TextField id="geo_vertex60" label="V60" type="vector2" io="readonly" />
+            <TextField id="geo_vertex61" label="V61" type="vector2" io="readonly" />
+            <TextField id="geo_vertex62" label="V62" type="vector2" io="readonly" />
+            <TextField id="geo_vertex63" label="V63" type="vector2" io="readonly" />
         </Container>
     </View>
 </ViewHost>

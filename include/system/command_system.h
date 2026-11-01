@@ -42,6 +42,13 @@ typedef enum
                                  // The active prefab is now cycled by the mouse wheel over this
                                  // button (Toolbar_ScrollCyclePrefab); gap at 204 left by the
                                  // retired CMD_CYCLE_PREFAB is likewise harmless.
+
+    // Independent geometry-edit toggle. Lives in the tool band (NOT the CMD_TOGGLE_* 100-range)
+    // precisely so it is NOT intercepted by CommandSystem_ResolveToggleOverlay: geometry edit mode
+    // changes INPUT behaviour (vertex-handle capture), not just an overlay's visibility. Unlike the
+    // radio tools it is independent, so ExecuteCommand dispatches it to a simple flag toggle rather
+    // than UIState_SetActiveTool. 205 leaves the retired-CMD_CYCLE_PREFAB gap at 204 undisturbed.
+    CMD_TOGGLE_GEOMETRY_EDIT = 205,
 } CommandType;
 
 typedef struct

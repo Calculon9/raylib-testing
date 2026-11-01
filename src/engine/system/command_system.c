@@ -118,6 +118,8 @@ int CommandSystem_ResolveString(const char *cmd_string)
         return CMD_TOOL_CELL_PAINT;
     else if (!strcmp(cmd_string, "tool-spawn"))
         return CMD_TOOL_SPAWN;
+    else if (!strcmp(cmd_string, "toggle-geometry-edit"))
+        return CMD_TOGGLE_GEOMETRY_EDIT;
     
     return 0;  // Unresolved
 }
@@ -317,6 +319,14 @@ void ExecuteCommand(CommandType type, const void *data)
         // Radio tool toggle, identical shape to CMD_TOOL_CELL_PAINT: activating replaces the active
         // tool; clicking the active tool again clears it to TOOL_NONE.
         UIState_SetActiveTool(UIState_IsToolActive(TOOL_SPAWN) ? TOOL_NONE : TOOL_SPAWN);
+        return;
+    }
+    if (type == CMD_TOGGLE_GEOMETRY_EDIT)
+    {
+        // Independent toggle: flip the geometry-edit flag only. No active-tool change and no
+        // overlay interaction, so this sits outside the CMD_TOOL_* radio logic above and outside
+        // CommandSystem_ResolveToggleOverlay.
+        UIState_ToggleGeometryEdit();
         return;
     }
     // The active tile type / spawn prefab are no longer cycled via a command: the consolidated

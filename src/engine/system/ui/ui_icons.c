@@ -263,6 +263,54 @@ void UIIcon_DrawToolSpawn(UIElement *e)
 }
 
 // ============================================================================
+// Geometry-edit tool glyph
+// ============================================================================
+
+// Draw the geometry-edit pictogram: a small triangle outline with a filled dot at each vertex,
+// reading as "vertex handles you can drag". Monochrome, centred in e->screen_box, composed from
+// raylib primitives with no heap allocation. Like the other tool glyphs the ink follows the state
+// flag directly (bright button_fill when geometry edit is active, normal text ink otherwise)
+// because this button has no binding= to read; it therefore does NOT use UIIcon_StateInk.
+// Attached via UIElement.on_draw.
+void UIIcon_DrawGeometryEdit(UIElement *e)
+{
+    UIIconFit f;
+    if (!UIIcon_Fit(e, &f))
+    {
+        return;
+    }
+
+    // Geometry-edit-active feedback is the icon's ink (no text toggle, no binding= on this button).
+    bool active = UIState_IsGeometryEditActive();
+    Color ink = active ? ToRaylibColor(ui_default_palette.button_fill)
+                       : ToRaylibColor(ui_default_palette.text);
+
+    // Three vertices of an upright triangle centred on the fit (first vertex at the top).
+    const int sides = 3;
+    float radius = f.half * 0.9f;
+    float start = -PI * 0.5f; // Point the first vertex up.
+    Vector2 verts[3];
+    for (int i = 0; i < sides; i++)
+    {
+        float a = start + (float)i / (float)sides * 2.0f * PI;
+        verts[i] = (Vector2){ f.cx + cosf(a) * radius, f.cy + sinf(a) * radius };
+    }
+
+    // Closed outline of the triangle (DrawLineEx loop so the stroke width is respected).
+    for (int i = 0; i < sides; i++)
+    {
+        DrawLineEx(verts[i], verts[(i + 1) % sides], f.stroke, ink);
+    }
+
+    // A filled handle dot at each vertex (the draggable points).
+    float dot = fmaxf(1.5f, f.half * 0.22f);
+    for (int i = 0; i < sides; i++)
+    {
+        DrawCircleV(verts[i], dot, ink);
+    }
+}
+
+// ============================================================================
 // Toggle glyphs (ink from UIIcon_StateInk: bright button_fill ON / normal text ink OFF)
 // ============================================================================
 

@@ -9,6 +9,7 @@
 #include "system/viewport_system.h"
 #include "ui/ui_constructors.h"
 #include "physics/newtonoid.h"
+#include "math/geometry.h"                       // MAX_SHAPE_VERTICES (GEOMETRY-view row-pool size)
 #include "math/coordinate_space.h"
 #include "world/universe.h"
 #include "entities/entity_registry.h"
@@ -50,6 +51,11 @@ typedef struct StateManagerComponentRow
     UIElement *remove_button;    // simple Button wired to HandleComponentRemoveClick
     EntityComponentType type;    // component this slot currently represents (assigned per refresh)
 } StateManagerComponentRow;
+
+// Fixed GEOMETRY-view vertex-row slot count. One row per potential surface vector, so a selection
+// with more than this many vertices is capped (rows beyond the pool are not shown); matches the
+// MAX_SHAPE_VERTICES vertex budget so no in-range vertex is dropped.
+#define STATE_MANAGER_GEOMETRY_ROW_COUNT MAX_SHAPE_VERTICES
 
 // UIElement and String64 references owned by the State Manager panel.
 typedef struct StateManagerUI
@@ -122,6 +128,10 @@ typedef struct StateManagerUI
     String64 *cell_tile_type_str; // read-only tile_type readout (mirrors the other cell readouts)
     UIElement *cell_warp_u_tbox; // editable Warp U (warp_basis.u) — dynamic query/write bound
     UIElement *cell_warp_v_tbox; // editable Warp V (warp_basis.v) — dynamic query/write bound
+
+    // GEOMETRY view (v1): vertex-count readout + fixed readonly vertex-row pool.
+    UIElement *geo_vertex_count_tbox;
+    UIElement *geo_vertex_tbox[STATE_MANAGER_GEOMETRY_ROW_COUNT];
 } StateManagerUI;
 
 static StateManagerUI s_sm_ui = {0};
@@ -405,6 +415,10 @@ static ViewType StateManager_ResolveViewType(const char *type_string, bool *reso
     if (type_string && !strcmp(type_string, "STATE_MANAGER_COMPONENTS_VIEW"))
     {
         return STATE_MANAGER_COMPONENTS_VIEW;
+    }
+    if (type_string && !strcmp(type_string, "STATE_MANAGER_GEOMETRY_VIEW"))
+    {
+        return STATE_MANAGER_GEOMETRY_VIEW;
     }
 
     // Unrecognised: report failure and default to the first state-manager view.
@@ -1313,6 +1327,17 @@ static void StateManager_RegisterElements(UIElement *root)
         del->on_click  = HandleBtnSubmitClick;
         del->interaction_user_data = &s_sm_ui.delete_action;
     }
+
+    // --- GEOMETRY view: vertex-count readout + fixed vertex-row pool. The row ids are a dense
+    //     "geo_vertexN" sequence, so format them in a loop with a small stack buffer rather than a
+    //     64-entry id table. Every pointer is null-guarded by RefreshGeometryView. ---
+    s_sm_ui.geo_vertex_count_tbox = StateManager_Find(root, "geo_vertex_count");
+    for (int i = 0; i < STATE_MANAGER_GEOMETRY_ROW_COUNT; i++)
+    {
+        char id[24];
+        snprintf(id, sizeof(id), "geo_vertex%d", i);
+        s_sm_ui.geo_vertex_tbox[i] = StateManager_Find(root, id);
+    }
 }
 
 // ============================================================================
@@ -1671,6 +1696,65 @@ static void RefreshComponentsView(const Newtonoid2d *object)
     }
 }
 
+// Refresh the GEOMETRY view (v1): the selected object's surface-vector count and its per-vertex
+// LOCAL vectors. Reads surface.surface_vectors directly (the same LArray the in-world drag editor
+// edits). Each used slot shows one readonly vector2 row; slots beyond the vertex count (or when
+// nothing frame-bearing is selected) are hidden. Vertices past the fixed pool
+// (> STATE_MANAGER_GEOMETRY_ROW_COUNT) cannot occur for an in-budget shape, but the loop caps at
+// the pool size defensively. No per-frame allocation.
+static void RefreshGeometryView(const Newtonoid2d *object)
+{
+    bool is_valid = (object != NULL && object->id != INVALID_ENTITY_ID);
+
+    // Vertex-count readout: a NULL value pointer makes the field render its "N/A" placeholder.
+    int count = is_valid ? (int)object->surface.surface_vectors.count : 0;
+    TextboxField count_field[] = {
+        {s_sm_ui.geo_vertex_count_tbox, INT, is_valid ? (void *)&count : NULL, 0, "N/A"},
+    };
+    RefreshTextboxFields(count_field, ARRAY_COUNT(count_field));
+
+    // Clamp the number of shown rows to the fixed pool.
+    int shown = 0;
+    if (is_valid)
+    {
+        shown = count;
+        if (shown > STATE_MANAGER_GEOMETRY_ROW_COUNT)
+        {
+            shown = STATE_MANAGER_GEOMETRY_ROW_COUNT;
+        }
+    }
+
+    // Local vertices as stored (relative to the anchor); the same Vector2d buffer the drag editor
+    // reads and writes via surface.surface_vectors.items.
+    const Vector2d *verts = is_valid
+        ? (const Vector2d *)object->surface.surface_vectors.items
+        : NULL;
+
+    for (int i = 0; i < STATE_MANAGER_GEOMETRY_ROW_COUNT; i++)
+    {
+        UIElement *row = s_sm_ui.geo_vertex_tbox[i];
+        if (!row)
+        {
+            continue;
+        }
+
+        if (i < shown && verts)
+        {
+            // Local vector as stored; matches how the drag editor stores/edits them and the
+            // "local coordinates" requirement.
+            TextboxField f[] = {
+                {row, VECTOR2D, (void *)&verts[i], 0, NULL},
+            };
+            RefreshTextboxFields(f, ARRAY_COUNT(f));
+            SetParentEnabledState(row, true);
+        }
+        else
+        {
+            SetParentEnabledState(row, false);
+        }
+    }
+}
+
 // Push the selected object, world, cell, and capability state into the UI views.
 void UpdateStateManagerSelectedObject(void)
 {
@@ -1683,6 +1767,7 @@ void UpdateStateManagerSelectedObject(void)
     RefreshWorldView(world);
     RefreshCellView(cell);
     RefreshComponentsView(object);
+    RefreshGeometryView(object);
 }
 
 // ============================================================================

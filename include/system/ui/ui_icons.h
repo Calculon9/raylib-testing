@@ -58,4 +58,10 @@ void UIIcon_DrawObjectHull(UIElement *e);
 // Object AABB toggle (gizmo.object-aabb): a rect outline with a small centred dot inside.
 void UIIcon_DrawObjectAABB(UIElement *e);
 
+// Geometry-edit tool glyph: a small polygon outline with dots at its vertices (a "vertex handles"
+// pictogram). Like the tool glyphs it owns its ink path keyed on the UIState geometry-edit flag
+// (bright button_fill when active, normal text ink otherwise); it does NOT use UIIcon_StateInk
+// because the button carries no binding=.
+void UIIcon_DrawGeometryEdit(UIElement *e);
+
 #endif // UI_ICONS_H
