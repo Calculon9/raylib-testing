@@ -67,6 +67,10 @@ void DrawNewtonoids(LArray *newtonoids, Matrix3x3 space_to_pixel_mtx);
 int        TilePalette_TypeCount(void);
 ColourRgba TilePalette_ColourForType(int tile_type, ColourRgba default_colour);
 TextureId  TilePalette_TextureForType(int tile_type);
+// Resolve a tile_type to the behaviour flags its type confers (SOLID/WALKABLE/HAZARDOUS). Index 0
+// (grid-default) and any out-of-range index return CELL_FLAG_NONE. Never returns CELL_FLAG_PRESENT
+// (occupancy is not a material property). CellFlags is in scope via math/coordinate_space.h.
+CellFlags  TilePalette_BehaviourForType(int tile_type);
 
 typedef struct
 {

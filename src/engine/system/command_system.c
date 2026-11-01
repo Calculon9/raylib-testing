@@ -14,6 +14,11 @@
 // Forward declaration for internal command execution logic
 static void ExecuteCommandInternal(Command *c);
 
+// Behaviour bits a tile TYPE owns and may therefore re-derive on repaint. Deliberately excludes
+// CELL_FLAG_PRESENT (occupancy) and CELL_FLAG_SPAWNABLE (not type-driven in Phase 1), so a repaint
+// never disturbs presence or any non-behaviour bit.
+#define CELL_TYPE_BEHAVIOUR_MASK (CELL_FLAG_SOLID | CELL_FLAG_WALKABLE | CELL_FLAG_HAZARDOUS)
+
 // Simple circular buffer queue
 #define COMMAND_QUEUE_CAPACITY 128
 static Command queue[COMMAND_QUEUE_CAPACITY];
@@ -436,6 +441,15 @@ static void ExecuteCommandInternal(Command *c)
             {
                 Cell *cell = (Cell *)((char *)space->cells.items + (size_t)cell_index * space->cells.elem_bytes);
                 cell->tile_type = c->data.cell_presence.tile_type;
+
+                // Re-derive the type-owned behaviour bits from the painted tile type. Clear the
+                // type-owned bits first, then OR in the new type's bits, so repainting a cell from a
+                // solid "wall" tile to a plain tile correctly REMOVES solidity. CELL_FLAG_PRESENT and
+                // every non-behaviour bit are untouched (masked out of both the clear and the OR). The
+                // extra & CELL_TYPE_BEHAVIOUR_MASK on the accessor result is belt-and-braces: the
+                // accessor already returns only those bits, but masking keeps the invariant local here.
+                CellFlags behaviour = TilePalette_BehaviourForType(c->data.cell_presence.tile_type);
+                cell->flags = (cell->flags & ~CELL_TYPE_BEHAVIOUR_MASK) | (behaviour & CELL_TYPE_BEHAVIOUR_MASK);
             }
 
             // Refresh bounds only when the structure actually changed (presence flipped). A pure

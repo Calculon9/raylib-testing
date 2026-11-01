@@ -20,6 +20,7 @@ world/world.h (where the first two already lived) and implemented in tile_catalo
 
 #include "common/common.h"             // ColourRgba
 #include "system/texture_registry.h"   // TextureId / INVALID_TEXTURE_ID
+#include "math/coordinate_space.h"     // CellFlags (behaviour bitmask stamped onto cells)
 
 // Maximum stored length of a tile name/id (fixed buffer; no heap string) so a tile definition
 // stays shallow-dispose. Mirrors CATALOGUE_PREFAB_ID_MAX.
@@ -33,6 +34,7 @@ typedef struct TileDefinition
     char       name[TILE_CATALOGUE_NAME_MAX]; // File stem (id); "" for the reserved index-0 entry.
     ColourRgba fill_colour;                   // Resolved fill colour; unused for the index-0 entry.
     TextureId  texture_id;                    // INVALID_TEXTURE_ID when the definition has no texture.
+    CellFlags  behaviour_flags;               // Behaviour bits this tile type confers (SOLID/WALKABLE/HAZARDOUS). CELL_FLAG_NONE = inert. Never includes CELL_FLAG_PRESENT (occupancy is not a material property).
 } TileDefinition;
 
 // Enumerate tiles/*.json ONCE and load each into the catalogue, reserving index 0 as the

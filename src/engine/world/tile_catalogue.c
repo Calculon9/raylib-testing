@@ -62,6 +62,28 @@ static bool ReadColourChannel(const cJSON *value, unsigned char *out_channel)
     return true;
 }
 
+// Read one optional boolean behaviour key from the tile document and OR its flag into out_flags.
+// Absent key => leaves the flag unset and succeeds (default false). Present-but-non-boolean => a
+// hard parse failure (reject the whole definition), matching the loader's existing strictness for
+// malformed values (ReadColourChannel). No numeric or string coercion is performed.
+static bool ReadBehaviourFlag(const cJSON *root, const char *key, CellFlags flag, CellFlags *out_flags)
+{
+    const cJSON *item = cJSON_GetObjectItemCaseSensitive(root, key);
+    if (!item)
+    {
+        return true; // Absent: nothing to set, not an error.
+    }
+    if (!cJSON_IsBool(item))
+    {
+        return false; // Present-but-malformed: reject the definition.
+    }
+    if (cJSON_IsTrue(item))
+    {
+        *out_flags |= flag; // Only a true value confers the behaviour bit.
+    }
+    return true;
+}
+
 // Parse a single tile definition document into the output struct. Validates schema_version == 1, a
 // required four-element 0..255 fill_colour array, and an optional non-empty texture_path string
 // (resolved to a TextureId here, after TextureRegistry_Init). Any present-but-malformed value is a
@@ -119,6 +141,18 @@ static bool TileDefinition_Decode(const cJSON *root, TileDefinition *out_definit
             return false; // present-but-malformed (non-string or empty) fails the definition.
         }
         result.texture_id = TextureRegistry_LoadOrGet(path_text);
+    }
+
+    // Behaviour flags: optional booleans mapping tile-type material properties onto CellFlags bits.
+    // All default false (absent => bit unset); a present-but-non-boolean value fails the definition.
+    // result.behaviour_flags starts at CELL_FLAG_NONE via the {0} zero-init above, so these only OR
+    // bits in. CELL_FLAG_PRESENT is deliberately never parsed here (occupancy, not a material).
+    result.behaviour_flags = CELL_FLAG_NONE;
+    if (!ReadBehaviourFlag(root, "solid", CELL_FLAG_SOLID, &result.behaviour_flags) ||
+        !ReadBehaviourFlag(root, "walkable", CELL_FLAG_WALKABLE, &result.behaviour_flags) ||
+        !ReadBehaviourFlag(root, "hazardous", CELL_FLAG_HAZARDOUS, &result.behaviour_flags))
+    {
+        return false; // A malformed behaviour key rejects the whole definition, like a bad colour channel.
     }
 
     *out_definition = result;
@@ -286,4 +320,19 @@ TextureId TilePalette_TextureForType(int tile_type)
     }
     const TileDefinition *definition = (const TileDefinition *)LArray_Get(&g_tile_catalogue, tile_type);
     return definition ? definition->texture_id : INVALID_TEXTURE_ID;
+}
+
+// Resolve a tile_type to the behaviour flags its type confers (SOLID/WALKABLE/HAZARDOUS). Index 0
+// (the grid-default sentinel) and any out-of-range index return CELL_FLAG_NONE, mirroring the
+// colour/texture contract. Never returns CELL_FLAG_PRESENT: occupancy is not a material property,
+// and the parser never stores it on a definition. Single source of truth for the paint-time stamp.
+CellFlags TilePalette_BehaviourForType(int tile_type)
+{
+    int count = TilePalette_TypeCount();
+    if (tile_type <= 0 || tile_type >= count)
+    {
+        return CELL_FLAG_NONE; // 0 = grid default; out-of-range = inert.
+    }
+    const TileDefinition *definition = (const TileDefinition *)LArray_Get(&g_tile_catalogue, tile_type);
+    return definition ? definition->behaviour_flags : CELL_FLAG_NONE;
 }
