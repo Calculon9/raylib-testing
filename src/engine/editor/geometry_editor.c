@@ -103,7 +103,6 @@ static bool GeometryEditor_UpdateDrag(World2d *world, Vector2d pixel_coords, New
     CalcSnappedAABB_Vertices(object->surface.surface_vectors.items,
                              object->surface.surface_vectors.count,
                              object->anchor_position,
-                             world->grid_space.space.frame.basis,
                              previous_vertices);
     Matrix2x2 previous_box = CalcAABBCoords_Tight(previous_vertices, 4, ZERO_VECTOR_2D);
 

@@ -314,7 +314,7 @@ void PhysicsUpdateJob(void *context, int start, int end)
         UpdateEntityBounds(obj, world_vertices);
         Vector2d snapped_aabb_verts[4] = {0};
         CalcSnappedAABB_Vertices(world_vertices, obj->surface.surface_vectors.count,
-                                 ZERO_VECTOR_2D, space->frame.basis, snapped_aabb_verts);
+                                 ZERO_VECTOR_2D, snapped_aabb_verts);
         Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
         MapEntityToASpace(space, obj, snapped_aabb_box, entity_space_map);
         ResolveCollision_ContainerRect(obj, &space_entity->object,
@@ -1043,7 +1043,6 @@ void RemapEntityInASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 previous
     CalcSnappedAABB_Vertices(object->surface.surface_vectors.items,
                              object->surface.surface_vectors.count,
                              object->anchor_position,
-                             space->frame.basis,
                              snapped_aabb_verts);
     Matrix2x2 current_snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
     MapEntityToASpace(space, object, current_snapped_aabb_box, entity_space_map);
@@ -1078,7 +1077,6 @@ void RefreshWorldSpatialMap(World2d *world)
         CalcSnappedAABB_Vertices(world_vertices,
                                  object->surface.surface_vectors.count,
                                  ZERO_VECTOR_2D,
-                                 space->frame.basis,
                                  snapped_aabb_verts);
         Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
         MapEntityToASpace(space, object, snapped_aabb_box, &world->entity_space_map);

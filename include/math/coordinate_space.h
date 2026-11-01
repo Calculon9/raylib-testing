@@ -139,7 +139,7 @@ bool Cell_IsPresent(const Space2d *space, int cell_index);
 // out-of-range index is a no-op. Returns whether the stored presence bit actually changed.
 // Never reallocates, resizes, or changes cells.count.
 bool Space_SetCellPresent(Space2d *space, int cell_index, bool present);
-void CalcSnappedAABB_Vertices(Vector2d *object_surface_vertices, int object_surface_vertices_count, Vector2d object_offset, Basis2d space_basis, Vector2d out_vertices[4]); // Returns the 4 vertices of the AABB of the object in world coordinates
+void CalcSnappedAABB_Vertices(Vector2d *object_surface_vertices, int object_surface_vertices_count, Vector2d object_offset, Vector2d out_vertices[4]); // Returns the 4 corners of the integer cell rectangle (in absolute world-local units) covering the object's world-local AABB
 Frame2d CreateFrame2d(Basis2d basis, Vector2d origin_in_parent, Vector2d local_resolution);
 
 #endif

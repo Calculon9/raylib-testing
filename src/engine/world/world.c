@@ -195,7 +195,6 @@ void UpdateWorld(World2d *world, float delta_time)
         CalcSnappedAABB_Vertices(previous_world_vertices,
                      child->surface.surface_vectors.count,
                      ZERO_VECTOR_2D,
-                     space->frame.basis,
                      previous_snapped_aabb_verts);
         Matrix2x2 previous_snapped_aabb_box = CalcAABBCoords_Tight(
             previous_snapped_aabb_verts, 4, ZERO_VECTOR_2D);

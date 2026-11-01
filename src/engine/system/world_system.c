@@ -31,6 +31,20 @@
 #include "world/tile_catalogue.h" // DisposeTileCatalogue (data-driven tile palette)
 #include "entities/health.h"
 
+// TEMPORARY dev-only sanity check (OFF by default, MUST stay 0 in shipped commits).
+// Mirrors the TARGET_RESOLVER_DEBUG_LOCALPOINT guard. When set to 1 it logs, for a
+// click that resolved a grid cell, (a) the entity's registered cell indices rebuilt
+// via CalcSnappedAABB_Vertices -> GetIndexFromCoords (the broad-phase registration
+// span) and (b) the click's resolved cell index from the lookup, then asserts the
+// click's cell is contained in the entity's registered set. Under a scaled basis
+// (e.g. V=(0,0.5)) this FAILS before the unify fix and PASSES after, because both
+// paths now agree on "one raw local unit = one cell". No debug logging ships when 0.
+#define UNIFY_CELL_DEBUG 0
+
+#if UNIFY_CELL_DEBUG
+#include <assert.h> // assert() for the registration/lookup agreement invariant
+#endif
+
 // World-level defaults used by the gameplay screen and debug spawning controls.
 bool world_grid_debug_labels_enabled = false;
 // World grid visibility (a view/display setting, not a debug flag). The debug-overlay facade's
@@ -336,9 +350,60 @@ Newtonoid2d *ResolveClosestEntityAt(World2d *active_world, Vector2d click_local_
 
     Vector2d max_click_distance = {(float)active_world->grid_space.space.columns,
                                    (float)active_world->grid_space.space.rows};
-    return FindClosestObjectInCell(active_world, &cell, click_local_coords,
-                                   max_click_distance, log,
-                                   log_size, log_offset);
+    Newtonoid2d *picked = FindClosestObjectInCell(active_world, &cell, click_local_coords,
+                                                  max_click_distance, log,
+                                                  log_size, log_offset);
+
+#if UNIFY_CELL_DEBUG
+    // TEMPORARY: prove the registration span and the click lookup now agree on the
+    // canonical "one raw local unit = one cell" convention under a scaled basis.
+    if (picked)
+    {
+        Space2d *dbg_space = &active_world->grid_space.space;
+
+        // (a) Rebuild the picked entity's registered cell indices exactly as the
+        // broad phase does: snapped AABB corners (absolute local units) -> tight box
+        // -> walk the span and floor each cell coordinate via GetIndexFromCoords.
+        Vector2d dbg_verts[4] = {0};
+        CalcSnappedAABB_Vertices(picked->surface.surface_vectors.items,
+                                 picked->surface.surface_vectors.count,
+                                 picked->anchor_position,
+                                 dbg_verts);
+        Matrix2x2 dbg_box = CalcAABBCoords_Tight(dbg_verts, 4, ZERO_VECTOR_2D);
+
+        // (b) The click's resolved cell index from the lookup path.
+        int dbg_click_cell = cell_index;
+
+        bool click_cell_registered = false;
+        float dbg_w = dbg_box.col2.x - dbg_box.col1.x;
+        float dbg_h = dbg_box.col2.y - dbg_box.col1.y;
+        TraceLog(LOG_INFO,
+                 "[unify-cell] entity %d registered span x[%.1f..%.1f] y[%.1f..%.1f]; click cell=%d (basis u=(%.2f,%.2f) v=(%.2f,%.2f))",
+                 picked->id, (double)dbg_box.col1.x, (double)dbg_box.col2.x,
+                 (double)dbg_box.col1.y, (double)dbg_box.col2.y, dbg_click_cell,
+                 (double)dbg_space->frame.basis.u.x, (double)dbg_space->frame.basis.u.y,
+                 (double)dbg_space->frame.basis.v.x, (double)dbg_space->frame.basis.v.y);
+        for (float yy = 0; yy < dbg_h; yy++)
+        {
+            for (float xx = 0; xx < dbg_w; xx++)
+            {
+                Vector2d dbg_cc = {dbg_box.col1.x + xx, dbg_box.col1.y + yy};
+                int dbg_idx = GetIndexFromCoords(dbg_space, dbg_cc);
+                TraceLog(LOG_INFO, "[unify-cell]   registered cell idx=%d", dbg_idx);
+                if (dbg_idx == dbg_click_cell)
+                {
+                    click_cell_registered = true;
+                }
+            }
+        }
+        // The core invariant: the clicked cell must be one of the entity's
+        // registered cells, so selection can find the entity ID in that cell.
+        assert(click_cell_registered &&
+               "UNIFY_CELL_DEBUG: click cell not in picked entity's registered cell set");
+    }
+#endif
+
+    return picked;
 }
 
 // Initialise gameplay-wide world state and the command queue used by its UI.
@@ -536,7 +601,6 @@ static void MoveEntityByDragDelta(Newtonoid2d *entity,
     CalcSnappedAABB_Vertices(entity->surface.surface_vectors.items,
                              entity->surface.surface_vectors.count,
                              entity->anchor_position,
-                             world->grid_space.space.frame.basis,
                              previous_snapped_aabb_verts);
 
     Matrix2x2 previous_snapped_aabb_box = CalcAABBCoords_Tight(
