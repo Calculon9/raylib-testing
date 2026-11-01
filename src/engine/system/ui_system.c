@@ -78,6 +78,10 @@ const Size ui_standard_control_size = {{4.65, 0.50}, AXIS_FIXED, AXIS_FIXED};
 // Give labels more room in inline text fields (label width = 1.0 - textbox width).
 const Size ui_standard_textfield_input_size = {{0.62f, 1.0f}, AXIS_PERCENT, AXIS_PERCENT};
 const Size ui_standard_button_size = {{3.22f, 0.5f}, AXIS_FIXED, AXIS_FIXED};
+// Shared size for container title labels: width HUGS the title's measured text (uncapped,
+// dimensions.x == 0) so the title can never be clipped, while the height stays the current
+// fixed 0.5 so vertical layout is unchanged from the old fixed-size title.
+const Size ui_title_size = {{0.0f, 0.5f}, AXIS_HUG, AXIS_FIXED};
 const Size ui_wide_button_size = {{4.65f, 0.5f}, AXIS_FIXED, AXIS_FIXED};
 const Size ui_small_horizontal_button_size = {{1.91f, 0.5f}, AXIS_FIXED, AXIS_FIXED};
 const Size ui_fill_button_size = {{1.0f, 1.0f}, AXIS_FILL, AXIS_FILL};

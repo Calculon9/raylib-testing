@@ -298,7 +298,8 @@ UIElement *CreateViewSection(UIElement *parent, const char *title,
     // Use the dark ink used by panel controls for ViewSection edges.
     section->colour_border = palette ? palette->button_border : ui_default_palette.button_border;
     // Section heading uses the larger title font (FONT_LARGE) for visual hierarchy over controls.
-    CreateUILabelTitleDefault(section, title, ui_standard_button_size,
+    // Title width HUGS its measured text (ui_title_size) so long titles are never clipped.
+    CreateUILabelTitleDefault(section, title, ui_title_size,
                               ui_standard_field_padding, palette);
     return section;
 }
@@ -320,7 +321,8 @@ UIElement *CreateViewSection_Stack(UIElement *parent, const char *title,
     // Use the dark ink used by panel controls for ViewSection edges.
     section->colour_border = palette ? palette->button_border : ui_default_palette.button_border;
     // Section heading uses the larger title font (FONT_LARGE) for visual hierarchy over controls.
-    CreateUILabelTitleDefault(section, title, ui_standard_button_size,
+    // Title width HUGS its measured text (ui_title_size) so long titles are never clipped.
+    CreateUILabelTitleDefault(section, title, ui_title_size,
                               ui_standard_field_padding, palette);
     return section;
 }

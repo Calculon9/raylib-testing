@@ -86,6 +86,8 @@ extern const Size ui_fill_container_size;
 extern const Vector2d ui_standard_container_padding;
 extern const Vector2d ui_standard_field_padding;
 extern const Size ui_standard_button_size;
+// Container title label size: width hugs the measured text, height stays fixed at 0.5.
+extern const Size ui_title_size;
 extern const Size ui_wide_button_size;
 extern const Size ui_small_horizontal_button_size;
 extern const Size ui_fill_button_size;

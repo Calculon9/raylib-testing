@@ -296,6 +296,85 @@ static Vector2d MeasureStackedWrapContent(UIElement *element, float content_widt
     return (Vector2d){measured_width, measured_height};
 }
 
+// Walk up the parent chain to the owning UI_ELEMENT_ROOT, mirroring ui_input.c's
+// FindOwningRoot. Returns NULL when the element is not (yet) attached to a root.
+static const UIElement *FindMeasureOwningRoot(const UIElement *element)
+{
+    const UIElement *current = element;
+    while (current)
+    {
+        if (current->type == UI_ELEMENT_ROOT)
+        {
+            return current;
+        }
+        current = current->parent;
+    }
+    return NULL;
+}
+
+// Measure a leaf label's content extent from its text, in UI units.
+//
+// A childless UI_ELEMENT_LABEL has no measured geometry to hug (ForEachEnabledChild yields
+// nothing), so the generic measure path would collapse its width to just padding and the
+// title would vanish. This helper gives the label a real width: it takes the text's pixel
+// width (whole-glyph advance x character count) and converts it to UI units using the same
+// UI-unit/pixel ratio the drag system already relies on (ResolvePixelToLocalDragScale in
+// ui_input.c) — the owning root's space.columns (UI units) divided by the root's
+// screen_box pixel width. The height axis is left to the generic path (the title keeps its
+// authored-fixed height), so only the width axis becomes text-driven.
+//
+//   element : the leaf label to measure. Must be a non-NULL UI_ELEMENT_LABEL.
+//
+// Returns a measured content size whose x is the text width in UI units plus this element's
+// horizontal padding, and whose y is the generic padding-only height (the caller's height
+// resolution is unchanged). If the owning root is not yet drawn (zero pixel box on the very
+// first frame) the function falls back to the authored padding-only width rather than
+// dividing by zero; the title corrects itself on the next frame once the pixel box exists.
+static Vector2d MeasureLeafLabelContent(const UIElement *element)
+{
+    // Padding-only fallback (today's leaf result): used when no usable text width exists.
+    Vector2d fallback = {element->padding.x * 2.0f, element->padding.y * 2.0f};
+
+    // Count whole glyphs of the authored label text; bounded by String64 (MAX_LABEL_CHARS).
+    const char *text = element->data.label.text.string;
+    size_t glyph_count = strlen(text);
+    if (glyph_count == 0)
+    {
+        return fallback; // Empty label contributes only its padding box.
+    }
+
+    // Pixel advance per glyph at this label's font scale.
+    int glyph_advance = BitmapFont_GetGlyphAdvance(&element->data.label.font);
+    if (glyph_advance <= 0)
+    {
+        return fallback; // Degenerate font: never contribute a negative/zero text width.
+    }
+    float text_pixels = (float)glyph_count * (float)glyph_advance;
+
+    // Reuse the engine's pixel->UI-unit ratio from the owning root: UI units per pixel is
+    // space.columns / screen_box.dimensions.x (same quantity ResolvePixelToLocalDragScale
+    // derives for drag math). Guard every term so a not-yet-drawn root falls back safely.
+    const UIElement *root = FindMeasureOwningRoot(element);
+    if (!root)
+    {
+        return fallback;
+    }
+    float columns = (float)root->data.root.space.columns;
+    float pixel_width = root->screen_box.dimensions.x;
+    if (columns <= 0.0f || pixel_width <= 0.0f)
+    {
+        return fallback; // Root pixel box not resolved yet (frame 0); corrects next frame.
+    }
+
+    // Convert the text's pixel width into UI units and add this element's horizontal padding.
+    float text_units = text_pixels * (columns / pixel_width);
+    float measured_x = fmaxf(0.0f, text_units) + (element->padding.x * 2.0f);
+
+    // Height stays the padding-only contribution; the title's authored-fixed height is
+    // resolved unchanged by the generic box-resolution path.
+    return (Vector2d){measured_x, element->padding.y * 2.0f};
+}
+
 // Measure a subtree using the width (and available height) handed down by its parent.
 // The height flows alongside the width so stacked-wrap sections can wrap columns at the
 // same boundary the distribute pass uses, instead of always measuring a single column.
@@ -304,6 +383,15 @@ static Vector2d MeasureElementContent(UIElement *element, float parent_content_w
     if (!element)
     {
         return ZERO_VECTOR_2D;
+    }
+
+    // Leaf labels carry no children to hug, so measure their width from their text instead
+    // (keeps the shared container title from collapsing to zero width when hugging). Only
+    // non-empty, childless labels take this path; every other element is unchanged.
+    if (element->type == UI_ELEMENT_LABEL && element->first_child == NULL &&
+        element->data.label.text.string[0] != '\0')
+    {
+        return MeasureLeafLabelContent(element);
     }
 
     float element_width = ResolveMeasurementWidth(element, parent_content_width);

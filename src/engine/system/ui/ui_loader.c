@@ -834,7 +834,8 @@ static UIBuildResult BuildContainer(mxml_node_t *node, UIElement *parent,
         container->colour_border = palette ? palette->button_border
                                            : ui_default_palette.button_border;
         // Heading uses the larger title font (FONT_LARGE) so section titles sit above controls.
-        CreateUILabelTitleDefault(container, title, ui_standard_button_size,
+        // Title width HUGS its measured text (ui_title_size) so long titles are never clipped.
+        CreateUILabelTitleDefault(container, title, ui_title_size,
                                   ui_standard_field_padding, palette);
     }
 
