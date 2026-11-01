@@ -21,6 +21,84 @@
 // Number of delayed world commands initially reserved for a new world.
 static int initObjectCount = 4;
 
+// Test and resolve every present+solid cell against the entities the broad phase
+// already placed in it, treating each solid cell as a STATIC (immovable) wall.
+//
+// The cell is represented by a single reusable scratch Newtonoid2d (`cell_body`)
+// whose anchor is moved to each cell's world-local centre; its unit-box surface
+// vertices are never rewritten because CheckForCollision_SAT transforms them about
+// the anchor every call. mass == 0 gives inverse_mass == 0, so ResolveCollision_
+// WithRotation moves only the entity — identical to how a world boundary wall is
+// made immovable. The scratch body is NEVER registered in the entity system or
+// spatial map, and the Cell struct is never written to (it stays a POD).
+//
+// A cell index `cell_i` maps to grid row/column exactly as the renderer's
+// DrawGridSpace does: row = cell_i / columns, col = cell_i % columns, so the cell
+// spans world-local [col, col+1] x [row, row+1] with centre (col + 0.5, row + 0.5)
+// and unit size — the same quad the cell is drawn as.
+static void ResolveSolidCellCollisions(World2d *world, FlatMapInt *entity_space_map,
+                                        Cell *cells, Space2d *space, Newtonoid2d *cell_body)
+{
+    int columns = space->columns;
+    if (columns < 1)
+        return; // No grid layout; nothing to collide against.
+
+    // Walk the same occupied broad-phase slots used by the entity-pair pass; each
+    // slot key is a valid index into `cells`.
+    for (size_t i = 0; i < entity_space_map->capacity; i++)
+    {
+        if (entity_space_map->slots[i].key == 0 && entity_space_map->slots[i].value == 0)
+            continue;
+
+        int cell_i = entity_space_map->slots[i].key;
+
+        // Gate on PRESENT first so a carved-out cell never collides even if a stale
+        // SOLID bit lingers, then require the SOLID flag. Only SOLID is read here.
+        if (!Cell_IsPresent(space, cell_i))
+            continue;
+
+        Cell *cell = &cells[cell_i];
+        if (!(cell->flags & CELL_FLAG_SOLID))
+            continue;
+
+        // An empty solid cell has no occupants, so skip it before repositioning.
+        if (cell->occupancy < 1)
+            continue;
+
+        // Reposition the scratch body to this cell's world-local centre. The cell
+        // box is axis-aligned (orientation 0); only the anchor changes per cell.
+        int row = cell_i / columns;
+        int col = cell_i % columns;
+        cell_body->anchor_position = (Vector2d){(float)col + 0.5f, (float)row + 0.5f};
+
+        // Resolve every entity the broad phase placed in this cell against the
+        // static cell box. An entity spanning several solid cells appears in each
+        // cell's occupant list and is resolved against each overlapped cell in turn
+        // (accepted first pass; no multi-box merging / greedy meshing).
+        for (int occupant = 0; occupant < cell->occupancy; occupant++)
+        {
+            EntityId obj_id = cell->object_ids[occupant];
+            if (obj_id < 1)
+                continue;
+
+            Newtonoid2d *entity = (Newtonoid2d *)GetEntityByID(world, obj_id);
+            if (!entity || !EntityIsEligbleForSpatialMap(entity))
+                continue;
+
+            // Pass the ENTITY as `a` and the static cell as `b`, mirroring entity-
+            // vs-wall. CheckForCollision_SAT orients the normal A->B and
+            // ResolveCollision_WithRotation splits the correction by inverse mass;
+            // with the cell's inverse_mass == 0 only the entity is displaced.
+            CollisionResult_SAT r = CheckForCollision_SAT(entity, cell_body);
+            if (r.is_colliding)
+            {
+                ResolveCollision_WithRotation(entity, cell_body, r.collision_normal,
+                                              r.contact_point, r.penetration_depth, 0.0f);
+            }
+        }
+    }
+}
+
 // Compose the world-local, universe-camera, and viewport transforms for rendering.
 Matrix3x3 ResolveWorldToPixelMatrix(const World2d *world, const Camera2d *universe_camera)
 {
@@ -206,7 +284,35 @@ void UpdateWorld(World2d *world, float delta_time)
                             entity_space_map);
     }
 
-    // Pass 3 resolves entity pairs sharing at least one broad-phase cell.
+    // Pass 3a resolves entities against PRESENT+SOLID tile cells (static walls).
+    // Build the transient scratch collider ONCE and reuse it for every solid
+    // cell, then dispose its heap surface LArray ONCE after the pass (see below).
+    // This runs for a single entity too, so a lone entity still bounces off a
+    // solid cell, so it is placed before the entity-pair guard (which needs >= 2).
+    if (obj_count >= 1)
+    {
+        // A centred unit box matching the cell quad. CreateSurface_Rectangular
+        // allocates surface_vectors via MakeLArray (HEAP), so the owning scratch
+        // body must release it with DisposeLArray once, after the pass.
+        Surface2d cell_surface = CreateSurface_Rectangular((Vector2d){1.0f, 1.0f});
+        // mass 0 => inverse_mass 0 => immovable, exactly like a world boundary wall.
+        Newtonoid2d cell_body = CreateNewtonoid2d(0.0f, ZERO_VECTOR_2D, ZERO_VECTOR_2D,
+                                                  ZERO_VECTOR_2D, cell_surface);
+        // Mirror the default wall contract so the same entities (newtonoids and
+        // projectiles) that collide with real walls also collide with solid cells.
+        cell_body.roles = ENTITY_ROLE_WALL;
+        cell_body.collision_role_mask = ENTITY_DEFAULT_COLLISION_ROLE_MASK;
+        cell_body.status_flags |= ENTITY_STATUS_FLAG_ALIVE; // A valid, awake collision partner.
+
+        ResolveSolidCellCollisions(world, entity_space_map, cells, space, &cell_body);
+
+        // Single release of the heap surface LArray the scratch body owns: no
+        // per-cell allocation means no churn, and one dispose means no leak and no
+        // use-after-free (the body is stack-local and not used after this point).
+        DisposeLArray(&cell_body.surface.surface_vectors);
+    }
+
+    // Pass 3b resolves entity pairs sharing at least one broad-phase cell.
     if (obj_count < 2)
     {
         return;
