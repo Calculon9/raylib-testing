@@ -138,7 +138,7 @@ void DrawTransformedArrowV(Vector2d start, Vector2d end, Matrix3x3 tfrm_mtx, Col
 // single-rotation model DrawTexturePro understands, then issues one DrawTexturePro call. raylib is
 // the floor here, exactly as DrawTriangle / DrawLineEx are for the vector primitives above.
 void DrawTextureInWorld(TextureId texture_id, Vector2d world_centre, Vector2d world_size,
-                        Matrix3x3 space_to_pixel_mtx, ColourRgba tint)
+                        Matrix3x3 space_to_pixel_mtx, ColourRgba tint, float world_rotation_radians)
 {
     // Resolve the borrowed texture; skip the draw entirely if the handle is unset/unknown. The load
     // failure (if any) was already logged once at LoadOrGet time, so the draw stays silent to avoid
@@ -160,9 +160,13 @@ void DrawTextureInWorld(TextureId texture_id, Vector2d world_centre, Vector2d wo
     float pixel_w = world_size.x * VectorMagnitude_2d(basis_u);
     float pixel_h = world_size.y * VectorMagnitude_2d(basis_v);
 
-    // Rotation folded into the matrix (camera rotation + any world-basis rotation): the angle of
-    // the U basis column. DrawTexturePro wants degrees.
-    float angle_deg = atan2f(basis_u.y, basis_u.x) * (180.0f / PI);
+    // Total draw rotation = CAMERA/world-matrix rotation + the ENTITY's own rotation, mirroring the
+    // vertex path which applies the entity basis BEFORE the world->pixel matrix. The matrix term is
+    // the angle of the U basis column, atan2(U.y, U.x) — a CCW math angle that already tracks camera
+    // pan/zoom/rotation. The entity term, world_rotation_radians, is Newtonoid2d.rotation, with the
+    // SAME CCW convention (local_axis_x = (cos, sin)), so the two angles ADD directly: a positive
+    // entity rotation spins the texture the SAME way its vertices spin. DrawTexturePro wants degrees.
+    float angle_deg = (atan2f(basis_u.y, basis_u.x) + world_rotation_radians) * (180.0f / PI);
 
     // Whole texture as the source rectangle (no atlas/sub-rect in this foundation).
     Rectangle src = {0.0f, 0.0f, (float)texture->width, (float)texture->height};

@@ -27,8 +27,13 @@ Color ToRaylibColor(ColourRgba colour);
 // textured triangles), which composes with ANY affine matrix. That fallback is deliberately NOT
 // implemented — keep this primitive to the single DrawTexturePro call until runtime shows skew
 // artefacts (the spike validated pan/zoom/rotation tracking with no shear, so it is not needed).
+//
+// world_rotation_radians is the ENTITY's OWN rotation (Newtonoid2d.rotation, radians). It composes
+// with the matrix-derived angle so the sprite spins with the entity exactly as the vertex path does
+// (which applies the entity basis BEFORE the matrix). Both terms use the same CCW math-angle
+// convention (local_axis_x = (cos, sin); the matrix angle is atan2(U.y, U.x)), so they simply ADD.
 void DrawTextureInWorld(TextureId texture_id, Vector2d world_centre, Vector2d world_size,
-                        Matrix3x3 space_to_pixel_mtx, ColourRgba tint);
+                        Matrix3x3 space_to_pixel_mtx, ColourRgba tint, float world_rotation_radians);
 void DrawTransformedLineEx(Vector2d start, Vector2d end, Matrix3x3 world_to_pixel_mtx, float line_width, ColourRgba line_colour);
 void DrawTransformedLineV(Vector2d start, Vector2d end, Matrix3x3 world_to_pixel_mtx, ColourRgba line_colour);
 // As DrawTransformedLineEx, but transforms the endpoints to pixel space, clips the

@@ -707,8 +707,10 @@ void DrawNewtonoids(LArray *newtonoids, Matrix3x3 space_to_pixel_mtx)
                 newtonoid->anchor_position,
                 VectorSum_2d(VectorScale_2d(newtonoid->local_axis_x, sprite->offset.x),
                              VectorScale_2d(newtonoid->local_axis_y, sprite->offset.y)));
+            // Pass the entity's own rotation (radians) so the texture spins WITH the entity, in the
+            // same direction its vertices rotate (both compose entity rotation then the camera matrix).
             DrawTextureInWorld(sprite->texture_id, world_centre, sprite->size,
-                               space_to_pixel_mtx, sprite->tint);
+                               space_to_pixel_mtx, sprite->tint, newtonoid->rotation);
         }
         else
         {
