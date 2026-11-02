@@ -139,6 +139,12 @@ void CalcVectors(Newtonoid2d *object, float deltaTime);
 float CalcMomentOfInertia(float mass, LArray *surface_vectors);
 void Newtonoid_TransformVertices(const Newtonoid2d *object, Vector2d *out_world_vertices, int max_vertices);
 Matrix2x2 UpdateEntityBounds(Newtonoid2d *object, Vector2d out_world_vertices[MAX_SHAPE_VERTICES]);
+// Assemble a derived coordinate frame for an object from its existing pose fields, so a
+// Newtonoid2d can be viewed as a first-class Frame2d uniformly with a Space2d. The frame is a
+// read-only VIEW (nothing is cached on the object): the loose pose fields remain the single
+// source of truth and the frame is recomputed on each call. A NULL object yields a zeroed frame
+// with an identity basis so transform helpers stay well-defined.
+Frame2d Newtonoid_GetFrame(const Newtonoid2d *object);
 void ApplySleep(Newtonoid2d *entity);
 void WakeUp(Newtonoid2d *entity);
 // Matrix2x2 FindBoxedCoords(DArray vertices);

@@ -652,6 +652,39 @@ void Newtonoid_TransformVertices(const Newtonoid2d *object, Vector2d *out_world_
    }
 }
 
+// Assemble a derived coordinate frame for an object from its existing pose fields.
+// The returned Frame2d is a read-only VIEW -- nothing is cached on the object. Its basis is the
+// object's local axes (local_axis_x/y, kept in step with rotation by SyncNewtonoidRotation), its
+// origin_in_parent is the anchor position (the object's origin in its owning world's local space),
+// and its local_min/local_max are the cached tight local AABB reconstructed from
+// local_geometry_center +/- half of bounds_size -- the same local bounds RebuildNewtonoidGeometry
+// caches. A NULL object yields a zeroed frame with an identity basis so transform helpers stay
+// well-defined.
+Frame2d Newtonoid_GetFrame(const Newtonoid2d *object)
+{
+   if (!object)
+   {
+      return (Frame2d){
+          .basis = IDENTITY_BASIS_2D,
+          .origin_in_parent = ZERO_VECTOR_2D,
+          .local_min = ZERO_VECTOR_2D,
+          .local_max = ZERO_VECTOR_2D};
+   }
+
+   // Local half-extent from the cached local bounds size (bounds_size is a LOCAL extent).
+   Vector2d half_extent = VectorScale_2d(object->bounds_size, 0.5f);
+
+   return (Frame2d){
+       // Basis = the object's local axes expressed in parent space.
+       .basis = {.u = object->local_axis_x, .v = object->local_axis_y},
+       // Origin = the object's position in its owning world's local frame.
+       .origin_in_parent = object->anchor_position,
+       // Local bounds reconstructed as centre +/- half-extent; identical to the tight local
+       // AABB that RebuildNewtonoidGeometry derived from surface.surface_vectors.
+       .local_min = VectorDiff_2d(object->local_geometry_center, half_extent),
+       .local_max = VectorSum_2d(object->local_geometry_center, half_extent)};
+}
+
 // Transform an object's surface, refresh its world-space AABB, and return it.
 Matrix2x2 UpdateEntityBounds(Newtonoid2d *object, Vector2d out_world_vertices[MAX_SHAPE_VERTICES])
 {
