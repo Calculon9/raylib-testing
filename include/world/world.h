@@ -71,6 +71,11 @@ TextureId  TilePalette_TextureForType(int tile_type);
 // (grid-default) and any out-of-range index return CELL_FLAG_NONE. Never returns CELL_FLAG_PRESENT
 // (occupancy is not a material property). CellFlags is in scope via math/coordinate_space.h.
 CellFlags  TilePalette_BehaviourForType(int tile_type);
+// Resolve a tile_type to its tile name (the file stem / id stored in the catalogue). Returns a
+// borrowed const char* into the catalogue's own storage (never allocates). Index 0 (the
+// grid-default sentinel) and any out-of-range index return a safe "<unknown>" literal, mirroring
+// the colour/texture/behaviour accessors' fallback contract.
+const char *TilePalette_NameForType(int tile_type);
 
 typedef struct
 {

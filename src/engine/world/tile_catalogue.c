@@ -336,3 +336,19 @@ CellFlags TilePalette_BehaviourForType(int tile_type)
     const TileDefinition *definition = (const TileDefinition *)LArray_Get(&g_tile_catalogue, tile_type);
     return definition ? definition->behaviour_flags : CELL_FLAG_NONE;
 }
+
+// Resolve a tile_type to its tile name (the file stem stored in the definition). Returns a borrowed
+// const char* into the catalogue's own storage, so there is NO allocation and the caller must not
+// free or retain it across a catalogue reload. Index 0 (the grid-default sentinel) and any
+// out-of-range index return the "<unknown>" literal, mirroring the fallback contract of the sibling
+// colour/texture/behaviour accessors.
+const char *TilePalette_NameForType(int tile_type)
+{
+    int count = TilePalette_TypeCount();
+    if (tile_type <= 0 || tile_type >= count)
+    {
+        return "<unknown>"; // 0 = grid default; out-of-range = safe fallback.
+    }
+    const TileDefinition *definition = (const TileDefinition *)LArray_Get(&g_tile_catalogue, tile_type);
+    return definition ? definition->name : "<unknown>"; // Borrowed pointer into catalogue storage.
+}

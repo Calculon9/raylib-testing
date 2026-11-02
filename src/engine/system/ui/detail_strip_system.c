@@ -3,11 +3,13 @@
 DETAIL STRIP SYSTEM MODULE (implementation)
 *
 Loads detail_strip.xml, mounts it as a single-view ViewHostSystem against the detail-strip
-viewport, and feeds four read-only BIND_STRING labels describing the CURRENT detail context. For
-v1 the context is ALWAYS the active prefab, resolved via Catalogue_GetParams(UIState_GetActivePrefab()).
-The single indirection DetailStrip_ActivePrefabParams is the seam where a future context (selected
-tool, world prefab) would be added WITHOUT a provider framework — branch that one function and add
-fields/shims. When no prefab context applies (empty catalogue) each field shows a neutral em-dash
+viewport, and feeds four read-only BIND_STRING labels describing the CURRENT detail context. The
+content is TOOL-AWARE: each shim branches on UIState_GetActiveTool(). TOOL_SPAWN shows the active
+prefab (id / type / components / size+mass) via Catalogue_GetParams(UIState_GetActivePrefab()).
+TOOL_CELL_PAINT shows the active tile (name, index, colour) via UIState_GetActiveTileType() and the
+TilePalette_* accessors. TOOL_NUDGE and TOOL_NONE blank all four slots with the em-dash placeholder.
+Surplus slots not needed by a context are also blanked with the em-dash so the fixed inline row width
+stays stable. When no prefab context applies (empty catalogue) each field shows a neutral em-dash
 placeholder, so the strip is always present with a stable height.
 *
 **********************************************************************************************/
@@ -25,6 +27,7 @@ placeholder, so the strip is always present with a stable height.
 #include "entities/entity_catalogue.h" // Catalogue_GetParams / Catalogue_GetId
 #include "entities/entity_factory.h"   // EntityCreateParams / CREATION_COMPONENT_*
 #include "math/geometry.h"             // ShapeType enum
+#include "world/world.h"               // TilePalette_NameForType / TilePalette_ColourForType
 #include "common/common.h"             // LOG_ERROR
 
 // Em-dash placeholder shown when no prefab context applies (empty catalogue).
@@ -89,47 +92,100 @@ static const char *DetailStrip_ShapeName(ShapeType shape)
 // Binding query shims (return BIND_STRING, mirroring the info strip's shims)
 // ============================================================================
 
-// "Prefab: <id>" — the active prefab's id; em-dash placeholder when no context applies. Returns a
-// BIND_STRING value pointing at the panel-owned buffer; the key is unused.
+// Slot 1 — tool-aware primary label. TOOL_SPAWN shows "Prefab: <id>" (active prefab); TOOL_CELL_PAINT
+// shows "Tile: <name>" (active tile); TOOL_NUDGE / TOOL_NONE blank the slot with the em-dash (no
+// payload). Returns a BIND_STRING value pointing at the panel-owned buffer; the key is unused.
 static BindingValue DetailStrip_QueryPrefabId(int key)
 {
     (void)key;
-    const char *id = NULL;
-    const EntityCreateParams *p = DetailStrip_ActivePrefabParams(&id);
-    if (!p)
+    switch (UIState_GetActiveTool())
     {
-        snprintf(detail_id_text, sizeof(detail_id_text), "Prefab: " DETAIL_STRIP_EMPTY);
-    }
-    else
-    {
-        snprintf(detail_id_text, sizeof(detail_id_text), "Prefab: %s",
-                 (id && *id) ? id : DETAIL_STRIP_EMPTY);
+        case TOOL_SPAWN:
+        {
+            const char *id = NULL;
+            const EntityCreateParams *p = DetailStrip_ActivePrefabParams(&id);
+            if (!p)
+            {
+                snprintf(detail_id_text, sizeof(detail_id_text), "Prefab: " DETAIL_STRIP_EMPTY);
+            }
+            else
+            {
+                snprintf(detail_id_text, sizeof(detail_id_text), "Prefab: %s",
+                         (id && *id) ? id : DETAIL_STRIP_EMPTY);
+            }
+            break;
+        }
+        case TOOL_CELL_PAINT:
+        {
+            // Active tile name via the borrowed-pointer catalogue accessor (no allocation).
+            int type = UIState_GetActiveTileType();
+            snprintf(detail_id_text, sizeof(detail_id_text), "Tile: %s",
+                     TilePalette_NameForType(type));
+            break;
+        }
+        default: // TOOL_NUDGE / TOOL_NONE — no payload to show.
+            snprintf(detail_id_text, sizeof(detail_id_text), DETAIL_STRIP_EMPTY);
+            break;
     }
     return (BindingValue){ .type = BIND_STRING, .as.s = detail_id_text };
 }
 
-// "Type: <shape>" — the active prefab's physics.shape_type as a short label; em-dash when empty.
+// Slot 2 — tool-aware secondary label. TOOL_SPAWN shows "Type: <shape>" (prefab shape); TOOL_CELL_PAINT
+// shows "Index: <n>" (active tile index); TOOL_NUDGE / TOOL_NONE blank the slot with the em-dash.
 static BindingValue DetailStrip_QueryType(int key)
 {
     (void)key;
-    const EntityCreateParams *p = DetailStrip_ActivePrefabParams(NULL);
-    if (!p)
+    switch (UIState_GetActiveTool())
     {
-        snprintf(detail_type_text, sizeof(detail_type_text), "Type: " DETAIL_STRIP_EMPTY);
-    }
-    else
-    {
-        snprintf(detail_type_text, sizeof(detail_type_text), "Type: %s",
-                 DetailStrip_ShapeName(p->physics.shape_type));
+        case TOOL_SPAWN:
+        {
+            const EntityCreateParams *p = DetailStrip_ActivePrefabParams(NULL);
+            if (!p)
+            {
+                snprintf(detail_type_text, sizeof(detail_type_text), "Type: " DETAIL_STRIP_EMPTY);
+            }
+            else
+            {
+                snprintf(detail_type_text, sizeof(detail_type_text), "Type: %s",
+                         DetailStrip_ShapeName(p->physics.shape_type));
+            }
+            break;
+        }
+        case TOOL_CELL_PAINT:
+            // Active tile index — the raw palette type, mirroring the top strip's "Tile: <n>".
+            snprintf(detail_type_text, sizeof(detail_type_text), "Index: %d",
+                     UIState_GetActiveTileType());
+            break;
+        default: // TOOL_NUDGE / TOOL_NONE.
+            snprintf(detail_type_text, sizeof(detail_type_text), DETAIL_STRIP_EMPTY);
+            break;
     }
     return (BindingValue){ .type = BIND_STRING, .as.s = detail_type_text };
 }
 
-// "Has: portal rotor gear health" — the component flags present on the active prefab; "Has: —" when
-// none or no context. Writes are length-checked so the panel-owned buffer never overflows.
+// Slot 3 — tool-aware tertiary label. TOOL_SPAWN shows "Has: <component flags>" (prefab components);
+// TOOL_CELL_PAINT shows "RGB: r,g,b" (active tile fill colour); TOOL_NUDGE / TOOL_NONE blank the slot
+// with the em-dash. Writes are length-checked so the panel-owned buffer never overflows.
 static BindingValue DetailStrip_QueryComponents(int key)
 {
     (void)key;
+    ActiveTool tool = UIState_GetActiveTool();
+    if (tool == TOOL_CELL_PAINT)
+    {
+        // Active tile fill colour; the default-colour argument is only used for out-of-range types,
+        // where an opaque black placeholder keeps the field populated.
+        ColourRgba c = TilePalette_ColourForType(UIState_GetActiveTileType(),
+                                                 (ColourRgba){ 0, 0, 0, 255 });
+        snprintf(detail_components_text, sizeof(detail_components_text), "RGB: %d,%d,%d",
+                 (int)c.r, (int)c.g, (int)c.b);
+        return (BindingValue){ .type = BIND_STRING, .as.s = detail_components_text };
+    }
+    if (tool != TOOL_SPAWN) // TOOL_NUDGE / TOOL_NONE — no payload to show.
+    {
+        snprintf(detail_components_text, sizeof(detail_components_text), DETAIL_STRIP_EMPTY);
+        return (BindingValue){ .type = BIND_STRING, .as.s = detail_components_text };
+    }
+
     const EntityCreateParams *p = DetailStrip_ActivePrefabParams(NULL);
     if (!p)
     {
@@ -161,11 +217,19 @@ static BindingValue DetailStrip_QueryComponents(int key)
     return (BindingValue){ .type = BIND_STRING, .as.s = detail_components_text };
 }
 
-// "Size: w×h  m=<mass>" — a couple of key physics values from params.physics (width, height, mass).
-// The remaining Newtonoid2dParams fields are intentionally not shown. Em-dash when no context.
+// Slot 4 — tool-aware quaternary label. TOOL_SPAWN shows "Size: w×h  m=<mass>" (prefab physics);
+// every other tool (TOOL_CELL_PAINT has no fourth meaningful field, TOOL_NUDGE / TOOL_NONE have no
+// payload) blanks the surplus slot with the em-dash so the fixed inline row width stays stable.
 static BindingValue DetailStrip_QueryPhysics(int key)
 {
     (void)key;
+    if (UIState_GetActiveTool() != TOOL_SPAWN)
+    {
+        // Surplus slot for the non-spawn contexts — em-dash to keep the row width stable.
+        snprintf(detail_physics_text, sizeof(detail_physics_text), DETAIL_STRIP_EMPTY);
+        return (BindingValue){ .type = BIND_STRING, .as.s = detail_physics_text };
+    }
+
     const EntityCreateParams *p = DetailStrip_ActivePrefabParams(NULL);
     if (!p)
     {
