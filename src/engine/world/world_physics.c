@@ -51,8 +51,8 @@ static float CalculateOverlap(float a_min, float a_max, float b_min, float b_max
 }
 
 // Find the vertex furthest along one side of an axis. The selected extreme is
-// used only to place the small debug collision marker, not to resolve the pair.
-static Vector2d FindDeepestVertex(Vector2d *vertices, size_t count, Vector2d axis, bool find_minimum)
+// used as the contact point for debug markers and for wall/solid-cell resolves.
+Vector2d FindDeepestVertex(Vector2d *vertices, size_t count, Vector2d axis, bool find_minimum)
 {
     Vector2d deepest = vertices[0];
     float extreme_proj = VectorDot_2d(vertices[0], axis);
@@ -862,6 +862,23 @@ void ResolveCollision_WithRotation(Newtonoid2d *a, Newtonoid2d *b, Vector2d coll
     Newtonoid_SyncOrientationToVelocity(b);
 }
 
+// Gravity-based resting-contact reaction for a body pressed into a surface.
+// normal_to_surface points from the entity towards the surface. Returns the normal
+// impulse the contact must supply to support the weight, or 0 when not pressed in.
+float CalcSupportNormalImpulse(const Newtonoid2d *entity, Vector2d normal_to_surface,
+                               Vector2d environmental_acceleration, float delta_time)
+{
+    // Component of the environmental acceleration driving the body into the surface.
+    float inward_acceleration = VectorDot_2d(environmental_acceleration, normal_to_surface);
+    if (inward_acceleration > 0.0f && delta_time > 0.0f && entity->mass > 0.0f)
+    {
+        // A resting contact still needs a normal reaction to support the body's
+        // weight; Coulomb friction may use this impulse to slow sliding and spin.
+        return entity->mass * inward_acceleration * delta_time;
+    }
+    return 0.0f; // Not pressed in, or no usable mass/time step.
+}
+
 void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container,
                                     Vector2d environmental_acceleration, float delta_time)
 {
@@ -929,15 +946,8 @@ void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container,
         // The boundary normal points into the container, whereas the shared
         // resolver expects a normal directed from the entity towards body B.
         Vector2d entity_to_container_normal = VectorScale_2d(inward_normal, -1.0f);
-        float inward_acceleration = VectorDot_2d(environmental_acceleration, entity_to_container_normal);
-        float support_normal_impulse = 0.0f;
-        if (inward_acceleration > 0.0f && delta_time > 0.0f && entity->mass > 0.0f)
-        {
-            // A resting contact still needs a normal reaction to support the
-            // body's weight. Convert that reaction force into the impulse that
-            // Coulomb friction may use to slow sliding and angular motion.
-            support_normal_impulse = entity->mass * inward_acceleration * delta_time;
-        }
+        float support_normal_impulse = CalcSupportNormalImpulse(
+            entity, entity_to_container_normal, environmental_acceleration, delta_time);
         ResolveCollision_WithRotation(entity, container, entity_to_container_normal,
                                       contact_point, penetration_depth, support_normal_impulse);
     }

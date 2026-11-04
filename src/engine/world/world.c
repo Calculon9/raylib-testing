@@ -21,23 +21,35 @@
 // Number of delayed world commands initially reserved for a new world.
 static int initObjectCount = 4;
 
+// True when the cell at (col, row) is present and SOLID. Out-of-range is NOT solid,
+// so the grid edge always counts as an exposed face.
+static bool Cell_IsSolidAt(const Space2d *space, Cell *cells, int col, int row)
+{
+    // Outside the grid there is no neighbour, so the face stays exposed.
+    if (col < 0 || row < 0 || col >= space->columns || row >= space->rows)
+        return false;
+
+    // Present and flagged SOLID; carved-out cells never count as solid.
+    int idx = row * space->columns + col;
+    return Cell_IsPresent(space, idx) && (cells[idx].flags & CELL_FLAG_SOLID);
+}
+
 // Test and resolve every present+solid cell against the entities the broad phase
 // already placed in it, treating each solid cell as a STATIC (immovable) wall.
 //
-// The cell is represented by a single reusable scratch Newtonoid2d (`cell_body`)
-// whose anchor is moved to each cell's world-local centre; its unit-box surface
-// vertices are never rewritten because CheckForCollision_SAT transforms them about
-// the anchor every call. mass == 0 gives inverse_mass == 0, so ResolveCollision_
-// WithRotation moves only the entity — identical to how a world boundary wall is
-// made immovable. The scratch body is NEVER registered in the entity system or
-// spatial map, and the Cell struct is never written to (it stays a POD).
+// This mirrors ResolveCollision_ContainerRect: the entity's tight AABB is compared
+// with the axis-aligned cell box [local_origin, local_origin + 1], the least-
+// penetration exposed face is chosen, and one fixed axis-aligned normal is passed
+// to ResolveCollision_WithRotation. Faces shared with another solid cell are
+// skipped so seams between neighbours never produce internal collisions.
 //
-// A cell index `cell_i` maps to grid row/column exactly as the renderer's
-// DrawGridSpace does: row = cell_i / columns, col = cell_i % columns, so the cell
-// spans world-local [col, col+1] x [row, row+1] with centre (col + 0.5, row + 0.5)
-// and unit size — the same quad the cell is drawn as.
+// A single reusable scratch Newtonoid2d (`cell_body`) is the static partner: its
+// anchor is moved to each cell's centre and mass == 0 gives inverse_mass == 0, so
+// only the entity moves. It is never registered in the entity system or spatial
+// map, and the Cell struct is never written to (it stays a POD).
 static void ResolveSolidCellCollisions(World2d *world, FlatMapInt *entity_space_map,
-                                        Cell *cells, Space2d *space, Newtonoid2d *cell_body)
+                                       Cell *cells, Space2d *space, Newtonoid2d *cell_body,
+                                       float gravity, float delta_time)
 {
     int columns = space->columns;
     if (columns < 1)
@@ -65,16 +77,17 @@ static void ResolveSolidCellCollisions(World2d *world, FlatMapInt *entity_space_
         if (cell->occupancy < 1)
             continue;
 
-        // Reposition the scratch body to this cell's world-local centre. The cell
-        // box is axis-aligned (orientation 0); only the anchor changes per cell.
+        // Build the axis-aligned unit box from the cell's min corner and centre the
+        // scratch body on it. Row/column are only used for the neighbour lookup.
         int row = cell_i / columns;
         int col = cell_i % columns;
-        cell_body->anchor_position = (Vector2d){(float)col + 0.5f, (float)row + 0.5f};
+        Vector2d cell_min = cell->local_origin;
+        Vector2d cell_max = {cell_min.x + 1.0f, cell_min.y + 1.0f};
+        cell_body->anchor_position = (Vector2d){cell_min.x + 0.5f, cell_min.y + 0.5f};
 
         // Resolve every entity the broad phase placed in this cell against the
-        // static cell box. An entity spanning several solid cells appears in each
-        // cell's occupant list and is resolved against each overlapped cell in turn
-        // (accepted first pass; no multi-box merging / greedy meshing).
+        // static cell box. An entity spanning several solid cells is resolved
+        // against each overlapped cell in turn (no merged colliders).
         for (int occupant = 0; occupant < cell->occupancy; occupant++)
         {
             EntityId obj_id = cell->object_ids[occupant];
@@ -85,20 +98,93 @@ static void ResolveSolidCellCollisions(World2d *world, FlatMapInt *entity_space_
             if (!entity || !EntityIsEligbleForSpatialMap(entity))
                 continue;
 
-            // Pass the ENTITY as `a` and the static cell as `b`, mirroring entity-
-            // vs-wall. CheckForCollision_SAT orients the normal A->B and
-            // ResolveCollision_WithRotation splits the correction by inverse mass;
-            // with the cell's inverse_mass == 0 only the entity is displaced.
-            CollisionResult_SAT r = CheckForCollision_SAT(entity, cell_body);
-            if (r.is_colliding)
+            // Gates matching the wall and pair paths: world-owned entities only,
+            // role masks in both directions, and no-contact bodies never respond.
+            if (entity->parent_id != world->grid_space.object.id)
+                continue;
+            if (!(entity->collision_role_mask & cell_body->roles) ||
+                !(cell_body->collision_role_mask & entity->roles))
+                continue;
+            if (entity->constraints & ENTITY_CONSTRAINT_NO_CONTACT_RESPONSE)
+                continue;
+
+            // Recompute the world vertices and tight AABB now: earlier cell
+            // corrections moved the anchor, so the cached bounds may be stale.
+            Vector2d verts[MAX_SHAPE_VERTICES] = {0};
+            int count = (int)entity->surface.surface_vectors.count;
+            if (count < 2)
+                continue; // CalcAABBCoords_Tight needs at least two vertices.
+            if (count > MAX_SHAPE_VERTICES)
+                count = MAX_SHAPE_VERTICES;
+            Newtonoid_TransformVertices(entity, verts, MAX_SHAPE_VERTICES);
+            Matrix2x2 box = CalcAABBCoords_Tight(verts, count, ZERO_VECTOR_2D);
+            Vector2d e_min = box.col1;
+            Vector2d e_max = box.col2;
+
+            // Detection: strict AABB overlap against the cell box.
+            if (!(e_max.x > cell_min.x && e_min.x < cell_max.x &&
+                  e_max.y > cell_min.y && e_min.y < cell_max.y))
+                continue;
+
+            // Per axis, pick the side from the AABB centre against the cell centre
+            // and measure the full distance needed to clear that face.
+            Vector2d push_x, push_y;
+            float depth_x, depth_y;
+            if ((e_min.x + e_max.x) < (cell_min.x + cell_max.x))
             {
-                ResolveCollision_WithRotation(entity, cell_body, r.collision_normal,
-                                              r.contact_point, r.penetration_depth, 0.0f);
+                push_x = (Vector2d){-1.0f, 0.0f};
+                depth_x = e_max.x - cell_min.x;
             }
+            else
+            {
+                push_x = (Vector2d){1.0f, 0.0f};
+                depth_x = cell_max.x - e_min.x;
+            }
+            if ((e_min.y + e_max.y) < (cell_min.y + cell_max.y))
+            {
+                push_y = (Vector2d){0.0f, -1.0f};
+                depth_y = e_max.y - cell_min.y;
+            }
+            else
+            {
+                push_y = (Vector2d){0.0f, 1.0f};
+                depth_y = cell_max.y - e_min.y;
+            }
+
+            // A face is exposed only when its neighbouring cell is not solid.
+            bool x_exposed = !Cell_IsSolidAt(space, cells, col + (int)push_x.x, row);
+            bool y_exposed = !Cell_IsSolidAt(space, cells, col, row + (int)push_y.y);
+
+            // Choose the exposed face with the least penetration; an interior cell
+            // (no exposed face) is skipped rather than pushing through it.
+            Vector2d push_normal;
+            float depth;
+            if (x_exposed && (!y_exposed || depth_x <= depth_y))
+            {
+                push_normal = push_x;
+                depth = depth_x;
+            }
+            else if (y_exposed)
+            {
+                push_normal = push_y;
+                depth = depth_y;
+            }
+            else
+            {
+                continue;
+            }
+
+            // Contact is the vertex deepest into the cell; the resolver expects the
+            // normal pointing from the entity towards the cell.
+            Vector2d contact_point = FindDeepestVertex(verts, (size_t)count, push_normal, true);
+            Vector2d normal_to_cell = VectorScale_2d(push_normal, -1.0f);
+            float support = CalcSupportNormalImpulse(entity, normal_to_cell,
+                                                     (Vector2d){0.0f, gravity}, delta_time);
+            ResolveCollision_WithRotation(entity, cell_body, normal_to_cell,
+                                          contact_point, depth, support);
         }
     }
 }
-
 // Compose the world-local, universe-camera, and viewport transforms for rendering.
 Matrix3x3 ResolveWorldToPixelMatrix(const World2d *world, const Camera2d *universe_camera)
 {
@@ -304,7 +390,8 @@ void UpdateWorld(World2d *world, float delta_time)
         cell_body.collision_role_mask = ENTITY_DEFAULT_COLLISION_ROLE_MASK;
         cell_body.status_flags |= ENTITY_STATUS_FLAG_ALIVE; // A valid, awake collision partner.
 
-        ResolveSolidCellCollisions(world, entity_space_map, cells, space, &cell_body);
+        ResolveSolidCellCollisions(world, entity_space_map, cells, space, &cell_body,
+                                   world->gravity, delta_time);
 
         // Single release of the scratch body's vertex buffer. surface_vectors is a VALUE
         // LArray embedded in the stack-local cell_body (made via MakeLArray), so only its

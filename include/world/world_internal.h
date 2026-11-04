@@ -50,6 +50,11 @@ bool CheckForCollision_AABB(Newtonoid2d a, Newtonoid2d b);
 void ResolveCollision(Newtonoid2d *a, Newtonoid2d *b);
 void ResolveCollision_WithRotation(Newtonoid2d *a, Newtonoid2d *b, Vector2d collision_normal,
                                    Vector2d contact_point, float penetration_depth, float support_normal_impulse);
+// Find the vertex with the minimum (or maximum) projection along an axis.
+Vector2d FindDeepestVertex(Vector2d *vertices, size_t count, Vector2d axis, bool find_minimum);
+// Gravity-based resting-contact normal impulse for a body pressed into a surface.
+float CalcSupportNormalImpulse(const Newtonoid2d *entity, Vector2d normal_to_surface,
+                               Vector2d environmental_acceleration, float delta_time);
 void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container, Vector2d environmental_acceleration, float delta_time);
 bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, int cell_i, FlatMapInt *resolved_collisions, LArray *scheduled_world_cmds);
 
