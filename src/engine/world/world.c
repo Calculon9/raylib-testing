@@ -292,8 +292,8 @@ void UpdateWorld(World2d *world, float delta_time)
     if (obj_count >= 1)
     {
         // A centred unit box matching the cell quad. CreateSurface_Rectangular
-        // allocates surface_vectors via MakeLArray (HEAP), so the owning scratch
-        // body must release it with DisposeLArray once, after the pass.
+        // allocates surface_vectors via MakeLArray (a value LArray with a heap buffer),
+        // so the owning scratch body must release it with ClearLArray once, after the pass.
         Surface2d cell_surface = CreateSurface_Rectangular((Vector2d){1.0f, 1.0f});
         // mass 0 => inverse_mass 0 => immovable, exactly like a world boundary wall.
         Newtonoid2d cell_body = CreateNewtonoid2d(0.0f, ZERO_VECTOR_2D, ZERO_VECTOR_2D,
@@ -306,10 +306,11 @@ void UpdateWorld(World2d *world, float delta_time)
 
         ResolveSolidCellCollisions(world, entity_space_map, cells, space, &cell_body);
 
-        // Single release of the heap surface LArray the scratch body owns: no
-        // per-cell allocation means no churn, and one dispose means no leak and no
-        // use-after-free (the body is stack-local and not used after this point).
-        DisposeLArray(&cell_body.surface.surface_vectors);
+        // Single release of the scratch body's vertex buffer. surface_vectors is a VALUE
+        // LArray embedded in the stack-local cell_body (made via MakeLArray), so only its
+        // internal buffer is heap-owned. ClearLArray frees that buffer and leaves the
+        // header alone; DisposeLArray would free() the stack address (undefined behaviour).
+        ClearLArray(&cell_body.surface.surface_vectors);
     }
 
     // Pass 3b resolves entity pairs sharing at least one broad-phase cell.
