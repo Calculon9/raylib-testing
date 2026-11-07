@@ -10,7 +10,7 @@ Your job is to complete the requested task autonomously while preserving existin
 
 ## General Rules
 
-- ALWAYS add comments in the code to describe the logic and type of operation being done.
+- ALWAYS add comments in the code to describe the logic and type of operation being done, but not excessively. If a new concept or coding trick is being done, then explain it more deeply in the comments.
 - Always add a description for functions.
 - Read code before making changes.
 - Use UK English
