@@ -89,6 +89,9 @@ void Controller_FollowTarget(CameraController *ctrl, Vector2d target);
 void Controller_Update(CameraController *ctrl);
 void UpdateCameraFull(Camera2d *cam);
 CameraViewBox GetCameraView(Camera2d *cam, ViewportRegion viewport, Matrix3x3 M_cam_to_pixel);
+// Box (in the source space of space_to_pixel_mtx) covering a viewport's pixel rectangle. A
+// non-positive dimension means the matrix was not invertible and callers must not cull.
+CameraViewBox GetViewportBoundsInSpace(const ViewportRegion *viewport, Matrix3x3 space_to_pixel_mtx);
 // Vector2d GetCellIndicesFromCoordinates(Vector2d origin_coordinates, Vector2d input_coordinates, Basis2d basis);
 // Field UpdateFieldCellValues(Field field);
 

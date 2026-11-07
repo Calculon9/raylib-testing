@@ -297,16 +297,31 @@ void UpdateCameraFull(Camera2d *cam)
 // The viewport region constrains the area of interest, and the transformation matrix maps camera coordinates to pixel coordinates. The function returns a CameraViewBox struct containing the origin and dimensions of the camera's view in source space.
 CameraViewBox GetCameraView(Camera2d *cam, ViewportRegion viewport, Matrix3x3 M_cam_to_pixel)
 {
-    Matrix3x3 M_pixel_to_world = MatrixInvert_3x3(M_cam_to_pixel);
+    // The camera pointer is not needed: the view box is fully determined by the viewport
+    // rectangle and the space-to-pixel matrix, so delegate to the shared helper.
+    (void)cam;
+    return GetViewportBoundsInSpace(&viewport, M_cam_to_pixel);
+}
 
-    // Using your exact logic from the grid function:
+// Compute the axis-aligned box, in the source space of space_to_pixel_mtx, that covers a
+// viewport's pixel rectangle. The four pixel corners are mapped back through the inverse matrix
+// and enclosed in a tight AABB, so the result stays conservative under rotated or sheared bases.
+// Callers use it to skip cells and entities that cannot be seen. If the matrix is not invertible
+// the inverse is the zero matrix and the returned box has zero size; callers must treat a
+// non-positive dimension as "unknown" and draw everything rather than cull.
+CameraViewBox GetViewportBoundsInSpace(const ViewportRegion *viewport, Matrix3x3 space_to_pixel_mtx)
+{
+    Matrix3x3 M_pixel_to_space = MatrixInvert_3x3(space_to_pixel_mtx);
+
+    // Map each corner of the viewport's pixel rectangle into the source space.
     Vector2d viewport_coords[] = {
-        TransformCoordinates(M_pixel_to_world, viewport.pixel_origin),
-        TransformCoordinates(M_pixel_to_world, (Vector2d){(float)viewport.pixel_end.x, viewport.pixel_origin.y}),
-        TransformCoordinates(M_pixel_to_world, (Vector2d){viewport.pixel_origin.x, (float)viewport.pixel_end.y}),
-        TransformCoordinates(M_pixel_to_world, viewport.pixel_end) // First corner calculation
+        TransformCoordinates(M_pixel_to_space, viewport->pixel_origin),
+        TransformCoordinates(M_pixel_to_space, (Vector2d){(float)viewport->pixel_end.x, viewport->pixel_origin.y}),
+        TransformCoordinates(M_pixel_to_space, (Vector2d){viewport->pixel_origin.x, (float)viewport->pixel_end.y}),
+        TransformCoordinates(M_pixel_to_space, viewport->pixel_end)
     };
 
+    // Enclose the mapped corners in a tight AABB.
     Matrix2x2 aabb = CalcAABBCoords_Tight(viewport_coords, 4, ZERO_VECTOR_2D);
 
     CameraViewBox bounds;
