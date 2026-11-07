@@ -50,7 +50,7 @@ typedef struct World2d
     WorldFlags flags;
     WorldMode mode;
     struct Universe *universe; // Owning universe used for world-level context and lifetime.
-    Vector2d uni_coords_center; // Position of this world in the shared universe space (world-local units). Keeps local coords 0-based.
+    Vector2d uni_coords_center; // Position of this world in the shared universe space (world-local units). Equals frame.origin_in_parent (universe position of local (0,0)); after world growth the grid itself may extend to negative local coordinates (see Space2d.grid_origin).
     Matrix2x2 bounds; // Cached universe-space AABB; only meaningful when bounds_valid.
     bool bounds_valid;
     EntityId camera_marker_id; // Entity ID of this world's camera-position marker, if any.
@@ -179,9 +179,20 @@ WORLD MODULE
 //extern Camera2d camera_world;// = {0};
 
 extern bool world_grid_debug_labels_enabled;
-// World grid visibility (view/display setting). Default ON. Owned here; the debug-overlay
-// facade's DEBUG_WORLD_GRID case delegates to this flag.
-extern bool world_grid_overlay_enabled;
+
+// How the world grid overlay is drawn. The world grid toolbar toggle cycles FULL -> BORDER -> OFF.
+typedef enum WorldGridMode
+{
+    WORLD_GRID_MODE_FULL = 0, // Thin grid lines plus the bold world border (and debug labels, if on).
+    WORLD_GRID_MODE_BORDER,   // Only the bold world border: the outline of the present cells.
+    WORLD_GRID_MODE_OFF,      // No grid lines and no border (cell fills still draw).
+    WORLD_GRID_MODE_COUNT
+} WorldGridMode;
+
+// World grid display mode (view/display setting). Default FULL (the previous "grid ON"). Owned
+// here; the debug-overlay facade's DEBUG_WORLD_GRID case cycles it and reports it as enabled
+// whenever anything (grid or border) is visible.
+extern WorldGridMode world_grid_mode;
 
 // typedef struct {
 //     Texture *texture;

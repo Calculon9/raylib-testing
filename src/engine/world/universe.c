@@ -6,6 +6,7 @@ UNIVERSE MODULE
 #include "world/universe.h"
 #include "world/world.h"
 #include "world/world_internal.h"
+#include "world/world_growth.h"
 #include "editor/geometry_editor.h"
 #include "system/systems.h"
 #include "system/click_resolver.h"
@@ -324,6 +325,121 @@ bool Universe_SetWorldBasis(Universe *u, int index, Vector2d basis_u, Vector2d b
     return true;
 }
 
+// Transform the lattice rectangle [x0,x1) x [y0,y1) of a world's grid into universe space as a quad
+// (corner order is irrelevant to the separating-axis test, only that it traces the perimeter).
+static void Universe_LatticeRectToQuad(const World2d *world, int x0, int y0, int x1, int y1, Vector2d out_quad[4])
+{
+    const Frame2d *frame = &world->grid_space.space.frame;
+    out_quad[0] = Frame_TransformPoint_ToParent((Vector2d){(float)x0, (float)y0}, frame);
+    out_quad[1] = Frame_TransformPoint_ToParent((Vector2d){(float)x1, (float)y0}, frame);
+    out_quad[2] = Frame_TransformPoint_ToParent((Vector2d){(float)x1, (float)y1}, frame);
+    out_quad[3] = Frame_TransformPoint_ToParent((Vector2d){(float)x0, (float)y1}, frame);
+}
+
+// R3 test. True when the lattice rectangle [x0,x1)x[y0,y1) of world `world_index`, mapped into universe
+// space through its frame, strictly overlaps the FULL GRID PARALLELOGRAM of any OTHER nested world
+// (that world's grid_origin .. grid_origin + columns/rows mapped through its frame, holes included).
+// This is an exact quad test and is deliberately NOT the frame-AABB picking used by Universe_FindWorldAt.
+// "Strictly" means overlap deeper than eps on every separating axis, so abutting worlds are allowed.
+bool Universe_StripOverlapsOtherWorld(const Universe *u, int world_index, int x0, int y0, int x1, int y1, float eps)
+{
+    if (!u || world_index < 0 || world_index >= u->world_count)
+    {
+        return false;
+    }
+
+    Vector2d strip_quad[4];
+    Universe_LatticeRectToQuad(&u->worlds[world_index], x0, y0, x1, y1, strip_quad);
+
+    for (int i = 0; i < u->world_count; i++)
+    {
+        if (i == world_index)
+        {
+            continue;
+        }
+        const Space2d *other = &u->worlds[i].grid_space.space;
+        int ox = (int)other->grid_origin.x;
+        int oy = (int)other->grid_origin.y;
+        Vector2d other_quad[4];
+        Universe_LatticeRectToQuad(&u->worlds[i], ox, oy, ox + other->columns, oy + other->rows, other_quad);
+        if (WorldGrowth_QuadsOverlapStrict(strip_quad, other_quad, eps))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Authoritative growth entry: grow nested world `world_index` so lattice cell (lattice_x, lattice_y) is inside
+// its grid. Validates in order: R5 root/invalid world, R2 adjacency to a PRESENT cell, R4 the 512 cap, R3 no
+// overlap with another world; then grows, refreshes frame bounds, tunnel and spatial map. Logs every refusal.
+// Changes nothing on refusal or failure. Cells that are already inside return WORLD_GROWTH_NOT_NEEDED.
+// DRAIN-TIME ONLY: never call outside the command drain (ProcessCommandQueue); growth reallocates the cell
+// buffer, so any Cell * held elsewhere would dangle.
+WorldGrowthStatus Universe_GrowWorldToInclude(Universe *u, int world_index, int lattice_x, int lattice_y)
+{
+    World2d *world = (u && world_index >= 0 && world_index < u->world_count) ? &u->worlds[world_index] : NULL;
+    if (!world)
+    {
+        LOG_WARN("World growth refused: invalid or root world index %d (the root world is never grown).\n", world_index);
+        return WORLD_GROWTH_INVALID_WORLD;
+    }
+
+    Space2d *space = &world->grid_space.space;
+    int origin_x = (int)space->grid_origin.x;
+    int origin_y = (int)space->grid_origin.y;
+
+    GridGrowthPlan plan;
+    GrowthResult planned = WorldGrowth_Plan(space->columns, space->rows, origin_x, origin_y,
+                                            lattice_x, lattice_y, MAX_WORLD_GRID_DIMENSION, &plan);
+    if (planned == GROWTH_NOT_NEEDED)
+    {
+        return WORLD_GROWTH_NOT_NEEDED;
+    }
+
+    // R2: the new cell must edge-touch a PRESENT cell. Re-checked here (not only at click time) because
+    // state can change between the click and the drain.
+    if (!WorldGrowth_TouchesPresentCell((const Cell *)space->cells.items, space->columns, space->rows,
+                                        origin_x, origin_y, lattice_x, lattice_y))
+    {
+        LOG_INFO("World growth refused: cell (%d,%d) does not touch a present cell of world %d.\n",
+                 lattice_x, lattice_y, world_index);
+        return WORLD_GROWTH_REFUSED_NOT_ADJACENT;
+    }
+
+    // R4: cap.
+    if (planned == GROWTH_REFUSED_CAP)
+    {
+        LOG_WARN("World growth refused: world %d grid would exceed %dx%d.\n",
+                 world_index, MAX_WORLD_GRID_DIMENSION, MAX_WORLD_GRID_DIMENSION);
+        return WORLD_GROWTH_REFUSED_CAP;
+    }
+
+    // R3: test only the newly added strip so already-overlapping worlds can still grow away from each other.
+    int sx0, sy0, sx1, sy1;
+    WorldGrowth_AddedStrip(&plan, &sx0, &sy0, &sx1, &sy1);
+    if (Universe_StripOverlapsOtherWorld(u, world_index, sx0, sy0, sx1, sy1, WORLD_GROWTH_OVERLAP_EPS))
+    {
+        LOG_WARN("World growth refused: the new cells of world %d would overlap another world.\n", world_index);
+        return WORLD_GROWTH_REFUSED_OVERLAP;
+    }
+
+    if (!Space_GrowCells(space, &plan))
+    {
+        return WORLD_GROWTH_FAILED_ALLOC; // Space_GrowCells already logged; the world is untouched.
+    }
+
+    // Rebuild everything derived from the old buffer/frame extent. origin_in_parent and the basis are
+    // unchanged, so every existing local point still maps to the same universe point (no visual jump).
+    BindWorldTunnel(world, &u->camera);
+    World_RefreshBoundsFromFrame(world);
+    RefreshWorldSpatialMap(world);
+
+    LOG_INFO("World %d grown: %dx%d origin (%d,%d) -> %dx%d origin (%d,%d)\n", world_index,
+             plan.old_columns, plan.old_rows, plan.old_origin_x, plan.old_origin_y,
+             plan.new_columns, plan.new_rows, plan.new_origin_x, plan.new_origin_y);
+    return WORLD_GROWTH_OK;
+}
 // ---------------------------------------------------------------------------
 void World_SetBounds(World2d *world, Vector2d min_bound, Vector2d max_bound)
 {

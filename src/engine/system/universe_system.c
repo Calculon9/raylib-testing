@@ -364,8 +364,9 @@ InputRouteResult UpdateUniverseSystem(const InputFrame *input, InputRouteResult 
             {
                 if (cell_member->kind == TARGET_KIND_CELL)
                 {
-                    // Mark absent; the handler bounds-guards a stale index at drain time.
-                    EnqueueDeleteCell(cell_member->as.cell.world_index, cell_member->as.cell.cell_index);
+                    // Mark absent; the handler resolves the lattice coordinate to an index at drain time.
+                    EnqueueDeleteCell(cell_member->as.cell.world_index, cell_member->as.cell.lattice_x,
+                                      cell_member->as.cell.lattice_y);
                 }
             }
         }
@@ -604,15 +605,22 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
             // Does NOT read select_ref, since an absent cell no longer surfaces a TARGET_KIND_CELL
             // ref. Additive: this runs only on a genuine click with no drag/capture, so normal
             // selection/drag is never suppressed.
-            int paint_world_index = UNIVERSE_ROOT_WORLD_INDEX;
-            int paint_cell_index = -1;
-            if (Target_ResolveCellIndexAtPoint(&G_Universe, mouse_universe_coords, mouse_pixel_coords,
-                                               &paint_world_index, &paint_cell_index))
+            //
+            // The target is an ABSOLUTE lattice coordinate. A click inside a grid paints in place; a click
+            // just outside a nested world's grid (edge-adjacent to one of its PRESENT cells) makes that
+            // world grow when the command drains. The root world is never a candidate.
+            CellPaintTarget paint_target;
+            if (Target_ResolveCellPaintTarget(&G_Universe, mouse_universe_coords, mouse_pixel_coords, &paint_target))
             {
                 // Stamp the active paint tile type on commit; EnqueueAddCell marks the cell present
                 // AND carries the type to the handler. Re-painting a present cell is allowed (it
                 // just changes the cell's colour).
-                EnqueueAddCell(paint_world_index, paint_cell_index, UIState_GetActiveTileType());
+                EnqueueAddCell(paint_target.world_index, paint_target.lattice_x, paint_target.lattice_y,
+                               UIState_GetActiveTileType());
+            }
+            else
+            {
+                LOG_INFO("Cell paint: no adjacent world cell at this point; nothing to extend.\n");
             }
         }
         else if (tool_click && UIState_GetActiveTool() == TOOL_SPAWN)

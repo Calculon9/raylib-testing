@@ -581,6 +581,9 @@ void DrawWorldRegion(World2d *world, Camera2d *universe_camera)
 // Below LABEL_MIN the per-cell debug labels are skipped (they would not fit inside the cell).
 #define WORLD_GRID_LINE_MIN_CELL_PX 4.0f
 #define WORLD_GRID_LABEL_MIN_CELL_PX 40.0f
+// Bold world-border line width in pixels (grid lines are 1 px). The border is NOT gated by
+// LINE_MIN: it must stay visible when zoomed far out, which is when it is most useful.
+#define WORLD_GRID_BORDER_WIDTH_PX 3.0f
 
 // GRID-RUN-HELPERS-BEGIN (pure helpers; the scratch unit test extracts everything up to the END marker)
 
@@ -655,6 +658,43 @@ static bool GridNextEdgeRun(GridPresenceQuery present, const void *ctx, bool hor
     return true;
 }
 
+// Does the grid edge at position `pos` along grid line `line` lie on the WORLD BORDER? It does when
+// exactly ONE of the two cells it separates is present, i.e. the outline of the present cells:
+// the outside of the grid, the sides of carved holes and any ragged edge. Uses the same edge
+// geometry as GridEdgeExists (horizontal: cells (pos, line-1) / (pos, line); vertical: cells
+// (line-1, pos) / (line, pos)); out-of-range cells read as absent through the presence query.
+static bool GridBorderEdgeExists(GridPresenceQuery present, const void *ctx, bool horizontal,
+                                 int line, int pos)
+{
+    bool before = horizontal ? present(ctx, pos, line - 1) : present(ctx, line - 1, pos);
+    bool after = horizontal ? present(ctx, pos, line) : present(ctx, line, pos);
+    return before != after;
+}
+
+// As GridNextEdgeRun, but over BORDER edges only: finds the next run of consecutive border edges
+// along one grid line, scanning positions [from, to). Returns true with the run as
+// [*run_start, *run_end) (end exclusive); a non-border edge ends the run.
+static bool GridNextBorderRun(GridPresenceQuery present, const void *ctx, bool horizontal, int line,
+                              int from, int to, int *run_start, int *run_end)
+{
+    int pos = from;
+    while (pos < to && !GridBorderEdgeExists(present, ctx, horizontal, line, pos))
+    {
+        pos++; // Skip non-border edges until one exists.
+    }
+    if (pos >= to)
+    {
+        return false;
+    }
+    *run_start = pos;
+    while (pos < to && GridBorderEdgeExists(present, ctx, horizontal, line, pos))
+    {
+        pos++; // Extend while border edges keep existing.
+    }
+    *run_end = pos;
+    return true;
+}
+
 // GRID-RUN-HELPERS-END
 
 // Context for the production presence/fill queries below: one grid space and its dimensions.
@@ -692,6 +732,55 @@ static GridFillKind GridCellFillQuery(const void *ctx, int col, int row, int *ti
                                                                               : GRID_FILL_COLOUR;
 }
 
+// Draw the bold world border: every border edge (see GridBorderEdgeExists) over the visible block,
+// merged into runs and drawn through the viewport-clipped helper so it never bleeds into panels.
+// Each run is lengthened by `cap_local` at both ends so two thick segments meeting at a convex
+// corner overlap and leave no notch (butt caps would otherwise leave a missing corner square).
+//
+//   grid_query    : presence context for the grid being drawn.
+//   mtx           : world-local to pixel transform.
+//   colour        : border colour (the grid's own line colour, drawn thicker).
+//   col/row_min/max : inclusive visible cell block.
+//   gox, goy      : grid origin added to every local coordinate.
+//   cap_local     : run end extension in local units (half the line width in cells).
+static void DrawGridBorder(const GridQueryContext *grid_query, Matrix3x3 mtx, ColourRgba colour,
+                           int col_min, int col_max, int row_min, int row_max,
+                           float gox, float goy, float cap_local)
+{
+    int run_start = 0;
+    int run_end = 0;
+
+    // Horizontal border edges: one grid line per row boundary, positions running along columns.
+    for (int line = row_min; line <= row_max + 1; line++)
+    {
+        int from = col_min;
+        while (GridNextBorderRun(GridCellPresentQuery, grid_query, true, line, from,
+                                 col_max + 1, &run_start, &run_end))
+        {
+            DrawTransformedLineClippedEx((Vector2d){(float)run_start + gox - cap_local, (float)line + goy},
+                                         (Vector2d){(float)run_end + gox + cap_local, (float)line + goy},
+                                         mtx, WORLD_GRID_BORDER_WIDTH_PX, colour,
+                                         game_viewport.pixel_origin, game_viewport.pixel_end);
+            from = run_end;
+        }
+    }
+
+    // Vertical border edges: one grid line per column boundary, positions running along rows.
+    for (int line = col_min; line <= col_max + 1; line++)
+    {
+        int from = row_min;
+        while (GridNextBorderRun(GridCellPresentQuery, grid_query, false, line, from,
+                                 row_max + 1, &run_start, &run_end))
+        {
+            DrawTransformedLineClippedEx((Vector2d){(float)line + gox, (float)run_start + goy - cap_local},
+                                         (Vector2d){(float)line + gox, (float)run_end + goy + cap_local},
+                                         mtx, WORLD_GRID_BORDER_WIDTH_PX, colour,
+                                         game_viewport.pixel_origin, game_viewport.pixel_end);
+            from = run_end;
+        }
+    }
+}
+
 // Draw a grid space. Each PRESENT cell resolves its tile_type through the data-driven tile palette
 // (tile_catalogue.c): if the tile_type carries a texture, the cell draws one textured quad into its
 // world cell via DrawTextureInWorld; otherwise it falls back to the FILL colour from
@@ -713,6 +802,13 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
     int columns = grid_space->space.columns;
     int rows = grid_space->space.rows;
 
+    // Cell (column j, row i) occupies local space [j + go.x, j + go.x + 1] x [i + go.y, i + go.y + 1].
+    // grid_origin is a whole-number local coordinate that shifts when the world grows on the left/top,
+    // so EVERY local coordinate fed to the transform below adds it. (Nested worlds used to have a zero
+    // origin, which is why bare (j, i) used to work.)
+    const float gox = grid_space->space.grid_origin.x;
+    const float goy = grid_space->space.grid_origin.y;
+
     // View culling: restrict every pass below to the block of cells the game viewport can reach.
     // Cell (j, i) spans [j, j+1] x [i, i+1] in this world's local units, so the visible block is
     // the floor of the local view box clamped to the grid. The floats are clamped BEFORE the int
@@ -724,10 +820,11 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
     LocalViewBounds view = ResolveLocalViewBounds(world_to_pixel_mtx);
     if (view.valid)
     {
-        col_min = (int)floorf(fminf(fmaxf(view.min.x, 0.0f), (float)columns));
-        col_max = (int)floorf(fminf(fmaxf(view.max.x, -1.0f), (float)columns));
-        row_min = (int)floorf(fminf(fmaxf(view.min.y, 0.0f), (float)rows));
-        row_max = (int)floorf(fminf(fmaxf(view.max.y, -1.0f), (float)rows));
+        // The view box is in local space; subtract grid_origin to get index space before clamping.
+        col_min = (int)floorf(fminf(fmaxf(view.min.x - gox, 0.0f), (float)columns));
+        col_max = (int)floorf(fminf(fmaxf(view.max.x - gox, -1.0f), (float)columns));
+        row_min = (int)floorf(fminf(fmaxf(view.min.y - goy, 0.0f), (float)rows));
+        row_max = (int)floorf(fminf(fmaxf(view.max.y - goy, -1.0f), (float)rows));
         if (col_max > columns - 1) col_max = columns - 1;
         if (row_max > rows - 1) row_max = rows - 1;
     }
@@ -780,7 +877,7 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
             if (kind == GRID_FILL_TEXTURED)
             {
                 DrawTextureInWorld(TilePalette_TextureForType(tile_type),
-                                   (Vector2d){(float)j + 0.5f, (float)i + 0.5f},
+                                   (Vector2d){(float)j + gox + 0.5f, (float)i + goy + 0.5f},
                                    (Vector2d){1.0f, 1.0f}, world_to_pixel_mtx,
                                    (ColourRgba){255, 255, 255, 255}, 0.0f);
                 j++;
@@ -794,10 +891,10 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
             Color fill = ToRaylibColor(TilePalette_ColourForType(tile_type, colour_fill));
 
             // The run's four local corners, transformed to pixels through the world basis/placement.
-            Vector2d cp0 = TransformCoordinates(world_to_pixel_mtx, (Vector2d){(float)j, (float)i});
-            Vector2d cp1 = TransformCoordinates(world_to_pixel_mtx, (Vector2d){(float)(j + run_length), (float)i});
-            Vector2d cp2 = TransformCoordinates(world_to_pixel_mtx, (Vector2d){(float)(j + run_length), (float)(i + 1)});
-            Vector2d cp3 = TransformCoordinates(world_to_pixel_mtx, (Vector2d){(float)j, (float)(i + 1)});
+            Vector2d cp0 = TransformCoordinates(world_to_pixel_mtx, (Vector2d){(float)j + gox, (float)i + goy});
+            Vector2d cp1 = TransformCoordinates(world_to_pixel_mtx, (Vector2d){(float)(j + run_length) + gox, (float)i + goy});
+            Vector2d cp2 = TransformCoordinates(world_to_pixel_mtx, (Vector2d){(float)(j + run_length) + gox, (float)(i + 1) + goy});
+            Vector2d cp3 = TransformCoordinates(world_to_pixel_mtx, (Vector2d){(float)j + gox, (float)(i + 1) + goy});
 
             // Vertex order/winding is unchanged from the per-cell version (raylib culls reversed quads).
             DrawTriangle((Vector2){cp2.x, cp2.y}, (Vector2){cp1.x, cp1.y}, (Vector2){cp0.x, cp0.y}, fill);
@@ -807,19 +904,22 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
     }
     PROFILE_END(PROF_GRIDFILL); // PROFILER
 
-    if (!IsDebugEnabled(DEBUG_WORLD_GRID))
+    // The world grid toggle cycles FULL (lines + border) -> BORDER (border only) -> OFF. OFF draws
+    // neither; the cell fills above are unaffected.
+    if (world_grid_mode == WORLD_GRID_MODE_OFF)
     {
         return;
     }
 
-    // LINES: skipped entirely when cells are too small on screen for a 1 px line to read.
-    // Otherwise every grid edge is drawn exactly ONCE (shared interior edges are no longer
+    PROFILE_BEGIN(PROF_GRIDLINES); // PROFILER
+
+    // LINES (FULL mode only): skipped entirely when cells are too small on screen for a 1 px line
+    // to read. Otherwise every grid edge is drawn exactly ONCE (shared interior edges are no longer
     // doubled). An edge exists when either cell it separates is present, so a carved shape keeps
     // its outline and a hole splits runs. Consecutive existing edges merge into one segment,
     // drawn through the viewport-clipped helper so lines never bleed into panels.
-    if (cell_px >= WORLD_GRID_LINE_MIN_CELL_PX)
+    if (world_grid_mode == WORLD_GRID_MODE_FULL && cell_px >= WORLD_GRID_LINE_MIN_CELL_PX)
     {
-        PROFILE_BEGIN(PROF_GRIDLINES); // PROFILER
         ColourRgba colour = grid_space->colour_line;
         int run_start = 0;
         int run_end = 0;
@@ -831,8 +931,8 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
             while (GridNextEdgeRun(GridCellPresentQuery, &grid_query, true, line, from,
                                    col_max + 1, &run_start, &run_end))
             {
-                DrawTransformedLineClippedV((Vector2d){(float)run_start, (float)line},
-                                            (Vector2d){(float)run_end, (float)line},
+                DrawTransformedLineClippedV((Vector2d){(float)run_start + gox, (float)line + goy},
+                                            (Vector2d){(float)run_end + gox, (float)line + goy},
                                             world_to_pixel_mtx, colour,
                                             game_viewport.pixel_origin, game_viewport.pixel_end);
                 from = run_end;
@@ -846,17 +946,31 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
             while (GridNextEdgeRun(GridCellPresentQuery, &grid_query, false, line, from,
                                    row_max + 1, &run_start, &run_end))
             {
-                DrawTransformedLineClippedV((Vector2d){(float)line, (float)run_start},
-                                            (Vector2d){(float)line, (float)run_end},
+                DrawTransformedLineClippedV((Vector2d){(float)line + gox, (float)run_start + goy},
+                                            (Vector2d){(float)line + gox, (float)run_end + goy},
                                             world_to_pixel_mtx, colour,
                                             game_viewport.pixel_origin, game_viewport.pixel_end);
                 from = run_end;
             }
         }
-        PROFILE_END(PROF_GRIDLINES); // PROFILER
     }
 
-    DArray cells = grid_space->space.cells;
+    // BORDER (FULL and BORDER modes): the bold outline of the present cells, drawn after the thin
+    // lines so it sits on top of them. Not gated by cell size, so the world outline stays visible
+    // when zoomed out. Run ends overshoot by half the line width (capped at half a cell) so
+    // corners join cleanly; cell_px is the shorter cell axis, so this is slightly generous on the
+    // longer one, which only ever hides inside the neighbouring thick segment.
+    float cap_local = (cell_px > 0.0f) ? fminf(0.5f * WORLD_GRID_BORDER_WIDTH_PX / cell_px, 0.5f) : 0.0f;
+    DrawGridBorder(&grid_query, world_to_pixel_mtx, grid_space->colour_line,
+                   col_min, col_max, row_min, row_max, gox, goy, cap_local);
+    PROFILE_END(PROF_GRIDLINES); // PROFILER
+
+    // Debug labels only make sense alongside the full grid.
+    if (world_grid_mode != WORLD_GRID_MODE_FULL)
+    {
+        return;
+    }
+
     Color text_colour = ToRaylibColor(COLOUR_GAME_PARCHMENT_RGBA);
 
     if (!world_grid_debug_labels_enabled)
@@ -880,10 +994,14 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
         {
             continue; // Absent (carved) cells carry no label.
         }
-        Cell *cell = (Cell *)((char *)cells.items + (k * cells.elem_bytes));
-        Vector2d cell_coords = cell->local_origin;
+        // Label anchor = the cell's top-left corner (j + go.x, i + go.y) in local space. cell->local_origin
+        // is NOT used: it already contains the basis (grid_origin + j*u + i*v) which world_to_pixel_mtx
+        // would apply a second time under a non-orthonormal basis. The second line shows the absolute
+        // lattice coordinate so growth is easy to verify.
+        Vector2d cell_coords = {(float)j + gox, (float)i + goy};
         Vector2d cell_pixel_coords = TransformCoordinates(world_to_pixel_mtx, cell_coords);
-        const char *displayText = TextFormat("%d(%d,%d)\n(%.0f,%.0f)\n", k, i, j, cell_pixel_coords.x, cell_pixel_coords.y);
+        const char *displayText = TextFormat("%d(%d,%d)\nL(%d,%d)\n(%.0f,%.0f)\n", k, i, j,
+                                             j + (int)gox, i + (int)goy, cell_pixel_coords.x, cell_pixel_coords.y);
 
         DrawTextEx(font, displayText, (Vector2){cell_pixel_coords.x + 2, cell_pixel_coords.y + 2}, 16, 1, text_colour);
     }

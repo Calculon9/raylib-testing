@@ -55,6 +55,27 @@ void *AllocateBytes(size_t bytes)
     return ptr;
 }
 
+// Non-fatal variant of AllocateBytes: returns zeroed memory, or NULL on failure (zero size, absurd size
+// or out of memory). Never calls exit(), so callers that must leave their data untouched on failure
+// (for example world growth) can back out cleanly. Counters are only updated on success. Free with Deallocate().
+void *TryAllocateBytes(size_t bytes)
+{
+    if (bytes == 0 || bytes > 0x7FFFFFFFFFFFFFFFUL)
+    {
+        return NULL;
+    }
+
+    void *ptr = calloc(1, bytes);
+    if (ptr == NULL)
+    {
+        return NULL;
+    }
+
+    bytesAllocated += bytes;
+    cumulativeBytesAllocated += bytes;
+    return ptr;
+}
+
 // Deallocates memory for anything and updates bytes in use.
 size_t Deallocate(void **ptr, size_t bytes)
 {

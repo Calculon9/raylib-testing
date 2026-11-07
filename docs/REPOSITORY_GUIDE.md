@@ -213,6 +213,10 @@ The project uses manual memory management. UI elements are allocated from a pool
 
 New allocation and copy operations in module code should use the wrappers in `memory/cmemory.h` where an equivalent wrapper exists.
 
+## World Growth
+
+Painting a cell with the cell-paint tool just outside a nested world's grid grows that world's dense row-major `Cell[]` (all four directions, capped at `MAX_WORLD_GRID_DIMENSION` = 512 per axis). Negative growth shifts the integer `Space2d.grid_origin` so cells and entities keep their local coordinates. Cells, commands, `TargetRef` and selection are identified by ABSOLUTE lattice coordinates (world + `lattice_x`/`lattice_y`), which survive growth; the dense index is resolved at the point of use. Growth happens ONLY in the command drain (`Universe_GrowWorldToInclude`); never call it elsewhere because it reallocates the cell buffer. Pure helpers live in `include/world/world_growth.h`.
+
 ## Working Conventions
 
 Follow [CONVENTIONS.md](../CONVENTIONS.md) for C naming, indentation, initialisation, spacing, and file naming. Keep public declarations in the appropriate `include/` module header and implementations in the matching `src/` area.
@@ -226,3 +230,4 @@ Prefer existing subsystem helpers over ad-hoc state or duplicated UI constructio
 - [OWNERSHIP.md](../OWNERSHIP.md) documents manual memory and collection ownership rules.
 - [PERFORMANCE_TECHNICAL_ANALYSIS.md](PERFORMANCE_TECHNICAL_ANALYSIS.md) records the performance optimisation analysis and reported results.
 - [AGENTS.md](../AGENTS.md) contains repository-specific instructions for automated coding work.
+

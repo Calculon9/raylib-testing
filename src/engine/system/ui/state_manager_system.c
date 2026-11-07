@@ -1892,13 +1892,22 @@ void DrawStateManagerSystem(void)
         // rather than cell index alone avoids missing a change between same-index cells in
         // different worlds. The warp fields are unaffected either way (per-frame dynamic queries).
         static int last_cell_world = -2;  // -2: never evaluated; -1: no cell selected.
+        static int last_cell_lx = -2;
+        static int last_cell_ly = -2;
         static int last_cell_index = -2;
         TargetRef primary = SelectionSet_Primary();
         int current_cell_world = (primary.kind == TARGET_KIND_CELL) ? primary.as.cell.world_index : -1;
-        int current_cell_index = (primary.kind == TARGET_KIND_CELL) ? primary.as.cell.cell_index : -1;
-        if (current_cell_world != last_cell_world || current_cell_index != last_cell_index)
+        int current_cell_lx = (primary.kind == TARGET_KIND_CELL) ? primary.as.cell.lattice_x : -1;
+        int current_cell_ly = (primary.kind == TARGET_KIND_CELL) ? primary.as.cell.lattice_y : -1;
+        // The cell is now identified by (world, lattice x/y); the LIVE dense index is also tracked because
+        // it is shown in the panel and is renumbered when the world grows on the left/top.
+        int current_cell_index = (primary.kind == TARGET_KIND_CELL) ? UIState_GetSelectedCellIndex() : -1;
+        if (current_cell_world != last_cell_world || current_cell_lx != last_cell_lx ||
+            current_cell_ly != last_cell_ly || current_cell_index != last_cell_index)
         {
             last_cell_world = current_cell_world;
+            last_cell_lx = current_cell_lx;
+            last_cell_ly = current_cell_ly;
             last_cell_index = current_cell_index;
             MarkStateManagerRefreshDirty();
         }

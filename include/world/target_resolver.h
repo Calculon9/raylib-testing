@@ -41,8 +41,9 @@ typedef enum TargetKind
 
 // A resolved, stale-safe reference to whatever was picked at a point. The active union member
 // is selected by `kind`; id/index payloads are resolved to live pointers only on read.
-// CELL references carry their owning world index plus the cell's linear index so the cell can
-// be located again without holding a Cell pointer.
+// CELL references carry their owning world index plus the cell's ABSOLUTE lattice coordinate
+// (stable when the world grows or its grid_origin shifts) so the cell can be located again
+// without holding a Cell pointer; the dense index is derived on read.
 typedef struct TargetRef
 {
     TargetKind kind;
@@ -53,7 +54,8 @@ typedef struct TargetRef
         struct
         {
             int world_index; // Owning world index (nested index or UNIVERSE_ROOT_WORLD_INDEX).
-            int cell_index;   // Linear cell index within that world's grid space.
+            int lattice_x;   // Absolute local-space cell column (cell spans local [lx, lx+1]).
+            int lattice_y;   // Absolute local-space cell row.
         } cell;             // TARGET_KIND_CELL: minimal cell identification.
     } as;
 } TargetRef;
@@ -82,6 +84,22 @@ TargetRef Target_ResolveAtPoint(const Universe *u, Vector2d universe_point, Vect
 // point (see Target_ResolveAtPoint).
 bool Target_ResolveCellIndexAtPoint(const Universe *u, Vector2d universe_point, Vector2d pixel_coords,
                                     int *out_world_index, int *out_cell_index);
+
+// Result of resolving a cell-paint click (see Target_ResolveCellPaintTarget).
+typedef struct CellPaintTarget
+{
+    int  world_index;    // Always a nested world index (>= 0).
+    int  lattice_x;      // Absolute lattice coordinate of the cell to paint.
+    int  lattice_y;
+    bool needs_growth;   // True when the cell lies outside the world's current grid.
+} CellPaintTarget;
+
+// Resolve a click to the cell to paint. Inside-bounds paints behave as before (presence ignored, so holes
+// can be re-filled). Outside every grid, the click resolves to the highest-indexed nested world that has a
+// PRESENT cell edge-adjacent to the clicked lattice cell (that world would grow). Returns false when
+// nothing qualifies. The root world is never a candidate. Read-only: growth itself happens at command drain.
+bool Target_ResolveCellPaintTarget(const Universe *u, Vector2d universe_point, Vector2d pixel_coords,
+                                   CellPaintTarget *out_target);
 
 // Synthesise human-readable display text for a ref into the caller buffer (always NUL
 // terminated when out_bytes > 0). Entity labels are composed as

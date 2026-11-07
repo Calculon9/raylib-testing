@@ -9,6 +9,7 @@
 #include <math.h>
 #include "physics/newtonoid.h"
 #include "math/coordinate_space.h"
+#include "world/world_growth.h"
 
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
@@ -211,6 +212,46 @@ GridSpace2d NewGridSpace2d_FromPreset(Vector2d origin_in_parent, CoordinateSpace
    return NewGridSpace2d(origin_in_parent, preset.resolution, preset.basis, colour_fill, colour_line);
 }
 
+// Copy the AUTHORED state of one cell: flags (incl. PRESENT/SOLID/behaviour bits), tile_type, warp_basis,
+// effect and value. This is the single list of authored fields used by world growth. Deliberately excludes
+// occupancy/object_ids (transient, rebuilt every frame) and local_origin (derived from grid_origin + basis).
+// A field added to Cell later must be added here or growth will silently drop it.
+void Cell_CopyAuthored(Cell *dst, const Cell *src)
+{
+   dst->flags = src->flags;
+   dst->tile_type = src->tile_type;
+   dst->warp_basis = src->warp_basis;
+   dst->effect = src->effect;
+   dst->value = src->value;
+}
+
+// Derive every cell's local_origin from its (column,row): grid_origin + column*u + row*v (same formula
+// as InitUnitCells). Pure arithmetic over the live buffer; cannot fail. Used by growth and basis rebuilds.
+void Space_RecomputeCellOrigins(Space2d *space)
+{
+   if (!space || !space->cells.items || space->columns < 1)
+   {
+      return;
+   }
+   Cell *cells = (Cell *)space->cells.items;
+   int columns = space->columns;
+   int count = space->cells.count;
+   for (int k = 0; k < count; k++)
+   {
+      int i = k / columns; // Row
+      int j = k % columns; // Column
+      cells[k].local_origin.x = space->grid_origin.x + j * space->frame.basis.u.x + i * space->frame.basis.v.x;
+      cells[k].local_origin.y = space->grid_origin.y + j * space->frame.basis.u.y + i * space->frame.basis.v.y;
+   }
+}
+
+// Rebuild basis-derived data after a basis edit: refresh unitArea, then re-derive each cell's local_origin.
+// DELIBERATE DEVIATION (needs user sign-off): this is done IN PLACE rather than via a snapshot + InitUnitCells +
+// Cell_CopyAuthored restore. A basis edit never changes columns/rows, so there is nothing to copy; leaving the
+// buffer alone preserves flags (SOLID etc.), warp_basis, effect and value (fixing the old bug where only PRESENT
+// and tile_type survived). Occupancy is no longer zeroed here; Universe_SetWorldBasis calls RefreshWorldSpatialMap
+// straight afterwards, which resets and rebuilds it. The root-world init caller works unchanged because
+// NewSpace2d already built every cell PRESENT.
 void RebuildSpaceCells(Space2d *space)
 {
    if (!space)
@@ -218,73 +259,109 @@ void RebuildSpaceCells(Space2d *space)
       return;
    }
 
-   // Snapshot the presence mask before InitUnitCells refills the rectangle as all-present, so a
-   // carved (non-rectangular) shape survives a basis-edit rebuild. columns/rows are invariant across
-   // a basis edit (there is no resize API), so cell_index k addresses the same cell before and after
-   // the rebuild. The snapshot is a transient scratch array, freed below — the dense cells buffer is
-   // never reallocated, resized, or otherwise disturbed (OWNERSHIP.md: disposed only by DisposeDArray).
-   size_t cell_count = space->cells.count;
-   size_t snap_bytes = cell_count * sizeof(bool);
-   size_t tile_snap_bytes = cell_count * sizeof(int);
-   bool *present_snapshot = NULL;
-   // Parallel scratch array carrying authored tile identity. InitUnitCells resets every cell to
-   // tile_type == 0, so without this a basis-edit rebuild would silently wipe authored tile types.
-   // It is preserved the same way the carved presence shape is. (warp_basis is deliberately NOT
-   // snapshotted — that pre-existing non-preservation is out of scope for this change.)
-   int *tile_snapshot = NULL;
-   if (cell_count > 0 && space->cells.items)
-   {
-      present_snapshot = (bool *)AllocateBytes(snap_bytes);
-      tile_snapshot = (int *)AllocateBytes(tile_snap_bytes);
-      Cell *cells = (Cell *)space->cells.items;
-      if (present_snapshot)
-      {
-         for (size_t k = 0; k < cell_count; k++)
-         {
-            present_snapshot[k] = (cells[k].flags & CELL_FLAG_PRESENT) != 0;
-         }
-      }
-      if (tile_snapshot)
-      {
-         for (size_t k = 0; k < cell_count; k++)
-         {
-            tile_snapshot[k] = cells[k].tile_type;
-         }
-      }
-   }
-
    space->unitArea = fabsf((space->frame.basis.u.x * space->frame.basis.v.y) -
                            (space->frame.basis.u.y * space->frame.basis.v.x));
-   InitUnitCells(space); // Refills geometry and sets every cell PRESENT by default.
-
-   // Restore the carved shape. If the snapshot allocation failed the fallback is all-present (the
-   // InitUnitCells default) — safe and visible, never a crash.
-   if (present_snapshot)
-   {
-      Cell *cells = (Cell *)space->cells.items;
-      for (size_t k = 0; k < cell_count && k < space->cells.count; k++)
-      {
-         if (!present_snapshot[k])
-         {
-            cells[k].flags &= ~CELL_FLAG_PRESENT;
-         }
-      }
-      Deallocate((void **)&present_snapshot, snap_bytes); // Balanced free; NULLs the pointer.
-   }
-
-   // Restore authored tile types the same way. If the allocation failed the fallback is the
-   // InitUnitCells default (all tile_type == 0 → the grid's own colour_fill) — safe, never a crash.
-   if (tile_snapshot)
-   {
-      Cell *cells = (Cell *)space->cells.items;
-      for (size_t k = 0; k < cell_count && k < space->cells.count; k++)
-      {
-         cells[k].tile_type = tile_snapshot[k];
-      }
-      Deallocate((void **)&tile_snapshot, tile_snap_bytes); // Balanced free; NULLs the pointer.
-   }
+   Space_RecomputeCellOrigins(space);
 }
 
+// Lattice cell containing a space-local point (uses the same maths as GetIndexFromCoords). False when the
+// point is non-finite or absurdly large.
+bool Space_LatticeFromLocal(const Space2d *space, Vector2d local, int *out_lx, int *out_ly)
+{
+   if (!space || !out_lx || !out_ly)
+   {
+      return false;
+   }
+   return WorldGrowth_LatticeFromLocal(space->grid_origin.x, space->grid_origin.y, local.x, local.y, out_lx, out_ly);
+}
+
+// Lattice cell -> dense index, or -1 if outside the grid.
+int Space_IndexFromLattice(const Space2d *space, int lx, int ly)
+{
+   if (!space)
+   {
+      return -1;
+   }
+   return WorldGrowth_IndexFromLattice(space->columns, space->rows, (int)space->grid_origin.x, (int)space->grid_origin.y, lx, ly);
+}
+
+// Cell at a lattice coordinate, or NULL if outside the grid / no buffer. Pointer is valid until the next growth.
+Cell *Space_GetCellAtLattice(Space2d *space, int lx, int ly)
+{
+   if (!space || !space->cells.items)
+   {
+      return NULL;
+   }
+   int index = Space_IndexFromLattice(space, lx, ly);
+   if (index < 0 || index >= space->cells.count)
+   {
+      return NULL;
+   }
+   return &((Cell *)space->cells.items)[index];
+}
+
+// Apply a growth plan to a space. ORDER (so the commit cannot half-grow the space):
+//   1. validate the plan against the live space;
+//   2. TryAllocateBytes the fresh buffer (NULL -> log, return false, NOTHING modified);
+//   3. WorldGrowth_CopyCells into the fresh buffer (cannot fail);
+//   4. COMMIT: swap cells.items, set count/capacity, columns, rows, grid_origin, frame.local_min/max;
+//   5. Space_RecomputeCellOrigins on the live space (pure arithmetic, cannot fail; chosen over a pre-commit
+//      helper so there is exactly one origin formula);
+//   6. free the old buffer.
+// Steps 4-6 contain no failing operation. Pointers into the old cells buffer are invalid afterwards.
+bool Space_GrowCells(Space2d *space, const struct GridGrowthPlan *plan)
+{
+   if (!space || !plan || !space->cells.items)
+   {
+      return false;
+   }
+   // 1. Validate: the plan must describe THIS space, only grow, and respect the cap.
+   if (plan->old_columns != space->columns || plan->old_rows != space->rows ||
+       plan->old_origin_x != (int)space->grid_origin.x || plan->old_origin_y != (int)space->grid_origin.y ||
+       plan->new_columns < plan->old_columns || plan->new_rows < plan->old_rows ||
+       plan->new_columns > MAX_WORLD_GRID_DIMENSION || plan->new_rows > MAX_WORLD_GRID_DIMENSION ||
+       plan->shift_cols < 0 || plan->shift_rows < 0 ||
+       plan->shift_cols + plan->old_columns > plan->new_columns ||
+       plan->shift_rows + plan->old_rows > plan->new_rows ||
+       space->cells.count != space->columns * space->rows)
+   {
+      LOG_ERROR("Space_GrowCells: plan does not match the space; world left untouched.");
+      return false;
+   }
+
+   // 2. Fresh zeroed buffer; size in size_t (max 512*512 cells).
+   int new_count = plan->new_columns * plan->new_rows;
+   size_t new_bytes = (size_t)new_count * sizeof(Cell);
+   Cell *fresh = (Cell *)TryAllocateBytes(new_bytes);
+   if (!fresh)
+   {
+      LOG_ERROR("Space_GrowCells: out of memory allocating %zu bytes; world left untouched.", new_bytes);
+      return false;
+   }
+
+   // 3. Copy authored data into the shifted slots.
+   WorldGrowth_CopyCells(fresh, plan, (const Cell *)space->cells.items);
+
+   // 4. Commit. Nothing below can fail.
+   void *old_items = space->cells.items;
+   size_t old_bytes = (size_t)space->cells.capacity * space->cells.elem_bytes;
+   space->cells.items = fresh;
+   space->cells.count = new_count;
+   space->cells.capacity = new_count;
+   space->columns = plan->new_columns;
+   space->rows = plan->new_rows;
+   space->grid_origin = (Vector2d){(float)plan->new_origin_x, (float)plan->new_origin_y};
+   space->frame.local_min = space->grid_origin;
+   space->frame.local_max = (Vector2d){space->grid_origin.x + (float)plan->new_columns,
+                                       space->grid_origin.y + (float)plan->new_rows};
+
+   // 5. Derive local_origin on the live space.
+   Space_RecomputeCellOrigins(space);
+
+   // 6. Release the old buffer.
+   Deallocate(&old_items, old_bytes);
+   return true;
+}
 // Return whether the cell at cell_index is PRESENT (really there). NULL space / NULL buffer /
 // out-of-range index all read as absent.
 bool Cell_IsPresent(const Space2d *space, int cell_index)

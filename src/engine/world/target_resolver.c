@@ -25,6 +25,8 @@ as TARGET_KIND_WORLD with world_index == UNIVERSE_ROOT_WORLD_INDEX.
 #include "math/affine_space_ops.h"
 #include "world/world.h"
 #include "world/world_internal.h" // ResolveClosestEntityAt, ResolvePixelToWorldFrame
+#include "world/world_growth.h"
+#include "world/universe.h"
 
 // TEMPORARY dev-only sanity check (OFF by default, MUST stay 0 in shipped commits).
 // When set to 1 it logs the per-world local click point computed BOTH the old way
@@ -226,10 +228,16 @@ TargetRef Target_ResolveAtPoint(const Universe *u, Vector2d universe_point, Vect
     // cell is still returned as TARGET_KIND_ENTITY and stays fully selectable.
     if (cell_index >= 0 && Cell_IsPresent(&pick_world->grid_space.space, cell_index))
     {
-        ref.kind = TARGET_KIND_CELL;
-        ref.as.cell.world_index = resolved_world_index;
-        ref.as.cell.cell_index = cell_index;
-        return ref;
+        // Store the absolute lattice coordinate (not the dense index) so the ref survives world growth.
+        int lattice_x = 0, lattice_y = 0;
+        if (Space_LatticeFromLocal(&pick_world->grid_space.space, local_point, &lattice_x, &lattice_y))
+        {
+            ref.kind = TARGET_KIND_CELL;
+            ref.as.cell.world_index = resolved_world_index;
+            ref.as.cell.lattice_x = lattice_x;
+            ref.as.cell.lattice_y = lattice_y;
+            return ref;
+        }
     }
 
     // Otherwise the point resolves to a world (nested or root/empty).
@@ -291,6 +299,59 @@ bool Target_ResolveCellIndexAtPoint(const Universe *u, Vector2d universe_point, 
     return true;
 }
 
+// Resolve a cell-paint click (see header). Step 1 keeps the old inside-bounds behaviour exactly; step 2
+// finds which nested world would grow: scan from the top-most drawn world down, take the first whose grid
+// does not already contain the clicked lattice cell but has a PRESENT 4-neighbour of it. The highest
+// qualifying index wins deterministically, with no fallback to a lower world if growth is later refused.
+bool Target_ResolveCellPaintTarget(const Universe *u, Vector2d universe_point, Vector2d pixel_coords,
+                                   CellPaintTarget *out_target)
+{
+    if (!u || !out_target)
+    {
+        return false;
+    }
+    Universe *mutable_u = (Universe *)u;
+
+    // 1. Inside the grid of the world under the point: paint in place (presence ignored).
+    int under = Universe_FindWorldAt(mutable_u, universe_point);
+    if (under >= 0 && under < mutable_u->world_count)
+    {
+        World2d *world = &mutable_u->worlds[under];
+        Vector2d local = ResolvePixelToWorldFrame(world, pixel_coords);
+        int lx = 0, ly = 0;
+        if (GetIndexFromCoords(&world->grid_space.space, local) >= 0 &&
+            Space_LatticeFromLocal(&world->grid_space.space, local, &lx, &ly))
+        {
+            *out_target = (CellPaintTarget){.world_index = under, .lattice_x = lx, .lattice_y = ly, .needs_growth = false};
+            return true;
+        }
+    }
+
+    // 2. Outside: find the world this click would extend.
+    for (int i = mutable_u->world_count - 1; i >= 0; i--)
+    {
+        World2d *world = &mutable_u->worlds[i];
+        Space2d *space = &world->grid_space.space;
+        Vector2d local = ResolvePixelToWorldFrame(world, pixel_coords);
+        int lx = 0, ly = 0;
+        if (!Space_LatticeFromLocal(space, local, &lx, &ly))
+        {
+            continue;
+        }
+        if (Space_IndexFromLattice(space, lx, ly) >= 0)
+        {
+            continue; // Already inside this grid: not a growth case.
+        }
+        if (WorldGrowth_TouchesPresentCell((const Cell *)space->cells.items, space->columns, space->rows,
+                                           (int)space->grid_origin.x, (int)space->grid_origin.y, lx, ly))
+        {
+            *out_target = (CellPaintTarget){.world_index = i, .lattice_x = lx, .lattice_y = ly, .needs_growth = true};
+            return true;
+        }
+    }
+    return false;
+}
+
 // Synthesise display text for a ref. Always NUL-terminates the buffer when out_bytes > 0.
 void Target_Describe(TargetRef ref, char *out, size_t out_bytes)
 {
@@ -318,16 +379,16 @@ void Target_Describe(TargetRef ref, char *out, size_t out_bytes)
         return;
 
     case TARGET_KIND_CELL:
-        // Cells are identified by their owning world plus linear cell index. The owning world is
-        // labelled "Root" for the root sentinel, else by its numeric index.
+        // Cells are identified by their owning world plus absolute lattice coordinate. The owning
+        // world is labelled "Root" for the root sentinel, else by its numeric index.
         if (ref.as.cell.world_index == UNIVERSE_ROOT_WORLD_INDEX)
         {
-            snprintf(out, out_bytes, "Cell #%d (World Root)", ref.as.cell.cell_index);
+            snprintf(out, out_bytes, "Cell (%d,%d) (World Root)", ref.as.cell.lattice_x, ref.as.cell.lattice_y);
         }
         else
         {
-            snprintf(out, out_bytes, "Cell #%d (World %d)",
-                     ref.as.cell.cell_index, ref.as.cell.world_index);
+            snprintf(out, out_bytes, "Cell (%d,%d) (World %d)",
+                     ref.as.cell.lattice_x, ref.as.cell.lattice_y, ref.as.cell.world_index);
         }
         return;
 

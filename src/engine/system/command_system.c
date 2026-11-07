@@ -116,6 +116,8 @@ int CommandSystem_ResolveString(const char *cmd_string)
         return CMD_TOGGLE_OBJECT_HULL;
     else if (!strcmp(cmd_string, "toggle-object-aabb"))
         return CMD_TOGGLE_OBJECT_AABB;
+    else if (!strcmp(cmd_string, "toggle-collisions"))
+        return CMD_TOGGLE_COLLISIONS;
     // Tool-toolbar actions
     else if (!strcmp(cmd_string, "tool-nudge"))
         return CMD_TOOL_NUDGE;
@@ -234,9 +236,14 @@ bool EnqueueRemoveComponent(EntityId entity_id, EntityComponentType component_ty
     return EnqueueCommandWithQueueLog(CMD_REMOVE_COMPONENT, &cmd, sizeof(cmd), "CMD_REMOVE_COMPONENT");
 }
 
-// Enqueue marking a cell PRESENT (add). Validates the world index (nested or root sentinel) and a
-// non-negative cell index; the handler bounds-guards the index again at drain time.
-bool EnqueueAddCell(int world_index, int cell_index, int tile_type)
+// Lattice coordinates beyond this magnitude are rejected before queueing (they cannot be real cells and
+// would risk int overflow in downstream arithmetic).
+#define CELL_COMMAND_MAX_LATTICE 1000000
+
+// Enqueue marking a cell PRESENT (add). Validates the world index (nested or root sentinel) and the lattice
+// magnitude; lattice coordinates may legitimately be negative. The handler resolves the dense index at
+// drain time, after any growth.
+bool EnqueueAddCell(int world_index, int lattice_x, int lattice_y, int tile_type)
 {
     // Root world cells are not modifiable, so do not even queue the command (the handler also
     // refuses authoritatively at drain time).
@@ -245,19 +252,24 @@ bool EnqueueAddCell(int world_index, int cell_index, int tile_type)
         LOG_WARN("Cannot add cell: root world cells cannot be modified.\n");
         return false;
     }
-    if (world_index < 0 || cell_index < 0)
+    if (world_index < 0)
     {
         return false;
     }
+    if (abs(lattice_x) > CELL_COMMAND_MAX_LATTICE || abs(lattice_y) > CELL_COMMAND_MAX_LATTICE)
+    {
+        LOG_WARN("Cannot add cell: lattice coordinate (%d,%d) is out of range.\n", lattice_x, lattice_y);
+        return false;
+    }
 
-    // Carry the tile type to stamp on the cell when it is marked present (paint). Index validation
-    // is unchanged; tile_type is already clamped to a valid palette index by the active-type owner.
-    CellPresenceCommand payload = {.world_index = world_index, .cell_index = cell_index, .tile_type = tile_type};
+    // Carry the tile type to stamp on the cell when it is marked present (paint). tile_type is already
+    // clamped to a valid palette index by the active-type owner.
+    CellPresenceCommand payload = {.world_index = world_index, .lattice_x = lattice_x, .lattice_y = lattice_y, .tile_type = tile_type};
     return EnqueueCommandWithQueueLog(CMD_ADD_CELL, &payload, sizeof(payload), "CMD_ADD_CELL");
 }
 
 // Enqueue marking a cell ABSENT (delete). Same validation contract as EnqueueAddCell.
-bool EnqueueDeleteCell(int world_index, int cell_index)
+bool EnqueueDeleteCell(int world_index, int lattice_x, int lattice_y)
 {
     // Root world cells are not modifiable (see EnqueueAddCell); refuse before queueing.
     if (world_index == UNIVERSE_ROOT_WORLD_INDEX)
@@ -265,12 +277,17 @@ bool EnqueueDeleteCell(int world_index, int cell_index)
         LOG_WARN("Cannot delete cell: root world cells cannot be modified.\n");
         return false;
     }
-    if (world_index < 0 || cell_index < 0)
+    if (world_index < 0)
     {
         return false;
     }
+    if (abs(lattice_x) > CELL_COMMAND_MAX_LATTICE || abs(lattice_y) > CELL_COMMAND_MAX_LATTICE)
+    {
+        LOG_WARN("Cannot delete cell: lattice coordinate (%d,%d) is out of range.\n", lattice_x, lattice_y);
+        return false;
+    }
 
-    CellPresenceCommand payload = {.world_index = world_index, .cell_index = cell_index};
+    CellPresenceCommand payload = {.world_index = world_index, .lattice_x = lattice_x, .lattice_y = lattice_y};
     return EnqueueCommandWithQueueLog(CMD_DELETE_CELL, &payload, sizeof(payload), "CMD_DELETE_CELL");
 }
 
@@ -298,6 +315,7 @@ bool CommandSystem_ResolveToggleOverlay(CommandType type, int *out_overlay_id)
     case CMD_TOGGLE_OBJECT_AXES:          overlay_id = DEBUG_OBJECT_AXES; break;
     case CMD_TOGGLE_OBJECT_HULL:          overlay_id = DEBUG_OBJECT_HULL; break;
     case CMD_TOGGLE_OBJECT_AABB:          overlay_id = DEBUG_OBJECT_AABB; break;
+    case CMD_TOGGLE_COLLISIONS:           overlay_id = DEBUG_COLLISIONS; break;
     default:
         return false; // not a toggle command
     }
@@ -427,7 +445,9 @@ static void ExecuteCommandInternal(Command *c)
     else if (c->type == CMD_ADD_CELL || c->type == CMD_DELETE_CELL)
     {
         int world_index = c->data.cell_presence.world_index;
-        int cell_index = c->data.cell_presence.cell_index;
+        int lattice_x = c->data.cell_presence.lattice_x;
+        int lattice_y = c->data.cell_presence.lattice_y;
+        int cell_index = -1; // Resolved from the lattice coordinate below, AFTER any growth.
 
         // Universe_GetWorld resolves both nested indices and the UNIVERSE_ROOT_WORLD_INDEX sentinel,
         // so a single call covers root and nested, matching the sibling entity/move handlers.
@@ -436,9 +456,40 @@ static void ExecuteCommandInternal(Command *c)
         // whatever tool enqueued the command.
         if (world == &G_Universe.root_world)
         {
-            LOG_WARN("Refused %s: root world cells cannot be modified (cell_index=%d).\n",
-                     c->type == CMD_ADD_CELL ? "CMD_ADD_CELL" : "CMD_DELETE_CELL", cell_index);
+            LOG_WARN("Refused %s: root world cells cannot be modified (lattice=%d,%d).\n",
+                     c->type == CMD_ADD_CELL ? "CMD_ADD_CELL" : "CMD_DELETE_CELL", lattice_x, lattice_y);
             world = NULL;
+        }
+
+        // Resolve the lattice coordinate to a dense index NOW, at drain time. An ADD outside the grid first
+        // grows the world (drain is the only place growth may happen), then the index is looked up again
+        // against the fresh buffer; nothing captured before the growth is reused.
+        if (world)
+        {
+            Space2d *resolve_space = &world->grid_space.space;
+            cell_index = Space_IndexFromLattice(resolve_space, lattice_x, lattice_y);
+            if (cell_index < 0 && c->type == CMD_ADD_CELL)
+            {
+                WorldGrowthStatus growth = Universe_GrowWorldToInclude(&G_Universe, world_index, lattice_x, lattice_y);
+                if (growth == WORLD_GROWTH_OK)
+                {
+                    cell_index = Space_IndexFromLattice(resolve_space, lattice_x, lattice_y);
+                    if (cell_index < 0)
+                    {
+                        LOG_ERROR("CMD_ADD_CELL: cell (%d,%d) still outside world %d after growth.\n",
+                                  lattice_x, lattice_y, world_index);
+                    }
+                }
+            }
+            if (cell_index < 0)
+            {
+                // Refused growth (already logged), failed growth, or a delete outside the grid: do not stamp.
+                if (c->type == CMD_DELETE_CELL)
+                {
+                    LOG_INFO("Refused CMD_DELETE_CELL: lattice (%d,%d) is outside world %d.\n", lattice_x, lattice_y, world_index);
+                }
+                world = NULL;
+            }
         }
 
         // Deleting a cell is refused while any entity's centre lies inside it (policy B). The
@@ -459,8 +510,8 @@ static void ExecuteCommandInternal(Command *c)
                 if (occupant_entity &&
                     GetIndexFromCoords(check_space, occupant_entity->anchor_position) == cell_index)
                 {
-                    LOG_INFO("Refused CMD_DELETE_CELL: world_index=%d cell_index=%d contains entity id=%d.\n",
-                             world_index, cell_index, occupant_id);
+                    LOG_INFO("Refused CMD_DELETE_CELL: world_index=%d lattice=(%d,%d) contains entity id=%d.\n",
+                             world_index, lattice_x, lattice_y, occupant_id);
                     world = NULL;
                     break;
                 }
@@ -507,8 +558,8 @@ static void ExecuteCommandInternal(Command *c)
                 // Bounds stay rectangular this round, but refresh anyway so a structural cell change
                 // has a single bounds-refresh hook (cheap; mirrors create/basis-edit/drag).
                 World_RefreshBoundsFromFrame(world);
-                LOG_INFO("Processed %s -> world_index=%d cell_index=%d\n",
-                         present ? "CMD_ADD_CELL" : "CMD_DELETE_CELL", world_index, cell_index);
+                LOG_INFO("Processed %s -> world_index=%d lattice=(%d,%d)\n",
+                         present ? "CMD_ADD_CELL" : "CMD_DELETE_CELL", world_index, lattice_x, lattice_y);
             }
         }
     }

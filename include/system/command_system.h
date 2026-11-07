@@ -29,6 +29,7 @@ typedef enum
     CMD_TOGGLE_OBJECT_AXES,
     CMD_TOGGLE_OBJECT_HULL,
     CMD_TOGGLE_OBJECT_AABB,
+    CMD_TOGGLE_COLLISIONS,
 
     // Tool-toolbar actions. These are NOT CMD_TOGGLE_* commands, so they are not intercepted by
     // the CMD_TOGGLE_* -> debug-overlay mapping; each toggles its tool radio-exclusively instead.
@@ -74,11 +75,13 @@ typedef struct
 } RemoveComponentCommand;
 
 // Payload for CMD_ADD_CELL / CMD_DELETE_CELL: identifies a single cell by its owning world and its
-// positional (dense) cell index. Toggling presence never changes the cell's index identity.
+// ABSOLUTE lattice coordinate. A dense index would go stale when an earlier command in the same queue
+// grows the world (growth can renumber every cell), so the index is resolved at drain time instead.
 typedef struct
 {
-    int world_index;   // Owning world index (nested index or UNIVERSE_ROOT_WORLD_INDEX).
-    int cell_index;    // Linear positional cell index within that world's grid space.
+    int world_index;   // Nested world index (the root sentinel is refused before queueing).
+    int lattice_x;     // Absolute local-space cell column (stable under growth; may be negative).
+    int lattice_y;     // Absolute local-space cell row (stable under growth; may be negative).
     int tile_type;     // Tile type to stamp on ADD (paint). Ignored by DELETE. 0 = grid default.
 } CellPresenceCommand;
 
@@ -127,11 +130,12 @@ bool EnqueueMoveEntity(EntityId entity_id, int source_world_index,
 bool EnqueueAttachComponent(EntityId entity_id, const EntityComponent *component);
 // Enqueue detaching a component from an existing entity.
 bool EnqueueRemoveComponent(EntityId entity_id, EntityComponentType component_type);
-// Enqueue marking a cell PRESENT (add) / ABSENT (delete) by its owning world and positional index.
+// Enqueue marking a cell PRESENT (add) / ABSENT (delete) by its owning world and lattice coordinate.
+// An ADD outside the world's grid grows the world at drain time (see Universe_GrowWorldToInclude).
 // EnqueueAddCell also carries the tile_type to stamp on the cell when it is marked present (paint);
 // DELETE never reads or resets tile_type.
-bool EnqueueAddCell(int world_index, int cell_index, int tile_type);
-bool EnqueueDeleteCell(int world_index, int cell_index);
+bool EnqueueAddCell(int world_index, int lattice_x, int lattice_y, int tile_type);
+bool EnqueueDeleteCell(int world_index, int lattice_x, int lattice_y);
 void ProcessCommandQueue(void);
 
 #endif

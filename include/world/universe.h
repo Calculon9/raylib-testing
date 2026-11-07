@@ -81,6 +81,27 @@ bool Universe_SelectWorld(Universe *u, int index);
 // Delete a world by index and return whether the deletion succeeded.
 bool Universe_DeleteWorld(Universe *u, int index);
 
+// Outcome of an attempt to grow a world's grid (see Universe_GrowWorldToInclude).
+typedef enum WorldGrowthStatus
+{
+    WORLD_GROWTH_OK,
+    WORLD_GROWTH_NOT_NEEDED,
+    WORLD_GROWTH_REFUSED_NOT_ADJACENT,
+    WORLD_GROWTH_REFUSED_CAP,
+    WORLD_GROWTH_REFUSED_OVERLAP,
+    WORLD_GROWTH_FAILED_ALLOC,
+    WORLD_GROWTH_INVALID_WORLD
+} WorldGrowthStatus;
+
+// Grow nested world `world_index` so absolute lattice cell (lattice_x, lattice_y) is inside its grid.
+// Validates root/invalid world, edge adjacency to a PRESENT cell, the 512 cap and overlap with other
+// worlds (in that order), logs every refusal, and changes nothing on refusal or failure.
+// NEVER CALL OUTSIDE THE COMMAND DRAIN (ProcessCommandQueue): growth reallocates the cell buffer.
+WorldGrowthStatus Universe_GrowWorldToInclude(Universe *u, int world_index, int lattice_x, int lattice_y);
+
+// True when the lattice rectangle [x0,x1)x[y0,y1) of world `world_index`, mapped through its frame, strictly
+// overlaps (deeper than eps universe units) the full grid parallelogram of any OTHER nested world.
+bool Universe_StripOverlapsOtherWorld(const Universe *u, int world_index, int x0, int y0, int x1, int y1, float eps);
 // Update a world's basis and dependent transforms; returns false for invalid bases.
 bool Universe_SetWorldBasis(Universe *u, int index, Vector2d basis_u, Vector2d basis_v);
 

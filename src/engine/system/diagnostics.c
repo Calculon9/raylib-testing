@@ -572,7 +572,6 @@ void Diagnostics_UpdateSnapshot(void)
     if (target_world_index >= 0 && target_world_index < G_Universe.world_count)
     {
         World2d *world = &G_Universe.worlds[target_world_index];
-        Vector2d world_resolution = {(float)world->grid_space.space.columns, (float)world->grid_space.space.rows};
 
         has_child_local = true;
         child_local = ResolvePixelToWorldFrame(world, pixel);
@@ -580,13 +579,8 @@ void Diagnostics_UpdateSnapshot(void)
         child_origin_in_parent.x = world->grid_space.space.frame.origin_in_parent.x;// + (world_resolution.x * 0.5f);
         child_origin_in_parent.y = world->grid_space.space.frame.origin_in_parent.y;// + (world_resolution.y * 0.5f);
 
-        if (child_local.x >= 0.0f && child_local.y >= 0.0f &&
-            child_local.x < world_resolution.x && child_local.y < world_resolution.y)
-        {
-            int cell_x = (int)floorf(child_local.x);
-            int cell_y = (int)floorf(child_local.y);
-            world_cell_index = (cell_y * (int)world_resolution.x) + cell_x;
-        }
+        // GetIndexFromCoords honours grid_origin (negative growth shifts it) and returns -1 outside the grid.
+        world_cell_index = GetIndexFromCoords(&world->grid_space.space, child_local);
     }
 
     memset(&debug_snapshot, 0, sizeof(debug_snapshot));

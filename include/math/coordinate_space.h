@@ -130,6 +130,19 @@ Space2d NewSpace2d(Vector2d origin_in_parent, Vector2d local_resolution, Basis2d
 // Clear transient entity occupancy while preserving each cell's geometry and metadata.
 void ResetSpaceCells(Space2d *space);
 void RebuildSpaceCells(Space2d *space);
+struct GridGrowthPlan; // Forward declaration; full type in world/world_growth.h.
+// The ONE place that lists authored cell state (flags, tile_type, warp_basis, effect, value). Excludes
+// occupancy/object_ids (transient) and local_origin (derived).
+void Cell_CopyAuthored(Cell *dst, const Cell *src);
+// Derive every cell's local_origin from grid_origin, columns and the frame basis. Cannot fail.
+void Space_RecomputeCellOrigins(Space2d *space);
+// Lattice helpers: ABSOLUTE local-space cell coordinates, stable under growth (see world/world_growth.h).
+bool Space_LatticeFromLocal(const Space2d *space, Vector2d local, int *out_lx, int *out_ly);
+int Space_IndexFromLattice(const Space2d *space, int lx, int ly); // -1 if outside the grid.
+Cell *Space_GetCellAtLattice(Space2d *space, int lx, int ly);      // NULL if outside the grid.
+// Apply a growth plan: allocate non-fatally, copy, commit, recompute origins, free the old buffer.
+// Returns false and changes NOTHING on allocation failure or plan mismatch. Drain-time only.
+bool Space_GrowCells(Space2d *space, const struct GridGrowthPlan *plan);
 Cell *GetCellFromCoords(Space2d *space, Vector2d local_coords);
 int GetIndexFromCoords(Space2d *space, Vector2d local_coords);
 // Return whether the cell at cell_index is PRESENT (really there). NULL space / NULL buffer /

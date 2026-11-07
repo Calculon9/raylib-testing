@@ -290,7 +290,8 @@ static bool SelectionSet_RefsEqual(TargetRef a, TargetRef b)
             return a.as.world_index == b.as.world_index;
         case TARGET_KIND_CELL:
             return a.as.cell.world_index == b.as.cell.world_index &&
-                   a.as.cell.cell_index == b.as.cell.cell_index;
+                   a.as.cell.lattice_x == b.as.cell.lattice_x &&
+                   a.as.cell.lattice_y == b.as.cell.lattice_y;
         default:
             return false;
     }
@@ -427,13 +428,23 @@ void UIState_SetSelection(Newtonoid2d *object, Cell *cell, int cell_index)
         // A cell-only selection records a CELL ref for the currently selected world context,
         // matching the info strip's existing owning-world resolution.
         int world_index = Universe_GetSelectedIndex(&G_Universe);
-        SelectionSet_Add((TargetRef){
-            .kind = TARGET_KIND_CELL,
-            .as.cell = {
-                .world_index = (world_index >= 0) ? world_index : UNIVERSE_ROOT_WORLD_INDEX,
-                .cell_index = cell_index,
-            },
-        });
+        int ref_world_index = (world_index >= 0) ? world_index : UNIVERSE_ROOT_WORLD_INDEX;
+        World2d *ref_world = Universe_GetWorld(&G_Universe, ref_world_index);
+        // Convert the caller's dense index to an ABSOLUTE lattice coordinate (grid_origin + column/row),
+        // because a dense index goes stale when the world grows but a lattice coordinate does not.
+        if (ref_world && ref_world->grid_space.space.columns > 0 &&
+            cell_index < ref_world->grid_space.space.cells.count)
+        {
+            const Space2d *ref_space = &ref_world->grid_space.space;
+            SelectionSet_Add((TargetRef){
+                .kind = TARGET_KIND_CELL,
+                .as.cell = {
+                    .world_index = ref_world_index,
+                    .lattice_x = (int)ref_space->grid_origin.x + (cell_index % ref_space->columns),
+                    .lattice_y = (int)ref_space->grid_origin.y + (cell_index / ref_space->columns),
+                },
+            });
+        }
     }
     // A full clear (object == NULL, cell_index < 0) leaves the set empty.
 
@@ -551,11 +562,18 @@ void UIState_ValidateSelectionSet(void)
                              member->as.world_index >= Universe_GetWorldCount(&G_Universe));
                     break;
                 case TARGET_KIND_CELL:
-                    // Validate a cell via its owning world index (cell index within an existing
-                    // world is treated as valid in Stage 1).
+                    // Validate a cell via its owning world index, then confirm the lattice coordinate
+                    // still lies inside that world's grid (grids only grow today, but stay defensive).
                     stale = member->as.cell.world_index != UNIVERSE_ROOT_WORLD_INDEX &&
                             (member->as.cell.world_index < 0 ||
                              member->as.cell.world_index >= Universe_GetWorldCount(&G_Universe));
+                    if (!stale)
+                    {
+                        World2d *member_world = Universe_GetWorld(&G_Universe, member->as.cell.world_index);
+                        stale = !member_world ||
+                                Space_IndexFromLattice(&member_world->grid_space.space,
+                                                       member->as.cell.lattice_x, member->as.cell.lattice_y) < 0;
+                    }
                     break;
                 default:
                     stale = true; // A TARGET_KIND_NONE member should never be stored; drop it.
@@ -631,16 +649,9 @@ Cell *UIState_GetSelectedCell(void)
         return NULL;
     }
 
-    // Bounds-check the cell index against the live cell buffer, then index it directly the same
-    // way every other cell consumer does (space->cells.items is the dense Cell array).
-    Space2d *space = &world->grid_space.space;
-    int cell_index = primary.as.cell.cell_index;
-    if (!space->cells.items || cell_index < 0 || cell_index >= (int)space->cells.count)
-    {
-        return NULL;
-    }
-
-    return &((Cell *)space->cells.items)[cell_index];
+    // Resolve the stored lattice coordinate against the LIVE grid (NULL if outside or no buffer), so the
+    // answer stays correct after the world has grown or its grid_origin has shifted.
+    return Space_GetCellAtLattice(&world->grid_space.space, primary.as.cell.lattice_x, primary.as.cell.lattice_y);
 }
 
 // Report the selected cell's index from the SelectionSet primary, or -1 when the primary is not a
@@ -648,7 +659,13 @@ Cell *UIState_GetSelectedCell(void)
 int UIState_GetSelectedCellIndex(void)
 {
     TargetRef primary = SelectionSet_Primary();
-    return (primary.kind == TARGET_KIND_CELL) ? primary.as.cell.cell_index : -1;
+    if (primary.kind != TARGET_KIND_CELL)
+    {
+        return -1;
+    }
+    // Live dense index of the lattice coordinate (it changes when the world grows on the left/top).
+    World2d *world = Universe_GetWorld(&G_Universe, primary.as.cell.world_index);
+    return world ? Space_IndexFromLattice(&world->grid_space.space, primary.as.cell.lattice_x, primary.as.cell.lattice_y) : -1;
 }
 
 // Return the currently active tool (TOOL_NONE when none is active).

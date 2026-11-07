@@ -43,6 +43,10 @@ void *AllocateCollection(size_t element_count, size_t element_bytes);
 // OWNERSHIP: Caller owns returned pointer, must call Deallocate()
 void *AllocateBytes(size_t bytes);
 
+// Non-fatal AllocateBytes: zeroed memory, or NULL on failure (never exits).
+// OWNERSHIP: Caller owns returned pointer, must call Deallocate()
+void *TryAllocateBytes(size_t bytes);
+
 // OWNERSHIP: Caller owns returned pointer, must call Deallocate()
 void *ReallocateBytes(void *ptr, size_t old_bytes, size_t new_bytes);
 
