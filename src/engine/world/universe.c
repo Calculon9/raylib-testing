@@ -144,7 +144,7 @@ static void PopulateStarterObjects(World2d *world, int requested_count)
     }
 }
 
-// ---------------------------------------------------------------------------
+// --------------------------------------------------------------------------- 
 void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_world_resolution, float default_gravity)
 {
     u->world_count = 0;
@@ -169,7 +169,7 @@ void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_wor
 
     // Root world's local space IS universe space: identity basis, frame origin at zero.
     // Its grid is centered on that origin so the camera-centered view (positive and negative coords) is indexable.
-    Vector2d root_resolution = (u->resolution.x > 0.0f && u->resolution.y > 0.0f) ? u->resolution : (Vector2d){60.0f, 60.0f};
+    Vector2d root_resolution = (u->resolution.x > 0.0f && u->resolution.y > 0.0f) ? u->resolution : (Vector2d){250.0f, 250.0f};
     GridSpace2d root_space = NewGridSpace2d(ZERO_VECTOR_2D, root_resolution, IDENTITY_BASIS_2D, COLOURLESS_RGBA, COLOURLESS_RGBA);
     root_space.space.grid_origin = VectorScale_2d(root_resolution, -0.5f);
     RebuildSpaceCells(&root_space.space);

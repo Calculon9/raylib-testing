@@ -11,8 +11,8 @@ UNIVERSE RENDERER MODULE
 #include "ui/cfont.h"
 #include "world/universe_renderer.h"
 
-static int universe_grid_cells_x = 60;
-static int universe_grid_cells_y = 60;
+static int universe_grid_cells_x = 500;
+static int universe_grid_cells_y = 500;
 static float universe_grid_cell_size = 1.0f;
 
 extern ColourRgba camera_marker_colour;
