@@ -253,6 +253,9 @@ void PhysicsUpdateJob(void *context, int start, int end)
     Space2d *space = &space_entity->space;
     FlatMapInt *entity_space_map = &world->entity_space_map;
 
+    // The integration step uses the same clamped delta as UpdateWorld (see MAX_PHYSICS_DELTA_TIME).
+    float physics_dt = fminf(frame_counter.delta_time, MAX_PHYSICS_DELTA_TIME);
+
     LArray *objects = &world->objects;
     Newtonoid2d *newtonoids = (Newtonoid2d *)objects->items;
     for (int index = start; index < end && index < (int)objects->count; index++)
@@ -297,7 +300,7 @@ void PhysicsUpdateJob(void *context, int start, int end)
             obj->acceleration = WarpApplyBasis(warp_cell->warp_basis, obj->acceleration);
         }
 
-        CalcVectors(obj, frame_counter.delta_time);
+        CalcVectors(obj, physics_dt);
 
         // Restore the authored acceleration always (gravity/warp were per-step only). Restore
         // velocity ONLY when warped, so a non-warped entity keeps CalcVectors' v += a*dt.
@@ -317,9 +320,9 @@ void PhysicsUpdateJob(void *context, int start, int end)
                                  ZERO_VECTOR_2D, snapped_aabb_verts);
         Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
         MapEntityToASpace(space, obj, snapped_aabb_box, entity_space_map);
-        ResolveCollision_ContainerRect(obj, &space_entity->object,
+        ResolveCollision_ContainerRect(obj, &space_entity->object, space,
                            (Vector2d){0.0f, world->gravity},
-                           frame_counter.delta_time);
+                           physics_dt);
         Newtonoid_SyncOrientationToVelocity(obj);
     }
 }
@@ -879,22 +882,25 @@ float CalcSupportNormalImpulse(const Newtonoid2d *entity, Vector2d normal_to_sur
     return 0.0f; // Not pressed in, or no usable mass/time step.
 }
 
-void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container,
+// Resolve an entity against the world's outer rectangle. The rectangle is derived from the
+// space (grid_origin to grid_origin + columns/rows) rather than the container body's size, so
+// it stays correct if the grid origin is non-zero or the grid grows after the body was built.
+void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container, const Space2d *space,
                                     Vector2d environmental_acceleration, float delta_time)
 {
-    if (!entity || !container || entity->parent_id != container->id)
+    if (!entity || !container || !space || entity->parent_id != container->id)
         return;
 
     if (!(entity->collision_role_mask & container->roles) ||
         !(container->collision_role_mask & entity->roles))
         return;
 
-    // The container's child coordinates are defined from (0,0) to its width and
-    // height. Compare the child's AABB against those four walls independently.
-    float c_min_x = 0.0f;
-    float c_min_y = 0.0f;
-    float c_max_x = container->bounds_size.x;
-    float c_max_y = container->bounds_size.y;
+    // The legal region is the grid rectangle in space-local units. Compare the
+    // child's AABB against those four walls independently.
+    float c_min_x = space->grid_origin.x;
+    float c_min_y = space->grid_origin.y;
+    float c_max_x = space->grid_origin.x + (float)space->columns;
+    float c_max_y = space->grid_origin.y + (float)space->rows;
 
     float e_min_x = entity->bounds_origin.x;
     float e_min_y = entity->bounds_origin.y;

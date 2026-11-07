@@ -238,7 +238,14 @@ bool EnqueueRemoveComponent(EntityId entity_id, EntityComponentType component_ty
 // non-negative cell index; the handler bounds-guards the index again at drain time.
 bool EnqueueAddCell(int world_index, int cell_index, int tile_type)
 {
-    if ((world_index < 0 && world_index != UNIVERSE_ROOT_WORLD_INDEX) || cell_index < 0)
+    // Root world cells are not modifiable, so do not even queue the command (the handler also
+    // refuses authoritatively at drain time).
+    if (world_index == UNIVERSE_ROOT_WORLD_INDEX)
+    {
+        LOG_WARN("Cannot add cell: root world cells cannot be modified.\n");
+        return false;
+    }
+    if (world_index < 0 || cell_index < 0)
     {
         return false;
     }
@@ -252,7 +259,13 @@ bool EnqueueAddCell(int world_index, int cell_index, int tile_type)
 // Enqueue marking a cell ABSENT (delete). Same validation contract as EnqueueAddCell.
 bool EnqueueDeleteCell(int world_index, int cell_index)
 {
-    if ((world_index < 0 && world_index != UNIVERSE_ROOT_WORLD_INDEX) || cell_index < 0)
+    // Root world cells are not modifiable (see EnqueueAddCell); refuse before queueing.
+    if (world_index == UNIVERSE_ROOT_WORLD_INDEX)
+    {
+        LOG_WARN("Cannot delete cell: root world cells cannot be modified.\n");
+        return false;
+    }
+    if (world_index < 0 || cell_index < 0)
     {
         return false;
     }
@@ -419,6 +432,41 @@ static void ExecuteCommandInternal(Command *c)
         // Universe_GetWorld resolves both nested indices and the UNIVERSE_ROOT_WORLD_INDEX sentinel,
         // so a single call covers root and nested, matching the sibling entity/move handlers.
         World2d *world = Universe_GetWorld(&G_Universe, world_index);
+        // The root world's cells are not modifiable: refuse both add and delete authoritatively here,
+        // whatever tool enqueued the command.
+        if (world == &G_Universe.root_world)
+        {
+            LOG_WARN("Refused %s: root world cells cannot be modified (cell_index=%d).\n",
+                     c->type == CMD_ADD_CELL ? "CMD_ADD_CELL" : "CMD_DELETE_CELL", cell_index);
+            world = NULL;
+        }
+
+        // Deleting a cell is refused while any entity's centre lies inside it (policy B). The
+        // cell's object_ids hold every entity overlapping it, so each is resolved and its anchor
+        // tested against this cell index. Overlap-only occupants do not block the delete.
+        if (world && c->type == CMD_DELETE_CELL && cell_index >= 0 &&
+            cell_index < (int)world->grid_space.space.cells.count)
+        {
+            Space2d *check_space = &world->grid_space.space;
+            Cell *check_cell = (Cell *)((char *)check_space->cells.items +
+                                        (size_t)cell_index * check_space->cells.elem_bytes);
+            for (int occupant = 0; occupant < check_cell->occupancy; occupant++)
+            {
+                EntityId occupant_id = check_cell->object_ids[occupant];
+                if (occupant_id < 1)
+                    continue;
+                Newtonoid2d *occupant_entity = (Newtonoid2d *)GetEntityByID(world, occupant_id);
+                if (occupant_entity &&
+                    GetIndexFromCoords(check_space, occupant_entity->anchor_position) == cell_index)
+                {
+                    LOG_INFO("Refused CMD_DELETE_CELL: world_index=%d cell_index=%d contains entity id=%d.\n",
+                             world_index, cell_index, occupant_id);
+                    world = NULL;
+                    break;
+                }
+            }
+        }
+
         if (world)
         {
             bool present = (c->type == CMD_ADD_CELL);

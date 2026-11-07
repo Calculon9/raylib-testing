@@ -10,6 +10,7 @@
 #include "world/world.h"
 #include "world/world_internal.h"
 #include "world/universe.h"
+#include "world/cell_walls.h"
 #include "physics/physics.h"
 #include "system/entities/relation_system.h"
 #include "system/entities/rotor_system.h"
@@ -17,30 +18,27 @@
 #include "system/entities/portal_system.h"
 #include "system/job_system.h"
 #include "entities/entity_registry.h"
+#include "system/frame_profiler.h" // PROFILER
 
 // Number of delayed world commands initially reserved for a new world.
 static int initObjectCount = 4;
 
-// True when the cell at (col, row) is present and SOLID. Out-of-range is NOT solid,
-// so the grid edge always counts as an exposed face.
-static bool Cell_IsSolidAt(const Space2d *space, Cell *cells, int col, int row)
+// True when the cell at (col, row) is BLOCKED: outside the grid, absent (given back to the
+// root world), or present and SOLID. A face shared with a blocked neighbour is never exposed,
+// and a blocked out-of-grid neighbour stops a border wall pushing entities into the container.
+static bool Cell_IsBlockedAt(const Space2d *space, Cell *cells, int col, int row)
 {
-    // Outside the grid there is no neighbour, so the face stays exposed.
-    if (col < 0 || row < 0 || col >= space->columns || row >= space->rows)
-        return false;
-
-    // Present and flagged SOLID; carved-out cells never count as solid.
-    int idx = row * space->columns + col;
-    return Cell_IsPresent(space, idx) && (cells[idx].flags & CELL_FLAG_SOLID);
+    return CellWalls_IsBlocked(cells, space->columns, space->rows, col, row);
 }
 
-// Test and resolve every present+solid cell against the entities the broad phase
-// already placed in it, treating each solid cell as a STATIC (immovable) wall.
+// Test and resolve every BLOCKED cell (absent, or present+solid) against the entities the
+// broad phase already placed in it, treating each as a STATIC (immovable) wall. Absent cells
+// are implicit SOLID tiles: the world's shape is its set of present cells.
 //
 // This mirrors ResolveCollision_ContainerRect: the entity's tight AABB is compared
-// with the axis-aligned cell box [local_origin, local_origin + 1], the least-
+// with the axis-aligned cell box [grid_origin + (col, row), + 1], the least-
 // penetration exposed face is chosen, and one fixed axis-aligned normal is passed
-// to ResolveCollision_WithRotation. Faces shared with another solid cell are
+// to ResolveCollision_WithRotation. Faces shared with another blocked cell are
 // skipped so seams between neighbours never produce internal collisions.
 //
 // A single reusable scratch Newtonoid2d (`cell_body`) is the static partner: its
@@ -64,24 +62,23 @@ static void ResolveSolidCellCollisions(World2d *world, FlatMapInt *entity_space_
 
         int cell_i = entity_space_map->slots[i].key;
 
-        // Gate on PRESENT first so a carved-out cell never collides even if a stale
-        // SOLID bit lingers, then require the SOLID flag. Only SOLID is read here.
-        if (!Cell_IsPresent(space, cell_i))
-            continue;
-
         Cell *cell = &cells[cell_i];
-        if (!(cell->flags & CELL_FLAG_SOLID))
-            continue;
 
-        // An empty solid cell has no occupants, so skip it before repositioning.
+        // An empty cell has no occupants, so skip it before any further work.
         if (cell->occupancy < 1)
             continue;
 
-        // Build the axis-aligned unit box from the cell's min corner and centre the
-        // scratch body on it. Row/column are only used for the neighbour lookup.
+        // Gate: only blocked cells act as walls, i.e. absent OR present+SOLID. Flags are
+        // read only for present cells, so a stale SOLID bit on an absent cell is moot.
         int row = cell_i / columns;
         int col = cell_i % columns;
-        Vector2d cell_min = cell->local_origin;
+        if (!Cell_IsBlockedAt(space, cells, col, row))
+            continue;
+
+        // Build the axis-aligned unit box from the grid origin plus (col, row) and centre
+        // the scratch body on it. cell->local_origin is NOT used: it includes the basis
+        // and so disagrees with GetIndexFromCoords under sheared or scaled bases.
+        Vector2d cell_min = {space->grid_origin.x + (float)col, space->grid_origin.y + (float)row};
         Vector2d cell_max = {cell_min.x + 1.0f, cell_min.y + 1.0f};
         cell_body->anchor_position = (Vector2d){cell_min.x + 0.5f, cell_min.y + 0.5f};
 
@@ -151,9 +148,9 @@ static void ResolveSolidCellCollisions(World2d *world, FlatMapInt *entity_space_
                 depth_y = cell_max.y - e_min.y;
             }
 
-            // A face is exposed only when its neighbouring cell is not solid.
-            bool x_exposed = !Cell_IsSolidAt(space, cells, col + (int)push_x.x, row);
-            bool y_exposed = !Cell_IsSolidAt(space, cells, col, row + (int)push_y.y);
+            // A face is exposed only when its neighbouring cell is not blocked.
+            bool x_exposed = !Cell_IsBlockedAt(space, cells, col + (int)push_x.x, row);
+            bool y_exposed = !Cell_IsBlockedAt(space, cells, col, row + (int)push_y.y);
 
             // Choose the exposed face with the least penetration; an interior cell
             // (no exposed face) is skipped rather than pushing through it.
@@ -185,6 +182,74 @@ static void ResolveSolidCellCollisions(World2d *world, FlatMapInt *entity_space_
         }
     }
 }
+// Recovery pass: move every entity whose CENTRE lies in an ABSENT cell to the centre of the
+// nearest open (present, non-solid) cell. The solid-cell pass cannot free an entity buried in
+// a hole of 2x2 or larger (no exposed face), and a tunnelled entity may end up in a hole, so
+// this guarantees nothing stays walled in. Entity-major, O(entities).
+//
+// Skipped: entities with no collision role (currently dragged), no-contact bodies (portals),
+// and attached children (they ride their parent). Out-of-grid centres are the container's
+// concern and are left alone. Does nothing when the grid has no open cell.
+static void RecoverEntitiesFromAbsentCells(World2d *world, FlatMapInt *entity_space_map,
+                                           Cell *cells, Space2d *space)
+{
+    Newtonoid2d *entity = NULL;
+    LArray_ForEach(&world->objects, Newtonoid2d *, entity)
+    {
+        // Eligibility gates: alive world-owned physical bodies that take part in contacts.
+        if (!EntityIsEligbleForSpatialMap(entity) ||
+            entity->parent_id != world->grid_space.object.id ||
+            entity->collision_role_mask == ENTITY_ROLE_NONE ||
+            (entity->constraints & ENTITY_CONSTRAINT_NO_CONTACT_RESPONSE))
+            continue;
+
+        // Only act when the centre is inside the grid but in an absent cell.
+        int cell_index = GetIndexFromCoords(space, entity->anchor_position);
+        if (cell_index < 0 || Cell_IsPresent(space, cell_index))
+            continue;
+
+        int from_col = cell_index % space->columns;
+        int from_row = cell_index / space->columns;
+        int to_col, to_row;
+        if (!CellWalls_FindNearestOpen(cells, space->columns, space->rows,
+                                       from_col, from_row, &to_col, &to_row))
+            return; // No open cell anywhere; nothing to recover into.
+
+        // Remember the old snapped footprint so the spatial map can be updated.
+        Vector2d old_vertices[MAX_SHAPE_VERTICES] = {0};
+        Newtonoid_TransformVertices(entity, old_vertices, MAX_SHAPE_VERTICES);
+        Vector2d old_snapped_verts[4] = {0};
+        CalcSnappedAABB_Vertices(old_vertices, entity->surface.surface_vectors.count,
+                                 ZERO_VECTOR_2D, old_snapped_verts);
+        Matrix2x2 old_snapped_box = CalcAABBCoords_Tight(old_snapped_verts, 4, ZERO_VECTOR_2D);
+
+        // Relocate to the target cell's centre and refresh the bounds from the new pose.
+        Vector2d old_centre = entity->anchor_position;
+        entity->anchor_position = (Vector2d){space->grid_origin.x + (float)to_col + 0.5f,
+                                             space->grid_origin.y + (float)to_row + 0.5f};
+        Vector2d new_vertices[MAX_SHAPE_VERTICES] = {0};
+        UpdateEntityBounds(entity, new_vertices);
+
+        // Remove only the velocity component heading back towards the wall it came from.
+        Vector2d to_wall = VectorDiff_2d(old_centre, entity->anchor_position);
+        float wall_dist = sqrtf(to_wall.x * to_wall.x + to_wall.y * to_wall.y);
+        if (wall_dist > 0.0f)
+        {
+            Vector2d n = {to_wall.x / wall_dist, to_wall.y / wall_dist};
+            float into_wall = entity->velocity.x * n.x + entity->velocity.y * n.y;
+            if (into_wall > 0.0f)
+            {
+                entity->velocity.x -= into_wall * n.x;
+                entity->velocity.y -= into_wall * n.y;
+            }
+        }
+
+        RemapEntityInASpace(space, entity, old_snapped_box, entity_space_map);
+        LOG_INFO("Recovered entity %d from absent cell %d to cell (%d,%d).\n",
+                 entity->id, cell_index, to_col, to_row);
+    }
+}
+
 // Compose the world-local, universe-camera, and viewport transforms for rendering.
 Matrix3x3 ResolveWorldToPixelMatrix(const World2d *world, const Camera2d *universe_camera)
 {
@@ -315,11 +380,13 @@ void UpdateWorld(World2d *world, float delta_time)
     if (obj_count < 1)
         return;
 
+    PROFILE_BEGIN(PROF_RESET); // PROFILER
     LArray_Reset(&world->collisions);
     ResetFlatMapInt(entity_space_map);
     ResetFlatMapInt(resolved_collisions);
 
     ResetSpaceCells(space);
+    PROFILE_END(PROF_RESET); // PROFILER
     Cell *cells = (Cell *)space->cells.items;
 
     if (!IsJobSystemInitialized())
@@ -327,8 +394,10 @@ void UpdateWorld(World2d *world, float delta_time)
         InitJobSystem(256);
     }
     ClearJobs();
+    PROFILE_BEGIN(PROF_PHYSICS); // PROFILER
     SubmitJob(PhysicsUpdateJob, world, obj_count, 8);
     ExecuteJobs();
+    PROFILE_END(PROF_PHYSICS); // PROFILER
     ClearJobs();
 
     // Pass 1 is performed by PhysicsUpdateJob: integrate positions and
@@ -337,6 +406,7 @@ void UpdateWorld(World2d *world, float delta_time)
     // Pass 2 resolves attachment hierarchies after parent simulation and before
     // collision processing, then remaps each moved child in the spatial grid.
     Newtonoid2d *child;
+    PROFILE_BEGIN(PROF_REMAP); // PROFILER
     LArray_ForEach(objects, Newtonoid2d *, child)
     {
         if (!(child->status_flags & ENTITY_STATUS_FLAG_ALIVE) || child->parent_id == space_entity->object.id ||
@@ -369,6 +439,7 @@ void UpdateWorld(World2d *world, float delta_time)
         RemapEntityInASpace(space, child, previous_snapped_aabb_box,
                             entity_space_map);
     }
+    PROFILE_END(PROF_REMAP); // PROFILER
 
     // Pass 3a resolves entities against PRESENT+SOLID tile cells (static walls).
     // Build the transient scratch collider ONCE and reuse it for every solid
@@ -389,9 +460,16 @@ void UpdateWorld(World2d *world, float delta_time)
         cell_body.roles = ENTITY_ROLE_WALL;
         cell_body.collision_role_mask = ENTITY_DEFAULT_COLLISION_ROLE_MASK;
         cell_body.status_flags |= ENTITY_STATUS_FLAG_ALIVE; // A valid, awake collision partner.
+        // Inner walls use the container's (user-editable) material so they feel like the outer wall.
+        cell_body.restitution = world->grid_space.object.restitution;
+        cell_body.friction = world->grid_space.object.friction;
 
+        PROFILE_BEGIN(PROF_SOLID); // PROFILER
         ResolveSolidCellCollisions(world, entity_space_map, cells, space, &cell_body,
                                    world->gravity, delta_time);
+        // Safety net: relocate anything left with its centre inside an absent cell.
+        RecoverEntitiesFromAbsentCells(world, entity_space_map, cells, space);
+        PROFILE_END(PROF_SOLID); // PROFILER
 
         // Single release of the scratch body's vertex buffer. surface_vectors is a VALUE
         // LArray embedded in the stack-local cell_body (made via MakeLArray), so only its
@@ -407,6 +485,7 @@ void UpdateWorld(World2d *world, float delta_time)
     }
 
     // RESOLVE ENTITY-ENTITY COLLISIONS
+    PROFILE_BEGIN(PROF_PAIRS); // PROFILER
     for (size_t i = 0; i < entity_space_map->capacity; i++)
     {
         if (entity_space_map->slots[i].key == 0 && entity_space_map->slots[i].value == 0)
@@ -433,6 +512,7 @@ void UpdateWorld(World2d *world, float delta_time)
             }
         }
     }
+    PROFILE_END(PROF_PAIRS); // PROFILER
 }
 
         // DEBUGGING - Rapid firing of polygonoids

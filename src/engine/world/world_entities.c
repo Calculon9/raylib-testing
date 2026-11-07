@@ -56,7 +56,11 @@ void DestroyWorldEntityStorage(World2d *world)
 // Add an entity after validating its world position and initial spatial cell.
 // Registration happens only after those checks so failed additions leave no
 // entity or cell state behind.
-EntityId AddObjectToWorld(World2d *world, Newtonoid2d *object, EntityId parent_id)
+// `require_present_cell` rejects a spawn point inside an ABSENT cell (a wall). Only the
+// transfer rollback passes false, so a restore to the entity's original position can never
+// be refused (and the entity lost) because that position has since become absent.
+static EntityId AddObjectToWorldChecked(World2d *world, Newtonoid2d *object, EntityId parent_id,
+                                        bool require_present_cell)
 {
     // Object placement is centre-based; grid occupancy still snaps that centre into a cell index.
     Vector2d local_coords = object->anchor_position;
@@ -65,6 +69,12 @@ EntityId AddObjectToWorld(World2d *world, Newtonoid2d *object, EntityId parent_i
     if (grid_cell_index < 0)
     {
         LOG_WARN("Desired spawn point (%0.2f,%0.2f) out of bounds. Cannot add entity to the world.\n", local_coords.x, local_coords.y);
+        return INVALID_ENTITY_ID;
+    }
+    // Absent cells are walls, so nothing may be placed inside one.
+    if (require_present_cell && !Cell_IsPresent(space, grid_cell_index))
+    {
+        LOG_WARN("Desired spawn point (%0.2f,%0.2f) is in an absent cell. Cannot add entity to the world.\n", local_coords.x, local_coords.y);
         return INVALID_ENTITY_ID;
     }
 
@@ -100,6 +110,12 @@ EntityId AddObjectToWorld(World2d *world, Newtonoid2d *object, EntityId parent_i
 
     LOG_INFO("CREATED OBJECT (ID %d): Cell %d : Centre(%.1f, %.1f)\n", object->id, cell_index, local_coords.x, local_coords.y);
     return assigned_id;
+}
+
+// Public entry point: add an entity, rejecting spawn points in absent cells.
+EntityId AddObjectToWorld(World2d *world, Newtonoid2d *object, EntityId parent_id)
+{
+    return AddObjectToWorldChecked(world, object, parent_id, true);
 }
 
 static void EnqueueWorldCommand(LArray *scheduled_events, WorldCmdType type, EntityId object_id, int payload_value,
@@ -263,6 +279,15 @@ EntityId MoveObjectBetweenWorlds(World2d *source_world, World2d *destination_wor
         return INVALID_ENTITY_ID;
     }
 
+    // Absent cells are walls: reject BEFORE the source is detached so a refused move
+    // cannot lose the entity. This also covers the same-world portal branch below.
+    if (!Space_IsPointInPresentCell(&destination_world->grid_space.space, destination_coords))
+    {
+        LOG_WARN("Cannot move entity %d: position (%0.2f,%0.2f) is in an absent cell of the destination world.\n",
+                 object_id, destination_coords.x, destination_coords.y);
+        return INVALID_ENTITY_ID;
+    }
+
     if (source_world == destination_world)
     {
         // Same-world portal transfers keep the existing registry identity and
@@ -295,7 +320,9 @@ EntityId MoveObjectBetweenWorlds(World2d *source_world, World2d *destination_wor
         moved_entity.parent_id = original_parent_id;
         moved_entity.anchor_position = original_coords_center;
         moved_entity.bounds_origin = original_coords_origin;
-        if (AddObjectToWorld(source_world, &moved_entity, original_parent_id) == INVALID_ENTITY_ID)
+        // Restore without the presence check: the original position may sit in a cell that
+        // has since become absent, and refusing here would drop the entity.
+        if (AddObjectToWorldChecked(source_world, &moved_entity, original_parent_id, false) == INVALID_ENTITY_ID)
         {
             LOG_ERROR("Failed to restore entity %d after a rejected world transfer.\n", object_id);
         }

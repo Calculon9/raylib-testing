@@ -347,6 +347,24 @@ int GetIndexFromCoords(Space2d *space, Vector2d local_coords)
    return cell_index;
 }
 
+// Return whether a space-local point lies inside a PRESENT cell. Uses GetIndexFromCoords (the
+// single index convention) so out-of-grid points give -1 and read as false; otherwise the
+// presence bit of the resolved cell decides.
+bool Space_IsPointInPresentCell(const Space2d *space, Vector2d point)
+{
+   if (!space)
+   {
+      return false;
+   }
+   // GetIndexFromCoords takes a non-const space but only reads it.
+   int cell_index = GetIndexFromCoords((Space2d *)space, point);
+   if (cell_index < 0)
+   {
+      return false; // Out of grid.
+   }
+   return Cell_IsPresent(space, cell_index);
+}
+
 Cell *GetCellFromCoords(Space2d *space, Vector2d local_coords)
 {
    int cell_index = GetIndexFromCoords(space, local_coords);

@@ -55,7 +55,11 @@ Vector2d FindDeepestVertex(Vector2d *vertices, size_t count, Vector2d axis, bool
 // Gravity-based resting-contact normal impulse for a body pressed into a surface.
 float CalcSupportNormalImpulse(const Newtonoid2d *entity, Vector2d normal_to_surface,
                                Vector2d environmental_acceleration, float delta_time);
-void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container, Vector2d environmental_acceleration, float delta_time);
+// Longest physics step (seconds) any world simulates in one frame. Clamping prevents entities
+// tunnelling through one-cell walls during slow frames, at the cost of slow motion (simulation
+// time falls behind wall-clock time) during hitches.
+#define MAX_PHYSICS_DELTA_TIME (1.0f / 30.0f)
+void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container, const Space2d *space, Vector2d environmental_acceleration, float delta_time);
 bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, int cell_i, FlatMapInt *resolved_collisions, LArray *scheduled_world_cmds);
 
 #endif // WORLD_INTERNAL_H

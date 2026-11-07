@@ -30,6 +30,7 @@
 #include "system/texture_registry.h"
 #include "world/tile_catalogue.h" // DisposeTileCatalogue (data-driven tile palette)
 #include "entities/health.h"
+#include "system/frame_profiler.h" // PROFILER
 
 // TEMPORARY dev-only sanity check (OFF by default, MUST stay 0 in shipped commits).
 // Mirrors the TARGET_RESOLVER_DEBUG_LOCALPOINT guard. When set to 1 it logs, for a
@@ -440,14 +441,17 @@ void InitWorldSystem(void)
 // step was requested, then refresh selected-entity state after array changes.
 static void UpdateWorldSimulation(bool step_requested)
 {
+    PROFILE_BEGIN(PROF_CMDS); // PROFILER
     ProcessCommandQueue();
+    PROFILE_END(PROF_CMDS); // PROFILER
 
     for (int world_index = 0; world_index < G_Universe.world_count; world_index++)
     {
         World2d *world = &G_Universe.worlds[world_index];
         if (world->mode != PAUSED || step_requested)
         {
-            UpdateWorld(world, frame_counter.delta_time);
+            // Clamp the step so a slow frame cannot launch entities through one-cell walls.
+            UpdateWorld(world, fminf(frame_counter.delta_time, MAX_PHYSICS_DELTA_TIME));
         }
     }
 
@@ -753,6 +757,24 @@ static void HandleCapturedEntityDrag(DragInteractionState *game_drag_ctx)
     if (destination_world_index < 0)
     {
         destination_world_index = UNIVERSE_ROOT_WORLD_INDEX;
+    }
+    else
+    {
+        // An absent cell is "given back to the root world": if the pointer sits over an absent
+        // cell of the candidate nested world, demote the destination to the root so the drag
+        // takes the same cross-world path as dragging out of the world's rectangle. The cell is
+        // sampled with the same pointer-to-world-frame conversion the transfer itself uses.
+        // (Universe_FindWorldAt is left untouched so picking and painting still reach holes.)
+        World2d *candidate_world = Universe_GetWorld(&G_Universe, destination_world_index);
+        if (candidate_world)
+        {
+            Vector2d candidate_local = ResolvePixelToWorldFrame(
+                candidate_world, game_drag_ctx->pointer_state.current_pos);
+            if (!Space_IsPointInPresentCell(&candidate_world->grid_space.space, candidate_local))
+            {
+                destination_world_index = UNIVERSE_ROOT_WORLD_INDEX;
+            }
+        }
     }
 
     World2d *destination_world = Universe_GetWorld(&G_Universe,

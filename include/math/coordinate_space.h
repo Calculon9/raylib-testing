@@ -135,6 +135,10 @@ int GetIndexFromCoords(Space2d *space, Vector2d local_coords);
 // Return whether the cell at cell_index is PRESENT (really there). NULL space / NULL buffer /
 // out-of-range index all read as absent (returns false).
 bool Cell_IsPresent(const Space2d *space, int cell_index);
+
+// Return whether a space-local point lies inside a PRESENT cell. Points outside the grid, or
+// inside a cell whose PRESENT flag is clear, return false. NULL space returns false.
+bool Space_IsPointInPresentCell(const Space2d *space, Vector2d point);
 // Mark the cell at cell_index present/absent by toggling CELL_FLAG_PRESENT in place. An
 // out-of-range index is a no-op. Returns whether the stored presence bit actually changed.
 // Never reallocates, resizes, or changes cells.count.

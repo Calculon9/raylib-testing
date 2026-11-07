@@ -152,8 +152,9 @@ PortalTeleportResult PortalSystem_RequestTeleport(Universe *universe, EntityId p
 
     World2d *destination_world = Universe_GetWorld(universe, destination_world_index);
     Vector2d destination_coordinates = destination_entity->anchor_position;
-    if (!destination_world || GetIndexFromCoords(&destination_world->grid_space.space,
-                                                 destination_coordinates) < 0)
+    // Reject a destination outside the grid or inside an absent cell (a wall).
+    if (!destination_world || !Space_IsPointInPresentCell(&destination_world->grid_space.space,
+                                                          destination_coordinates))
     {
         return PORTAL_TELEPORT_REJECTED;
     }
