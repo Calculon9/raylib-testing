@@ -45,6 +45,7 @@ per attribute). Attribute-less markup renders at each element's standard size.
 | `layout` | `stack` \| `stacked` \| `stack_wrap` \| `inline_wrap` | `stack` | How this element arranges its **children** (container-like elements only; leaf elements ignore it). See "Layout". |
 | `gap` | `"x y"` or `"v"` | layout preset gap | Inter-child spacing (literal units) that overrides the gap baked into the `layout=` preset. See "Layout". |
 | `padding` | `"h,v"` or `"v"` | container's constructor default | Inner inset (logical game units) between a container's own box edge and its children's content rectangle. A single `"v"` insets all four sides equally; `"h,v"` insets left+right by `h` and top+bottom by `v`. **Containers only** — see "Padding" below. |
+| `hint` | text | none | Static description shown in the **detail strip** while the pointer is over this element (or any descendant without its own hint). Live values (state, active selection) are appended in C through the element's `on_hint` callback. The detail strip textbox holds 63 characters, so keep hints short; longer text is truncated with `...`. |
 | `surface` | `transparent` \| `container` \| `field_row` \| `input` \| `button` | constructor default | Theme-safe fill/border override: resolves the named surface role from the active palette and replaces the element's constructor-chosen `colour_fill`/`colour_border`. An absent or unrecognised value leaves the constructor colours unchanged. |
 
 Legacy offset spelling (still accepted): `x="…"`, `y="…"`, `offset-type="…"`. The

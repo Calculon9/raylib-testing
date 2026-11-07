@@ -13,7 +13,7 @@
 #include "world/object_gizmos.h"
 #include "system/viewport_system.h"
 
-// World grid (world_grid_overlay_enabled) and universe grid labels (universe_grid_labels_enabled)
+// World grid (world_grid_mode) and universe grid labels (universe_grid_labels_enabled)
 // are view/display settings now owned by the world layer (world_system.c); the DEBUG_WORLD_GRID
 // and DEBUG_UNIVERSE_GRID_LABELS facade cases below delegate to those globals.
 // Object gizmo (axes/hull/AABB) enabled-state now lives in the world-layer object_gizmos module;
@@ -96,7 +96,8 @@ void ToggleDebug(DebugOverlayId overlay_id)
         ToggleViewportDebugGrid();
         break;
     case DEBUG_WORLD_GRID:
-        world_grid_overlay_enabled = !world_grid_overlay_enabled; // world-owned view flag
+        // Cycle FULL -> BORDER -> OFF -> FULL (world-owned view mode).
+        world_grid_mode = (WorldGridMode)(((int)world_grid_mode + 1) % (int)WORLD_GRID_MODE_COUNT);
         break;
     case DEBUG_WORLD_GRID_LABELS:
         world_grid_debug_labels_enabled = !world_grid_debug_labels_enabled; // world-owned
@@ -116,6 +117,9 @@ void ToggleDebug(DebugOverlayId overlay_id)
     case DEBUG_OBJECT_AABB:
         ToggleGizmo(GIZMO_AABB);
         break;
+    case DEBUG_COLLISIONS:
+        ToggleGizmo(GIZMO_COLLISIONS);
+        break;
     default:
         break;
     }
@@ -130,7 +134,8 @@ int IsDebugEnabled(DebugOverlayId overlay_id)
     case DEBUG_VIEWPORT_GRID:
         return IsViewportDebugGridEnabled();
     case DEBUG_WORLD_GRID:
-        return world_grid_overlay_enabled;
+        // "Enabled" means something is drawn (grid + border, or border only); only OFF reads as off.
+        return world_grid_mode != WORLD_GRID_MODE_OFF;
     case DEBUG_WORLD_GRID_LABELS:
         return world_grid_debug_labels_enabled;
     case DEBUG_UNIVERSE_GRID_LABELS:
@@ -143,6 +148,8 @@ int IsDebugEnabled(DebugOverlayId overlay_id)
         return IsGizmoEnabled(GIZMO_HULL);
     case DEBUG_OBJECT_AABB:
         return IsGizmoEnabled(GIZMO_AABB);
+    case DEBUG_COLLISIONS:
+        return IsGizmoEnabled(GIZMO_COLLISIONS);
     default:
         return 0;
     }

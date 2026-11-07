@@ -3,7 +3,7 @@
 *   OBJECT GIZMOS MODULE
 *
 *   Toggleable inspection overlays drawn onto world objects: orientation axes, collision hull,
-*   and axis-aligned bounding box. These are first-class, editor-grade entity annotations owned
+*   axis-aligned bounding box, and the collision-marker toggle. These are first-class, editor-grade entity annotations owned
 *   by the world layer (consumed by world_renderer.c), NOT developer diagnostics. State lives
 *   here; the debug-overlay facade delegates its DEBUG_OBJECT_* cases to this module so existing
 *   command/UI/hotkey entry points keep working unchanged.
@@ -20,6 +20,9 @@ typedef enum GizmoId
     GIZMO_AXES = 0, // Per-object orientation axes.
     GIZMO_HULL,     // Per-object collision hull outline.
     GIZMO_AABB,     // Per-object axis-aligned bounding box.
+    GIZMO_COLLISIONS, // Collision markers: when enabled, each physical collision spawns a short-lived
+                      // effect entity at the contact point. Unlike the gizmos above this gates
+                      // CREATION (read by world_physics.c), not just drawing. Defaults to ON.
     GIZMO_COUNT
 } GizmoId;
 

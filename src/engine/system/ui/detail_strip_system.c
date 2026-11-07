@@ -3,14 +3,19 @@
 DETAIL STRIP SYSTEM MODULE (implementation)
 *
 Loads detail_strip.xml, mounts it as a single-view ViewHostSystem against the detail-strip
-viewport, and feeds four read-only BIND_STRING labels describing the CURRENT detail context. The
-content is TOOL-AWARE: each shim branches on UIState_GetActiveTool(). TOOL_SPAWN shows the active
-prefab (id / type / components / size+mass) via Catalogue_GetParams(UIState_GetActivePrefab()).
-TOOL_CELL_PAINT shows the active tile (name, index, colour) via UIState_GetActiveTileType() and the
-TilePalette_* accessors. TOOL_NUDGE and TOOL_NONE blank all four slots with the em-dash placeholder.
-Surplus slots not needed by a context are also blanked with the em-dash so the fixed inline row width
-stays stable. When no prefab context applies (empty catalogue) each field shows a neutral em-dash
-placeholder, so the strip is always present with a stable height.
+viewport, and feeds ONE read-only BIND_STRING textbox with a composed description string.
+
+What the string says is decided each frame by DetailStrip_ComposeText, in priority order:
+  1. HOVER HINT - the element under the pointer (or its nearest ancestor carrying a hint). The
+     static text comes from the markup hint= attribute (UIElement.hint) and any live values are
+     appended by the element's on_hint callback (e.g. "Tile: grass (1) | ON").
+  2. TOOL CONTEXT - when nothing hintable is hovered: TOOL_SPAWN shows the active prefab,
+     TOOL_CELL_PAINT shows the active tile, TOOL_NUDGE / TOOL_NONE show the em-dash placeholder.
+Segments are joined with " | " by UIHint_AppendSegment, which also truncates with "..." so the
+text never overruns the textbox it is displayed in.
+
+The textbox text buffer is a String64, so the visible string is capped at 63 characters; hints
+and context segments are written to stay well inside that.
 *
 **********************************************************************************************/
 #include "system/ui/detail_strip_system.h"
@@ -30,30 +35,25 @@ placeholder, so the strip is always present with a stable height.
 #include "world/world.h"               // TilePalette_NameForType / TilePalette_ColourForType
 #include "common/common.h"             // LOG_ERROR
 
-// Em-dash placeholder shown when no prefab context applies (empty catalogue).
-#define DETAIL_STRIP_EMPTY "\xE2\x80\x94"
+// Em-dash placeholder shown when there is nothing to describe.
+#define DETAIL_STRIP_EMPTY "-"
 
 // ============================================================================
 // Panel state (module-owned)
 // ============================================================================
 static ViewHostSystem *detail_strip = NULL;
 
-// Panel-owned backing buffers for the BIND_STRING query results (BIND_STRING lifetime — never
-// stack locals). The binding refresh copies value.as.s during its call, so the pointer must stay
-// valid; panel-owned storage mirrors the info strip's shims.
-static char detail_id_text[64];
-static char detail_type_text[64];
-static char detail_components_text[96];
-static char detail_physics_text[96];
+// Panel-owned backing buffer for the BIND_STRING query result (BIND_STRING lifetime - never a
+// stack local). Sized to the textbox's own String64 so truncation happens here, with an
+// ellipsis, instead of silently inside the binding copy.
+static char detail_text[sizeof(String64)];
 
 // ============================================================================
-// v1 context resolution (private seam)
+// Tool-context helpers (the fallback when no hintable element is hovered)
 // ============================================================================
 
-// Resolve the current detail context. For now the context is ALWAYS the active prefab; this single
-// indirection is the seam where a future context (selected tool, world prefab) would branch WITHOUT
-// a provider framework. Returns the active prefab's params (NULL when the catalogue is empty) and,
-// when out_id is non-NULL, writes the active prefab's id ("" when empty).
+// Resolve the active spawn prefab. Returns its params (NULL when the catalogue is empty) and,
+// when out_id is non-NULL, writes the prefab's id ("" when empty).
 static const EntityCreateParams *DetailStrip_ActivePrefabParams(const char **out_id)
 {
     int idx = UIState_GetActivePrefab();
@@ -67,7 +67,6 @@ static const EntityCreateParams *DetailStrip_ActivePrefabParams(const char **out
 
 // Map a ShapeType to a short label. There is NO existing ShapeType->string helper in the tree, so
 // this file-local map covers every ShapeType value (SHAPE_AUTO .. SHAPE_GEAR) with a "?" default.
-// It is a pure enum->string function, added here rather than to the physics/geometry module.
 static const char *DetailStrip_ShapeName(ShapeType shape)
 {
     switch (shape)
@@ -88,16 +87,55 @@ static const char *DetailStrip_ShapeName(ShapeType shape)
     }
 }
 
-// ============================================================================
-// Binding query shims (return BIND_STRING, mirroring the info strip's shims)
-// ============================================================================
-
-// Slot 1 — tool-aware primary label. TOOL_SPAWN shows "Prefab: <id>" (active prefab); TOOL_CELL_PAINT
-// shows "Tile: <name>" (active tile); TOOL_NUDGE / TOOL_NONE blank the slot with the em-dash (no
-// payload). Returns a BIND_STRING value pointing at the panel-owned buffer; the key is unused.
-static BindingValue DetailStrip_QueryPrefabId(int key)
+// Write a prefab's component names, space separated, into `out` ("none" when it carries none).
+//
+//   p   : the prefab's creation params (non-NULL).
+//   out : destination buffer.
+//   cap : capacity of out in bytes.
+static void DetailStrip_FormatComponents(const EntityCreateParams *p, char *out, size_t cap)
 {
-    (void)key;
+    static const struct
+    {
+        int flag;
+        const char *name;
+    } components[] = {
+        { CREATION_COMPONENT_PORTAL, "portal" },
+        { CREATION_COMPONENT_ROTOR,  "rotor"  },
+        { CREATION_COMPONENT_GEAR,   "gear"   },
+        { CREATION_COMPONENT_HEALTH, "health" },
+    };
+
+    out[0] = '\0';
+    size_t used = 0;
+    for (size_t i = 0; i < sizeof(components) / sizeof(components[0]); i++)
+    {
+        if (((int)p->component_flags & components[i].flag) && used + 1 < cap)
+        {
+            int written = snprintf(out + used, cap - used, "%s%s", used ? " " : "", components[i].name);
+            if (written < 0)
+            {
+                break;
+            }
+            used += (size_t)written;
+            if (used >= cap)
+            {
+                used = cap - 1; // snprintf truncated; stay inside the buffer.
+            }
+        }
+    }
+    if (used == 0)
+    {
+        snprintf(out, cap, "none");
+    }
+}
+
+// Append the active tool's context (spawn prefab / paint tile) to `out`. Writes the em-dash
+// placeholder for TOOL_NUDGE and TOOL_NONE, which have no payload to show.
+//
+//   out : destination text (appended to via UIHint_AppendSegment).
+//   cap : capacity of out in bytes.
+static void DetailStrip_ComposeToolContext(char *out, size_t cap)
+{
     switch (UIState_GetActiveTool())
     {
         case TOOL_SPAWN:
@@ -106,194 +144,110 @@ static BindingValue DetailStrip_QueryPrefabId(int key)
             const EntityCreateParams *p = DetailStrip_ActivePrefabParams(&id);
             if (!p)
             {
-                snprintf(detail_id_text, sizeof(detail_id_text), "Prefab: " DETAIL_STRIP_EMPTY);
+                UIHint_AppendSegment(out, cap, "Spawn: " DETAIL_STRIP_EMPTY);
+                break;
             }
-            else
-            {
-                snprintf(detail_id_text, sizeof(detail_id_text), "Prefab: %s",
-                         (id && *id) ? id : DETAIL_STRIP_EMPTY);
-            }
+
+            // Compact one-line summary: "Spawn: crate | square | portal rotor | 2x2 m=1.00".
+            char components[48];
+            DetailStrip_FormatComponents(p, components, sizeof(components));
+            UIHint_AppendSegment(out, cap, "Spawn: %s", (id && *id) ? id : DETAIL_STRIP_EMPTY);
+            UIHint_AppendSegment(out, cap, "%s", DetailStrip_ShapeName(p->physics.shape_type));
+            UIHint_AppendSegment(out, cap, "%s", components);
+            UIHint_AppendSegment(out, cap, "%.0fx%.0f m=%.2f", (double)p->physics.width,
+                                 (double)p->physics.height, (double)p->physics.mass);
             break;
         }
         case TOOL_CELL_PAINT:
         {
-            // Active tile name via the borrowed-pointer catalogue accessor (no allocation).
             int type = UIState_GetActiveTileType();
-            snprintf(detail_id_text, sizeof(detail_id_text), "Tile: %s",
-                     TilePalette_NameForType(type));
+            ColourRgba c = TilePalette_ColourForType(type, (ColourRgba){ 0, 0, 0, 255 });
+            UIHint_AppendSegment(out, cap, "Paint: %s (%d)", TilePalette_NameForType(type), type);
+            UIHint_AppendSegment(out, cap, "RGB %d,%d,%d", (int)c.r, (int)c.g, (int)c.b);
             break;
         }
-        default: // TOOL_NUDGE / TOOL_NONE — no payload to show.
-            snprintf(detail_id_text, sizeof(detail_id_text), DETAIL_STRIP_EMPTY);
+        default: // TOOL_NUDGE / TOOL_NONE - no payload to show.
+            UIHint_AppendSegment(out, cap, DETAIL_STRIP_EMPTY);
             break;
     }
-    return (BindingValue){ .type = BIND_STRING, .as.s = detail_id_text };
 }
 
-// Slot 2 — tool-aware secondary label. TOOL_SPAWN shows "Type: <shape>" (prefab shape); TOOL_CELL_PAINT
-// shows "Index: <n>" (active tile index); TOOL_NUDGE / TOOL_NONE blank the slot with the em-dash.
-static BindingValue DetailStrip_QueryType(int key)
+// ============================================================================
+// Hover resolution + composition
+// ============================================================================
+
+// Find the element whose hint should describe the current hover: the hovered element itself, or
+// the nearest enabled ancestor carrying a static hint or an on_hint callback. Returns NULL when
+// the pointer is not over a hintable part of the UI.
+static const UIElement *DetailStrip_FindHintElement(void)
 {
-    (void)key;
-    switch (UIState_GetActiveTool())
+    for (const UIElement *e = G_UIState.hovered_element; e != NULL; e = e->parent)
     {
-        case TOOL_SPAWN:
+        if (e->is_enabled && (e->hint != NULL || e->on_hint != NULL))
         {
-            const EntityCreateParams *p = DetailStrip_ActivePrefabParams(NULL);
-            if (!p)
-            {
-                snprintf(detail_type_text, sizeof(detail_type_text), "Type: " DETAIL_STRIP_EMPTY);
-            }
-            else
-            {
-                snprintf(detail_type_text, sizeof(detail_type_text), "Type: %s",
-                         DetailStrip_ShapeName(p->physics.shape_type));
-            }
-            break;
+            return e;
         }
-        case TOOL_CELL_PAINT:
-            // Active tile index — the raw palette type, mirroring the top strip's "Tile: <n>".
-            snprintf(detail_type_text, sizeof(detail_type_text), "Index: %d",
-                     UIState_GetActiveTileType());
-            break;
-        default: // TOOL_NUDGE / TOOL_NONE.
-            snprintf(detail_type_text, sizeof(detail_type_text), DETAIL_STRIP_EMPTY);
-            break;
     }
-    return (BindingValue){ .type = BIND_STRING, .as.s = detail_type_text };
+    return NULL;
 }
 
-// Slot 3 — tool-aware tertiary label. TOOL_SPAWN shows "Has: <component flags>" (prefab components);
-// TOOL_CELL_PAINT shows "RGB: r,g,b" (active tile fill colour); TOOL_NUDGE / TOOL_NONE blank the slot
-// with the em-dash. Writes are length-checked so the panel-owned buffer never overflows.
-static BindingValue DetailStrip_QueryComponents(int key)
+// Build the strip's text for this frame into `out`. A hovered hint wins; otherwise the active
+// tool's context is shown. `out` is always left NUL-terminated.
+//
+//   out : destination buffer.
+//   cap : capacity of out in bytes.
+static void DetailStrip_ComposeText(char *out, size_t cap)
 {
-    (void)key;
-    ActiveTool tool = UIState_GetActiveTool();
-    if (tool == TOOL_CELL_PAINT)
+    out[0] = '\0';
+
+    const UIElement *hinted = DetailStrip_FindHintElement();
+    if (hinted)
     {
-        // Active tile fill colour; the default-colour argument is only used for out-of-range types,
-        // where an opaque black placeholder keeps the field populated.
-        ColourRgba c = TilePalette_ColourForType(UIState_GetActiveTileType(),
-                                                 (ColourRgba){ 0, 0, 0, 255 });
-        snprintf(detail_components_text, sizeof(detail_components_text), "RGB: %d,%d,%d",
-                 (int)c.r, (int)c.g, (int)c.b);
-        return (BindingValue){ .type = BIND_STRING, .as.s = detail_components_text };
-    }
-    if (tool != TOOL_SPAWN) // TOOL_NUDGE / TOOL_NONE — no payload to show.
-    {
-        snprintf(detail_components_text, sizeof(detail_components_text), DETAIL_STRIP_EMPTY);
-        return (BindingValue){ .type = BIND_STRING, .as.s = detail_components_text };
+        if (hinted->hint)
+        {
+            UIHint_AppendSegment(out, cap, "%s", hinted->hint);
+        }
+        if (hinted->on_hint)
+        {
+            hinted->on_hint(hinted, out, cap); // Appends live values (state, selection).
+        }
+        if (out[0] != '\0')
+        {
+            return;
+        }
     }
 
-    const EntityCreateParams *p = DetailStrip_ActivePrefabParams(NULL);
-    if (!p)
-    {
-        snprintf(detail_components_text, sizeof(detail_components_text), "Has: " DETAIL_STRIP_EMPTY);
-        return (BindingValue){ .type = BIND_STRING, .as.s = detail_components_text };
-    }
-
-    int n = snprintf(detail_components_text, sizeof(detail_components_text), "Has:");
-    if (p->component_flags & CREATION_COMPONENT_PORTAL)
-    {
-        n += snprintf(detail_components_text + n, sizeof(detail_components_text) - (size_t)n, " portal");
-    }
-    if (p->component_flags & CREATION_COMPONENT_ROTOR)
-    {
-        n += snprintf(detail_components_text + n, sizeof(detail_components_text) - (size_t)n, " rotor");
-    }
-    if (p->component_flags & CREATION_COMPONENT_GEAR)
-    {
-        n += snprintf(detail_components_text + n, sizeof(detail_components_text) - (size_t)n, " gear");
-    }
-    if (p->component_flags & CREATION_COMPONENT_HEALTH)
-    {
-        n += snprintf(detail_components_text + n, sizeof(detail_components_text) - (size_t)n, " health");
-    }
-    if (p->component_flags == CREATION_COMPONENT_NONE)
-    {
-        snprintf(detail_components_text + n, sizeof(detail_components_text) - (size_t)n, " " DETAIL_STRIP_EMPTY);
-    }
-    return (BindingValue){ .type = BIND_STRING, .as.s = detail_components_text };
+    DetailStrip_ComposeToolContext(out, cap);
 }
 
-// Slot 4 — tool-aware quaternary label. TOOL_SPAWN shows "Size: w×h  m=<mass>" (prefab physics);
-// every other tool (TOOL_CELL_PAINT has no fourth meaningful field, TOOL_NUDGE / TOOL_NONE have no
-// payload) blanks the surplus slot with the em-dash so the fixed inline row width stays stable.
-static BindingValue DetailStrip_QueryPhysics(int key)
+// ============================================================================
+// Binding query shim (returns BIND_STRING, mirroring the info strip's shims)
+// ============================================================================
+
+// The strip's single text source. Recomposes the string each refresh and returns a BIND_STRING
+// value pointing at the panel-owned buffer; the key is unused.
+static BindingValue DetailStrip_QueryText(int key)
 {
     (void)key;
-    if (UIState_GetActiveTool() != TOOL_SPAWN)
-    {
-        // Surplus slot for the non-spawn contexts — em-dash to keep the row width stable.
-        snprintf(detail_physics_text, sizeof(detail_physics_text), DETAIL_STRIP_EMPTY);
-        return (BindingValue){ .type = BIND_STRING, .as.s = detail_physics_text };
-    }
-
-    const EntityCreateParams *p = DetailStrip_ActivePrefabParams(NULL);
-    if (!p)
-    {
-        snprintf(detail_physics_text, sizeof(detail_physics_text), "Size: " DETAIL_STRIP_EMPTY);
-    }
-    else
-    {
-        snprintf(detail_physics_text, sizeof(detail_physics_text), "Size: %.0f\xC3\x97%.0f  m=%.2f",
-                 (double)p->physics.width, (double)p->physics.height, (double)p->physics.mass);
-    }
-    return (BindingValue){ .type = BIND_STRING, .as.s = detail_physics_text };
+    DetailStrip_ComposeText(detail_text, sizeof(detail_text));
+    return (BindingValue){ .type = BIND_STRING, .as.s = detail_text };
 }
 
 // ============================================================================
 // UI loader resolvers (application-specific)
 // ============================================================================
 
-// Resolve the strip's binding names to query sources returning BIND_STRING values. Four names are
-// recognised: "detailstrip.prefab_id", "detailstrip.type", "detailstrip.components" and
-// "detailstrip.physics"; anything else is unresolved. Structure mirrors InfoStrip_ResolveBinding.
+// Resolve the strip's binding name to its query source. Only "detailstrip.text" is recognised;
+// anything else is unresolved.
 static UIBinding DetailStrip_ResolveBinding(const char *binding_string, UILoaderContext *ctx)
 {
     (void)ctx;
 
-    if (!binding_string)
-    {
-        return (UIBinding){ .kind = UI_BIND_SRC_NONE };
-    }
-
-    if (!strcmp(binding_string, "detailstrip.prefab_id"))
+    if (binding_string && !strcmp(binding_string, "detailstrip.text"))
     {
         return (UIBinding){
             .kind = UI_BIND_SRC_QUERY,
-            .query = DetailStrip_QueryPrefabId,
-            .query_key = 0,
-            .value_type = BIND_STRING,
-        };
-    }
-
-    if (!strcmp(binding_string, "detailstrip.type"))
-    {
-        return (UIBinding){
-            .kind = UI_BIND_SRC_QUERY,
-            .query = DetailStrip_QueryType,
-            .query_key = 0,
-            .value_type = BIND_STRING,
-        };
-    }
-
-    if (!strcmp(binding_string, "detailstrip.components"))
-    {
-        return (UIBinding){
-            .kind = UI_BIND_SRC_QUERY,
-            .query = DetailStrip_QueryComponents,
-            .query_key = 0,
-            .value_type = BIND_STRING,
-        };
-    }
-
-    if (!strcmp(binding_string, "detailstrip.physics"))
-    {
-        return (UIBinding){
-            .kind = UI_BIND_SRC_QUERY,
-            .query = DetailStrip_QueryPhysics,
+            .query = DetailStrip_QueryText,
             .query_key = 0,
             .value_type = BIND_STRING,
         };
@@ -377,9 +331,6 @@ void DestroyDetailStrip(void)
     detail_strip = NULL;
     ViewHostSystem_Destroy(panel);
 
-    // Reset the shim buffers so a later re-init starts clean (no stale label).
-    detail_id_text[0] = '\0';
-    detail_type_text[0] = '\0';
-    detail_components_text[0] = '\0';
-    detail_physics_text[0] = '\0';
+    // Reset the text buffer so a later re-init starts clean (no stale label).
+    detail_text[0] = '\0';
 }

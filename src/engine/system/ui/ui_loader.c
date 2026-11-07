@@ -1339,6 +1339,48 @@ static Vector2d UILoader_ParseSizeValues(const char *size_str)
     return result;
 }
 
+// ----------------------------------------------------------------------------
+// Hover-hint string storage
+// ----------------------------------------------------------------------------
+// hint= text must outlive the mxml tree (its attribute memory is freed after load), and UI is
+// reloaded on screen re-entry, so hints are interned into one fixed pool: identical strings are
+// stored once, which keeps repeated loads from growing the pool. Strings live for the whole run
+// and are never freed, so UIElement.hint can safely hold a plain const char *.
+#define UI_HINT_POOL_BYTES 8192
+static char ui_hint_pool[UI_HINT_POOL_BYTES];
+static size_t ui_hint_pool_used = 0;
+
+// Return a stable pointer to an interned copy of `text`, or NULL when the pool is exhausted.
+//
+//   text : NUL-terminated hint text from the markup.
+static const char *UILoader_InternHint(const char *text)
+{
+    size_t length = strlen(text) + 1;
+
+    // Reuse an identical previously stored string (pool is a run of NUL-terminated strings).
+    size_t offset = 0;
+    while (offset < ui_hint_pool_used)
+    {
+        const char *existing = ui_hint_pool + offset;
+        size_t existing_length = strlen(existing) + 1;
+        if (existing_length == length && memcmp(existing, text, length) == 0)
+        {
+            return existing;
+        }
+        offset += existing_length;
+    }
+
+    // Not found: append, unless the pool cannot hold it.
+    if (ui_hint_pool_used + length > UI_HINT_POOL_BYTES)
+    {
+        return NULL;
+    }
+    char *stored = ui_hint_pool + ui_hint_pool_used;
+    memcpy(stored, text, length);
+    ui_hint_pool_used += length;
+    return stored;
+}
+
 void UILoader_ExtractCommonAttrs(mxml_node_t *node, UILoaderContext *ctx, char *id_out,
                                  Size *size_out, Offset *offset_out,
                                  bool *enabled_out, Layout *layout_out,
@@ -1592,6 +1634,17 @@ static UIElement *UILoader_ParseElementNode(mxml_node_t *node, UIElement *parent
     {
         UIPalette_GetSurfaceColours(ctx->palette, surface_role,
                                     &outer->colour_border, &outer->colour_fill);
+    }
+    // hint: optional static hover text for the detail strip. Applied at this single generic
+    // choke point so ANY element can carry one; live values are added in C through on_hint.
+    const char *hint_attr = mxmlElementGetAttr(node, "hint");
+    if (hint_attr && hint_attr[0] != '\0')
+    {
+        outer->hint = UILoader_InternHint(hint_attr);
+        if (!outer->hint)
+        {
+            LOADER_WARNING(ctx, "hint pool exhausted; hint ignored");
+        }
     }
     // offset: apply to OUTER ONLY when the builder did not consume it at construct time, so
     // offset is applied exactly once (no double application - e.g. Section passes it into its

@@ -48,9 +48,9 @@
 
 // World-level defaults used by the gameplay screen and debug spawning controls.
 bool world_grid_debug_labels_enabled = false;
-// World grid visibility (a view/display setting, not a debug flag). The debug-overlay facade's
-// DEBUG_WORLD_GRID case delegates to this owner.
-bool world_grid_overlay_enabled = true;
+// World grid display mode (a view/display setting, not a debug flag). The debug-overlay facade's
+// DEBUG_WORLD_GRID case delegates to this owner. FULL matches the previous default of grid ON.
+WorldGridMode world_grid_mode = WORLD_GRID_MODE_FULL;
 // Universe-space grid-label visibility (view/display setting). Default OFF, as before. The
 // debug-overlay facade's DEBUG_UNIVERSE_GRID_LABELS case delegates here.
 bool universe_grid_labels_enabled = false;

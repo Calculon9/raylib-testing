@@ -8,6 +8,7 @@
 #include "combat/projectile.h"
 #include "entities/entity_registry.h"
 #include "system/entities/portal_system.h"
+#include "world/object_gizmos.h" // IsGizmoEnabled(GIZMO_COLLISIONS): gates collision-marker creation
 
 // Apply a local basis to a vector using the project's standard basis-apply idiom
 // (the same maths as Newtonoid_TransformVertices / Frame_TransformPoint_ToParent):
@@ -625,6 +626,15 @@ bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, 
     ResolveCollision_WithRotation(a, b, collision_result.collision_normal, collision_result.contact_point,
                                   collision_result.penetration_depth, 0.0f);
     FlatMapInt_InsertOrUpdate(resolved_collisions, obj_pair_hash_key, 1);
+
+    // Collision markers can be switched off from the toolbar (GIZMO_COLLISIONS, default ON). When
+    // off, no marker entity is created at all (no surface allocation, no entity-count clutter);
+    // markers already alive simply expire on their scheduled deletion. The contact has already
+    // been recorded and resolved above, so physics is identical either way.
+    if (!IsGizmoEnabled(GIZMO_COLLISIONS))
+    {
+        return true;
+    }
 
     // Create a short-lived effect at the reported support vertex for debugging.
     Newtonoid2d *penetrating_entity = collision_result.penetrating_entity;

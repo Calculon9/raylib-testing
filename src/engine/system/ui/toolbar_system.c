@@ -32,6 +32,8 @@ input.
 #include "entities/entity_flags.h"       // ENTITY_CONSTRAINT_POSITION_LOCKED
 #include "physics/newtonoid.h"           // Newtonoid2d / WakeUp
 #include "math/helpers.h"                // GetRandomFloat
+#include "entities/entity_catalogue.h"   // Catalogue_GetId (spawn hint prefab name)
+#include "world/world.h"                 // TilePalette_NameForType (paint hint tile name)
 
 // ============================================================================
 // Panel + tool tuning (module-owned)
@@ -125,6 +127,7 @@ static bool Toolbar_ResolveOverlayName(const char *suffix, DebugOverlayId *out)
     if (!strcmp(suffix, "object-axes"))               { *out = DEBUG_OBJECT_AXES;          return true; }
     if (!strcmp(suffix, "object-hull"))               { *out = DEBUG_OBJECT_HULL;          return true; }
     if (!strcmp(suffix, "object-aabb"))               { *out = DEBUG_OBJECT_AABB;          return true; }
+    if (!strcmp(suffix, "collisions"))                { *out = DEBUG_COLLISIONS;           return true; }
 
     return false; // Unrecognised overlay name
 }
@@ -173,6 +176,99 @@ static void Toolbar_ScrollCyclePrefab(UIElement *e, float delta)
     else if (delta < 0.0f)
     {
         UIState_SetActivePrefab(UIState_GetActivePrefab() - 1);
+    }
+}
+
+// ============================================================================
+// Hover-hint callbacks (on_hint hooks for the detail strip)
+// ============================================================================
+// Each button's STATIC description comes from its hint= attribute in toolbar.xml; these hooks
+// only append the LIVE values (current state / active selection), so the markup stays the single
+// home for wording and the strings below never repeat it.
+
+// Append " ON"/" OFF" style state for a flag, as one segment.
+static void Toolbar_AppendState(char *out, size_t cap, bool on)
+{
+    UIHint_AppendSegment(out, cap, "%s", on ? "ON" : "OFF");
+}
+
+// Nudge tool hint: report whether the tool is currently active.
+static void Toolbar_HintNudge(const UIElement *e, char *out, size_t cap)
+{
+    (void)e;
+    Toolbar_AppendState(out, cap, UIState_IsToolActive(TOOL_NUDGE));
+}
+
+// Cell paint tool hint: report the active tile and whether the tool is active.
+static void Toolbar_HintCellPaint(const UIElement *e, char *out, size_t cap)
+{
+    (void)e;
+    int type = UIState_GetActiveTileType();
+    UIHint_AppendSegment(out, cap, "Tile: %s (%d)", TilePalette_NameForType(type), type);
+    Toolbar_AppendState(out, cap, UIState_IsToolActive(TOOL_CELL_PAINT));
+}
+
+// Spawn tool hint: report the active prefab and whether the tool is active.
+static void Toolbar_HintSpawn(const UIElement *e, char *out, size_t cap)
+{
+    (void)e;
+    const char *prefab_id = Catalogue_GetId(UIState_GetActivePrefab()); // "" when empty.
+    UIHint_AppendSegment(out, cap, "Prefab: %s", (prefab_id && *prefab_id) ? prefab_id : "none");
+    Toolbar_AppendState(out, cap, UIState_IsToolActive(TOOL_SPAWN));
+}
+
+// Geometry-edit toggle hint: report whether vertex editing is enabled.
+static void Toolbar_HintGeometryEdit(const UIElement *e, char *out, size_t cap)
+{
+    (void)e;
+    Toolbar_AppendState(out, cap, UIState_IsGeometryEditActive());
+}
+
+// Maps each debug-overlay toggle's element id to the overlay whose state it reports.
+typedef struct ToolbarToggleHint
+{
+    const char *element_id;
+    DebugOverlayId overlay;
+} ToolbarToggleHint;
+
+static const ToolbarToggleHint toolbar_toggle_hints[] = {
+    { "toggle_dashboard",            DEBUG_DASHBOARD },
+    { "toggle_viewport_grid",        DEBUG_VIEWPORT_GRID },
+    { "toggle_world_grid_labels",    DEBUG_WORLD_GRID_LABELS },
+    { "toggle_universe_grid_labels", DEBUG_UNIVERSE_GRID_LABELS },
+    { "toggle_ui_borders",           DEBUG_UI_BORDERS },
+    { "toggle_object_axes",          DEBUG_OBJECT_AXES },
+    { "toggle_object_hull",          DEBUG_OBJECT_HULL },
+    { "toggle_object_aabb",          DEBUG_OBJECT_AABB },
+    { "toggle_collisions",           DEBUG_COLLISIONS },
+};
+
+// World grid hint: the toggle cycles three display modes, so name the current one instead of a
+// plain ON/OFF. (This button is deliberately absent from toolbar_toggle_hints below.)
+static void Toolbar_HintWorldGrid(const UIElement *e, char *out, size_t cap)
+{
+    (void)e;
+    const char *mode_label = "Off";
+    switch (world_grid_mode)
+    {
+        case WORLD_GRID_MODE_FULL:   mode_label = "Grid + border"; break;
+        case WORLD_GRID_MODE_BORDER: mode_label = "Border only";   break;
+        default:                     break; // WORLD_GRID_MODE_OFF
+    }
+    UIHint_AppendSegment(out, cap, "%s", mode_label);
+}
+
+// Debug-overlay toggle hint: look the hovered button up by its id and report that overlay's
+// state. Runs only for the one hovered element, so the linear scan over nine entries is free.
+static void Toolbar_HintOverlayToggle(const UIElement *e, char *out, size_t cap)
+{
+    for (size_t i = 0; i < sizeof(toolbar_toggle_hints) / sizeof(toolbar_toggle_hints[0]); i++)
+    {
+        if (!strcmp(e->id, toolbar_toggle_hints[i].element_id))
+        {
+            Toolbar_AppendState(out, cap, IsDebugEnabled(toolbar_toggle_hints[i].overlay));
+            return;
+        }
     }
 }
 
@@ -329,11 +425,28 @@ void InitToolbar(void)
     if ((b = UILoader_FindById(root, "toggle_object_axes")))          b->on_draw = UIIcon_DrawObjectAxes;
     if ((b = UILoader_FindById(root, "toggle_object_hull")))          b->on_draw = UIIcon_DrawObjectHull;
     if ((b = UILoader_FindById(root, "toggle_object_aabb")))          b->on_draw = UIIcon_DrawObjectAABB;
+    if ((b = UILoader_FindById(root, "toggle_collisions")))           b->on_draw = UIIcon_DrawCollisions;
 
     // Independent geometry-edit toggle: no binding=, so (like the tool buttons) its glyph owns its
     // ink path, reading UIState_IsGeometryEditActive. action="toggle-geometry-edit" resolves to
     // CMD_TOGGLE_GEOMETRY_EDIT on click.
     if ((b = UILoader_FindById(root, "toggle_geometry_edit")))        b->on_draw = UIIcon_DrawGeometryEdit;
+
+    // 2c) Hover-hint callbacks for the detail strip. The static wording is the hint= attribute in
+    //     toolbar.xml; these hooks append only the live state/selection values.
+    if (nudge_btn)      nudge_btn->on_hint = Toolbar_HintNudge;
+    if (cell_paint_btn) cell_paint_btn->on_hint = Toolbar_HintCellPaint;
+    if (spawn_btn)      spawn_btn->on_hint = Toolbar_HintSpawn;
+    for (size_t i = 0; i < sizeof(toolbar_toggle_hints) / sizeof(toolbar_toggle_hints[0]); i++)
+    {
+        UIElement *toggle = UILoader_FindById(root, toolbar_toggle_hints[i].element_id);
+        if (toggle)
+        {
+            toggle->on_hint = Toolbar_HintOverlayToggle;
+        }
+    }
+    if ((b = UILoader_FindById(root, "toggle_world_grid")))    b->on_hint = Toolbar_HintWorldGrid;
+    if ((b = UILoader_FindById(root, "toggle_geometry_edit"))) b->on_hint = Toolbar_HintGeometryEdit;
 
     // 3) Final layout update over the host's valid coordinate space.
     UpdateUISpace(toolbar->root, toolbar->seed_box);

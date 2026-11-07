@@ -193,6 +193,10 @@ bool ResolvePointerLocalCoords(UIElement *element, Vector2d mouse_pixel_coords, 
 // DISPATCHER - UI activities
 void ProcessUIInput(const InputFrame *input, bool cursor_in_region)
 {
+    // Forget last frame's hover first, so an early return (no input / pointer outside the UI)
+    // can never leave a stale element pointer behind for the hover hints to read.
+    G_UIState.hovered_element = NULL;
+
     if (!input)
     {
         return;
@@ -222,6 +226,9 @@ void ProcessUIInput(const InputFrame *input, bool cursor_in_region)
     {
         target = NULL;
     }
+
+    // Publish the hovered element for read-only consumers (detail strip hover hints).
+    G_UIState.hovered_element = target;
 
     if (input->wheel_delta != 0.0f)
     {

@@ -20,6 +20,7 @@ typedef enum DebugOverlayId
     DEBUG_OBJECT_AXES,
     DEBUG_OBJECT_HULL,
     DEBUG_OBJECT_AABB,
+    DEBUG_COLLISIONS, // Collision-marker entities (default ON); gates their creation.
     DEBUG_COUNT
 } DebugOverlayId;
 

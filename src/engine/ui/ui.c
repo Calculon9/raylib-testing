@@ -2,6 +2,8 @@
 
  **********************************************************************************************/
 #include <stdio.h>
+#include <stdarg.h> // UIHint_AppendSegment (variadic)
+#include <string.h> // strlen
 #include <float.h>
 #include "math/cvectors.h"
 #include "common/common.h"
@@ -1019,8 +1021,50 @@ UIElement *CreateUIElement(UIElementType type, Size size, Offset parent_offset, 
     e->scroll_offset = ZERO_VECTOR_2D;
     e->is_scrollable_x = false;
     e->is_scrollable_y = false;
+    // Explicitly clear the hover-hint fields: pooled elements can be recycled, so never rely on
+    // the allocator having zeroed them.
+    e->hint = NULL;
+    e->on_hint = NULL;
 
     return e;
+}
+
+// Append one printf-formatted segment to a hint string. A " | " separator is inserted when the
+// buffer already holds text. The result is always NUL-terminated and never exceeds `cap` bytes;
+// if the segment does not fit, the visible tail is replaced with "..." so truncation is obvious.
+// Later appends to an already-truncated buffer keep the ellipsis (the operation is idempotent).
+//
+//   buf : destination hint buffer (must already be NUL-terminated, or empty).
+//   cap : total capacity of buf in bytes (including the terminator).
+//   fmt : printf-style format for the segment text.
+void UIHint_AppendSegment(char *buf, size_t cap, const char *fmt, ...)
+{
+    // Need room for at least one character plus the "..." marker and terminator.
+    if (!buf || !fmt || cap < 5)
+    {
+        return;
+    }
+
+    // Format the segment into scratch space first so the separator logic sees its true length.
+    char segment[128];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(segment, sizeof(segment), fmt, args);
+    va_end(args);
+
+    size_t used = strlen(buf);
+    const char *separator = (used > 0) ? " | " : "";
+
+    // snprintf truncates safely at cap-1; its return value tells us whether anything was lost.
+    int wanted = snprintf(buf + used, cap - used, "%s%s", separator, segment);
+    if (wanted < 0 || (size_t)wanted >= cap - used)
+    {
+        // Overflow: stamp an ellipsis over the last three visible characters.
+        buf[cap - 4] = '.';
+        buf[cap - 3] = '.';
+        buf[cap - 2] = '.';
+        buf[cap - 1] = '\0';
+    }
 }
 
 UIElement *CreateUIElementInTree(UIElementType type, Size size, UIElement *parent, Offset parent_offset, Vector2d padding, ColourRgba colour_border, ColourRgba colour_fill)

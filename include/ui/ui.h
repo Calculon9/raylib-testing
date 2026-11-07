@@ -28,6 +28,11 @@ typedef void (*UIEventHandler)(UIElement *e);
 // so the handler can choose a direction (delta>0 forward, delta<0 backward). Dispatched
 // by presence from ProcessUIInput, exactly like on_click/on_hover.
 typedef void (*UIScrollHandler)(UIElement *e, float delta);
+// Per-element hover-hint callback. Called by the detail strip while the element (or a
+// descendant) is hovered, AFTER the static hint text has been written into `out`. The
+// callback appends live values (state, active selection) with UIHint_AppendSegment; it must
+// never write more than `cap` bytes and must leave `out` NUL-terminated.
+typedef void (*UIHintFn)(const UIElement *e, char *out, size_t cap);
 
 typedef enum
 {
@@ -236,6 +241,13 @@ typedef struct UIElement
     void *interaction_user_data;        // unified opaque per-element state pointer for click/hover handlers (buttons + former hover items)
     void *interaction_data_bind;        // base data_bind, used by the hover-view-selector LABEL only (see §8)
 
+    // Hover hint shown by the detail strip. `hint` is the static text from the markup hint=
+    // attribute (points at loader-interned storage that lives for the whole run; never freed).
+    // `on_hint` optionally appends live values. Either may be NULL; ancestors are searched, so
+    // a container hint covers its children.
+    const char *hint;
+    UIHintFn on_hint;
+
     UIElement *parent;
     UIElement *first_child;
     UIElement *next_sibling;
@@ -315,6 +327,10 @@ void RemoveElementFromTree(UIElement *element);
 UIElement *GetPreviousSibling(UIElement *element);
 bool ElementHasSibling(UIElement *e);
 UIElement *GetElementAt(UIElement *e, Vector2d pixel_coords);
+// Append one printf-formatted segment to a hint string, inserting a " | " separator when the
+// buffer already holds text. Output is bounded by `cap`: on overflow the tail is replaced with
+// "..." so a long hint never overruns the (64 byte) textbox that displays it.
+void UIHint_AppendSegment(char *buf, size_t cap, const char *fmt, ...);
 UIElement *GetElementAtClipped(UIElement *e, Vector2d pixel_coords, UIClipRect clip);
 void DisposeUIElement(UIElement *e);
 void EnableElement(UIElement *element);

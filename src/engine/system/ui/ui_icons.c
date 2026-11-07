@@ -368,8 +368,13 @@ void UIIcon_DrawViewportGrid(UIElement *e)
 
 // Draw a 3x3 grid (outline + two interior H + two interior V lines) centred on the fit. Shared by
 // World Grid and World Grid Labels so the dense grid reads identically; the Labels variant adds
-// tick dots on top. interior intersection coordinates are the thirds of the frame.
-static void UIIcon_DrawGrid3x3(const UIIconFit *f, Color ink)
+// tick dots on top. interior intersection coordinates are the thirds of the frame. The outer frame
+// is drawn with its own stroke so the World Grid glyph can show the bold world border.
+//
+//   f            : centred glyph fit.
+//   ink          : line colour.
+//   frame_stroke : stroke width of the outer frame (interior lines use f->stroke).
+static void UIIcon_DrawGrid3x3(const UIIconFit *f, Color ink, float frame_stroke)
 {
     float left = f->cx - f->half;
     float top = f->cy - f->half;
@@ -378,7 +383,7 @@ static void UIIcon_DrawGrid3x3(const UIIconFit *f, Color ink)
 
     // Outer frame.
     Rectangle frame = { left, top, span, span };
-    DrawRectangleLinesEx(frame, f->stroke, ink);
+    DrawRectangleLinesEx(frame, frame_stroke, ink);
 
     // Two interior vertical lines and two interior horizontal lines at the thirds.
     for (int i = 1; i <= 2; i++)
@@ -391,7 +396,12 @@ static void UIIcon_DrawGrid3x3(const UIIconFit *f, Color ink)
 }
 
 // World Grid (view.world-grid): a dense 3x3 grid, no ticks. Distinguished from Viewport (single
-// cross) by density and from Universe (one coarse cell) by its finer cells.
+// cross) by density and from Universe (one coarse cell) by its finer cells. The button cycles three
+// modes, read directly from world_grid_mode so each is recognisable at a glance:
+//   FULL   - bright 3x3 grid with a BOLD outer frame (grid lines + border);
+//   BORDER - bright BOLD frame only (border only);
+//   OFF    - the plain 3x3 grid in the normal ink (nothing drawn in the world).
+// Brightness still comes from UIIcon_StateInk (the binding reports "enabled" for FULL and BORDER).
 void UIIcon_DrawWorldGrid(UIElement *e)
 {
     UIIconFit f;
@@ -399,7 +409,24 @@ void UIIcon_DrawWorldGrid(UIElement *e)
     {
         return;
     }
-    UIIcon_DrawGrid3x3(&f, UIIcon_StateInk(e));
+    Color ink = UIIcon_StateInk(e);
+    float bold = f.stroke * 2.0f;
+
+    switch (world_grid_mode)
+    {
+        case WORLD_GRID_MODE_FULL:
+            UIIcon_DrawGrid3x3(&f, ink, bold);
+            break;
+        case WORLD_GRID_MODE_BORDER:
+        {
+            Rectangle frame = { f.cx - f.half, f.cy - f.half, f.half * 2.0f, f.half * 2.0f };
+            DrawRectangleLinesEx(frame, bold, ink);
+            break;
+        }
+        default: // WORLD_GRID_MODE_OFF.
+            UIIcon_DrawGrid3x3(&f, ink, f.stroke);
+            break;
+    }
 }
 
 // World Grid Labels (view.world-grid-labels): the dense 3x3 grid plus small tick dots at the four
@@ -412,7 +439,7 @@ void UIIcon_DrawWorldGridLabels(UIElement *e)
         return;
     }
     Color ink = UIIcon_StateInk(e);
-    UIIcon_DrawGrid3x3(&f, ink);
+    UIIcon_DrawGrid3x3(&f, ink, f.stroke);
 
     // Tick dots at the four interior intersections (the 1/3 and 2/3 crossings).
     float left = f.cx - f.half;
@@ -550,4 +577,32 @@ void UIIcon_DrawObjectAABB(UIElement *e)
 
     float dot = fmaxf(1.5f, f.half * 0.22f);
     DrawCircleV((Vector2){ f.cx, f.cy }, dot, ink);
+}
+
+// Collision markers (gizmo.collisions): a filled contact dot at the centre with eight short radial
+// ticks around it, reading as an impact burst. The ticks (no outline rect) separate it from the
+// Object AABB glyph's rect-plus-dot. Ink follows the toggle's own binding via UIIcon_StateInk.
+void UIIcon_DrawCollisions(UIElement *e)
+{
+    UIIconFit f;
+    if (!UIIcon_Fit(e, &f))
+    {
+        return;
+    }
+    Color ink = UIIcon_StateInk(e);
+
+    // Central contact point.
+    float dot = fmaxf(1.5f, f.half * 0.25f);
+    DrawCircleV((Vector2){ f.cx, f.cy }, dot, ink);
+
+    // Eight spokes: each runs from just outside the dot to the glyph's rim.
+    float inner = f.half * 0.5f;
+    float outer = f.half;
+    for (int spoke = 0; spoke < 8; spoke++)
+    {
+        float angle = (float)spoke * (PI * 0.25f);
+        Vector2 from = { f.cx + cosf(angle) * inner, f.cy + sinf(angle) * inner };
+        Vector2 to = { f.cx + cosf(angle) * outer, f.cy + sinf(angle) * outer };
+        DrawLineEx(from, to, f.stroke, ink);
+    }
 }

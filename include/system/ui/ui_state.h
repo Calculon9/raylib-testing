@@ -50,6 +50,11 @@ typedef struct
 {
     UIElement *focused_element;
 
+    // Deepest enabled UI element under the pointer this frame, or NULL when the pointer is not
+    // over the UI. Cleared and rewritten at the start of every ProcessUIInput call, so it is
+    // never carried across frames. Read-only for consumers such as the detail strip's hover hints.
+    UIElement *hovered_element;
+
     // STATS UI
     String64 *stats_polygs_str;
     String64 *stats_fps_str;

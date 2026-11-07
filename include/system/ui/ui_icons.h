@@ -58,6 +58,10 @@ void UIIcon_DrawObjectHull(UIElement *e);
 // Object AABB toggle (gizmo.object-aabb): a rect outline with a small centred dot inside.
 void UIIcon_DrawObjectAABB(UIElement *e);
 
+// Collision-marker toggle (gizmo.collisions): a filled contact dot with short radial ticks around
+// it (an "impact burst"). Uses UIIcon_StateInk, so ON/OFF follows the button's own binding.
+void UIIcon_DrawCollisions(UIElement *e);
+
 // Geometry-edit tool glyph: a small polygon outline with dots at its vertices (a "vertex handles"
 // pictogram). Like the tool glyphs it owns its ink path keyed on the UIState geometry-edit flag
 // (bright button_fill when active, normal text ink otherwise); it does NOT use UIIcon_StateInk
