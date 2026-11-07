@@ -84,11 +84,20 @@ static EntityId AddObjectToWorldChecked(World2d *world, Newtonoid2d *object, Ent
     if (EntityIsEligbleForSpatialMap(object))
     {
         cell_index = grid_cell_index;
-        Cell *cells = world->grid_space.space.cells.items;
-        Cell *target_cell = &cells[cell_index];
-        if (target_cell->occupancy >= MAX_CELL_OCCUPANCY)
+        // PrepareAdd reports what Add would return and reserves any pool space now, so the Add after
+        // registration cannot fail and a rejected spawn leaves nothing half-registered.
+        OccupancyAddResult prepared = CellOccupancy_PrepareAdd(&world->cell_occupancy, cell_index);
+        if (prepared == CELL_OCC_FULL)
         {
             LOG_WARN("Cell %d full. ID %d not tracked spatially.\n", cell_index, object->id);
+            return INVALID_ENTITY_ID;
+        }
+        if (prepared != CELL_OCC_OK)
+        {
+            if (prepared == CELL_OCC_ALLOC_FAILED)
+                CellOccupancy_TakeAllocFailureReport(&world->cell_occupancy); // Reported here, once.
+            LOG_ERROR("Cell %d cannot accept ID %d (occupancy store %s). Cannot add entity to the world.\n",
+                      cell_index, object->id, prepared == CELL_OCC_ALLOC_FAILED ? "allocation failed" : "range mismatch");
             return INVALID_ENTITY_ID;
         }
     }
@@ -103,9 +112,8 @@ static EntityId AddObjectToWorldChecked(World2d *world, Newtonoid2d *object, Ent
 
     if (cell_index >= 0)
     {
-        Cell *target_cell = &((Cell *)world->grid_space.space.cells.items)[cell_index];
-        target_cell->object_ids[target_cell->occupancy] = object->id;
-        target_cell->occupancy++;
+        // Guaranteed to succeed: PrepareAdd already validated the cell and reserved space.
+        CellOccupancy_Add(&world->cell_occupancy, cell_index, object->id);
     }
 
     LOG_INFO("CREATED OBJECT (ID %d): Cell %d : Centre(%.1f, %.1f)\n", object->id, cell_index, local_coords.x, local_coords.y);

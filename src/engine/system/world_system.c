@@ -255,20 +255,27 @@ static bool TryGetClickedSpaceCell(Space2d *space, Vector2d click_local_coords, 
 
 // Select the nearest entity whose polygon contains the click point. The cell is
 // only a broad-phase candidate list; the polygon test provides the confirmation.
-static Newtonoid2d *FindClosestObjectInCell(World2d *world, const Cell *cell, Vector2d click_local_coords, Vector2d max_distance, char *log,
+// `occupants` is the cell's list from the occupancy store; it is copied locally first (snapshot rule:
+// GetEntityByID and logging run below, and no store pointer is held across calls).
+static Newtonoid2d *FindClosestObjectInCell(World2d *world, OccupancyList occupants, Vector2d click_local_coords, Vector2d max_distance, char *log,
                                             size_t log_size, int *log_offset)
 {
-    if (!cell)
+    if (!occupants.ids || occupants.count < 1)
     {
         return NULL;
     }
 
+    EntityId ids[MAX_CELL_OCCUPANCY];
+    int occupant_count = occupants.count < MAX_CELL_OCCUPANCY ? occupants.count : MAX_CELL_OCCUPANCY;
+    for (int k = 0; k < occupant_count; k++)
+        ids[k] = occupants.ids[k];
+
     float shortest_dist_squared = VectorDistanceSquared_2d(ZERO_VECTOR_2D, max_distance);
     Newtonoid2d *closest = NULL;
 
-    for (int i = 0; i < cell->occupancy; i++)
+    for (int i = 0; i < occupant_count; i++)
     {
-        int cell_id = cell->object_ids[i];
+        int cell_id = ids[i];
         if (cell_id == 0)
         {
             continue;
@@ -307,7 +314,7 @@ static Newtonoid2d *FindClosestObjectInCell(World2d *world, const Cell *cell, Ve
             closest = obj;
         }
 
-        AppendLogLine(log, log_size, log_offset, "[ID:%d POS:%.1f,%.1f] ", i + 1, obj_id, obj->anchor_position.x, obj->anchor_position.y);
+        AppendLogLine(log, log_size, log_offset, "[#%d ID:%d POS:%.1f,%.1f] ", i + 1, obj_id, obj->anchor_position.x, obj->anchor_position.y);
     }
 
     return closest;
@@ -340,18 +347,21 @@ Newtonoid2d *ResolveClosestEntityAt(World2d *active_world, Vector2d click_local_
         *out_cell_index = cell_index;
     }
 
+    // Copy the cell's authored value; the entity list comes from the occupancy store (one lookup).
     Cell cell = *cell_ptr;
+    OccupancyList occupants = CellOccupancy_Get(&active_world->cell_occupancy, cell_index);
+    Vector2d cell_origin = Space_CellLocalOrigin(&active_world->grid_space.space, cell_index); // Derived: Cell no longer stores it.
     if (log && log_offset)
     {
         AppendLogLine(log, log_size, log_offset,
                       "CELL %d(%.0f,%.0f) Occ:%d Val:%.1f --> ENTITIES ",
-                      cell_index, cell.local_origin.x, cell.local_origin.y,
-                      cell.occupancy, cell.value);
+                      cell_index, cell_origin.x, cell_origin.y,
+                      occupants.count, cell.value);
     }
 
     Vector2d max_click_distance = {(float)active_world->grid_space.space.columns,
                                    (float)active_world->grid_space.space.rows};
-    Newtonoid2d *picked = FindClosestObjectInCell(active_world, &cell, click_local_coords,
+    Newtonoid2d *picked = FindClosestObjectInCell(active_world, occupants, click_local_coords,
                                                   max_click_distance, log,
                                                   log_size, log_offset);
 
@@ -632,7 +642,7 @@ static void MoveEntityByDragDelta(Newtonoid2d *entity,
     RemapEntityInASpace(&world->grid_space.space,
                         entity,
                         previous_snapped_aabb_box,
-                        &world->entity_space_map);
+                        &world->cell_occupancy);
 }
 
 // Compute the world-space drag delta for an intra-world entity drag from the pointer's start/now

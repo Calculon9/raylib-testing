@@ -9,11 +9,12 @@ CIRCLOID MODULE
 #include "math/cvectors.h"
 #include "math/affine_space_ops.h"
 #include "physics/newtonoid.h"
+#include "world/cell_occupancy.h"
 
 //----------------------------------------------------------------------------------
 // Macros and Defines
 //----------------------------------------------------------------------------------
-#define MAX_CELL_OCCUPANCY 24
+// MAX_CELL_OCCUPANCY now lives in world/cell_occupancy.h (included above) so existing users still see it.
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
@@ -69,15 +70,15 @@ typedef struct CoordinateSpacePreset
 
 typedef struct Cell
 {
-    Vector2d local_origin;                   // Cell origin in the owning CoordSpace local frame
-    EntityId object_ids[MAX_CELL_OCCUPANCY]; // entity IDs currently occupying this cell (if any)
-    int occupancy;
     CellFlags flags;     // Static tile identity and interaction rules.
     CellEffect effect;   // Behaviour applied by this cell to overlapping entities.
     float value;         // Scalar field value for generic cell data.
     Basis2d warp_basis;  // Local basis that warps the MOTION of an entity occupying this cell; identity = inert. Kept separate from flags/effect.
     int tile_type;       // Authored tile identity; index into the shared tile palette. 0 = default (the cell uses the grid's own colour_fill). Plain value, no heap ownership — the Cell stays memcpy-safe.
 } Cell;
+// Locks in the dense-storage saving: per-cell entity lists live in World2d.cell_occupancy and derived origins are
+// computed on demand, so a Cell is exactly 40 bytes. If Vector2d/Basis2d change size this fails the build.
+_Static_assert(sizeof(Cell) == 40, "Cell must stay 40 bytes: keep occupancy and derived origins out of the dense array");
 
 // Lightweight coordinate-space geometry used by UI panels without a cell grid.
 typedef struct UISpace2d
@@ -127,20 +128,18 @@ GridSpace2d NewGridSpace2d(Vector2d origin_in_parent, Vector2d local_resolution,
 // Create UI coordinate-space geometry without allocating grid cells.
 UISpace2d NewUISpace2d(Vector2d origin_in_parent, Vector2d local_resolution, Basis2d basis);
 Space2d NewSpace2d(Vector2d origin_in_parent, Vector2d local_resolution, Basis2d basis);
-// Clear transient entity occupancy while preserving each cell's geometry and metadata.
-void ResetSpaceCells(Space2d *space);
 void RebuildSpaceCells(Space2d *space);
 struct GridGrowthPlan; // Forward declaration; full type in world/world_growth.h.
 // The ONE place that lists authored cell state (flags, tile_type, warp_basis, effect, value). Excludes
-// occupancy/object_ids (transient) and local_origin (derived).
+// per-cell entity occupancy (transient; lives in World2d.cell_occupancy) (derived origins come from Space_CellLocalOrigin).
 void Cell_CopyAuthored(Cell *dst, const Cell *src);
-// Derive every cell's local_origin from grid_origin, columns and the frame basis. Cannot fail.
-void Space_RecomputeCellOrigins(Space2d *space);
+// Local-space origin of a cell (grid_origin + column*u + row*v), derived on demand since Cell no longer stores it.
+Vector2d Space_CellLocalOrigin(const Space2d *space, int cell_index);
 // Lattice helpers: ABSOLUTE local-space cell coordinates, stable under growth (see world/world_growth.h).
 bool Space_LatticeFromLocal(const Space2d *space, Vector2d local, int *out_lx, int *out_ly);
 int Space_IndexFromLattice(const Space2d *space, int lx, int ly); // -1 if outside the grid.
 Cell *Space_GetCellAtLattice(Space2d *space, int lx, int ly);      // NULL if outside the grid.
-// Apply a growth plan: allocate non-fatally, copy, commit, recompute origins, free the old buffer.
+// Apply a growth plan: allocate non-fatally, copy, commit, free the old buffer.
 // Returns false and changes NOTHING on allocation failure or plan mismatch. Drain-time only.
 bool Space_GrowCells(Space2d *space, const struct GridGrowthPlan *plan);
 // Apply any resize plan (growth or trim, shifts may be negative) through the same validate -> allocate -> copy ->

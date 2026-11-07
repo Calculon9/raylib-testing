@@ -317,8 +317,8 @@ static inline void WorldGrowth_AddedStrip(const GridGrowthPlan *plan, int *x0, i
 
 // Fills dst (new_columns * new_rows cells, already zeroed) from src: every dst cell gets identity
 // warp_basis and ABSENT flags (a zero basis would be invalid); each old cell that falls inside the new grid
-// is then copied to its shifted slot via Cell_CopyAuthored, the single list of authored fields. local_origin is NOT set here;
-// the caller derives it (Space_RecomputeCellOrigins) once the new origin and dimensions are live.
+// is then copied to its shifted slot via Cell_CopyAuthored, the single list of authored fields. Cell no longer stores
+// a derived origin, and per-cell occupancy lives in World2d.cell_occupancy (rebuilt by RefreshWorldSpatialMap).
 static inline void WorldGrowth_CopyCells(Cell *dst, const GridGrowthPlan *plan, const Cell *src)
 {
     long long total = (long long)plan->new_columns * plan->new_rows;

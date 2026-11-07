@@ -1562,12 +1562,12 @@ static void RefreshWorldView(const World2d *world)
 }
 
 // Refresh the CELL view: grid cell state string readouts and cell behaviour flags.
-static void RefreshCellView(const Cell *selected_cell)
+static void RefreshCellView(const Cell *selected_cell, int selected_cell_occupancy)
 {
     if (selected_cell)
     {
         int index = UIState_GetSelectedCellIndex();
-        int occupancy = selected_cell->occupancy;
+        int occupancy = selected_cell_occupancy;
         float value = selected_cell->value;
         float fill = 0.0f;
 
@@ -1765,7 +1765,7 @@ void UpdateStateManagerSelectedObject(void)
     RefreshPhysView(object);
     RefreshAttributeView(object);
     RefreshWorldView(world);
-    RefreshCellView(cell);
+    RefreshCellView(cell, UIState_GetSelectedCellOccupancy());
     RefreshComponentsView(object);
     RefreshGeometryView(object);
 }

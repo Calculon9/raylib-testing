@@ -33,7 +33,7 @@ static void RefreshObjectGeometry(World2d *world, Newtonoid2d *object,
     RebuildNewtonoidGeometry(object);
 
     RemapEntityInASpace(&world->grid_space.space, object, previous_box,
-                        &world->entity_space_map);
+                        &world->cell_occupancy);
 }
 
 static bool GeometryEditor_TryBeginDrag(World2d *world, Vector2d pixel_coords, Newtonoid2d *object)

@@ -502,17 +502,22 @@ static void ExecuteCommandInternal(Command *c)
         }
 
         // Deleting a cell is refused while any entity's centre lies inside it (policy B). The
-        // cell's object_ids hold every entity overlapping it, so each is resolved and its anchor
+        // cell's occupancy list holds every entity overlapping it, so each is resolved and its anchor
         // tested against this cell index. Overlap-only occupants do not block the delete.
         if (world && c->type == CMD_DELETE_CELL && cell_index >= 0 &&
             cell_index < (int)world->grid_space.space.cells.count)
         {
             Space2d *check_space = &world->grid_space.space;
-            Cell *check_cell = (Cell *)((char *)check_space->cells.items +
-                                        (size_t)cell_index * check_space->cells.elem_bytes);
-            for (int occupant = 0; occupant < check_cell->occupancy; occupant++)
+            // Snapshot the cell's list (previous tick's mapping, as before): GetEntityByID runs below and
+            // no store pointer is held across calls.
+            OccupancyList occupants = CellOccupancy_Get(&world->cell_occupancy, cell_index);
+            EntityId occupant_ids[MAX_CELL_OCCUPANCY];
+            int occupant_total = occupants.count < MAX_CELL_OCCUPANCY ? occupants.count : MAX_CELL_OCCUPANCY;
+            for (int k = 0; k < occupant_total; k++)
+                occupant_ids[k] = occupants.ids[k];
+            for (int occupant = 0; occupant < occupant_total; occupant++)
             {
-                EntityId occupant_id = check_cell->object_ids[occupant];
+                EntityId occupant_id = occupant_ids[occupant];
                 if (occupant_id < 1)
                     continue;
                 Newtonoid2d *occupant_entity = (Newtonoid2d *)GetEntityByID(world, occupant_id);

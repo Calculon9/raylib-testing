@@ -45,7 +45,7 @@ static bool Cell_IsBlockedAt(const Space2d *space, Cell *cells, int col, int row
 // anchor is moved to each cell's centre and mass == 0 gives inverse_mass == 0, so
 // only the entity moves. It is never registered in the entity system or spatial
 // map, and the Cell struct is never written to (it stays a POD).
-static void ResolveSolidCellCollisions(World2d *world, FlatMapInt *entity_space_map,
+static void ResolveSolidCellCollisions(World2d *world, const CellOccupancy *occupancy,
                                        Cell *cells, Space2d *space, Newtonoid2d *cell_body,
                                        float gravity, float delta_time)
 {
@@ -53,20 +53,24 @@ static void ResolveSolidCellCollisions(World2d *world, FlatMapInt *entity_space_
     if (columns < 1)
         return; // No grid layout; nothing to collide against.
 
-    // Walk the same occupied broad-phase slots used by the entity-pair pass; each
-    // slot key is a valid index into `cells`.
-    for (size_t i = 0; i < entity_space_map->capacity; i++)
+    // Walk the occupied-cell blocks (first-touch order). SNAPSHOT RULE: no pointer into the store is
+    // held across any call. The block count is read once, and each block's count and ids are copied
+    // into locals before the inner loop. The resolution calls below do not mutate the store today,
+    // but the snapshot keeps this pass correct even if a callee ever Adds (pool growth would
+    // invalidate block pointers).
+    int n_blocks = CellOccupancy_BlockCount(occupancy);
+    for (int b = 0; b < n_blocks; b++)
     {
-        if (entity_space_map->slots[i].key == 0 && entity_space_map->slots[i].value == 0)
+        const OccupancyBlock *block = CellOccupancy_BlockAt(occupancy, b);
+        int cell_i = block->cell;
+        int block_count = block->count;
+
+        // An emptied cell has no occupants, so skip it before any further work.
+        if (block_count < 1)
             continue;
-
-        int cell_i = entity_space_map->slots[i].key;
-
-        Cell *cell = &cells[cell_i];
-
-        // An empty cell has no occupants, so skip it before any further work.
-        if (cell->occupancy < 1)
-            continue;
+        EntityId ids[MAX_CELL_OCCUPANCY];
+        for (int k = 0; k < block_count; k++)
+            ids[k] = block->ids[k];
 
         // Gate: only blocked cells act as walls, i.e. absent OR present+SOLID. Flags are
         // read only for present cells, so a stale SOLID bit on an absent cell is moot.
@@ -76,8 +80,8 @@ static void ResolveSolidCellCollisions(World2d *world, FlatMapInt *entity_space_
             continue;
 
         // Build the axis-aligned unit box from the grid origin plus (col, row) and centre
-        // the scratch body on it. cell->local_origin is NOT used: it includes the basis
-        // and so disagrees with GetIndexFromCoords under sheared or scaled bases.
+        // the scratch body on it. A per-cell local origin is NOT used: it would include the basis
+        // and so disagree with GetIndexFromCoords under sheared or scaled bases.
         Vector2d cell_min = {space->grid_origin.x + (float)col, space->grid_origin.y + (float)row};
         Vector2d cell_max = {cell_min.x + 1.0f, cell_min.y + 1.0f};
         cell_body->anchor_position = (Vector2d){cell_min.x + 0.5f, cell_min.y + 0.5f};
@@ -85,9 +89,9 @@ static void ResolveSolidCellCollisions(World2d *world, FlatMapInt *entity_space_
         // Resolve every entity the broad phase placed in this cell against the
         // static cell box. An entity spanning several solid cells is resolved
         // against each overlapped cell in turn (no merged colliders).
-        for (int occupant = 0; occupant < cell->occupancy; occupant++)
+        for (int occupant = 0; occupant < block_count; occupant++)
         {
-            EntityId obj_id = cell->object_ids[occupant];
+            EntityId obj_id = ids[occupant];
             if (obj_id < 1)
                 continue;
 
@@ -190,7 +194,7 @@ static void ResolveSolidCellCollisions(World2d *world, FlatMapInt *entity_space_
 // Skipped: entities with no collision role (currently dragged), no-contact bodies (portals),
 // and attached children (they ride their parent). Out-of-grid centres are the container's
 // concern and are left alone. Does nothing when the grid has no open cell.
-static void RecoverEntitiesFromAbsentCells(World2d *world, FlatMapInt *entity_space_map,
+static void RecoverEntitiesFromAbsentCells(World2d *world, CellOccupancy *occupancy,
                                            Cell *cells, Space2d *space)
 {
     Newtonoid2d *entity = NULL;
@@ -244,7 +248,7 @@ static void RecoverEntitiesFromAbsentCells(World2d *world, FlatMapInt *entity_sp
             }
         }
 
-        RemapEntityInASpace(space, entity, old_snapped_box, entity_space_map);
+        RemapEntityInASpace(space, entity, old_snapped_box, occupancy);
         LOG_INFO("Recovered entity %d from absent cell %d to cell (%d,%d).\n",
                  entity->id, cell_index, to_col, to_row);
     }
@@ -329,8 +333,14 @@ bool CreateWorld(GridSpace2d space_obj, float gravity, struct Universe *universe
     out_world->collisions = MakeLArray(object_count, sizeof(Matrix2x2));
 
     // Initialise per-world spatial, collision, and delayed-command storage.
-    out_world->entity_space_map = MakeFlatMapInt(1 + (int)(space_obj.space.cells.count / 5));
-    out_world->resolved_collisions = MakeFlatMapInt(1 + (int)(out_world->entity_space_map.count / 2));
+    // Sparse occupancy store. A failed initial Reserve is non-fatal (Add grows lazily). The Reset is
+    // mandatory: it stamps cell_limit, without which every spawn would be refused as out of range.
+    out_world->cell_occupancy = (CellOccupancy){0};
+    if (!CellOccupancy_Reserve(&out_world->cell_occupancy, CELL_OCCUPANCY_INITIAL_BLOCKS))
+        LOG_ERROR("Cell occupancy store initial allocation failed; it will grow lazily.\n");
+    CellOccupancy_Reset(&out_world->cell_occupancy, (int)space_obj.space.cells.count);
+    // The old expression 1 + entity_space_map.count / 2 always evaluated to capacity 1 (count starts at 0).
+    out_world->resolved_collisions = MakeFlatMapInt(1);
     out_world->scheduled_world_cmds = MakeLArray(initObjectCount, sizeof(WorldCommand));
     InitJobSystem(256);
     return true;
@@ -348,7 +358,7 @@ void DestroyWorld(World2d *world)
     ClearLArray(&world->collisions);
     ClearLArray(&world->scheduled_world_cmds);
     ClearDArray(&world->grid_space.space.cells);
-    ClearFlatMapInt(&world->entity_space_map);
+    CellOccupancy_Free(&world->cell_occupancy);
     ClearFlatMapInt(&world->resolved_collisions);
     MemorySet(world, 0, sizeof(*world));
 }
@@ -362,7 +372,7 @@ void UpdateWorld(World2d *world, float delta_time)
     Space2d *space = &space_entity->space;
 
     // Cache the per-frame maps and command storage used by the update passes.
-    FlatMapInt *entity_space_map = &world->entity_space_map;
+    CellOccupancy *occupancy = &world->cell_occupancy;
     FlatMapInt *resolved_collisions = &world->resolved_collisions;
     LArray *scheduled_world_cmds = &world->scheduled_world_cmds;
 
@@ -382,10 +392,17 @@ void UpdateWorld(World2d *world, float delta_time)
 
     PROFILE_BEGIN(PROF_RESET); // PROFILER
     LArray_Reset(&world->collisions);
-    ResetFlatMapInt(entity_space_map);
     ResetFlatMapInt(resolved_collisions);
 
-    ResetSpaceCells(space);
+    // Rewind the sparse occupancy store: O(occupied cells), independent of grid area.
+    CellOccupancy_Reset(occupancy, (int)space->cells.count);
+    // Reserve AFTER Reset so a steady-state tick never allocates in the job. Heuristic: up to four
+    // blocks per entity, capped by the grid size. A failure is non-fatal (Add retries lazily).
+    int reserve_blocks = obj_count * 4;
+    if (reserve_blocks > (int)space->cells.count)
+        reserve_blocks = (int)space->cells.count;
+    if (!CellOccupancy_Reserve(occupancy, reserve_blocks) && CellOccupancy_TakeAllocFailureReport(occupancy))
+        LOG_ERROR("Cell occupancy store allocation failed. Some entities are not tracked spatially this tick.\n");
     PROFILE_END(PROF_RESET); // PROFILER
     Cell *cells = (Cell *)space->cells.items;
 
@@ -437,7 +454,7 @@ void UpdateWorld(World2d *world, float delta_time)
         child->anchor_position = VectorSum_2d(parent->anchor_position, child->parent_offset);
         child->bounds_origin = VectorSum_2d(parent->bounds_origin, child->bounds_origin);
         RemapEntityInASpace(space, child, previous_snapped_aabb_box,
-                            entity_space_map);
+                            occupancy);
     }
     PROFILE_END(PROF_REMAP); // PROFILER
 
@@ -465,10 +482,10 @@ void UpdateWorld(World2d *world, float delta_time)
         cell_body.friction = world->grid_space.object.friction;
 
         PROFILE_BEGIN(PROF_SOLID); // PROFILER
-        ResolveSolidCellCollisions(world, entity_space_map, cells, space, &cell_body,
+        ResolveSolidCellCollisions(world, occupancy, cells, space, &cell_body,
                                    world->gravity, delta_time);
         // Safety net: relocate anything left with its centre inside an absent cell.
-        RecoverEntitiesFromAbsentCells(world, entity_space_map, cells, space);
+        RecoverEntitiesFromAbsentCells(world, occupancy, cells, space);
         PROFILE_END(PROF_SOLID); // PROFILER
 
         // Single release of the scratch body's vertex buffer. surface_vectors is a VALUE
@@ -486,27 +503,31 @@ void UpdateWorld(World2d *world, float delta_time)
 
     // RESOLVE ENTITY-ENTITY COLLISIONS
     PROFILE_BEGIN(PROF_PAIRS); // PROFILER
-    for (size_t i = 0; i < entity_space_map->capacity; i++)
+    // SNAPSHOT RULE: no pointer into the store is held across a call. The block count is read once and
+    // each block's count and ids are copied into locals before the pair loops. ProcessCollisionPair
+    // can call AddObjectToWorld for collision markers; those are ROLE_EFFECT so they never enter the
+    // store today, but the snapshot makes correctness independent of that (pool growth would
+    // otherwise invalidate block pointers).
+    int n_blocks = CellOccupancy_BlockCount(occupancy);
+    for (int b = 0; b < n_blocks; b++)
     {
-        if (entity_space_map->slots[i].key == 0 && entity_space_map->slots[i].value == 0)
-            continue;
-
-        int cell_i = entity_space_map->slots[i].key;
-        int cell_occ = 0;
-        FlatMapInt_GetValue(entity_space_map, cell_i, &cell_occ);
+        const OccupancyBlock *block = CellOccupancy_BlockAt(occupancy, b);
+        int cell_i = block->cell;
+        int cell_occ = block->count;
 
         if (cell_occ >= 2)
         {
-            Cell *cell = &cells[cell_i];
-            for (size_t m = 0; m < cell_occ; m++)
+            EntityId ids[MAX_CELL_OCCUPANCY];
+            for (int k = 0; k < cell_occ; k++)
+                ids[k] = block->ids[k];
+
+            for (int m = 0; m < cell_occ; m++)
             {
                 // Test every unique entity pairing in this cell. The physics
                 // module deduplicates pairs found in multiple cells.
-                for (size_t n = m + 1; n < cell_occ; n++)
+                for (int n = m + 1; n < cell_occ; n++)
                 {
-                    EntityId obj_id_a = cell->object_ids[m];
-                    EntityId obj_id_b = cell->object_ids[n];
-                    ProcessCollisionPair(world, obj_id_a, obj_id_b, cell_i,
+                    ProcessCollisionPair(world, ids[m], ids[n], cell_i,
                                          resolved_collisions, scheduled_world_cmds);
                 }
             }

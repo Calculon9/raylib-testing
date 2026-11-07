@@ -16,7 +16,7 @@ typedef enum
     PROF_DRAW,      // Draw half, between BeginDrawing and EndDrawing
     PROF_ENDDRAW,   // EndDrawing() itself (buffer swap, vsync/driver wait, target-FPS sleep)
     PROF_CMDS,      // ProcessCommandQueue()
-    PROF_RESET,     // ResetFlatMapInt + ResetSpaceCells
+    PROF_RESET,     // collisions + resolved_collisions reset, CellOccupancy_Reset/Reserve
     PROF_PHYSICS,   // PhysicsUpdateJob via ExecuteJobs
     PROF_REMAP,     // Attachment/container remap loop
     PROF_SOLID,     // ResolveSolidCellCollisions

@@ -43,7 +43,7 @@ typedef struct World2d
     FrameTunnel tunnel; // Transform from world-local to universe coordinates
     LArray objects;
     LArray collisions;
-    FlatMapInt entity_space_map;
+    CellOccupancy cell_occupancy; // Sparse per-cell entity lists (occupied cells only); rebuilt every tick and by RefreshWorldSpatialMap.
     FlatMapInt resolved_collisions;
     LArray scheduled_world_cmds;
     float gravity;

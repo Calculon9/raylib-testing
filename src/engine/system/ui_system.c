@@ -669,6 +669,24 @@ int UIState_GetSelectedCellIndex(void)
     return world ? Space_IndexFromLattice(&world->grid_space.space, primary.as.cell.lattice_x, primary.as.cell.lattice_y) : -1;
 }
 
+// Report how many entities the selected cell currently lists in its world's occupancy store (the previous
+// tick's mapping, as before), or 0 when the primary is not a cell or the cell does not resolve.
+int UIState_GetSelectedCellOccupancy(void)
+{
+    TargetRef primary = SelectionSet_Primary();
+    if (primary.kind != TARGET_KIND_CELL)
+    {
+        return 0;
+    }
+    World2d *world = Universe_GetWorld(&G_Universe, primary.as.cell.world_index);
+    if (!world)
+    {
+        return 0;
+    }
+    int index = Space_IndexFromLattice(&world->grid_space.space, primary.as.cell.lattice_x, primary.as.cell.lattice_y);
+    return index >= 0 ? CellOccupancy_Count(&world->cell_occupancy, index) : 0;
+}
+
 // Return the currently active tool (TOOL_NONE when none is active).
 ActiveTool UIState_GetActiveTool(void)
 {

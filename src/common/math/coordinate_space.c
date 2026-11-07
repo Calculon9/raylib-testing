@@ -140,8 +140,6 @@ void InitUnitCells(Space2d *space)
    size_t cells_capacity = cells->capacity;
    MemorySet(cells->items, 0, cells->elem_bytes * cells_capacity);
 
-   // Cell coordinates are stored in this space's local frame, offset by the grid origin.
-   Vector2d local_origin = space->grid_origin;
    int columns = space->columns;
    int rows = space->rows;
 
@@ -154,9 +152,8 @@ void InitUnitCells(Space2d *space)
       Cell cell = {0}; // Create a new cell and initialize it to zero
 
       // Warp basis defaults to identity so a freshly built cell is inert (no motion warp).
-      // NOTE: ResetSpaceCells runs every frame and must NOT clear warp_basis — it is authored
-      // state that has to survive the per-frame occupancy reset. Hence identity is set here,
-      // at the fresh-build site only.
+      // NOTE: warp_basis is authored state (entity occupancy no longer lives in the Cell at all), so the
+      // identity default is set here, at the fresh-build site only.
       cell.warp_basis = IDENTITY_BASIS_2D;
 
       // Default: every freshly built cell is PRESENT (occupied). This is the invariant that keeps
@@ -171,15 +168,6 @@ void InitUnitCells(Space2d *space)
       // at the sole fresh-build site, mirroring the self-documenting style used for warp_basis/PRESENT.
       cell.tile_type = 0;
 
-      // Scale the basis vectors (u,v) and add them to get the displacement from the origin
-      Vector2d scaled_u = {j * space->frame.basis.u.x, j * space->frame.basis.u.y};
-      Vector2d scaled_v = {i * space->frame.basis.v.x, i * space->frame.basis.v.y};
-      Vector2d displacement = {scaled_u.x + scaled_v.x, scaled_u.y + scaled_v.y};
-
-      // Add the displacement vector to the origin to get the coordinates of the cell
-      cell.local_origin.x = local_origin.x + displacement.x;
-      cell.local_origin.y = local_origin.y + displacement.y;
-
       // Write the cell to the array
       Cell *address = (Cell *)((char *)cells->items + (k * cells->elem_bytes));
       MemoryCopy(address, &cell, cells->elem_bytes);
@@ -189,24 +177,6 @@ void InitUnitCells(Space2d *space)
    LOG_INFO("Initialised %d cells\n", count);
 }
 
-// Clear transient entity occupancy while preserving each cell's geometry and metadata.
-void ResetSpaceCells(Space2d *space)
-{
-   if (!space || !space->cells.items)
-   {
-      return;
-   }
-
-   Cell *cells = (Cell *)space->cells.items;
-   for (size_t cell_index = 0; cell_index < space->cells.count; cell_index++)
-   {
-      // Only transient occupancy is cleared here. Authored per-cell state (warp_basis, tile_type and
-      // the carved PRESENT bit) is intentionally left untouched so it survives the per-frame reset.
-      cells[cell_index].occupancy = 0;
-      MemorySet(cells[cell_index].object_ids, 0, sizeof(cells[cell_index].object_ids));
-   }
-}
-
 GridSpace2d NewGridSpace2d_FromPreset(Vector2d origin_in_parent, CoordinateSpacePreset preset, ColourRgba colour_fill, ColourRgba colour_line)
 {
    return NewGridSpace2d(origin_in_parent, preset.resolution, preset.basis, colour_fill, colour_line);
@@ -214,7 +184,7 @@ GridSpace2d NewGridSpace2d_FromPreset(Vector2d origin_in_parent, CoordinateSpace
 
 // Copy the AUTHORED state of one cell: flags (incl. PRESENT/SOLID/behaviour bits), tile_type, warp_basis,
 // effect and value. This is the single list of authored fields used by world growth. Deliberately excludes
-// occupancy/object_ids (transient, rebuilt every frame) and local_origin (derived from grid_origin + basis).
+// per-cell entity occupancy (transient; lives in World2d.cell_occupancy) (derived origins are computed on demand by Space_CellLocalOrigin).
 // A field added to Cell later must be added here or growth will silently drop it.
 void Cell_CopyAuthored(Cell *dst, const Cell *src)
 {
@@ -225,27 +195,22 @@ void Cell_CopyAuthored(Cell *dst, const Cell *src)
    dst->value = src->value;
 }
 
-// Derive every cell's local_origin from its (column,row): grid_origin + column*u + row*v (same formula
-// as InitUnitCells). Pure arithmetic over the live buffer; cannot fail. Used by growth and basis rebuilds.
-void Space_RecomputeCellOrigins(Space2d *space)
+// Local-space origin of a cell: grid_origin + column*u + row*v. Derived on demand because Cell no longer stores
+// it (its only consumer is a debug log). Same formula the old per-cell origin pass used. Returns the grid origin
+// for a null space or an out-of-range index.
+Vector2d Space_CellLocalOrigin(const Space2d *space, int cell_index)
 {
-   if (!space || !space->cells.items || space->columns < 1)
+   if (!space || space->columns < 1 || cell_index < 0 || cell_index >= (int)space->cells.count)
    {
-      return;
+      return space ? space->grid_origin : ZERO_VECTOR_2D;
    }
-   Cell *cells = (Cell *)space->cells.items;
-   int columns = space->columns;
-   int count = space->cells.count;
-   for (int k = 0; k < count; k++)
-   {
-      int i = k / columns; // Row
-      int j = k % columns; // Column
-      cells[k].local_origin.x = space->grid_origin.x + j * space->frame.basis.u.x + i * space->frame.basis.v.x;
-      cells[k].local_origin.y = space->grid_origin.y + j * space->frame.basis.u.y + i * space->frame.basis.v.y;
-   }
+   int i = cell_index / space->columns; // Row
+   int j = cell_index % space->columns; // Column
+   return (Vector2d){space->grid_origin.x + j * space->frame.basis.u.x + i * space->frame.basis.v.x,
+                     space->grid_origin.y + j * space->frame.basis.u.y + i * space->frame.basis.v.y};
 }
 
-// Rebuild basis-derived data after a basis edit: refresh unitArea, then re-derive each cell's local_origin.
+// Rebuild basis-derived data after a basis edit: refresh unitArea only (cells no longer store a derived origin, so this is O(1)).
 // DELIBERATE DEVIATION (needs user sign-off): this is done IN PLACE rather than via a snapshot + InitUnitCells +
 // Cell_CopyAuthored restore. A basis edit never changes columns/rows, so there is nothing to copy; leaving the
 // buffer alone preserves flags (SOLID etc.), warp_basis, effect and value (fixing the old bug where only PRESENT
@@ -261,7 +226,6 @@ void RebuildSpaceCells(Space2d *space)
 
    space->unitArea = fabsf((space->frame.basis.u.x * space->frame.basis.v.y) -
                            (space->frame.basis.u.y * space->frame.basis.v.x));
-   Space_RecomputeCellOrigins(space);
 }
 
 // Lattice cell containing a space-local point (uses the same maths as GetIndexFromCoords). False when the
@@ -305,9 +269,7 @@ Cell *Space_GetCellAtLattice(Space2d *space, int lx, int ly)
 //   2. TryAllocateBytes the fresh buffer (NULL -> log, return false, NOTHING modified);
 //   3. WorldGrowth_CopyCells into the fresh buffer (cannot fail; drops old cells outside a shrunk grid);
 //   4. COMMIT: swap cells.items, set count/capacity, columns, rows, grid_origin, frame.local_min/max;
-//   5. Space_RecomputeCellOrigins on the live space (pure arithmetic, cannot fail; chosen over a pre-commit
-//      helper so there is exactly one origin formula);
-//   6. free the old buffer.
+//   5. free the old buffer (the caller then rebuilds the per-world occupancy store via RefreshWorldSpatialMap).
 // Steps 4-6 contain no failing operation. Pointers into the old cells buffer are invalid afterwards.
 bool Space_ResizeCells(Space2d *space, const struct GridGrowthPlan *plan)
 {
@@ -355,10 +317,7 @@ bool Space_ResizeCells(Space2d *space, const struct GridGrowthPlan *plan)
    space->frame.local_max = (Vector2d){space->grid_origin.x + (float)plan->new_columns,
                                        space->grid_origin.y + (float)plan->new_rows};
 
-   // 5. Derive local_origin on the live space.
-   Space_RecomputeCellOrigins(space);
-
-   // 6. Release the old buffer.
+   // 5. Release the old buffer.
    Deallocate(&old_items, old_bytes);
    return true;
 }

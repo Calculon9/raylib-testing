@@ -994,7 +994,7 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
         {
             continue; // Absent (carved) cells carry no label.
         }
-        // Label anchor = the cell's top-left corner (j + go.x, i + go.y) in local space. cell->local_origin
+        // Label anchor = the cell's top-left corner (j + go.x, i + go.y) in local space. A derived per-cell origin (Space_CellLocalOrigin)
         // is NOT used: it already contains the basis (grid_origin + j*u + i*v) which world_to_pixel_mtx
         // would apply a second time under a non-orthonormal basis. The second line shows the absolute
         // lattice coordinate so growth is easy to verify.

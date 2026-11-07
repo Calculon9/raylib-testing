@@ -252,7 +252,7 @@ void PhysicsUpdateJob(void *context, int start, int end)
     World2d *world = (World2d *)context;
     GridSpace2d *space_entity = &world->grid_space;
     Space2d *space = &space_entity->space;
-    FlatMapInt *entity_space_map = &world->entity_space_map;
+    CellOccupancy *occupancy = &world->cell_occupancy;
 
     // The integration step uses the same clamped delta as UpdateWorld (see MAX_PHYSICS_DELTA_TIME).
     float physics_dt = fminf(frame_counter.delta_time, MAX_PHYSICS_DELTA_TIME);
@@ -320,7 +320,7 @@ void PhysicsUpdateJob(void *context, int start, int end)
         CalcSnappedAABB_Vertices(world_vertices, obj->surface.surface_vectors.count,
                                  ZERO_VECTOR_2D, snapped_aabb_verts);
         Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
-        MapEntityToASpace(space, obj, snapped_aabb_box, entity_space_map);
+        MapEntityToASpace(space, obj, snapped_aabb_box, occupancy);
         ResolveCollision_ContainerRect(obj, &space_entity->object, space,
                            (Vector2d){0.0f, world->gravity},
                            physics_dt);
@@ -971,11 +971,14 @@ void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container,
     }
 }
 
-void MapEntityToASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 snapped_aabb_box, FlatMapInt *O_entity_to_space_index_map)
+// Register an entity in every in-grid cell touched by its snapped AABB, in the sparse occupancy store.
+// Absent (carved) in-grid cells still register (wall collision and picking depend on it); out-of-grid
+// cells (index < 0) never register. A full cell logs a warning and the entity is simply not tracked there.
+void MapEntityToASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 snapped_aabb_box, CellOccupancy *occupancy)
 {
     // Keep this function as the final admission boundary for cell occupancy so
     // every caller follows the same physical-entity rule.
-    if (!space || !EntityIsEligbleForSpatialMap(object))
+    if (!space || !occupancy || !EntityIsEligbleForSpatialMap(object))
         return;
 
     // The spatial grid is a broad-phase index: insert an entity into every cell
@@ -991,33 +994,38 @@ void MapEntityToASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 snapped_aa
         {
             Vector2d cell_coords = (Vector2d){snapped_t_left.x + x, snapped_t_left.y + y};
             int cell_i = GetIndexFromCoords(space, cell_coords);
-            Cell *cell = GetCellFromCoords(space, cell_coords);
-            if (cell == NULL)
+            if (cell_i < 0)
             {
-                // LOG_WARN("Cell (index %d) not found in MapEntityToASpace or its coordinates are out of bounds. Skipping this object-->cell mapping.\n", cell_i);
+                // Out-of-grid cells are never registered (index -1).
                 continue;
             }
 
-            if (cell->occupancy < MAX_CELL_OCCUPANCY)
-            {
-                cell->object_ids[cell->occupancy] = object->id;
-                cell->occupancy++;
-
-                if (O_entity_to_space_index_map != NULL)
-                {
-                    FlatMapInt_InsertOrUpdate(O_entity_to_space_index_map, cell_i, cell->occupancy);
-                }
-            }
-            else
+            // No cell flag is consulted: absent in-grid cells register occupants too.
+            OccupancyAddResult result = CellOccupancy_Add(occupancy, cell_i, object->id);
+            if (result == CELL_OCC_FULL)
             {
                 LOG_WARN("Cell index %d full. ID %d not tracked spatially.\n", cell_i, object->id);
+            }
+            else if (result == CELL_OCC_OUT_OF_RANGE)
+            {
+                // Layout invariant broken (store not rebuilt after a resize); skip rather than mis-register.
+                LOG_ERROR("Cell index %d outside the occupancy store range. ID %d not tracked spatially.\n", cell_i, object->id);
+            }
+            else if (result == CELL_OCC_ALLOC_FAILED && CellOccupancy_TakeAllocFailureReport(occupancy))
+            {
+                LOG_ERROR("Cell occupancy store allocation failed. Some entities are not tracked spatially this tick.\n");
             }
         }
     }
 }
 
-static void RemoveEntityFromASpace(Space2d *space, EntityId entity_id, Matrix2x2 snapped_aabb_box, FlatMapInt *entity_space_map)
+// Remove every listing of entity_id from the in-grid cells covered by a previously snapped AABB.
+// Out-of-grid cells (index < 0) are skipped; an emptied block simply stays in the pool with count 0.
+static void RemoveEntityFromASpace(Space2d *space, EntityId entity_id, Matrix2x2 snapped_aabb_box, CellOccupancy *occupancy)
 {
+    if (!occupancy)
+        return;
+
     float snapped_w = snapped_aabb_box.col2.x - snapped_aabb_box.col1.x;
     float snapped_h = snapped_aabb_box.col2.y - snapped_aabb_box.col1.y;
 
@@ -1027,40 +1035,21 @@ static void RemoveEntityFromASpace(Space2d *space, EntityId entity_id, Matrix2x2
         {
             Vector2d cell_coords = {snapped_aabb_box.col1.x + x, snapped_aabb_box.col1.y + y};
             int cell_i = GetIndexFromCoords(space, cell_coords);
-            Cell *cell = GetCellFromCoords(space, cell_coords);
-            if (!cell)
+            if (cell_i < 0)
                 continue;
 
-            for (int index = 0; index < cell->occupancy; index++)
-            {
-                if (cell->object_ids[index] != entity_id)
-                    continue;
-
-                for (int shift = index; shift < cell->occupancy - 1; shift++)
-                    cell->object_ids[shift] = cell->object_ids[shift + 1];
-
-                cell->object_ids[cell->occupancy - 1] = 0;
-                cell->occupancy--;
-                index--;
-            }
-
-            if (entity_space_map)
-            {
-                if (cell->occupancy > 0)
-                    FlatMapInt_InsertOrUpdate(entity_space_map, cell_i, cell->occupancy);
-                else
-                    FlatMapInt_DeactivateSlot(entity_space_map, cell_i);
-            }
+            CellOccupancy_Remove(occupancy, cell_i, entity_id);
         }
     }
 }
 
-void RemapEntityInASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 previous_snapped_aabb_box, FlatMapInt *entity_space_map)
+// Move an entity's occupancy from its previous snapped box to its current one.
+void RemapEntityInASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 previous_snapped_aabb_box, CellOccupancy *occupancy)
 {
     if (!space || !object)
         return;
 
-    RemoveEntityFromASpace(space, object->id, previous_snapped_aabb_box, entity_space_map);
+    RemoveEntityFromASpace(space, object->id, previous_snapped_aabb_box, occupancy);
 
     // Remove stale membership if necessary, but never reinsert an entity that
     // is dead or exists only as a visual effect.
@@ -1073,7 +1062,7 @@ void RemapEntityInASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 previous
                              object->anchor_position,
                              snapped_aabb_verts);
     Matrix2x2 current_snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
-    MapEntityToASpace(space, object, current_snapped_aabb_box, entity_space_map);
+    MapEntityToASpace(space, object, current_snapped_aabb_box, occupancy);
 }
 
 void RefreshWorldSpatialMap(World2d *world)
@@ -1085,8 +1074,8 @@ void RefreshWorldSpatialMap(World2d *world)
     if (!space->cells.items)
         return;
 
-    ResetFlatMapInt(&world->entity_space_map);
-    ResetSpaceCells(space);
+    // Rewind the sparse store (O(occupied cells)) and stamp the current cell count, then re-map.
+    CellOccupancy_Reset(&world->cell_occupancy, (int)space->cells.count);
 
     LArray *object_array = &world->objects;
     Newtonoid2d *objects = (Newtonoid2d *)object_array->items;
@@ -1107,7 +1096,7 @@ void RefreshWorldSpatialMap(World2d *world)
                                  ZERO_VECTOR_2D,
                                  snapped_aabb_verts);
         Matrix2x2 snapped_aabb_box = CalcAABBCoords_Tight(snapped_aabb_verts, 4, ZERO_VECTOR_2D);
-        MapEntityToASpace(space, object, snapped_aabb_box, &world->entity_space_map);
+        MapEntityToASpace(space, object, snapped_aabb_box, &world->cell_occupancy);
     }
 }
 
