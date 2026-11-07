@@ -41,7 +41,8 @@ typedef enum GrowthResult
 {
     GROWTH_NOT_NEEDED,
     GROWTH_OK,
-    GROWTH_REFUSED_CAP
+    GROWTH_REFUSED_CAP,
+    GROWTH_INVALID_RECT // PlanToRect only: the target rectangle is empty or inverted.
 } GrowthResult;
 
 // Lattice cell containing a local point. Mirrors GetIndexFromCoords: column = floorf(x - origin) is
@@ -88,10 +89,15 @@ static inline bool WorldGrowth_TouchesPresentCell(const Cell *cells, int columns
     return false;
 }
 
-// Plan growth so lattice cell (lx,ly) is covered. GROWTH_NOT_NEEDED when already inside (plan = identity).
-// GROWTH_REFUSED_CAP when either new dimension would exceed max_dim. Uses long long internally.
-static inline GrowthResult WorldGrowth_Plan(int columns, int rows, int origin_x, int origin_y,
-                                            int lx, int ly, int max_dim, GridGrowthPlan *out_plan)
+// Plan a resize of the grid to the absolute lattice rectangle [min_x,max_x) x [min_y,max_y). This is the single
+// planning routine: growth passes a rectangle that contains the old grid, a trim passes a smaller one. For a
+// shrink shift_cols/shift_rows are NEGATIVE (old cell (0,0) lies left of / above the new grid and is dropped).
+// GROWTH_NOT_NEEDED when the rectangle equals the current grid (plan = identity), GROWTH_REFUSED_CAP when
+// either new dimension would exceed max_dim, GROWTH_INVALID_RECT when the rectangle is empty or inverted.
+// Uses long long internally.
+static inline GrowthResult WorldGrowth_PlanToRect(int columns, int rows, int origin_x, int origin_y,
+                                                  long long min_x, long long min_y, long long max_x, long long max_y,
+                                                  int max_dim, GridGrowthPlan *out_plan)
 {
     GridGrowthPlan p;
     p.old_columns = columns;
@@ -99,15 +105,14 @@ static inline GrowthResult WorldGrowth_Plan(int columns, int rows, int origin_x,
     p.old_origin_x = origin_x;
     p.old_origin_y = origin_y;
 
-    // New extent = union of the old rectangle and the 1x1 target cell, in absolute lattice space.
-    long long min_x = origin_x < lx ? origin_x : lx;
-    long long min_y = origin_y < ly ? origin_y : ly;
-    long long old_max_x = (long long)origin_x + columns;
-    long long old_max_y = (long long)origin_y + rows;
-    long long max_x = old_max_x > (long long)lx + 1 ? old_max_x : (long long)lx + 1;
-    long long max_y = old_max_y > (long long)ly + 1 ? old_max_y : (long long)ly + 1;
     long long new_cols = max_x - min_x;
     long long new_rows = max_y - min_y;
+    if (new_cols <= 0 || new_rows <= 0)
+    {
+        if (out_plan)
+            *out_plan = p; // Old fields only; caller must not apply an invalid plan.
+        return GROWTH_INVALID_RECT;
+    }
 
     bool unchanged = (new_cols == columns && new_rows == rows && min_x == origin_x && min_y == origin_y);
     if (!unchanged && (new_cols > max_dim || new_rows > max_dim))
@@ -128,7 +133,124 @@ static inline GrowthResult WorldGrowth_Plan(int columns, int rows, int origin_x,
     return unchanged ? GROWTH_NOT_NEEDED : GROWTH_OK;
 }
 
-// Old dense index -> new dense index after the plan (row/column re-based by shift_*).
+// Plan growth so lattice cell (lx,ly) is covered. GROWTH_NOT_NEEDED when already inside (plan = identity).
+// GROWTH_REFUSED_CAP when either new dimension would exceed max_dim. The target rectangle is the union of the
+// old grid and the 1x1 target cell, handed to WorldGrowth_PlanToRect.
+static inline GrowthResult WorldGrowth_Plan(int columns, int rows, int origin_x, int origin_y,
+                                            int lx, int ly, int max_dim, GridGrowthPlan *out_plan)
+{
+    long long min_x = origin_x < lx ? origin_x : lx;
+    long long min_y = origin_y < ly ? origin_y : ly;
+    long long old_max_x = (long long)origin_x + columns;
+    long long old_max_y = (long long)origin_y + rows;
+    long long max_x = old_max_x > (long long)lx + 1 ? old_max_x : (long long)lx + 1;
+    long long max_y = old_max_y > (long long)ly + 1 ? old_max_y : (long long)ly + 1;
+    return WorldGrowth_PlanToRect(columns, rows, origin_x, origin_y, min_x, min_y, max_x, max_y, max_dim, out_plan);
+}
+
+// True when the grid cell (lx,ly) is PRESENT, treating the lattice cell (skip_lx,skip_ly) as already absent.
+// Used so a delete can be evaluated BEFORE the presence bit is cleared.
+static inline bool WorldGrowth_PresentExcluding(const Cell *cells, int columns, int origin_x, int origin_y,
+                                                int lx, int ly, int skip_lx, int skip_ly, int row, int col)
+{
+    if (lx == skip_lx && ly == skip_ly)
+        return false;
+    return (cells[(long long)row * columns + col].flags & CELL_FLAG_PRESENT) != 0;
+}
+
+// Cheap trim detection (B2): true only when the deleted lattice cell lies on the outer row or column of the
+// grid. An interior deletion can never move a tight bounding box, so callers skip the scan entirely.
+static inline bool WorldGrowth_DeleteMayShrink(int columns, int rows, int origin_x, int origin_y, int lx, int ly)
+{
+    long long col = (long long)lx - origin_x;
+    long long row = (long long)ly - origin_y;
+    if (col < 0 || row < 0 || col >= columns || row >= rows)
+        return false;
+    return col == 0 || col == columns - 1 || row == 0 || row == rows - 1;
+}
+
+// Tight bounding rectangle [*x0,*x1) x [*y0,*y1) (absolute lattice) of the PRESENT cells, as it will be once
+// lattice cell (del_lx,del_ly) has been deleted. The grid is assumed already tight (the invariant this feature
+// maintains), so only the edges the deleted cell lies on can move: for each such edge the scan walks inward
+// while the whole row/column is absent. Rows are trimmed first (full width), then columns (over the surviving
+// rows), which gives the unique tight box. Returns false when no present cell would remain (the caller must
+// refuse the delete). Cost: O(length of the lines scanned), never O(cells) for a delete that cannot shrink.
+static inline bool WorldGrowth_TightPresentRect(const Cell *cells, int columns, int rows, int origin_x, int origin_y,
+                                                int del_lx, int del_ly, int *x0, int *y0, int *x1, int *y1)
+{
+    int c0 = 0, c1 = columns, r0 = 0, r1 = rows; // Surviving window in dense column/row units, [c0,c1) x [r0,r1).
+    int del_col = del_lx - origin_x;
+    int del_row = del_ly - origin_y;
+
+    if (cells && WorldGrowth_DeleteMayShrink(columns, rows, origin_x, origin_y, del_lx, del_ly))
+    {
+        bool top = del_row == 0, bottom = del_row == rows - 1;
+        bool left = del_col == 0, right = del_col == columns - 1;
+
+        // Trim whole absent rows from the top then the bottom.
+        for (; top && r0 < r1; r0++)
+        {
+            bool any = false;
+            for (int c = 0; c < columns && !any; c++)
+                any = WorldGrowth_PresentExcluding(cells, columns, origin_x, origin_y, c + origin_x, r0 + origin_y,
+                                                   del_lx, del_ly, r0, c);
+            if (any)
+                break;
+        }
+        for (; bottom && r1 > r0; r1--)
+        {
+            bool any = false;
+            for (int c = 0; c < columns && !any; c++)
+                any = WorldGrowth_PresentExcluding(cells, columns, origin_x, origin_y, c + origin_x, r1 - 1 + origin_y,
+                                                   del_lx, del_ly, r1 - 1, c);
+            if (any)
+                break;
+        }
+        if (r0 >= r1)
+            return false; // Every row was absent: no present cell remains.
+
+        // Trim whole absent columns from the left then the right, looking only at the surviving rows.
+        for (; left && c0 < c1; c0++)
+        {
+            bool any = false;
+            for (int r = r0; r < r1 && !any; r++)
+                any = WorldGrowth_PresentExcluding(cells, columns, origin_x, origin_y, c0 + origin_x, r + origin_y,
+                                                   del_lx, del_ly, r, c0);
+            if (any)
+                break;
+        }
+        for (; right && c1 > c0; c1--)
+        {
+            bool any = false;
+            for (int r = r0; r < r1 && !any; r++)
+                any = WorldGrowth_PresentExcluding(cells, columns, origin_x, origin_y, c1 - 1 + origin_x, r + origin_y,
+                                                   del_lx, del_ly, r, c1 - 1);
+            if (any)
+                break;
+        }
+        if (c0 >= c1)
+            return false;
+    }
+
+    *x0 = origin_x + c0;
+    *x1 = origin_x + c1;
+    *y0 = origin_y + r0;
+    *y1 = origin_y + r1;
+    return true;
+}
+
+// Grow the rectangle [*x0,*x1) x [*y0,*y1) so it also contains lattice cell (lx,ly). Used by a trim to keep the
+// lattice cell holding an entity's centre inside the new grid (B4).
+static inline void WorldGrowth_RectInclude(int *x0, int *y0, int *x1, int *y1, int lx, int ly)
+{
+    if (lx < *x0) *x0 = lx;
+    if (ly < *y0) *y0 = ly;
+    if (lx + 1 > *x1) *x1 = lx + 1;
+    if (ly + 1 > *y1) *y1 = ly + 1;
+}
+
+// Old dense index -> new dense index after the plan (row/column re-based by shift_*). For a shrink the
+// result is only meaningful when the old cell survives (see WorldGrowth_CopyCells).
 static inline int WorldGrowth_MapIndex(const GridGrowthPlan *plan, int old_index)
 {
     int r = old_index / plan->old_columns;
@@ -194,8 +316,8 @@ static inline void WorldGrowth_AddedStrip(const GridGrowthPlan *plan, int *x0, i
 }
 
 // Fills dst (new_columns * new_rows cells, already zeroed) from src: every dst cell gets identity
-// warp_basis and ABSENT flags (a zero basis would be invalid); each old cell is then copied to its
-// shifted slot via Cell_CopyAuthored, the single list of authored fields. local_origin is NOT set here;
+// warp_basis and ABSENT flags (a zero basis would be invalid); each old cell that falls inside the new grid
+// is then copied to its shifted slot via Cell_CopyAuthored, the single list of authored fields. local_origin is NOT set here;
 // the caller derives it (Space_RecomputeCellOrigins) once the new origin and dimensions are live.
 static inline void WorldGrowth_CopyCells(Cell *dst, const GridGrowthPlan *plan, const Cell *src)
 {
@@ -207,10 +329,17 @@ static inline void WorldGrowth_CopyCells(Cell *dst, const GridGrowthPlan *plan, 
     }
     for (int r = 0; r < plan->old_rows; r++)
     {
+        // A shrink has negative shifts, so some old rows/columns land outside the new grid and are dropped.
+        // For growth every old cell lands inside, so these guards never skip anything.
+        int nr = r + plan->shift_rows;
+        if (nr < 0 || nr >= plan->new_rows)
+            continue;
         for (int c = 0; c < plan->old_columns; c++)
         {
-            Cell *to = &dst[(r + plan->shift_rows) * plan->new_columns + (c + plan->shift_cols)];
-            Cell_CopyAuthored(to, &src[r * plan->old_columns + c]);
+            int nc = c + plan->shift_cols;
+            if (nc < 0 || nc >= plan->new_columns)
+                continue;
+            Cell_CopyAuthored(&dst[nr * plan->new_columns + nc], &src[r * plan->old_columns + c]);
         }
     }
 }

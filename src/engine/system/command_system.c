@@ -5,6 +5,7 @@
 #include "system/systems.h"
 #include "system/universe_system.h"
 #include "world/world_internal.h"
+#include "world/world_growth.h"
 #include "input/drag_interaction.h"
 #include "common/common.h"
 #include "system/ui_system.h"
@@ -240,6 +241,13 @@ bool EnqueueRemoveComponent(EntityId entity_id, EntityComponentType component_ty
 // would risk int overflow in downstream arithmetic).
 #define CELL_COMMAND_MAX_LATTICE 1000000
 
+// True when |value| <= CELL_COMMAND_MAX_LATTICE. Compares in 64-bit with no abs(), which is undefined for INT_MIN.
+static bool CellCommandLatticeInRange(int value)
+{
+    long long v = (long long)value;
+    return v >= -(long long)CELL_COMMAND_MAX_LATTICE && v <= (long long)CELL_COMMAND_MAX_LATTICE;
+}
+
 // Enqueue marking a cell PRESENT (add). Validates the world index (nested or root sentinel) and the lattice
 // magnitude; lattice coordinates may legitimately be negative. The handler resolves the dense index at
 // drain time, after any growth.
@@ -256,7 +264,8 @@ bool EnqueueAddCell(int world_index, int lattice_x, int lattice_y, int tile_type
     {
         return false;
     }
-    if (abs(lattice_x) > CELL_COMMAND_MAX_LATTICE || abs(lattice_y) > CELL_COMMAND_MAX_LATTICE)
+    // Widen to long long before comparing: abs(INT_MIN) is undefined behaviour.
+    if (!CellCommandLatticeInRange(lattice_x) || !CellCommandLatticeInRange(lattice_y))
     {
         LOG_WARN("Cannot add cell: lattice coordinate (%d,%d) is out of range.\n", lattice_x, lattice_y);
         return false;
@@ -281,7 +290,7 @@ bool EnqueueDeleteCell(int world_index, int lattice_x, int lattice_y)
     {
         return false;
     }
-    if (abs(lattice_x) > CELL_COMMAND_MAX_LATTICE || abs(lattice_y) > CELL_COMMAND_MAX_LATTICE)
+    if (!CellCommandLatticeInRange(lattice_x) || !CellCommandLatticeInRange(lattice_y))
     {
         LOG_WARN("Cannot delete cell: lattice coordinate (%d,%d) is out of range.\n", lattice_x, lattice_y);
         return false;
@@ -518,6 +527,25 @@ static void ExecuteCommandInternal(Command *c)
             }
         }
 
+        // B3: the LAST present cell of a nested world cannot be deleted. A world with no cells could never be
+        // re-grown (growth needs a present neighbour). The tight-rect helper reports "nothing would remain" while
+        // treating this cell as already absent; it only scans when the cell lies on an outer row/column, which
+        // the last cell of a tight world always does.
+        if (world && c->type == CMD_DELETE_CELL && Cell_IsPresent(&world->grid_space.space, cell_index))
+        {
+            Space2d *last_space = &world->grid_space.space;
+            int tx0, ty0, tx1, ty1;
+            if (!WorldGrowth_TightPresentRect((const Cell *)last_space->cells.items, last_space->columns,
+                                              last_space->rows, (int)last_space->grid_origin.x,
+                                              (int)last_space->grid_origin.y, lattice_x, lattice_y,
+                                              &tx0, &ty0, &tx1, &ty1))
+            {
+                LOG_INFO("Refused CMD_DELETE_CELL: lattice (%d,%d) is the last present cell of world %d.\n",
+                         lattice_x, lattice_y, world_index);
+                world = NULL;
+            }
+        }
+
         if (world)
         {
             bool present = (c->type == CMD_ADD_CELL);
@@ -560,6 +588,14 @@ static void ExecuteCommandInternal(Command *c)
                 World_RefreshBoundsFromFrame(world);
                 LOG_INFO("Processed %s -> world_index=%d lattice=(%d,%d)\n",
                          present ? "CMD_ADD_CELL" : "CMD_DELETE_CELL", world_index, lattice_x, lattice_y);
+
+                // B1/B2: a delete may leave empty outer rows/columns; shrink the grid to hug the present cells.
+                // Done here, inside the drain, after the presence bit has flipped. `space`/`cell` pointers taken
+                // above are invalid after this call, so nothing below may use them.
+                if (!present)
+                {
+                    Universe_TrimWorldToPresentCells(&G_Universe, world_index, lattice_x, lattice_y);
+                }
             }
         }
     }

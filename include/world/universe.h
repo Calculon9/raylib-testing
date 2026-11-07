@@ -99,6 +99,13 @@ typedef enum WorldGrowthStatus
 // NEVER CALL OUTSIDE THE COMMAND DRAIN (ProcessCommandQueue): growth reallocates the cell buffer.
 WorldGrowthStatus Universe_GrowWorldToInclude(Universe *u, int world_index, int lattice_x, int lattice_y);
 
+// Shrink nested world `world_index` to the tight bounding box of its PRESENT cells after the cell at lattice
+// (deleted_lx, deleted_ly) was cleared (no-op unless that cell was on an outer row/column). The box also keeps the
+// cell holding each world-owned entity's centre, so no entity is stranded. Returns true when the grid was resized;
+// a failed allocation leaves the world untouched. The root world is never trimmed.
+// NEVER CALL OUTSIDE THE COMMAND DRAIN (ProcessCommandQueue): a trim reallocates the cell buffer.
+bool Universe_TrimWorldToPresentCells(Universe *u, int world_index, int deleted_lx, int deleted_ly);
+
 // True when the lattice rectangle [x0,x1)x[y0,y1) of world `world_index`, mapped through its frame, strictly
 // overlaps (deeper than eps universe units) the full grid parallelogram of any OTHER nested world.
 bool Universe_StripOverlapsOtherWorld(const Universe *u, int world_index, int x0, int y0, int x1, int y1, float eps);

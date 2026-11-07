@@ -440,6 +440,82 @@ WorldGrowthStatus Universe_GrowWorldToInclude(Universe *u, int world_index, int 
              plan.new_columns, plan.new_rows, plan.new_origin_x, plan.new_origin_y);
     return WORLD_GROWTH_OK;
 }
+
+// Shrink nested world `world_index` to the tight bounding box of its PRESENT cells after the cell at lattice
+// (deleted_lx, deleted_ly) was cleared. Cheap exit when that cell was not on an outer row/column. The box is then
+// widened to keep the lattice cell holding the centre (anchor_position) of every entity owned by this world, so a
+// trim never strands an entity outside the grid: those cells are absent (walls) and the existing recovery pass
+// moves the entity out, after which a later delete can trim further. Entities are never moved here.
+// Returns true when the grid was resized. A failed allocation leaves the world untouched (logged).
+// DRAIN-TIME ONLY: never call outside the command drain (ProcessCommandQueue); a trim reallocates the cell
+// buffer, so any Cell * held elsewhere would dangle.
+bool Universe_TrimWorldToPresentCells(Universe *u, int world_index, int deleted_lx, int deleted_ly)
+{
+    World2d *world = (u && world_index >= 0 && world_index < u->world_count) ? &u->worlds[world_index] : NULL;
+    if (!world)
+    {
+        return false; // The root world (and invalid indices) are never trimmed.
+    }
+
+    Space2d *space = &world->grid_space.space;
+    int origin_x = (int)space->grid_origin.x;
+    int origin_y = (int)space->grid_origin.y;
+    if (!space->cells.items)
+    {
+        return false;
+    }
+
+    int x0, y0, x1, y1;
+    if (!WorldGrowth_TightPresentRect((const Cell *)space->cells.items, space->columns, space->rows,
+                                      origin_x, origin_y, deleted_lx, deleted_ly, &x0, &y0, &x1, &y1))
+    {
+        return false; // No present cell would remain; the handler refuses that delete before reaching here.
+    }
+    if (x0 == origin_x && y0 == origin_y && x1 == origin_x + space->columns && y1 == origin_y + space->rows)
+    {
+        return false; // Already tight.
+    }
+
+    // B4: widen the box to include the cell containing each world-owned entity's centre. Entities are
+    // enumerated exactly as RefreshWorldSpatialMap does: the world's object array, filtered to those parented
+    // to this world's grid object. Centres already outside the old grid are skipped (the trim cannot make
+    // them any more outside).
+    const Newtonoid2d *objects = (const Newtonoid2d *)world->objects.items;
+    for (size_t i = 0; objects && i < world->objects.count; i++)
+    {
+        if (objects[i].parent_id != world->grid_space.object.id)
+            continue;
+        int ex, ey;
+        if (WorldGrowth_LatticeFromLocal(space->grid_origin.x, space->grid_origin.y,
+                                         objects[i].anchor_position.x, objects[i].anchor_position.y, &ex, &ey) &&
+            WorldGrowth_IndexFromLattice(space->columns, space->rows, origin_x, origin_y, ex, ey) >= 0)
+        {
+            WorldGrowth_RectInclude(&x0, &y0, &x1, &y1, ex, ey);
+        }
+    }
+
+    GridGrowthPlan plan;
+    if (WorldGrowth_PlanToRect(space->columns, space->rows, origin_x, origin_y, x0, y0, x1, y1,
+                               MAX_WORLD_GRID_DIMENSION, &plan) != GROWTH_OK)
+    {
+        return false; // Entities pinned the box to the full grid, or the plan was invalid: nothing to do.
+    }
+
+    if (!Space_ResizeCells(space, &plan))
+    {
+        return false; // Space_ResizeCells already logged; the world is untouched and simply stays larger.
+    }
+
+    // Same refresh sequence as growth: origin_in_parent and the basis are untouched, so the world does not move.
+    BindWorldTunnel(world, &u->camera);
+    World_RefreshBoundsFromFrame(world);
+    RefreshWorldSpatialMap(world);
+
+    LOG_INFO("World %d trimmed: %dx%d origin (%d,%d) -> %dx%d origin (%d,%d)\n", world_index,
+             plan.old_columns, plan.old_rows, plan.old_origin_x, plan.old_origin_y,
+             plan.new_columns, plan.new_rows, plan.new_origin_x, plan.new_origin_y);
+    return true;
+}
 // ---------------------------------------------------------------------------
 void World_SetBounds(World2d *world, Vector2d min_bound, Vector2d max_bound)
 {

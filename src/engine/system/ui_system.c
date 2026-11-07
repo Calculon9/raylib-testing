@@ -563,7 +563,8 @@ void UIState_ValidateSelectionSet(void)
                     break;
                 case TARGET_KIND_CELL:
                     // Validate a cell via its owning world index, then confirm the lattice coordinate
-                    // still lies inside that world's grid (grids only grow today, but stay defensive).
+                    // still lies inside that world's grid (a trim shrinks it, dropping selections in the removed
+                    // absent margin).
                     stale = member->as.cell.world_index != UNIVERSE_ROOT_WORLD_INDEX &&
                             (member->as.cell.world_index < 0 ||
                              member->as.cell.world_index >= Universe_GetWorldCount(&G_Universe));

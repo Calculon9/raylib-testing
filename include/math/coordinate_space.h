@@ -143,6 +143,9 @@ Cell *Space_GetCellAtLattice(Space2d *space, int lx, int ly);      // NULL if ou
 // Apply a growth plan: allocate non-fatally, copy, commit, recompute origins, free the old buffer.
 // Returns false and changes NOTHING on allocation failure or plan mismatch. Drain-time only.
 bool Space_GrowCells(Space2d *space, const struct GridGrowthPlan *plan);
+// Apply any resize plan (growth or trim, shifts may be negative) through the same validate -> allocate -> copy ->
+// commit -> recompute -> free sequence. Old cells outside the new grid are dropped. Same failure contract.
+bool Space_ResizeCells(Space2d *space, const struct GridGrowthPlan *plan);
 Cell *GetCellFromCoords(Space2d *space, Vector2d local_coords);
 int GetIndexFromCoords(Space2d *space, Vector2d local_coords);
 // Return whether the cell at cell_index is PRESENT (really there). NULL space / NULL buffer /

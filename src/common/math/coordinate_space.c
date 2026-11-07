@@ -300,32 +300,32 @@ Cell *Space_GetCellAtLattice(Space2d *space, int lx, int ly)
    return &((Cell *)space->cells.items)[index];
 }
 
-// Apply a growth plan to a space. ORDER (so the commit cannot half-grow the space):
+// Apply a resize plan (growth OR trim) to a space. ORDER (so the commit cannot half-resize the space):
 //   1. validate the plan against the live space;
 //   2. TryAllocateBytes the fresh buffer (NULL -> log, return false, NOTHING modified);
-//   3. WorldGrowth_CopyCells into the fresh buffer (cannot fail);
+//   3. WorldGrowth_CopyCells into the fresh buffer (cannot fail; drops old cells outside a shrunk grid);
 //   4. COMMIT: swap cells.items, set count/capacity, columns, rows, grid_origin, frame.local_min/max;
 //   5. Space_RecomputeCellOrigins on the live space (pure arithmetic, cannot fail; chosen over a pre-commit
 //      helper so there is exactly one origin formula);
 //   6. free the old buffer.
 // Steps 4-6 contain no failing operation. Pointers into the old cells buffer are invalid afterwards.
-bool Space_GrowCells(Space2d *space, const struct GridGrowthPlan *plan)
+bool Space_ResizeCells(Space2d *space, const struct GridGrowthPlan *plan)
 {
    if (!space || !plan || !space->cells.items)
    {
       return false;
    }
-   // 1. Validate: the plan must describe THIS space, only grow, and respect the cap.
+   // 1. Validate: the plan must describe THIS space, be self-consistent and respect the cap. Growth and
+   // shrink both pass; Space_GrowCells adds the grow-only checks.
    if (plan->old_columns != space->columns || plan->old_rows != space->rows ||
        plan->old_origin_x != (int)space->grid_origin.x || plan->old_origin_y != (int)space->grid_origin.y ||
-       plan->new_columns < plan->old_columns || plan->new_rows < plan->old_rows ||
+       plan->new_columns < 1 || plan->new_rows < 1 ||
        plan->new_columns > MAX_WORLD_GRID_DIMENSION || plan->new_rows > MAX_WORLD_GRID_DIMENSION ||
-       plan->shift_cols < 0 || plan->shift_rows < 0 ||
-       plan->shift_cols + plan->old_columns > plan->new_columns ||
-       plan->shift_rows + plan->old_rows > plan->new_rows ||
+       plan->shift_cols != plan->old_origin_x - plan->new_origin_x ||
+       plan->shift_rows != plan->old_origin_y - plan->new_origin_y ||
        space->cells.count != space->columns * space->rows)
    {
-      LOG_ERROR("Space_GrowCells: plan does not match the space; world left untouched.");
+      LOG_ERROR("Space_ResizeCells: plan does not match the space; world left untouched.\n");
       return false;
    }
 
@@ -335,7 +335,7 @@ bool Space_GrowCells(Space2d *space, const struct GridGrowthPlan *plan)
    Cell *fresh = (Cell *)TryAllocateBytes(new_bytes);
    if (!fresh)
    {
-      LOG_ERROR("Space_GrowCells: out of memory allocating %zu bytes; world left untouched.", new_bytes);
+      LOG_ERROR("Space_ResizeCells: out of memory allocating %zu bytes; world left untouched.\n", new_bytes);
       return false;
    }
 
@@ -362,6 +362,26 @@ bool Space_GrowCells(Space2d *space, const struct GridGrowthPlan *plan)
    Deallocate(&old_items, old_bytes);
    return true;
 }
+
+// Growth entry point: a thin wrapper over Space_ResizeCells that additionally insists the plan only grows (every
+// old cell keeps a slot), so a trim plan can never be applied through the growth API by mistake.
+bool Space_GrowCells(Space2d *space, const struct GridGrowthPlan *plan)
+{
+   if (!space || !plan)
+   {
+      return false;
+   }
+   if (plan->new_columns < plan->old_columns || plan->new_rows < plan->old_rows ||
+       plan->shift_cols < 0 || plan->shift_rows < 0 ||
+       plan->shift_cols + plan->old_columns > plan->new_columns ||
+       plan->shift_rows + plan->old_rows > plan->new_rows)
+   {
+      LOG_ERROR("Space_GrowCells: plan does not only grow; world left untouched.\n");
+      return false;
+   }
+   return Space_ResizeCells(space, plan);
+}
+
 // Return whether the cell at cell_index is PRESENT (really there). NULL space / NULL buffer /
 // out-of-range index all read as absent.
 bool Cell_IsPresent(const Space2d *space, int cell_index)
