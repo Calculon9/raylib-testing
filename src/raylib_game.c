@@ -25,6 +25,7 @@
 #include "editor/geometry_editor.h"
 #include "input/drag_interaction.h"
 #include "input/input_system.h"
+#include "system/frame_profiler.h" // PROFILER
 #include <stddef.h>
 #if defined(PLATFORM_WEB)
 #include <emscripten/emscripten.h>
@@ -342,22 +343,26 @@ static void DrawTransition(void)
 // Update and draw game frame
 static void UpdateDrawFrame(void)
 {
+    PROFILE_FRAME_BEGIN(); // PROFILER
     UpdateFrameCounter(&frame_counter);
     memory_allocated = GetCurrentMemoryAllocated();
     // Update
     //----------------------------------------------------------------------------------
     // UpdateMusicStream(music);       // NOTE: Music keeps playing between screens
 
+    PROFILE_BEGIN(PROF_UPDATE); // PROFILER
     if (!transition_state.active)
     {
         UpdateCurrentScreenAndTransition();
     }
     else
         UpdateTransition(); // Update transition (fade-in, fade-out)
+    PROFILE_END(PROF_UPDATE); // PROFILER
     //----------------------------------------------------------------------------------
 
     // Draw
     //----------------------------------------------------------------------------------
+    PROFILE_BEGIN(PROF_DRAW); // PROFILER
     BeginDrawing();
 
     ClearBackground(RAYWHITE);
@@ -374,7 +379,11 @@ static void UpdateDrawFrame(void)
 
     // DrawFPS(10, 10);
 
+    PROFILE_END(PROF_DRAW); // PROFILER
+    PROFILE_BEGIN(PROF_ENDDRAW); // PROFILER
     EndDrawing();
+    PROFILE_END(PROF_ENDDRAW); // PROFILER
+    PROFILE_FRAME_END(); // PROFILER
     //----------------------------------------------------------------------------------
 }
 
