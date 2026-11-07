@@ -542,8 +542,10 @@ bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, 
     // discovered repeatedly. Remember the pair after its first result to keep
     // one contact response per frame.
     unsigned long obj_pair_hash_key = CalcHashFromInts(obj_id_a, obj_id_b);
-    short is_resolved = 0;
-    if (FlatMapInt_GetValue(resolved_collisions, obj_pair_hash_key, (int *)&is_resolved))
+    // Must be an int: FlatMapInt_GetValue writes a full int through the pointer. A short here
+    // overran the 2-byte stack slot on every duplicate-pair hit (undefined behaviour).
+    int is_resolved = 0;
+    if (FlatMapInt_GetValue(resolved_collisions, obj_pair_hash_key, &is_resolved))
         return false;
 
     Newtonoid2d *a = GetEntityByID(world, obj_id_a);
