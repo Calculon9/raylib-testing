@@ -533,6 +533,12 @@ void UpdateWorld(World2d *world, float delta_time)
             }
         }
     }
+
+    // Post-pair container pass: pile pressure from the pair pass can push bottom-layer bodies back into
+    // the walls, so correct them in the same frame (part of the PROF_PAIRS phase). This runs AFTER the
+    // recovery pass above by design: a body clamped back inside may land in an absent cell, which the
+    // recovery pass relocates at the start of next frame's solid phase (before any pair work).
+    ResolveContainerPass(world);
     PROFILE_END(PROF_PAIRS); // PROFILER
 }
 

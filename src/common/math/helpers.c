@@ -15,14 +15,6 @@ float GetRandomFloat(float min, float max)
     return r;
 }
 
-unsigned long CalcHashFromInts(int a, int b)
-{
-    // Scramble the integer bits so sequential IDs distribute beautifully
-    unsigned long hash = (unsigned long)a * 2654435761UL;
-    return hash % b;
-
-}
-
 float ClampFloat(float value, float min_value, float max_value)
 {
     if (value < min_value)

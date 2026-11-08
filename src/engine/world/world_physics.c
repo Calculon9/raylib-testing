@@ -9,6 +9,8 @@
 #include "entities/entity_registry.h"
 #include "system/entities/portal_system.h"
 #include "world/object_gizmos.h" // IsGizmoEnabled(GIZMO_COLLISIONS): gates collision-marker creation
+#include "world/collision_pair_key.h"
+#include "world/container_correction.h"
 
 // Apply a local basis to a vector using the project's standard basis-apply idiom
 // (the same maths as Newtonoid_TransformVertices / Frame_TransformPoint_ToParent):
@@ -538,16 +540,8 @@ bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, 
         return false;
     }
 
-    // An entity can occupy several broad-phase cells, so the same pair can be
-    // discovered repeatedly. Remember the pair after its first result to keep
-    // one contact response per frame.
-    unsigned long obj_pair_hash_key = CalcHashFromInts(obj_id_a, obj_id_b);
-    // Must be an int: FlatMapInt_GetValue writes a full int through the pointer. A short here
-    // overran the 2-byte stack slot on every duplicate-pair hit (undefined behaviour).
-    int is_resolved = 0;
-    if (FlatMapInt_GetValue(resolved_collisions, obj_pair_hash_key, &is_resolved))
-        return false;
-
+    // Resolve both ids through the generation-checked lookup first, so the pair key below is only
+    // ever built from live entities (a stale id could otherwise alias a recycled slot).
     Newtonoid2d *a = GetEntityByID(world, obj_id_a);
     Newtonoid2d *b = GetEntityByID(world, obj_id_b);
     if (!a || !b)
@@ -556,6 +550,17 @@ bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, 
                  obj_id_a, obj_id_b, cell_i);
         return false;
     }
+
+    // An entity can occupy several broad-phase cells, so the same pair can be
+    // discovered repeatedly. Remember the pair after its first result to keep
+    // one contact response per frame. The key is symmetric and collision-free
+    // (see collision_pair_key.h), so one pair can never mask another.
+    int obj_pair_hash_key = CollisionPairKey(obj_id_a, obj_id_b);
+    // Must be an int: FlatMapInt_GetValue writes a full int through the pointer. A short here
+    // overran the 2-byte stack slot on every duplicate-pair hit (undefined behaviour).
+    int is_resolved = 0;
+    if (FlatMapInt_GetValue(resolved_collisions, obj_pair_hash_key, &is_resolved))
+        return false;
 
     // Treat this as a defensive boundary in case a stale or future indexing
     // path supplies an effect or dead entity to the pair resolver.
@@ -907,50 +912,23 @@ void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container,
         !(container->collision_role_mask & entity->roles))
         return;
 
-    // The legal region is the grid rectangle in space-local units. Compare the
-    // child's AABB against those four walls independently.
-    float c_min_x = space->grid_origin.x;
-    float c_min_y = space->grid_origin.y;
-    float c_max_x = space->grid_origin.x + (float)space->columns;
-    float c_max_y = space->grid_origin.y + (float)space->rows;
+    // The legal region is the grid rectangle in space-local units. Both axes are resolved
+    // independently: each penetrated wall gets its own impulse response, then one combined
+    // FULL-depth displacement moves the entity back (the container is immovable, so no 20%
+    // soft correction), with the centre clamped inside the rectangle.
+    Vector2d grid_min = space->grid_origin;
+    Vector2d grid_max = {space->grid_origin.x + (float)space->columns,
+                         space->grid_origin.y + (float)space->rows};
+    ContainerCorrection correction = ContainerCorrection_Compute(entity->bounds_origin, entity->bounds_size,
+                                                                 entity->anchor_position, grid_min, grid_max);
 
-    float e_min_x = entity->bounds_origin.x;
-    float e_min_y = entity->bounds_origin.y;
-    float e_max_x = entity->bounds_origin.x + entity->bounds_size.x;
-    float e_max_y = entity->bounds_origin.y + entity->bounds_size.y;
-
-    float penetration_depth = 0.0f;
-    Vector2d inward_normal = {0.0f, 0.0f};
-
-    // Select the wall penetration and its inward normal. The normal points back
-    // into the legal container region, which makes the same impulse formula work
-    // for all four walls.
-    if (e_min_x < c_min_x)
+    // Impulse response per penetrated wall. Normals point back into the legal region, which makes the
+    // same impulse formula work for all four walls. Velocity changes apply only when approaching
+    // (inside ResolveCollision_WithRotation), exactly as before.
+    if (correction.depth_x > 0.0f || correction.depth_y > 0.0f)
     {
-        penetration_depth = c_min_x - e_min_x;
-        inward_normal = (Vector2d){1.0f, 0.0f};
-    }
-    else if (e_max_x > c_max_x)
-    {
-        penetration_depth = e_max_x - c_max_x;
-        inward_normal = (Vector2d){-1.0f, 0.0f};
-    }
-
-    if (e_min_y < c_min_y)
-    {
-        penetration_depth = c_min_y - e_min_y;
-        inward_normal = (Vector2d){0.0f, 1.0f};
-    }
-    else if (e_max_y > c_max_y)
-    {
-        penetration_depth = e_max_y - c_max_y;
-        inward_normal = (Vector2d){0.0f, -1.0f};
-    }
-
-    if (penetration_depth > 0.0f)
-    {
-        // Find the transformed support vertex at the selected wall. Passing the embedded world Newtonoid to the shared resolver keeps contact-point
-        // rotation and elastic response identical to entity collisions.
+        // Find the transformed support vertex at each wall. Passing the embedded world Newtonoid to the shared
+        // resolver keeps contact-point rotation and elastic response identical to entity collisions.
         Vector2d world_vertices[MAX_SHAPE_VERTICES] = {0};
         int vertex_count = (int)entity->surface.surface_vectors.count;
         if (vertex_count < 1)
@@ -958,19 +936,58 @@ void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container,
         if (vertex_count > MAX_SHAPE_VERTICES)
             vertex_count = MAX_SHAPE_VERTICES;
         Newtonoid_TransformVertices(entity, world_vertices, MAX_SHAPE_VERTICES);
-        Vector2d contact_point = FindDeepestVertex(world_vertices, (size_t)vertex_count,
-                                                   inward_normal, true);
 
-        // The boundary normal points into the container, whereas the shared
-        // resolver expects a normal directed from the entity towards body B.
-        Vector2d entity_to_container_normal = VectorScale_2d(inward_normal, -1.0f);
-        float support_normal_impulse = CalcSupportNormalImpulse(
-            entity, entity_to_container_normal, environmental_acceleration, delta_time);
-        ResolveCollision_WithRotation(entity, container, entity_to_container_normal,
-                                      contact_point, penetration_depth, support_normal_impulse);
+        for (int axis = 0; axis < 2; axis++)
+        {
+            float depth = axis == 0 ? correction.depth_x : correction.depth_y;
+            if (depth <= 0.0f)
+                continue;
+            Vector2d inward_normal = axis == 0 ? correction.normal_x : correction.normal_y;
+            Vector2d contact_point = FindDeepestVertex(world_vertices, (size_t)vertex_count,
+                                                       inward_normal, true);
+
+            // The boundary normal points into the container, whereas the shared
+            // resolver expects a normal directed from the entity towards body B.
+            Vector2d entity_to_container_normal = VectorScale_2d(inward_normal, -1.0f);
+            float support_normal_impulse = CalcSupportNormalImpulse(
+                entity, entity_to_container_normal, environmental_acceleration, delta_time);
+            // Penetration 0: positional correction is done once below at full depth.
+            ResolveCollision_WithRotation(entity, container, entity_to_container_normal,
+                                          contact_point, 0.0f, support_normal_impulse);
+        }
+    }
+
+    // Apply the full-depth push-out and centre clamp, keeping the cached bounds consistent.
+    if (correction.shift.x != 0.0f || correction.shift.y != 0.0f)
+    {
+        entity->anchor_position = VectorSum_2d(entity->anchor_position, correction.shift);
+        entity->bounds_origin = VectorSum_2d(entity->bounds_origin, correction.shift);
     }
 }
 
+// Post-pair container pass: re-applies the container wall to every world-owned body so pile
+// pressure from the pair pass is corrected in the same frame. Same eligibility gate as
+// PhysicsUpdateJob (alive, not an effect, a direct child of the container); the per-entity
+// role-mask gates live in ResolveCollision_ContainerRect. The occupancy store is deliberately NOT
+// re-mapped here: it is rebuilt next tick (pair-pass moves are already stale in the same way).
+void ResolveContainerPass(World2d *world)
+{
+    if (!world)
+        return;
+
+    GridSpace2d *space_entity = &world->grid_space;
+    float physics_dt = fminf(frame_counter.delta_time, MAX_PHYSICS_DELTA_TIME);
+    Newtonoid2d *entity = NULL;
+    LArray_ForEach(&world->objects, Newtonoid2d *, entity)
+    {
+        if (!(entity->status_flags & ENTITY_STATUS_FLAG_ALIVE) || (entity->roles & ENTITY_ROLE_EFFECT) ||
+            entity->parent_id != space_entity->object.id)
+            continue;
+
+        ResolveCollision_ContainerRect(entity, &space_entity->object, &space_entity->space,
+                                       (Vector2d){0.0f, world->gravity}, physics_dt);
+    }
+}
 // Register an entity in every in-grid cell touched by its snapped AABB, in the sparse occupancy store.
 // Absent (carved) in-grid cells still register (wall collision and picking depend on it); out-of-grid
 // cells (index < 0) never register. A full cell logs a warning and the entity is simply not tracked there.

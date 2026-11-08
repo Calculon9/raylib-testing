@@ -60,6 +60,8 @@ float CalcSupportNormalImpulse(const Newtonoid2d *entity, Vector2d normal_to_sur
 // time falls behind wall-clock time) during hitches.
 #define MAX_PHYSICS_DELTA_TIME (1.0f / 30.0f)
 void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container, const Space2d *space, Vector2d environmental_acceleration, float delta_time);
+// Re-apply the container walls to every world-owned body (post-pair pass).
+void ResolveContainerPass(World2d *world);
 bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, int cell_i, FlatMapInt *resolved_collisions, LArray *scheduled_world_cmds);
 
 #endif // WORLD_INTERNAL_H
