@@ -47,21 +47,34 @@ void RemapEntityInASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 previous
 void RefreshWorldSpatialMap(World2d *world);
 CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b);
 bool CheckForCollision_AABB(Newtonoid2d a, Newtonoid2d b);
-void ResolveCollision(Newtonoid2d *a, Newtonoid2d *b);
-void ResolveCollision_WithRotation(Newtonoid2d *a, Newtonoid2d *b, Vector2d collision_normal,
-                                   Vector2d contact_point, float penetration_depth, float support_normal_impulse);
 // Find the vertex with the minimum (or maximum) projection along an axis.
 Vector2d FindDeepestVertex(Vector2d *vertices, size_t count, Vector2d axis, bool find_minimum);
-// Gravity-based resting-contact normal impulse for a body pressed into a surface.
-float CalcSupportNormalImpulse(const Newtonoid2d *entity, Vector2d normal_to_surface,
-                               Vector2d environmental_acceleration, float delta_time);
 // Longest physics step (seconds) any world simulates in one frame. Clamping prevents entities
 // tunnelling through one-cell walls during slow frames, at the cost of slow motion (simulation
 // time falls behind wall-clock time) during hitches.
 #define MAX_PHYSICS_DELTA_TIME (1.0f / 30.0f)
-void ResolveCollision_ContainerRect(Newtonoid2d *entity, Newtonoid2d *container, const Space2d *space, Vector2d environmental_acceleration, float delta_time);
-// Re-apply the container walls to every world-owned body (post-pair pass).
-void ResolveContainerPass(World2d *world);
-bool ProcessCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, int cell_i, FlatMapInt *resolved_collisions, LArray *scheduled_world_cmds);
+// DETECT half of a pair: gates, SAT, sensor/projectile callbacks, collision marker, and one cached contact.
+bool DetectCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, int cell_i, FlatMapInt *resolved_collisions, LArray *scheduled_world_cmds);
+// Combined material coefficients (geometric mean, clamped); shared by the pair, container and solid-cell detectors.
+float CalcCollisionRestitution(const Newtonoid2d *a, const Newtonoid2d *b);
+float CalcCollisionFriction(const Newtonoid2d *a, const Newtonoid2d *b);
+
+// Contact solver glue (world_contacts.c)
+// Write one cached pair contact from a SAT result (canonical slot order, bodies gathered on first touch).
+void EmitPairContact(World2d *world, Newtonoid2d *a, Newtonoid2d *b, const CollisionResult_SAT *result);
+// Cache one static contact (container wall or solid cell) for an entity: normal points from the entity into the wall.
+// aux = wall id (container) or cell index (solid cell). Material comes from the world's container body.
+void EmitStaticContact(World2d *world, Newtonoid2d *entity, ContactKind kind, uint32_t aux, Vector2d normal_to_wall,
+                       Vector2d contact_point, float depth);
+// Centre of the deepest support face of an entity against a wall (inward = wall to legal region).
+Vector2d StaticContactPoint(const Newtonoid2d *entity, const Vector2d *vertices, size_t count, Vector2d inward, float depth);
+// DETECT the container walls for every eligible world-owned entity (static contacts, entity order).
+void DetectContainerContacts(World2d *world);
+// Centre-only safety net after the solve: move any escaped centre back inside the grid. No impulse.
+void ClampEntitiesToContainer(World2d *world);
+// SOLVE half of the frame: iterate the cached contacts and write the results back to the entities.
+void SolveWorldContacts(World2d *world, float dt);
+// Physics step used by the solver: the same clamped delta as PhysicsUpdateJob.
+float WorldPhysicsDeltaTime(void);
 
 #endif // WORLD_INTERNAL_H

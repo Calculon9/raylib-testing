@@ -20,7 +20,8 @@ typedef enum
     PROF_PHYSICS,   // PhysicsUpdateJob via ExecuteJobs
     PROF_REMAP,     // Attachment/container remap loop
     PROF_SOLID,     // ResolveSolidCellCollisions
-    PROF_PAIRS,     // Entity-pair broadphase loop
+    PROF_PAIRS,     // Entity-pair broadphase loop (detection: SAT, gates, callbacks, contact emit)
+    PROF_SOLVE,     // Contact solve: sort, warm start, iterations, apply results, clamp
     PROF_GRIDFILL,  // DrawGridSpace fill pass (includes textured cells)
     PROF_GRIDLINES, // DrawGridSpace line pass
     PROF_GRIDLABELS,// DrawGridSpace debug label pass

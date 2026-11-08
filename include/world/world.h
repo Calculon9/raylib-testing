@@ -10,6 +10,7 @@ WORLD MODULE
 #include "math/coordinate_space.h"
 #include "events/events.h"
 #include "system/systems.h"
+#include "world/contact_cache.h" // ContactCache (pure, header-only)
 #include "system/texture_registry.h" // TextureId (for TilePalette_TextureForType)
 
 //----------------------------------------------------------------------------------
@@ -43,6 +44,7 @@ typedef struct World2d
     FrameTunnel tunnel; // Transform from world-local to universe coordinates
     LArray objects;
     LArray collisions;
+    ContactCache contact_cache;   // Cached contacts + warm-start table (detect emits, solve iterates); rebuilt every tick.
     CellOccupancy cell_occupancy; // Sparse per-cell entity lists (occupied cells only); rebuilt every tick and by RefreshWorldSpatialMap.
     FlatMapInt resolved_collisions;
     LArray scheduled_world_cmds;

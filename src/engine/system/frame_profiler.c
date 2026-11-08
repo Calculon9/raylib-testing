@@ -26,7 +26,7 @@ void FrameProfiler_SetCellPx(float cell_px)
 // Short labels used in the report, indexed by ProfilePhase.
 static const char *const phase_names[PROF_COUNT] = {
     "frame", "update", "draw", "enddraw", "cmds", "reset", "physics", "remap", "solid",
-    "pairs", "gridfill", "gridlines", "gridlabels", "worldregion"};
+    "pairs", "solve", "gridfill", "gridlines", "gridlabels", "worldregion"};
 
 // Start timing a phase.
 void FrameProfiler_Begin(ProfilePhase phase)

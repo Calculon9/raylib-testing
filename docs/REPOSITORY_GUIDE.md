@@ -205,6 +205,17 @@ The `Offset` mode still matters even for a zero offset. `OFFSET_FIXED` and `OFFS
 
 `SPACING_OVERLAYED` and `ALIGNED_CENTRE` are declared in the public types, but they do not currently have an active layout implementation. Treat them as reserved until their resolver behaviour is added.
 
+## Collision Pipeline
+
+`UpdateWorld` splits collision handling into DETECT and SOLVE (`src/engine/world/world.c`, `world_physics.c`, `world_contacts.c`; the pure solver is `include/world/contact_cache.h`):
+
+1. `PhysicsUpdateJob` integrates, refreshes bounds and fills the occupancy store.
+2. DETECT: `DetectContainerContacts`, `DetectSolidCellContacts` and `DetectCollisionPair` run the gates, SAT, sensor/projectile callbacks and collision markers once per contact, and write one cached contact each (`ContactCache`). Nothing is pushed here.
+3. SOLVE: `SolveWorldContacts` sorts contacts bottom-up, warm starts from last frame's impulses (matched by `ContactKey_*`), runs K sequential-impulse velocity iterations with accumulated clamped normal impulses and Coulomb friction, then a separate NGS position phase that moves bodies without changing velocity. Container and solid-cell contacts use the solver's immovable body slot 0. Only the container snaps to full depth; solid cells are ordinary soft static contacts. `ApplySolverResults` is the only place entities are written, and sleepers wake only on a real impulse.
+4. `ClampEntitiesToContainer` (centre safety net), then `RecoverEntitiesFromAbsentCells`.
+
+Tunables live in `ContactSolverConfig` (`ContactSolverConfig_Default()`); `PROF_PAIRS` times detection and `PROF_SOLVE` the solve.
+
 ## State and Ownership
 
 The UI and world systems use global state, including `G_UIState`, the universe, panel instances, and shared frame counters. Selection should go through the central UI selection setters so the selected entity ID, pointer, cell, and callback remain consistent.

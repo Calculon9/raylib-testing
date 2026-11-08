@@ -72,5 +72,20 @@ static inline ContainerCorrection ContainerCorrection_Compute(Vector2d bounds_or
 
     return c;
 }
+// Shift that moves a centre back inside [grid_min, grid_max] (zero when already inside). This is the
+// safety net kept after the solver: it only touches an entity whose centre escaped, and applies no impulse.
+static inline Vector2d ContainerCorrection_ClampCentre(Vector2d centre, Vector2d grid_min, Vector2d grid_max)
+{
+    Vector2d shift = {0.0f, 0.0f};
+    if (centre.x < grid_min.x)
+        shift.x = grid_min.x - centre.x;
+    else if (centre.x > grid_max.x)
+        shift.x = grid_max.x - centre.x;
+    if (centre.y < grid_min.y)
+        shift.y = grid_min.y - centre.y;
+    else if (centre.y > grid_max.y)
+        shift.y = grid_max.y - centre.y;
+    return shift;
+}
 
 #endif // CONTAINER_CORRECTION_H

@@ -11,6 +11,7 @@
 #include "world/world_internal.h"
 #include "world/universe.h"
 #include "world/cell_walls.h"
+#include "world/contact_point.h"
 #include "physics/physics.h"
 #include "system/entities/relation_system.h"
 #include "system/entities/rotor_system.h"
@@ -22,6 +23,9 @@
 
 // Number of delayed world commands initially reserved for a new world.
 static int initObjectCount = 4;
+
+// Default restitution of a world's container (its walls and solid cells). See CreateWorld.
+#define WORLD_CONTAINER_DEFAULT_RESTITUTION 0.4f
 
 // True when the cell at (col, row) is BLOCKED: outside the grid, absent (given back to the
 // root world), or present and SOLID. A face shared with a blocked neighbour is never exposed,
@@ -35,19 +39,20 @@ static bool Cell_IsBlockedAt(const Space2d *space, Cell *cells, int col, int row
 // broad phase already placed in it, treating each as a STATIC (immovable) wall. Absent cells
 // are implicit SOLID tiles: the world's shape is its set of present cells.
 //
-// This mirrors ResolveCollision_ContainerRect: the entity's tight AABB is compared
-// with the axis-aligned cell box [grid_origin + (col, row), + 1], the least-
-// penetration exposed face is chosen, and one fixed axis-aligned normal is passed
-// to ResolveCollision_WithRotation. Faces shared with another blocked cell are
-// skipped so seams between neighbours never produce internal collisions.
+// DETECT only: the entity's tight AABB is compared with the axis-aligned cell box
+// [grid_origin + (col, row), + 1], the least-penetration exposed face is chosen, and one
+// fixed axis-aligned normal becomes a cached STATIC contact (CONTACT_KIND_SOLID_CELL, partner =
+// the solver's immovable body slot 0). Faces shared with another blocked cell are skipped so seams
+// between neighbours never produce internal collisions.
 //
-// A single reusable scratch Newtonoid2d (`cell_body`) is the static partner: its
-// anchor is moved to each cell's centre and mass == 0 gives inverse_mass == 0, so
-// only the entity moves. It is never registered in the entity system or spatial
-// map, and the Cell struct is never written to (it stays a POD).
-static void ResolveSolidCellCollisions(World2d *world, const CellOccupancy *occupancy,
-                                       Cell *cells, Space2d *space, Newtonoid2d *cell_body,
-                                       float gravity, float delta_time)
+// A solid cell is an ORDINARY static contact: the solver corrects it with the same soft,
+// rate-limited NGS position step and the same velocity solve as any pair contact. (The old
+// resolver also used a soft 20 %-of-excess push.) The container's full-depth AABB snap
+// (ContactSolver_SnapToWall) is deliberately NOT applied here; that rule is for the container
+// walls only. The material is the container's (user-editable), so inner walls feel like the outer
+// one. The Cell struct is never written to (it stays a POD).
+static void DetectSolidCellContacts(World2d *world, const CellOccupancy *occupancy,
+                                    Cell *cells, Space2d *space)
 {
     int columns = space->columns;
     if (columns < 1)
@@ -79,12 +84,10 @@ static void ResolveSolidCellCollisions(World2d *world, const CellOccupancy *occu
         if (!Cell_IsBlockedAt(space, cells, col, row))
             continue;
 
-        // Build the axis-aligned unit box from the grid origin plus (col, row) and centre
-        // the scratch body on it. A per-cell local origin is NOT used: it would include the basis
+        // Build the axis-aligned unit box from the grid origin plus (col, row). A per-cell local origin is NOT used: it would include the basis
         // and so disagree with GetIndexFromCoords under sheared or scaled bases.
         Vector2d cell_min = {space->grid_origin.x + (float)col, space->grid_origin.y + (float)row};
         Vector2d cell_max = {cell_min.x + 1.0f, cell_min.y + 1.0f};
-        cell_body->anchor_position = (Vector2d){cell_min.x + 0.5f, cell_min.y + 0.5f};
 
         // Resolve every entity the broad phase placed in this cell against the
         // static cell box. An entity spanning several solid cells is resolved
@@ -103,8 +106,8 @@ static void ResolveSolidCellCollisions(World2d *world, const CellOccupancy *occu
             // role masks in both directions, and no-contact bodies never respond.
             if (entity->parent_id != world->grid_space.object.id)
                 continue;
-            if (!(entity->collision_role_mask & cell_body->roles) ||
-                !(cell_body->collision_role_mask & entity->roles))
+            if (!(entity->collision_role_mask & ENTITY_ROLE_WALL) ||
+                !(ENTITY_DEFAULT_COLLISION_ROLE_MASK & entity->roles))
                 continue;
             if (entity->constraints & ENTITY_CONSTRAINT_NO_CONTACT_RESPONSE)
                 continue;
@@ -175,14 +178,11 @@ static void ResolveSolidCellCollisions(World2d *world, const CellOccupancy *occu
                 continue;
             }
 
-            // Contact is the vertex deepest into the cell; the resolver expects the
-            // normal pointing from the entity towards the cell.
-            Vector2d contact_point = FindDeepestVertex(verts, (size_t)count, push_normal, true);
+            // Contact is the vertex deepest into the cell; the normal points from the entity towards the cell.
+            Vector2d contact_point = StaticContactPoint(entity, verts, (size_t)count, push_normal, depth);
             Vector2d normal_to_cell = VectorScale_2d(push_normal, -1.0f);
-            float support = CalcSupportNormalImpulse(entity, normal_to_cell,
-                                                     (Vector2d){0.0f, gravity}, delta_time);
-            ResolveCollision_WithRotation(entity, cell_body, normal_to_cell,
-                                          contact_point, depth, support);
+            EmitStaticContact(world, entity, CONTACT_KIND_SOLID_CELL, (uint32_t)cell_i, normal_to_cell,
+                              contact_point, depth);
         }
     }
 }
@@ -219,7 +219,8 @@ static void RecoverEntitiesFromAbsentCells(World2d *world, CellOccupancy *occupa
                                        from_col, from_row, &to_col, &to_row))
             return; // No open cell anywhere; nothing to recover into.
 
-        // Remember the old snapped footprint so the spatial map can be updated.
+        // Remember the old snapped footprint so the spatial map can be updated. This pass now runs AFTER the solve,
+        // so the footprint is built from the entity's CURRENT (post-solve) pose, not a stale pre-solve box.
         Vector2d old_vertices[MAX_SHAPE_VERTICES] = {0};
         Newtonoid_TransformVertices(entity, old_vertices, MAX_SHAPE_VERTICES);
         Vector2d old_snapped_verts[4] = {0};
@@ -285,6 +286,11 @@ bool CreateWorld(GridSpace2d space_obj, float gravity, struct Universe *universe
     }
 
     out_world->grid_space = space_obj;
+    // The container (world walls, and solid cells, which share its material) gets a lower default
+    // bounce than entities. Contact restitution is the geometric mean of both bodies, so a 0.9 entity
+    // against a 0.4 wall bounces at about sqrt(0.9 * 0.4) = 0.6. That matches how bodies settled
+    // before the iterative solver; the value stays user-editable per world in the state manager.
+    Newtonoid_ConfigureRestitution(&out_world->grid_space.object, WORLD_CONTAINER_DEFAULT_RESTITUTION);
     out_world->gravity = gravity;
     out_world->universe = universe;
     out_world->flags = WORLD_FLAG_ACTIVE | WORLD_FLAG_VISIBLE | WORLD_FLAG_SELECTABLE |
@@ -335,6 +341,14 @@ bool CreateWorld(GridSpace2d space_obj, float gravity, struct Universe *universe
     // Initialise per-world spatial, collision, and delayed-command storage.
     // Sparse occupancy store. A failed initial Reserve is non-fatal (Add grows lazily). The Reset is
     // mandatory: it stamps cell_limit, without which every spawn would be refused as out of range.
+    // Contact cache for the detect/solve split. A failed initial Reserve is non-fatal: BeginFrame retries every tick
+    // and the frame simply runs without contacts until it succeeds.
+    out_world->contact_cache = (ContactCache){0};
+    // Final settings (design 6.5): K = Kp = 4 sequential-impulse velocity iterations with warm start, the
+    // restitution threshold, and the separate NGS position phase.
+    out_world->contact_cache.config = ContactSolverConfig_Default();
+    if (!ContactCache_Reserve(&out_world->contact_cache, CONTACT_CACHE_MIN_CAPACITY, CONTACT_CACHE_MIN_CAPACITY, CONTACT_CACHE_MIN_CAPACITY))
+        LOG_ERROR("Contact cache initial allocation failed; it will retry every tick.\n");
     out_world->cell_occupancy = (CellOccupancy){0};
     if (!CellOccupancy_Reserve(&out_world->cell_occupancy, CELL_OCCUPANCY_INITIAL_BLOCKS))
         LOG_ERROR("Cell occupancy store initial allocation failed; it will grow lazily.\n");
@@ -359,6 +373,7 @@ void DestroyWorld(World2d *world)
     ClearLArray(&world->scheduled_world_cmds);
     ClearDArray(&world->grid_space.space.cells);
     CellOccupancy_Free(&world->cell_occupancy);
+    ContactCache_Free(&world->contact_cache);
     ClearFlatMapInt(&world->resolved_collisions);
     MemorySet(world, 0, sizeof(*world));
 }
@@ -403,6 +418,9 @@ void UpdateWorld(World2d *world, float delta_time)
         reserve_blocks = (int)space->cells.count;
     if (!CellOccupancy_Reserve(occupancy, reserve_blocks) && CellOccupancy_TakeAllocFailureReport(occupancy))
         LOG_ERROR("Cell occupancy store allocation failed. Some entities are not tracked spatially this tick.\n");
+    // Contact cache: O(used) reset for this tick's detect phase (stores the step, gravity and restitution threshold).
+    float physics_dt = WorldPhysicsDeltaTime();
+    ContactCache_BeginFrame(&world->contact_cache, obj_count, physics_dt, world->gravity);
     PROFILE_END(PROF_RESET); // PROFILER
     Cell *cells = (Cell *)space->cells.items;
 
@@ -458,57 +476,24 @@ void UpdateWorld(World2d *world, float delta_time)
     }
     PROFILE_END(PROF_REMAP); // PROFILER
 
-    // Pass 3a resolves entities against PRESENT+SOLID tile cells (static walls).
-    // Build the transient scratch collider ONCE and reuse it for every solid
-    // cell, then dispose its heap surface LArray ONCE after the pass (see below).
-    // This runs for a single entity too, so a lone entity still bounces off a
-    // solid cell, so it is placed before the entity-pair guard (which needs >= 2).
-    if (obj_count >= 1)
-    {
-        // A centred unit box matching the cell quad. CreateSurface_Rectangular
-        // allocates surface_vectors via MakeLArray (a value LArray with a heap buffer),
-        // so the owning scratch body must release it with ClearLArray once, after the pass.
-        Surface2d cell_surface = CreateSurface_Rectangular((Vector2d){1.0f, 1.0f});
-        // mass 0 => inverse_mass 0 => immovable, exactly like a world boundary wall.
-        Newtonoid2d cell_body = CreateNewtonoid2d(0.0f, ZERO_VECTOR_2D, ZERO_VECTOR_2D,
-                                                  ZERO_VECTOR_2D, cell_surface);
-        // Mirror the default wall contract so the same entities (newtonoids and
-        // projectiles) that collide with real walls also collide with solid cells.
-        cell_body.roles = ENTITY_ROLE_WALL;
-        cell_body.collision_role_mask = ENTITY_DEFAULT_COLLISION_ROLE_MASK;
-        cell_body.status_flags |= ENTITY_STATUS_FLAG_ALIVE; // A valid, awake collision partner.
-        // Inner walls use the container's (user-editable) material so they feel like the outer wall.
-        cell_body.restitution = world->grid_space.object.restitution;
-        cell_body.friction = world->grid_space.object.friction;
+    // DETECT (static contacts): the container walls and the BLOCKED cells (absent, or present+solid)
+    // become cached static contacts, emitted BEFORE the pairs so they survive a full cache and sit in one
+    // index range. This runs for a single entity too, so a lone entity still bounces off a wall or solid
+    // cell. Nothing is pushed or bounced here: the solver applies the response after detection.
+    PROFILE_BEGIN(PROF_SOLID); // PROFILER
+    DetectContainerContacts(world);
+    DetectSolidCellContacts(world, occupancy, cells, space);
+    PROFILE_END(PROF_SOLID); // PROFILER
 
-        PROFILE_BEGIN(PROF_SOLID); // PROFILER
-        ResolveSolidCellCollisions(world, occupancy, cells, space, &cell_body,
-                                   world->gravity, delta_time);
-        // Safety net: relocate anything left with its centre inside an absent cell.
-        RecoverEntitiesFromAbsentCells(world, occupancy, cells, space);
-        PROFILE_END(PROF_SOLID); // PROFILER
-
-        // Single release of the scratch body's vertex buffer. surface_vectors is a VALUE
-        // LArray embedded in the stack-local cell_body (made via MakeLArray), so only its
-        // internal buffer is heap-owned. ClearLArray frees that buffer and leaves the
-        // header alone; DisposeLArray would free() the stack address (undefined behaviour).
-        ClearLArray(&cell_body.surface.surface_vectors);
-    }
-
-    // Pass 3b resolves entity pairs sharing at least one broad-phase cell.
-    if (obj_count < 2)
-    {
-        return;
-    }
-
-    // RESOLVE ENTITY-ENTITY COLLISIONS
+    // Pass 3b detects entity pairs sharing at least one broad-phase cell (needs >= 2 entities; with fewer
+    // the block count is forced to 0 so the solve below still runs for a lone entity).
     PROFILE_BEGIN(PROF_PAIRS); // PROFILER
     // SNAPSHOT RULE: no pointer into the store is held across a call. The block count is read once and
-    // each block's count and ids are copied into locals before the pair loops. ProcessCollisionPair
+    // each block's count and ids are copied into locals before the pair loops. DetectCollisionPair
     // can call AddObjectToWorld for collision markers; those are ROLE_EFFECT so they never enter the
     // store today, but the snapshot makes correctness independent of that (pool growth would
     // otherwise invalidate block pointers).
-    int n_blocks = CellOccupancy_BlockCount(occupancy);
+    int n_blocks = (obj_count >= 2) ? CellOccupancy_BlockCount(occupancy) : 0;
     for (int b = 0; b < n_blocks; b++)
     {
         const OccupancyBlock *block = CellOccupancy_BlockAt(occupancy, b);
@@ -527,19 +512,28 @@ void UpdateWorld(World2d *world, float delta_time)
                 // module deduplicates pairs found in multiple cells.
                 for (int n = m + 1; n < cell_occ; n++)
                 {
-                    ProcessCollisionPair(world, ids[m], ids[n], cell_i,
-                                         resolved_collisions, scheduled_world_cmds);
+                    DetectCollisionPair(world, ids[m], ids[n], cell_i,
+                                        resolved_collisions, scheduled_world_cmds);
                 }
             }
         }
     }
 
-    // Post-pair container pass: pile pressure from the pair pass can push bottom-layer bodies back into
-    // the walls, so correct them in the same frame (part of the PROF_PAIRS phase). This runs AFTER the
-    // recovery pass above by design: a body clamped back inside may land in an absent cell, which the
-    // recovery pass relocates at the start of next frame's solid phase (before any pair work).
-    ResolveContainerPass(world);
     PROFILE_END(PROF_PAIRS); // PROFILER
+
+    // SOLVE: iterate every cached contact (pairs, container, solid cells) and write the results back. The
+    // centre clamp afterwards is the safety net for an axis with no detected wall contact.
+    PROFILE_BEGIN(PROF_SOLVE); // PROFILER
+    SolveWorldContacts(world, physics_dt);
+    ClampEntitiesToContainer(world);
+    PROFILE_END(PROF_SOLVE); // PROFILER
+
+    // Recovery runs LAST: it teleports entities by whole cells, which would invalidate contacts already
+    // emitted for them. A solid contact still pushes a shallow tunnel out; only an entity whose centre is
+    // buried in an absent-cell hole is relocated, one phase later than before (after its contacts).
+    PROFILE_BEGIN(PROF_SOLID); // PROFILER
+    RecoverEntitiesFromAbsentCells(world, occupancy, cells, space);
+    PROFILE_END(PROF_SOLID); // PROFILER
 }
 
         // DEBUGGING - Rapid firing of polygonoids
@@ -670,354 +664,9 @@ void UpdateWorld(World2d *world, float delta_time)
 //     update_action_to_run(event_data);
 
 // }
-// AxisIntersectionRange2d GetAxisCollisionRange(float min_a, float max_a, float min_b, float max_b, Vector2d unit_axis)
-// {
-//    // Even though u and v axis live in world space, the scalar results (minA, maxA) do not retain their independent X and Y identities.
-//    // Once you perform the dot product operation, we have flattened a 2D coordinate into a single 1D number line
-//    // You cannot reverse-engineer that single number back into a unique 2D point because you have discarded the perpendicular information.
-//    // We need to convert the 1D scalar overlap region into the global X and Y world space axis from the u_unit_axis and v_unit_axis
-//    // To get back to 2D world space coordinates, we aren't changing coordinate systems or multiplying by an inverse basis matrix.
-//    // We are simply taking that 1D scalar boundary (d_start, d_end) line segment and un-flattening it back along the global vector direction: e.g., P_start = d_start * u_axis.
-//    AxisIntersectionRange2d global_range = {0};
-
-//    // Find the 1D scalar overlap region on the separating axis (u_axis or v_axis from SAT)
-//    // The overlap starts at the maximum of the two minimums
-//    float overlap_start = (min_a > min_b) ? min_a : min_b;
-//    // The overlap ends at the minimum of the two maximums
-//    float overlap_end = (max_b < max_b) ? max_b : max_b;
-
-//    // If start >= end, there is no actual overlap happening on this axis
-//    if (overlap_start >= overlap_end)
-//    {
-//       return global_range;
-//    }
-
-//    // Transform the 1D scalars back into 2D World Coordinate Space
-//    // Since the axis vector is already in world space, we just scale it
-//    global_range.start.x = overlap_start * unit_axis.x;
-//    global_range.start.y = overlap_start * unit_axis.y;
-
-//    global_range.end.x = overlap_end * unit_axis.x;
-//    global_range.end.y = overlap_end * unit_axis.y;
-
-//    return global_range;
-// }
-// Matrix2x2 CalcProjectedPoints_SAT(LArray vertices_arr, Vector2d vertice_offset, Vector2d u_unit_axis, Vector2d v_unit_axis) // Newtonoid2d *a, Newtonoid2d *b)
-// {
-//    // GET MAX AND MIN OF ALL VERTICES BY PROJECTING ONTO THE ABOVE AXIS (instead of the default x,y axis)
-//    float min_x = INFINITY;
-//    float max_x = -INFINITY;
-//    float min_y = INFINITY;
-//    float max_y = -INFINITY;
-
-//    Vector2d *vertices = (Vector2d *)vertices_arr.items;
-//    for (size_t j = 0; j < vertices_arr.count; j++)
-//    {
-//       Vector2d vertice = VectorSum_2d(vertices[j], vertice_offset); // Get vertice's world coordinates by adding the object's center coordinates to the vertice's local coordinates
-//       // U AXIS
-//       //  Angle between vertice_line and v_axis_unit is calculated by getting the difference in their angles in radians, then using that angle to get the magnitude of the vertice_line multiplied by the cosine of that angle to get the length of the vertice_line that is projected onto the v_axis_unit. This is equivalent to the dot product of the vertice_line and v_axis_unit.
-//       Polar2d vertice_polar = PolarForm_2d(vertice);
-//       float angle_diff = vertice_polar.radians - u_unit_axis.radians;
-//       float vertice_proj_u_axis = vertice_polar.magnitude * cosf(angle_diff);
-
-//       if (vertice_proj_u_axis > max_x)
-//       {
-//          max_x = vertice_proj_u_axis;
-//       }
-//       else if (vertice_proj_u_axis < min_x)
-//       {
-//          min_x = vertice_proj_u_axis;
-//       }
-//       printf("Vertice %zu projects to x = %0.2f on u_axis of line (%zu -> %zu). Radians = %0.2f\n", j, vertice_proj_u_axis, j, j + 1, angle_diff);
-
-//       // V AXIS
-//       // Angle between vertice_line and v_axis_unit is calculated by getting the difference in their angles in radians, then using that angle to get the magnitude of the vertice_line multiplied by the cosine of that angle to get the length of the vertice_line that is projected onto the v_axis_unit. This is equivalent to the dot product of the vertice_line and v_axis_unit.
-//       angle_diff = vertice_polar.radians - v_unit_axis.radians;
-//       float vertice_proj_v_axis = vertice_polar.magnitude * cosf(angle_diff);
-
-//       if (vertice_proj_v_axis > max_y)
-//       {
-//          max_y = vertice_proj_v_axis;
-//       }
-//       else if (vertice_proj_v_axis < min_y)
-//       {
-//          min_y = vertice_proj_v_axis;
-//       }
-
-//       printf("Vertice %zu projects to y = %.2f on v_axis of line (%zu -> %zu). Radians = %0.2f\n", j, vertice_proj_v_axis, j, j + 1, angle_diff);
-//    }
-//    return (Matrix2x2){{min_x, max_x}, {min_y, max_y}};
-// }
-
-// void ResolvePenetration(Newtonoid2d *a, Newtonoid2d *b)
-// {
-//    // COMMON DATA FOR PENETRATION & VELOCITY RESOLUTIONS
-//    Vector2d a_b_vel_diff = VectorSum_2d(a->velocity, VectorScale_2d(b->velocity, -1));              // relative velocity, or velocity felt by a
-//    Vector2d a_b_pos_diff = VectorSum_2d(a->anchor_position, VectorScale_2d(b->anchor_position, -1.0f)); // distance vector between centers (From B to A)
-//    float a_b_pos_diff_mag = VectorMagnitude_2d(a_b_pos_diff);                                       // actual distance when just touching
-//    float a_b_min_diff_mag = a->radius + b->radius;                                                  // target distance when just touching
-
-//    // RESOLVE PENETRATION
-//    if (a_b_pos_diff_mag < a_b_min_diff_mag)
-//    {
-//       // Calc scalar penetration depth
-//       float penetration_depth = a_b_min_diff_mag - a_b_pos_diff_mag;
-
-//       // Calc the collision normal unit vector
-//       Vector2d normal = {0.0f, 0.0f};
-//       if (a_b_pos_diff_mag > 0.0f)
-//       {
-//          normal = VectorScale_2d(a_b_pos_diff, 1.0f / a_b_pos_diff_mag);
-//       }
-//       else
-//       {
-//          // Edge case: Objects are perfectly stacked on top of each other. Pick an arbitrary up normal to push them apart.
-//          normal = (Vector2d){0.0f, -1.0f};
-//       }
-//       // Distribute the overlapping vector between A and B to shift their positions (weighted inversely to their mass)
-//       float total_inv_mass = a->inverse_mass + b->inverse_mass;
-//       if (total_inv_mass <= 0.0f)
-//          return; // both are static immovable objects, skip push out
-
-//       // Calc Resolution Shifting Multipliers
-//       float a_move_fraction = a->inverse_mass / total_inv_mass;
-//       float b_move_fraction = b->inverse_mass / total_inv_mass;
-
-//       // Total resolution vector required
-//       Vector2d separation_vector = VectorScale_2d(normal, penetration_depth);
-
-//       // A moves forward along the normal vector direction, B moves backward along the normal vector direction
-//       a->anchor_position = VectorSum_2d(a->anchor_position, VectorScale_2d(separation_vector, a_move_fraction));
-//       b->anchor_position = VectorSum_2d(b->anchor_position, VectorScale_2d(separation_vector, -b_move_fraction));
-//    }
-// }
-
-// void ResolveVelocity(Newtonoid2d *a, Newtonoid2d *b)
-// {
-//    // COMMON DATA FOR PENETRATION & VELOCITY RESOLUTIONS
-//    Vector2d a_b_vel_diff = VectorSum_2d(a->velocity, VectorScale_2d(b->velocity, -1));              // relative velocity, or velocity felt by a
-//    Vector2d a_b_pos_diff = VectorSum_2d(a->anchor_position, VectorScale_2d(b->anchor_position, -1.0f)); // distance vector between centers (From B to A)
-//    float a_b_pos_diff_mag = VectorMagnitude_2d(a_b_pos_diff);                                       // actual distance when just touching
-//    float a_b_min_diff_mag = a->radius + b->radius;                                                  // target distance when just touching
-
-//    // RESOLVE VELOCITY
-//    float total_inverse_mass = a->inverse_mass + b->inverse_mass;
-//    if (total_inverse_mass <= 0.0f) // We have 2 immovable/static objects so just continue to the next collision
-//    {
-//       printf("WARNING: Both objects in this collision have infinite mass (0 inverse mass). No collision response applied.\n");
-//       return;
-//    }
-//    // Apply momentum conservation to determine velocities of a and b
-//    float a_mom_1 = VectorMagnitude_2d(a->velocity) / a->inverse_mass;
-//    float b_mom_1 = VectorMagnitude_2d(b->velocity) / b->inverse_mass;
-//    // For simplicity, we'll assume the normal is in the direction that starts at A's origin and points to B's origin
-//    Vector2d a_b_pos_normal = VectorScale_2d(a_b_pos_diff, 1 / VectorMagnitude_2d(a_b_pos_diff)); // this is the unit-direction
-//    float a_b_vel_dot = VectorDot_2d(a_b_vel_diff, a_b_pos_normal);                               // Velocity along the Normal (The Dot Product)
-
-//    // Get the Impulse: $$j = \frac{-(1 + e)(\mathbf{v}_{rel} \cdot \mathbf{n})}{\frac{1}{m_a} + \frac{1}{m_b}}$$
-//    // Calculate Impulse Scalar
-//    float e = 1; // Coefficient of Restitution
-//    float j = -(1 + e) * a_b_vel_dot / total_inverse_mass;
-
-//    // Apply the Impulse
-//    // Turn that scalar back into a vector and update the velocities
-//    Vector2d impulse_vector = VectorScale_2d(a_b_pos_normal, j);
-
-//    // Apply the impulse vector to A and B to get velocities
-//    Vector2d a_vel_change = VectorScale_2d(impulse_vector, a->inverse_mass);
-//    Vector2d b_vel_change = VectorScale_2d(impulse_vector, b->inverse_mass);
-
-//    a->velocity = VectorSum_2d(a->velocity, a_vel_change);
-//    b->velocity = VectorSum_2d(b->velocity, VectorScale_2d(b_vel_change, -1));
-// }
-
 // Need assign an area of effect (footprint), i.e. Snapped AABB, for the object based on its radius and update the occupancy of all cells that fall within that area
 // otherwise we won't detect collisions until the objects are already overlapping significantly, which can cause tunneling issues where fast moving objects pass through each other without detecting a collision.
 // Surface2d snapped_aabb = CalculateSnappedAABB(space->basis, object->surface, object->anchor_position);
-
-// void UpdateWorld(World2d *world, float delta_time)
-// {
-//    LArray *objects = &world->objects; //.items;
-//    int count = objects->count;
-//    // 1. Update Object state first
-//    // 1.1 Update Grid cells while we're here
-//    if (count < 1)
-//       return;
-
-//    // Zero out the occupancy and object_ids of all cells in the grid before we update them based on the new positions of the objects
-//    Cell *cells = world->grid_space.space.cells.coll.items;
-//    int cell_count = world->grid_space.space.cells.coll.count;
-//    for (size_t i = 0; i < cell_count; i++)
-//    {
-//       Cell *target_cell = &cells[i];
-//       target_cell->occupancy = 0;
-//       memset(&cells[i].object_ids, 0, sizeof(cells[i].object_ids));
-//    }
-
-//    Polygonoid *polygonoids = objects->items;
-//    for (size_t i = 0; i < count; i++)
-//    {
-//       Newtonoid2d *obj = &polygonoids[i].newtonian_properties;
-
-//       // Ensure the object isn't outside the bounds of the world before we try to get the cell it's in, otherwise we could get an out of bounds error when we try to access the cell's object_ids array. We can just skip updating the cell for this object if it's out of bounds, but we should still update its vectors based on its acceleration and velocity so that it can move back into the bounds of the world.
-//       if (obj->bounds_origin.x < 0 || obj->bounds_origin.x >= world->grid_space.space.resolution_ixj.x ||
-//           obj->bounds_origin.y < 0 || obj->bounds_origin.y >= world->grid_space.space.resolution_ixj.y)
-//       {
-//          printf("WARNING: Object ID %d is out of bounds at coordinates (%.1f, %.1f). Skipping cell update.\n", polygonoids[i].id, obj->bounds_origin.x, obj->bounds_origin.y);
-
-//          // Need to calculate a collision response to push the object back into the bounds of the world here, otherwise it will just keep moving out of bounds and we won't be able to track it anymore. For simplicity, let's just reverse the velocity of the object when it hits the boundary of the world, which will create a bouncing effect. We can also apply a damping factor to the velocity to simulate energy loss during the collision, which will prevent the object from bouncing indefinitely.
-//          if (obj->bounds_origin.x < 0 || obj->bounds_origin.x >= world->grid_space.space.resolution_ixj.x)
-//          {
-//             obj->velocity.x = -obj->velocity.x; // Reverse and dampen the x velocity
-//             // obj->bounds_origin.x = obj->bounds_origin.x < 0 ? 0 : world->grid_space.space.resolution_ixj.x - 1; // Move the object back within bounds
-//          }
-//          if (obj->bounds_origin.y < 0 || obj->bounds_origin.y >= world->grid_space.space.resolution_ixj.y)
-//          {
-//             obj->velocity.y = -obj->velocity.y; // Reverse and dampen the y velocity
-//             // obj->bounds_origin.y = obj->bounds_origin.y < 0 ? 0 : world->grid_space.space.resolution_ixj.y - 1; // Move the object back within bounds
-//          }
-//          //Recalc inverse_mass in case mass was changed
-//          obj->inverseMass = 1.0/obj->mass;
-//          CalculateVectors(obj, delta_time); // Still update the object's vectors based on its acceleration and velocity so that it can move back into the bounds of the world
-//          continue;
-//       }
-
-//       // Add the object's ID to the cell's object_ids array if there is space
-//       Cell *target_cell = GetCellFromCoords(&world->grid_space.space, polygonoids[i].newtonian_properties.bounds_origin);
-
-//       if (target_cell != NULL && target_cell->occupancy < MAX_CELL_OCCUPANCY)
-//       {
-//          target_cell->object_ids[target_cell->occupancy] = polygonoids[i].id;
-//          target_cell->occupancy++;
-//       }
-//       else
-//       {
-//          printf("WARNING: Cell (%d,%d) full. ID %d not tracked spatially.\n", target_cell->coords.x, target_cell->coords.y, polygonoids[i].id);
-//          return;
-//       }
-
-//       // Update the object's vectors based on its current acceleration, velocity, and position, and the elapsed time since the last update
-//       CalculateVectors(obj, delta_time);
-//    }
-
-//    // 2. Check for collisions
-//    if (count < 2)
-//       return;
-
-//    //for(int i = 0; i <)
-//    for (size_t i = 0; i < count; i++)
-//    {
-//       for (size_t j = i + 1; j < count; j++) // Optimized j loop
-//       {
-//          Polygonoid *a = &polygonoids[i];
-//          Polygonoid *b = &polygonoids[j];
-
-//          bool colliding = CheckForCollision(a->newtonian_properties, b->newtonian_properties);
-
-//          if (colliding)
-//          {
-//             // Apply momentum conservation to determine velocities of a and b
-//             float a_mom_1 = VectorMagnitude_2d(a->newtonian_properties.velocity) / a->newtonian_properties.inverseMass;
-//             float b_mom_1 = VectorMagnitude_2d(b->newtonian_properties.velocity) / b->newtonian_properties.inverseMass;
-//             Vector2d a_b_vel = VectorSum_2d(a->newtonian_properties.velocity, VectorScale_2d(b->newtonian_properties.velocity, -1));
-
-//             // Get the collision normal - just use A as the reference object
-//             // For simplicity, we'll assume the normal is in the direction that starts at A's origin and points to B's origin
-//             Vector2d a_b_pos = VectorSum_2d(a->newtonian_properties.bounds_origin, VectorScale_2d(b->newtonian_properties.bounds_origin, -1));
-//             Vector2d a_b_pos_normal = VectorScale_2d(a_b_pos, 1 / VectorMagnitude_2d(a_b_pos));
-
-//             // Velocity along the Normal (The Dot Product)
-//             float a_b_vel_dot = VectorDot_2d(a_b_vel, a_b_pos_normal);
-
-//             // Get the Impulse: $$j = \frac{-(1 + e)(\mathbf{v}_{rel} \cdot \mathbf{n})}{\frac{1}{m_a} + \frac{1}{m_b}}$$
-//             // Calculate Impulse Scalar
-//             float e = 1; // Coefficient of Restitution
-//             float j = -(1 + e) * a_b_vel_dot / (a->newtonian_properties.inverseMass + b->newtonian_properties.inverseMass);
-
-//             // Apply the Impulse
-//             // Turn that scalar back into a vector and update the velocities
-//             Vector2d impulse_vector = VectorScale_2d(a_b_pos_normal, j);
-
-//             // Apply the impulse vector to A and B to get velocities
-//             Vector2d a_vel_change = VectorScale_2d(impulse_vector, a->newtonian_properties.inverseMass);
-//             Vector2d b_vel_change = VectorScale_2d(impulse_vector, b->newtonian_properties.inverseMass);
-
-//             a->newtonian_properties.velocity = VectorSum_2d(a->newtonian_properties.velocity, a_vel_change);
-//             b->newtonian_properties.velocity = VectorSum_2d(b->newtonian_properties.velocity, VectorScale_2d(b_vel_change, -1));
-//          }
-
-//          frame_counter.total_frames % 300 == 0 ? printf("COLLISION CHECK for A(%.0f,%.0f) B(%.0f,%.0f) = %s\n",
-//                 a->newtonian_properties.bounds_origin.x,
-//                 a->newtonian_properties.bounds_origin.y,
-//                 b->newtonian_properties.bounds_origin.x,
-//                 b->newtonian_properties.bounds_origin.y,
-//                 colliding ? "TRUE" : "FALSE") : (void)0;
-
-//       }
-//    }
-//    // UpdateObjectVectors(objs, delta_time);
-//    // UpdateWorldState(objs, &world->grid_space.space, delta_time);
-// }
-
-// void UpdateWorldState(Collection *polygonoids, Space2d *space, float delta_time)
-//{
-//  // 1. Update Object state first
-//  // 1.1 Update Grid cells while we're here
-//  if (polygonoids->count < 1)
-//     return;
-
-// // Zero out the occupancy and object_ids of all cells in the grid before we update them based on the new positions of the objects
-// Cell *cells = space->cells.coll.items;
-// for (size_t i = 0; i < space->cells.coll.count; i++)
-// {
-//    cells[i].occupancy = 0;
-//    memset(cells[i].object_ids, 0, sizeof(cells[i].object_ids));
-// }
-
-// Polygonoid *pts = (Polygonoid *)polygonoids->items;
-// for (size_t i = 0; i < polygonoids->count; i++)
-// {
-//    // NO COPYING. Point directly to the source in the heap.
-//    CalculateVectors(&pts[i].newtonian_properties, delta_time);
-//    // Add the object's ID to the cell's object_ids array if there is space
-
-//    Cell *target_cell = GetCellFromCoords(space, pts[i].newtonian_properties.bounds_origin);
-
-//    if (target_cell != NULL && target_cell->occupancy < MAX_CELL_OCCUPANCY)
-//    {
-//       object->id = world->next_object_id++;
-//       target_cell->object_ids[target_cell->occupancy] = object->id;
-//       target_cell->occupancy++;
-//    }
-//    else
-//    {
-//       printf("WARNING: Cell %d full. ID %d not tracked spatially.\n", cell_index, object->id);
-//       return;
-//    }
-// }
-
-// // 2. Check for collisions
-// if (polygonoids->count < 2)
-//    return;
-
-// for (size_t i = 0; i < polygonoids->count; i++)
-// {
-//    for (size_t j = i + 1; j < polygonoids->count; j++) // Optimized j loop
-//    {
-//       Polygonoid *a = &pts[i];
-//       Polygonoid *b = &pts[j];
-
-//       bool colliding = CheckForCollision(a->newtonian_properties, b->newtonian_properties);
-
-//       printf("COLLISION CHECK for A(%.0f,%.0f) B(%.0f,%.0f) = %s\n",
-//              a->newtonian_properties.bounds_origin.x,
-//              a->newtonian_properties.bounds_origin.y,
-//              b->newtonian_properties.bounds_origin.x,
-//              b->newtonian_properties.bounds_origin.y,
-//              colliding ? "TRUE" : "FALSE");
-//    }
-// }
-//}
 
 // void UpdateObjectsAndGrid(Collection *polygonoids, float delta_time)
 // {
