@@ -14,8 +14,8 @@
  *   B. NEW CONTACT     the pair had no persistence record before this frame.                 QUIET
  *   C. SUPPORT LOST    a persistence record whose other end lay below the sleeper has gone.  LOUD
  *   D. NEIGHBOUR WAKES a body below the sleeper was loudly woken last frame and the pair
- *                      touched on the frame before (read from the RECORDS, not from this
- *                      frame's contacts: the woken body may already have moved away).       LOUD
+ *                      touched on the frame before or this frame (read from the RECORDS, not from
+ *                      this frame's contacts: the woken body may already have moved away).  LOUD
  *   E. KINEMATIC TOUCH an awake position-locked body (inverse mass 0) moves into it.         QUIET (guard)
  *   F. EMBEDDED        a sleeper contact deeper than wake_embed_depth.                       QUIET (guard)
  *
@@ -54,6 +54,8 @@ typedef struct SleepWakeHost // The only window onto entities; the engine fills 
     void *user;
     int (*sleeper_kind)(void *user, EntityId id);            // SleeperKind of the entity right now.
     bool (*wake)(void *user, EntityId id, bool loud);        // WakeUp (loud) or WakeUpQuiet; true if it was asleep.
+    void (*hold_sleep)(void *user, EntityId id);             // Clamp an AWAKE body's sleep timer one frame short of sleeping (NULL = no hold).
+    bool (*still_adjacent)(void *user, EntityId a, EntityId b); // Bodies within a small margin of touching (NULL = never; wake as before).
 } SleepWakeHost;
 
 typedef struct SleepWakeScratch // Growable lists owned by the world and reused every frame.
@@ -218,23 +220,37 @@ static inline int SleepWake_Resolve(ContactCache *c, ContactPersist *p, const Go
 {
     s->woken_count = 0;
 
-    // C. SUPPORT LOST: wake an asleep end that rested on the other end of a pair that has gone.
+    // C. SUPPORT LOST: wake an asleep end that rested on the other end of a pair that has gone. A plain grace
+    // expiry (neither NOTED nor LAST_CARRIED) may only be flicker, so the bodies are first checked for
+    // adjacency; if they are still adjacent the record is re-armed instead and the sleeper stays asleep. A
+    // deliberate loss (NoteGone, or a carry that stopped) wakes at once, exactly as before. If the record
+    // cannot be re-armed (allocation failure) the sleeper is woken, as before.
     for (int i = 0; i < gone_count; i++)
     {
         const GonePair *g = &gone[i];
         EntityId ends[2] = {g->id_a, g->id_b};
+        bool deliberate = (g->flags & (GONE_NOTED | GONE_LAST_CARRIED)) != 0u;
+        bool checked = false, rearmed = false; // The adjacency answer is asked at most once per pair.
         for (int e = 0; e < 2; e++)
         {
             if (host->sleeper_kind(host->user, ends[e]) != SLEEPER_DYNAMIC)
                 continue;
-            if (SleepWake_IsSupportSide(SleepWake_DirFromSleeper(g->dir_y, g->id_a, ends[e]), c->gravity,
-                                        c->config.support_down_cos))
+            if (!SleepWake_IsSupportSide(SleepWake_DirFromSleeper(g->dir_y, g->id_a, ends[e]), c->gravity,
+                                         c->config.support_down_cos))
+                continue;
+            if (!deliberate && !checked)
+            {
+                checked = true;
+                rearmed = host->still_adjacent && host->still_adjacent(host->user, g->id_a, g->id_b) &&
+                          ContactPersist_Rearm(p, g);
+            }
+            if (!rearmed)
                 SleepWake_Commit(host, s, ends[e], true);
         }
     }
 
     // D. NEIGHBOUR WAKES: a body loudly woken last frame releases the sleepers that rested on it, if the pair
-    // touched or was carried on the frame before this one. Read from the records so the wave does not depend
+    // touched or was carried on the frame before this one or on this one (last_stamp >= stamp - 1). Read from the records so the wave does not depend
     // on fresh SAT contacts (the woken body has usually moved by now).
     if (s->prev_count > 0 && p->records && p->stamp > 0u)
     {
@@ -276,6 +292,27 @@ static inline int SleepWake_Resolve(ContactCache *c, ContactPersist *p, const Go
     if (s->woken_count > 1)
         qsort(s->woken, (size_t)s->woken_count, sizeof(EntityId), ContactPersist_CompareIds);
     return s->woken_count;
+}
+
+// SLEEP-ONSET HOLD: an awake body must not fall asleep while a support record under it is ageing (untouched
+// for 0 < unseen_time < grace), because the record would then expire during the short sleep and rule C would
+// wake it again (the sleep/wake cycle). The host clamps the end's sleep timer one frame short of sleeping, so
+// it keeps its accrued quiet time and sleeps on the first frame the record is touched again. Uses the list
+// ContactPersist_Sweep built, and the same support-side test as rule C. Call after Sweep, before the next
+// frame's CalcVectors (which decides sleep). The host ignores bodies that are already asleep.
+static inline void SleepWake_HoldAgeing(const ContactCache *c, const ContactPersist *p, const SleepWakeHost *host)
+{
+    if (!host->hold_sleep)
+        return;
+    for (int i = 0; i < p->ageing_count; i++)
+    {
+        const AgeingPair *a = &p->ageing[i];
+        EntityId ends[2] = {a->id_a, a->id_b};
+        for (int e = 0; e < 2; e++)
+            if (SleepWake_IsSupportSide(SleepWake_DirFromSleeper(a->dir_y, a->id_a, ends[e]), c->gravity,
+                                        c->config.support_down_cos))
+                host->hold_sleep(host->user, ends[e]);
+    }
 }
 
 // A woken body starts its first dynamic solve with no stored impulse: whatever the warm table held was built

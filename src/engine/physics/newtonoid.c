@@ -115,6 +115,23 @@ void WakeUpQuiet(Newtonoid2d *entity)
    entity->sleep_timer = 0.0f;
 }
 
+// Sleep-onset hold: keep an awake body's accrued quiet time but stop it falling asleep next step. The timer
+// is clamped to TIME_TO_SLEEP - 1.5 dt: the next CalcVectors adds dt (still short of sleeping), and once the
+// hold is released the step after that adds another dt and crosses the threshold (no float edge case).
+void Newtonoid_HoldSleep(Newtonoid2d *entity, float dt)
+{
+   if (!entity || (entity->status_flags & ENTITY_STATUS_FLAG_SLEEPING))
+   {
+      return;
+   }
+
+   float limit = TIME_TO_SLEEP - 1.5f * dt;
+   if (entity->sleep_timer > limit)
+   {
+      entity->sleep_timer = limit;
+   }
+}
+
 // Align an opted-in entity's rendered geometry with its current velocity vector.
 void Newtonoid_SyncOrientationToVelocity(Newtonoid2d *object)
 {

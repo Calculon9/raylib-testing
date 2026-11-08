@@ -439,6 +439,53 @@ CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b)
     return result;
 }
 
+// True when two bodies overlap or are closer than `margin` along every SAT edge axis (same shapes, hulls and
+// axes as CheckForCollision_SAT, but a gap up to `margin` still counts). The axis gap is a lower bound of the
+// true distance, so the test can err towards "adjacent" at sharp corners; that is the safe side (a sleeper
+// stays asleep a little longer), and the margin is small. Degenerate shapes are never adjacent.
+bool CheckForAdjacency_SAT(Newtonoid2d *a, Newtonoid2d *b, float margin)
+{
+    if (!a || !b)
+        return false;
+    Vector2d a_world_vertices[MAX_SHAPE_VERTICES];
+    Vector2d b_world_vertices[MAX_SHAPE_VERTICES];
+    Vector2d a_hull[MAX_SHAPE_VERTICES];
+    Vector2d b_hull[MAX_SHAPE_VERTICES];
+    Vector2d *shape[2] = {a_world_vertices, b_world_vertices};
+    size_t count[2] = {a->surface.surface_vectors.count, b->surface.surface_vectors.count};
+    if (count[0] < 3 || count[1] < 3)
+        return false;
+    Newtonoid_TransformVertices(a, a_world_vertices, MAX_SHAPE_VERTICES);
+    Newtonoid_TransformVertices(b, b_world_vertices, MAX_SHAPE_VERTICES);
+    if (a->shape_type == SHAPE_ROTOR)
+    {
+        count[0] = BuildConvexHull(a_world_vertices, count[0], a_hull);
+        shape[0] = a_hull;
+    }
+    if (b->shape_type == SHAPE_ROTOR)
+    {
+        count[1] = BuildConvexHull(b_world_vertices, count[1], b_hull);
+        shape[1] = b_hull;
+    }
+    if (count[0] < 3 || count[1] < 3)
+        return false;
+
+    // Edge normals of both shapes; a gap larger than the margin on any one of them separates the bodies.
+    for (int owner = 0; owner < 2; owner++)
+        for (size_t i = 0; i < count[owner]; i++)
+        {
+            Vector2d p1 = shape[owner][i], p2 = shape[owner][(i + 1) % count[owner]];
+            Vector2d edge_unit = VectorNormalize_2d((Vector2d){p2.x - p1.x, p2.y - p1.y});
+            Vector2d axis = (Vector2d){-edge_unit.y, edge_unit.x};
+            float a_min, a_max, b_min, b_max;
+            FindMinMaxProjection(shape[0], count[0], axis, &a_min, &a_max);
+            FindMinMaxProjection(shape[1], count[1], axis, &b_min, &b_max);
+            if (CalculateOverlap(a_min, a_max, b_min, b_max) < -margin)
+                return false;
+        }
+    return true;
+}
+
 bool CheckForCollision_AABB(Newtonoid2d a, Newtonoid2d b)
 {
     // AABB testing is a fast conservative broad phase. It intentionally ignores

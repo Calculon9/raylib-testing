@@ -893,6 +893,9 @@ static inline void ContactSolver_PositionIterations(ContactCache *c)
 
 // One pass over the contacts: per body the largest detected depth (sleep-inhibit guard). The per-frame
 // flags and depth are cleared first; the id is NOT, so it survives to the end of the frame. Slot 0 is not written.
+// A contact whose OTHER side was a sleeper at detection does not count: a static sleeper cannot yield, so
+// keeping the body awake achieves nothing (wake rule F still wakes a sleeper embedded deeper than
+// wake_embed_depth). Container and solid-cell contacts (other side = slot 0) always count.
 static inline void ContactSolver_AccumulateBodyStats(ContactCache *c)
 {
     for (int s = 1; s < c->body_count; s++)
@@ -904,9 +907,11 @@ static inline void ContactSolver_AccumulateBodyStats(ContactCache *c)
     {
         const SolverContact *k = &c->contacts[i];
         int slots[2] = {k->body_a, k->body_b};
+        // Flag that marks the partner of each side: side 0 (A) looks at B, side 1 (B) looks at A.
+        const uint32_t partner_asleep[2] = {CONTACT_FLAG_B_SLEEPING, CONTACT_FLAG_A_SLEEPING};
         for (int side = 0; side < 2; side++)
         {
-            if (slots[side] <= 0)
+            if (slots[side] <= 0 || (k->flags & partner_asleep[side]))
                 continue;
             BodyStats *s = &c->body_stats[slots[side]];
             if (k->depth0 > s->max_depth0)

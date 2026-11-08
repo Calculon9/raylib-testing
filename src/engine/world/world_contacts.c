@@ -242,9 +242,12 @@ static void ApplySolverResults(World2d *world)
             entity->bounds_origin = VectorSum_2d(entity->bounds_origin, shift);
         }
 
-        // A body overlapped deeper than the inhibit depth must not start sleeping (sleep would freeze
-        // the overlap, because sleeping pairs are skipped by detection). Only the velocity solver
-        // makes resting bodies quiet enough to sleep.
+        // A body overlapped deeper than the inhibit depth by an AWAKE body, the container or a solid cell must
+        // not start sleeping (sleep would freeze the overlap, because sleeping pairs are skipped by detection).
+        // Overlap against a SLEEPER is ignored (see ContactSolver_AccumulateBodyStats): a static sleeper cannot
+        // yield, so staying awake would pin the body forever. Wake rule F still frees a sleeper embedded deeper
+        // than wake_embed_depth, so residual overlap up to that depth may be frozen between sleepers.
+        // Only the velocity solver makes resting bodies quiet enough to sleep.
         if (cache->body_stats[slot].max_depth0 > cache->config.sleep_inhibit_depth)
             entity->sleep_timer = 0.0f;
 
@@ -277,6 +280,23 @@ static bool WakeHost_Wake(void *user, EntityId id, bool loud)
     return true;
 }
 
+// Wake-pass host callback: hold an awake body just short of sleeping (a support record under it is ageing).
+static void WakeHost_HoldSleep(void *user, EntityId id)
+{
+    World2d *world = (World2d *)user;
+    Newtonoid_HoldSleep((Newtonoid2d *)GetEntityByID(world, id), world->contact_persist.dt);
+}
+
+// Wake-pass host callback: are the two bodies still touching, or within the sleep-inhibit depth (0.05) of it?
+// That margin is the overlap the engine already tolerates before refusing sleep, and a falling partner covers
+// it in about 0.1 s (0.5 g t^2), so a partner that really leaves is noticed within a few frames.
+static bool WakeHost_StillAdjacent(void *user, EntityId a, EntityId b)
+{
+    World2d *world = (World2d *)user;
+    return CheckForAdjacency_SAT((Newtonoid2d *)GetEntityByID(world, a), (Newtonoid2d *)GetEntityByID(world, b),
+                                 world->contact_cache.config.sleep_inhibit_depth);
+}
+
 // WAKE pass of the frame, between detection and the solve (static sleepers + event waking, sleep_wake.h).
 // 1. Collect the bodies loudly woken since the last pass (WOKEN flag, read and cleared here).
 // 2. Sweep the persistence set and wake sleepers on impact, new contact, support lost and neighbour waking.
@@ -303,8 +323,10 @@ void ResolveSleepWakes(World2d *world)
 
     int gone_count = 0;
     const GonePair *gone = ContactPersist_Sweep(persist, &gone_count);
-    SleepWakeHost host = {world, WakeHost_SleeperKind, WakeHost_Wake};
+    SleepWakeHost host = {world, WakeHost_SleeperKind, WakeHost_Wake, WakeHost_HoldSleep, WakeHost_StillAdjacent};
     int woken = SleepWake_Resolve(cache, persist, gone, gone_count, &host, scratch);
+    // Sleep-onset hold: the next CalcVectors decides sleep, so clamp the timers of bodies over an ageing record now.
+    SleepWake_HoldAgeing(cache, persist, &host);
 
     if (woken > 0 && persist->records)
     {

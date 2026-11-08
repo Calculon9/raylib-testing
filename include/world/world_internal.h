@@ -47,6 +47,8 @@ void RemapEntityInASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 previous
 void RefreshWorldSpatialMap(World2d *world);
 CollisionResult_SAT CheckForCollision_SAT(Newtonoid2d *a, Newtonoid2d *b);
 bool CheckForCollision_AABB(Newtonoid2d a, Newtonoid2d b);
+// SAT proximity test: true if the shapes overlap or are within `margin` of touching (support-lost confirmation).
+bool CheckForAdjacency_SAT(Newtonoid2d *a, Newtonoid2d *b, float margin);
 // Find the vertex with the minimum (or maximum) projection along an axis.
 Vector2d FindDeepestVertex(Vector2d *vertices, size_t count, Vector2d axis, bool find_minimum);
 // Longest physics step (seconds) any world simulates in one frame. Clamping prevents entities

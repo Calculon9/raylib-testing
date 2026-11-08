@@ -73,6 +73,12 @@ typedef struct GonePair // One expired or noted-gone pair, delivered to the supp
     uint8_t flags;           // GONE_*
 } GonePair;
 
+typedef struct AgeingPair // An untouched record that has not yet expired (0 < unseen_time < grace).
+{
+    EntityId id_a, id_b;     // Canonical order.
+    int8_t dir_y;            // Stored normal y part (A->B, quantised), for the support-side test.
+} AgeingPair;
+
 typedef struct ContactPersist
 {
     PersistRecord *records;
@@ -84,6 +90,8 @@ typedef struct ContactPersist
     int gone_count, gone_capacity;                  // gone_capacity is only meaningful while gone_heap != NULL.
     GonePair *out;                                  // Sweep output buffer (heap only).
     int out_capacity, pending;                      // pending = expired records not yet delivered.
+    AgeingPair *ageing;                             // Records ageing in the last Sweep (sleep-onset hold); rebuilt every Sweep.
+    int ageing_count, ageing_capacity;
     size_t bytes;                                   // Total heap bytes owned (for reporting).
     bool alloc_failed, disabled_this_frame;         // disabled_this_frame: inserts are refused until next frame.
 } ContactPersist;
@@ -265,6 +273,8 @@ static inline void ContactPersist_Free(ContactPersist *p)
         Deallocate((void **)&p->gone_heap, (size_t)p->gone_capacity * sizeof(EntityId));
     if (p->out)
         Deallocate((void **)&p->out, (size_t)p->out_capacity * sizeof(GonePair));
+    if (p->ageing)
+        Deallocate((void **)&p->ageing, (size_t)p->ageing_capacity * sizeof(AgeingPair));
     memset(p, 0, sizeof(*p));
 }
 
@@ -420,6 +430,41 @@ static inline void ContactPersist_Deliver(ContactPersist *p, PersistRecord *r, G
     p->tombstones++;
 }
 
+// Remember one ageing record for the sleep-onset hold. False if the list could not grow (non-fatal).
+static inline bool ContactPersist_PushAgeing(ContactPersist *p, const PersistRecord *r)
+{
+    if (p->ageing_count >= p->ageing_capacity)
+    {
+        int new_capacity = p->ageing_capacity > 0 ? p->ageing_capacity * 2 : 64;
+        AgeingPair *grown = (AgeingPair *)TryAllocateBytes((size_t)new_capacity * sizeof(AgeingPair));
+        if (!grown)
+        {
+            p->alloc_failed = true;
+            return false;
+        }
+        if (p->ageing)
+        {
+            memcpy(grown, p->ageing, (size_t)p->ageing_count * sizeof(AgeingPair));
+            Deallocate((void **)&p->ageing, (size_t)p->ageing_capacity * sizeof(AgeingPair));
+            p->bytes -= (size_t)p->ageing_capacity * sizeof(AgeingPair);
+        }
+        p->ageing = grown;
+        p->ageing_capacity = new_capacity;
+        p->bytes += (size_t)new_capacity * sizeof(AgeingPair);
+    }
+    p->ageing[p->ageing_count++] = (AgeingPair){r->id_a, r->id_b, r->dir_y};
+    return true;
+}
+
+// Put a delivered (deleted) pair back as a fresh record, as if it had just been touched. Used when a grace
+// expiry is not a real loss. False if it could not be stored (full table or allocation failure), in which
+// case the caller must treat the pair as gone.
+static inline bool ContactPersist_Rearm(ContactPersist *p, const GonePair *g)
+{
+    ContactPersist_Touch(p, g->id_a, g->id_b, (float)g->dir_x / 127.0f, (float)g->dir_y / 127.0f);
+    return ContactPersist_Find(p, g->id_a, g->id_b) >= 0;
+}
+
 // Advance unseen time for untouched records, then deliver every record that expired (unseen for `grace`) or
 // that NoteGone named while untouched. Returns the pointer to p->out and writes the count. A record is deleted
 // only after its GonePair is written; records that do not fit (output growth failed) stay PENDING and are
@@ -427,6 +472,7 @@ static inline void ContactPersist_Deliver(ContactPersist *p, PersistRecord *r, G
 static inline const GonePair *ContactPersist_Sweep(ContactPersist *p, int *out_count)
 {
     *out_count = 0;
+    p->ageing_count = 0;
     if (!p->records)
     {
         p->gone_count = 0;
@@ -437,8 +483,11 @@ static inline const GonePair *ContactPersist_Sweep(ContactPersist *p, int *out_c
     if (gone_n > 1)
         qsort(gone, (size_t)gone_n, sizeof(EntityId), ContactPersist_CompareIds);
 
-    // Pass 1: age untouched records and mark the expiring ones.
+    // Pass 1: age untouched records and mark the expiring ones. Records still inside their grace are also
+    // listed in p->ageing (non-fatal: if the list cannot grow it is emptied and left empty for this frame, so
+    // the sleep-onset hold is skipped rather than applied partially).
     int expiring = 0;
+    bool ageing_ok = true;
     for (int i = 0; i < p->capacity; i++)
     {
         PersistRecord *r = &p->records[i];
@@ -458,7 +507,11 @@ static inline const GonePair *ContactPersist_Sweep(ContactPersist *p, int *out_c
                 r->flags |= PERSIST_FLAG_NOTED;
             expiring++;
         }
+        else if (untouched && r->unseen_time > 0.0f && ageing_ok)
+            ageing_ok = ContactPersist_PushAgeing(p, r);
     }
+    if (!ageing_ok)
+        p->ageing_count = 0;
     p->gone_count = 0;
 
     // Make the output buffer big enough for every expiring record; on failure deliver what fits.
