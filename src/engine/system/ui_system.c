@@ -370,6 +370,24 @@ void SelectionSet_Toggle(TargetRef ref)
     }
 }
 
+// Copy the member at `index` into *out. Returns false when out of range. Does not allocate, so it
+// is safe to call per member in a loop.
+bool SelectionSet_Get(int index, TargetRef *out)
+{
+    SelectionSet_EnsureInit();
+    if (!out || index < 0 || index >= G_UIState.selection_set.count)
+    {
+        return false;
+    }
+    TargetRef *member = (TargetRef *)LArray_Get(&G_UIState.selection_set, index);
+    if (!member)
+    {
+        return false;
+    }
+    *out = *member;
+    return true;
+}
+
 // Return the primary (last-added) member, or a TARGET_KIND_NONE ref when the set is empty.
 TargetRef SelectionSet_Primary(void)
 {
@@ -637,14 +655,21 @@ void UIState_ClearSelectedCell(void)
 // resolve to a live cell.
 Cell *UIState_GetSelectedCell(void)
 {
-    TargetRef primary = SelectionSet_Primary();
-    if (primary.kind != TARGET_KIND_CELL)
+    return UIState_ResolveCellRef(SelectionSet_Primary());
+}
+
+// Resolve any CELL TargetRef to its live Cell, re-deriving it from the world and lattice
+// coordinate each call. Returns NULL for non-cell refs and stale coordinates. Shared by the
+// primary-selection getter and the bulk-edit walker.
+Cell *UIState_ResolveCellRef(TargetRef ref)
+{
+    if (ref.kind != TARGET_KIND_CELL)
     {
         return NULL;
     }
 
     // Resolve the owning world (handles the UNIVERSE_ROOT_WORLD_INDEX sentinel via Universe_GetWorld).
-    World2d *world = Universe_GetWorld(&G_Universe, primary.as.cell.world_index);
+    World2d *world = Universe_GetWorld(&G_Universe, ref.as.cell.world_index);
     if (!world)
     {
         return NULL;
@@ -652,7 +677,7 @@ Cell *UIState_GetSelectedCell(void)
 
     // Resolve the stored lattice coordinate against the LIVE grid (NULL if outside or no buffer), so the
     // answer stays correct after the world has grown or its grid_origin has shifted.
-    return Space_GetCellAtLattice(&world->grid_space.space, primary.as.cell.lattice_x, primary.as.cell.lattice_y);
+    return Space_GetCellAtLattice(&world->grid_space.space, ref.as.cell.lattice_x, ref.as.cell.lattice_y);
 }
 
 // Report the selected cell's index from the SelectionSet primary, or -1 when the primary is not a

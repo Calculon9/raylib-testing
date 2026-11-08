@@ -452,6 +452,9 @@ static int StateManager_ResolveCommand(const char *cmd_string, UILoaderContext *
     return CommandSystem_ResolveString(cmd_string);
 }
 
+// Defined below with the other bulk-edit queries; forward-declared for the binding resolver.
+static BindingValue StateManager_QuerySelectionCount(int key);
+
 // Resolve data bindings for the state-manager fields.
 // STAGE 1: field values stay driven by the per-frame C refresh (RefreshPhysView etc.), so no
 // field value is bound here yet. Returns UI_BIND_SRC_NONE for every name. Stage 2 fills this
@@ -506,6 +509,17 @@ static UIBinding StateManager_ResolveBinding(const char *binding_string, UILoade
         }
         // Malformed ancestry.lineN name -> unresolved (loader warns).
         return (UIBinding){ .kind = UI_BIND_SRC_NONE };
+    }
+
+    // Selection header: read-only "Editing N targets" label shown when several are selected.
+    if (!strcmp(binding_string, "sm.selection"))
+    {
+        return (UIBinding){
+            .kind = UI_BIND_SRC_QUERY,
+            .query = StateManager_QuerySelectionCount,
+            .query_key = 0,
+            .value_type = BIND_STRING,
+        };
     }
 
     // STAGE 1: all other field values stay driven by the per-frame C refresh (RefreshPhysView
@@ -649,62 +663,227 @@ static bool StateManager_WritePortalField(int key, BindingValue value)
 // toggles through the same accessors, so adding a family means one enum value and one case in
 // each accessor. Unselected families report "not set" (clear-when-none).
 
-// Read the bitmask a family targets on the current selection. Returns false when nothing of that
-// kind is selected. Guard is `!= NULL` only (no id check), so a non-NULL object with an invalid id
-// still displays its real flags.
-static bool StateManager_ReadFlags(FlagFamily family, uint32_t *out)
+// Resolve an ENTITY ref to its live entity, or NULL for a wrong-kind or stale ref. Re-resolved on
+// every call; pointers are never cached across frames.
+static Newtonoid2d *StateManager_ResolveEntityRef(TargetRef ref)
 {
-    Newtonoid2d *o = UIState_GetSelectedObject();
-    World2d *w = Universe_GetSelectedWorld(&G_Universe);
-    Cell *c = UIState_GetSelectedCell();
+    if (ref.kind != TARGET_KIND_ENTITY)
+    {
+        return NULL;
+    }
+    return Universe_GetEntityByID(&G_Universe, ref.as.entity, NULL);
+}
 
+// Read the bitmask a family targets on one target. Returns false when the ref is the wrong kind
+// for the family (entity families need ENTITY, WORLD needs WORLD, CELL needs CELL) or no longer
+// resolves, which is how a mixed selection skips inapplicable members. Guard is `!= NULL` only
+// (no id check), so a non-NULL object with an invalid id still displays its real flags.
+static bool StateManager_ReadFlags(TargetRef ref, FlagFamily family, uint32_t *out)
+{
     switch (family)
     {
-    case FLAG_FAMILY_ROLE:           if (!o) return false; *out = o->roles; return true;
-    case FLAG_FAMILY_CAPABILITY:     if (!o) return false; *out = o->capabilities; return true;
-    case FLAG_FAMILY_CONSTRAINT:     if (!o) return false; *out = o->constraints; return true;
-    case FLAG_FAMILY_STATUS:         if (!o) return false; *out = o->status_flags; return true;
-    case FLAG_FAMILY_COLLISION_MASK: if (!o) return false; *out = o->collision_role_mask; return true;
-    case FLAG_FAMILY_WORLD:          if (!w) return false; *out = w->flags; return true;
-    case FLAG_FAMILY_CELL:           if (!c) return false; *out = c->flags; return true;
+    case FLAG_FAMILY_ROLE:
+    case FLAG_FAMILY_CAPABILITY:
+    case FLAG_FAMILY_CONSTRAINT:
+    case FLAG_FAMILY_STATUS:
+    case FLAG_FAMILY_COLLISION_MASK:
+    {
+        Newtonoid2d *o = StateManager_ResolveEntityRef(ref);
+        if (!o) return false;
+        switch (family)
+        {
+        case FLAG_FAMILY_ROLE:           *out = o->roles; return true;
+        case FLAG_FAMILY_CAPABILITY:     *out = o->capabilities; return true;
+        case FLAG_FAMILY_CONSTRAINT:     *out = o->constraints; return true;
+        case FLAG_FAMILY_STATUS:         *out = o->status_flags; return true;
+        default:                         *out = o->collision_role_mask; return true;
+        }
+    }
+    case FLAG_FAMILY_WORLD:
+    {
+        World2d *w = (ref.kind == TARGET_KIND_WORLD) ? Universe_GetWorld(&G_Universe, ref.as.world_index) : NULL;
+        if (!w) return false;
+        *out = w->flags;
+        return true;
+    }
+    case FLAG_FAMILY_CELL:
+    {
+        Cell *c = UIState_ResolveCellRef(ref);
+        if (!c) return false;
+        *out = c->flags;
+        return true;
+    }
     }
     return false;
 }
 
-// Store a bitmask into the field a family targets on the current selection. Returns false when
-// nothing of that kind is selected.
-static bool StateManager_WriteFlags(FlagFamily family, uint32_t value)
+// Store a bitmask into the field a family targets on one target. Returns false when the ref is
+// the wrong kind or stale (same rules as StateManager_ReadFlags).
+static bool StateManager_WriteFlags(TargetRef ref, FlagFamily family, uint32_t value)
 {
-    Newtonoid2d *o = UIState_GetSelectedObject();
-    World2d *w = Universe_GetSelectedWorld(&G_Universe);
-    Cell *c = UIState_GetSelectedCell();
-
     switch (family)
     {
-    case FLAG_FAMILY_ROLE:           if (!o) return false; o->roles = value; return true;
-    case FLAG_FAMILY_CAPABILITY:     if (!o) return false; o->capabilities = value; return true;
-    case FLAG_FAMILY_CONSTRAINT:     if (!o) return false; o->constraints = value; return true;
-    case FLAG_FAMILY_STATUS:         if (!o) return false; o->status_flags = value; return true;
-    case FLAG_FAMILY_COLLISION_MASK: if (!o) return false; o->collision_role_mask = value; return true;
-    case FLAG_FAMILY_WORLD:          if (!w) return false; w->flags = value; return true;
-    case FLAG_FAMILY_CELL:           if (!c) return false; c->flags = value; return true;
+    case FLAG_FAMILY_ROLE:
+    case FLAG_FAMILY_CAPABILITY:
+    case FLAG_FAMILY_CONSTRAINT:
+    case FLAG_FAMILY_STATUS:
+    case FLAG_FAMILY_COLLISION_MASK:
+    {
+        Newtonoid2d *o = StateManager_ResolveEntityRef(ref);
+        if (!o) return false;
+        switch (family)
+        {
+        case FLAG_FAMILY_ROLE:           o->roles = value; return true;
+        case FLAG_FAMILY_CAPABILITY:     o->capabilities = value; return true;
+        case FLAG_FAMILY_CONSTRAINT:     o->constraints = value; return true;
+        case FLAG_FAMILY_STATUS:         o->status_flags = value; return true;
+        default:                         o->collision_role_mask = value; return true;
+        }
+    }
+    case FLAG_FAMILY_WORLD:
+    {
+        World2d *w = (ref.kind == TARGET_KIND_WORLD) ? Universe_GetWorld(&G_Universe, ref.as.world_index) : NULL;
+        if (!w) return false;
+        w->flags = value;
+        return true;
+    }
+    case FLAG_FAMILY_CELL:
+    {
+        Cell *c = UIState_ResolveCellRef(ref);
+        if (!c) return false;
+        c->flags = value;
+        return true;
+    }
     }
     return false;
+}
+
+// Tally of a bulk walk: how many targets the action applies to, and how many of those are ON.
+typedef struct FlagTally
+{
+    int applicable;
+    int on;
+} FlagTally;
+
+// Collapse a tally to the toggle tri-state: 0 off (or nothing applicable), 1 all on,
+// BIND_TOGGLE_MIXED when the applicable targets disagree. Shared by flag and component queries so
+// the display and the click decision always agree.
+static int StateManager_TriState(int applicable, int on)
+{
+    if (applicable == 0 || on == 0)
+    {
+        return 0;
+    }
+    return (on == applicable) ? 1 : BIND_TOGGLE_MIXED;
+}
+
+// Set `bit` of `family` on one target to `value`. Holds the ROLE exclusivity and SLEEPING
+// (sleep/wake keeps the body's physics state consistent) special cases in one place.
+static void StateManager_ApplyFlagToTarget(TargetRef ref, FlagFamily family, uint32_t bit, bool value)
+{
+    uint32_t flags = 0;
+    if (!StateManager_ReadFlags(ref, family, &flags))
+    {
+        return;
+    }
+
+    // Skip no-ops (avoids resetting the sleep timer of an already-sleeping entity). ROLE always
+    // rewrites so the whole role group is normalised to exactly this role.
+    bool current = (flags & bit) != 0;
+    if (current == value && family != FLAG_FAMILY_ROLE)
+    {
+        return;
+    }
+
+    if (family == FLAG_FAMILY_ROLE)
+    {
+        // Exclusive: clear the whole role group, then set this one.
+        StateManager_WriteFlags(ref, family, value ? ((flags & ~s_sm_flags.role_flags) | bit) : (flags & ~bit));
+    }
+    else if (family == FLAG_FAMILY_STATUS && bit == ENTITY_STATUS_FLAG_SLEEPING)
+    {
+        // A status read succeeded, so the entity resolves.
+        Newtonoid2d *object = StateManager_ResolveEntityRef(ref);
+        if (value)
+        {
+            ApplySleep(object);
+        }
+        else
+        {
+            WakeUp(object);
+        }
+    }
+    else
+    {
+        StateManager_WriteFlags(ref, family, value ? (flags | bit) : (flags & ~bit));
+    }
+}
+
+// Tally (and optionally apply to) one target. Inapplicable targets are not counted.
+static void StateManager_VisitFlagTarget(FlagTally *tally, TargetRef ref, FlagFamily family,
+                                         uint32_t bit, bool apply, bool value)
+{
+    uint32_t flags = 0;
+    if (!StateManager_ReadFlags(ref, family, &flags))
+    {
+        return;
+    }
+    tally->applicable++;
+    if (flags & bit)
+    {
+        tally->on++;
+    }
+    if (apply)
+    {
+        StateManager_ApplyFlagToTarget(ref, family, bit, value);
+    }
+}
+
+// Visit every applicable target of a family in the SelectionSet, tallying the bit state; when
+// `apply` is true also writes `value` to each. The only place that enumerates and filters
+// targets for flags. Re-resolves every ref (stale ones are skipped) and does not allocate.
+// World flags fall back to the navigation cursor world when the set holds no world, preserving
+// single-select behaviour (the cursor can differ from the set).
+static FlagTally StateManager_WalkFlag(FlagFamily family, uint32_t bit, bool apply, bool value)
+{
+    FlagTally tally = {0};
+    bool saw_world = false;
+
+    int count = SelectionSet_Count();
+    for (int i = 0; i < count; i++)
+    {
+        TargetRef ref;
+        if (!SelectionSet_Get(i, &ref))
+        {
+            continue;
+        }
+        saw_world = saw_world || (ref.kind == TARGET_KIND_WORLD);
+        StateManager_VisitFlagTarget(&tally, ref, family, bit, apply, value);
+    }
+
+    if (family == FLAG_FAMILY_WORLD && !saw_world)
+    {
+        int cursor = Universe_GetSelectedIndex(&G_Universe);
+        if (cursor >= 0)
+        {
+            TargetRef ref = { .kind = TARGET_KIND_WORLD, .as.world_index = cursor };
+            StateManager_VisitFlagTarget(&tally, ref, family, bit, apply, value);
+        }
+    }
+    return tally;
 }
 
 // Pack a family and flag bit into the int key a flag button's query binding carries. Flag bits are
 // all below 1 << 16, so the family lives in the upper half.
 #define STATE_MANAGER_FLAG_KEY(family, flag) (((int)(family) << 16) | (int)(flag))
 
-// Is-set query shared by every flag family; returns BIND_INT 0/1. Key from STATE_MANAGER_FLAG_KEY.
+// Is-set query shared by every flag family; returns BIND_INT 0 off, 1 on, BIND_TOGGLE_MIXED when
+// the selected targets disagree. Key from STATE_MANAGER_FLAG_KEY.
 static BindingValue StateManager_QueryFlag(int key)
 {
-    uint32_t flags = 0;
-    bool have = StateManager_ReadFlags((FlagFamily)(key >> 16), &flags);
-    int on = (have && (flags & (uint32_t)(key & 0xFFFF))) ? 1 : 0;
-    return (BindingValue){ .type = BIND_INT, .as.i = on };
+    FlagTally t = StateManager_WalkFlag((FlagFamily)(key >> 16), (uint32_t)(key & 0xFFFF), false, false);
+    return (BindingValue){ .type = BIND_INT, .as.i = StateManager_TriState(t.applicable, t.on) };
 }
-
 // DYNAMIC read for one axis of the selected cell's warp basis (key 0 = U, 1 = V). Returns the
 // identity component ((1,0) for U, (0,1) for V) when no cell is selected, so an inert/neutral value
 // is displayed rather than stale data. The selection can go stale, so it is re-resolved every call.
@@ -739,65 +918,102 @@ static bool StateManager_WriteCellWarp(int key, BindingValue value)
     return true;
 }
 
-// Attached query for the COMPONENT buttons (NOT a bitmask read). Uses the STRICTER guard
-// `o != NULL && o->id != INVALID_ENTITY_ID` and a bounds guard on the component type, mirroring
-// RefreshComponentsSection. Reads via the SAME expression the retired component label loop used
-// (EntityRegistry_Describe(o).components[type] != NULL), so the ON/OFF display is identical by
-// construction. Key is the EntityComponentType cast to int.
+// Resolve an ENTITY ref to a live entity with a valid id (the stricter guard the component
+// handlers use), or NULL.
+static Newtonoid2d *StateManager_ResolveLiveEntity(TargetRef ref)
+{
+    Newtonoid2d *o = StateManager_ResolveEntityRef(ref);
+    return (o && o->id != INVALID_ENTITY_ID) ? o : NULL;
+}
+
+// Count the selected live entities (applicable) and those carrying `type` (on).
+static FlagTally StateManager_TallyComponent(EntityComponentType type)
+{
+    FlagTally tally = {0};
+    int count = SelectionSet_Count();
+    for (int i = 0; i < count; i++)
+    {
+        TargetRef ref;
+        if (!SelectionSet_Get(i, &ref))
+        {
+            continue;
+        }
+        Newtonoid2d *o = StateManager_ResolveLiveEntity(ref);
+        if (!o)
+        {
+            continue;
+        }
+        tally.applicable++;
+        if (EntityRegistry_HasComponent(o->id, type))
+        {
+            tally.on++;
+        }
+    }
+    return tally;
+}
+
+// Attached query for the COMPONENT buttons (NOT a bitmask read). Bounds-guards the component type,
+// mirroring RefreshComponentsSection, and reports 0/1/BIND_TOGGLE_MIXED across the selected
+// entities. Key is the EntityComponentType cast to int.
 static BindingValue StateManager_QueryComponentAttached(int component_type)
 {
-    Newtonoid2d *o = UIState_GetSelectedObject();
-    int on = 0;
     EntityComponentType t = (EntityComponentType)component_type;
-    if (o && o->id != INVALID_ENTITY_ID && t >= 1 && t <= ENTITY_COMPONENT_HEALTH)
+    int state = 0;
+    if (t >= 1 && t <= ENTITY_COMPONENT_HEALTH)
     {
-        EntityDescription desc = EntityRegistry_Describe(o);
-        on = (desc.components[t] != NULL) ? 1 : 0;
+        FlagTally tally = StateManager_TallyComponent(t);
+        state = StateManager_TriState(tally.applicable, tally.on);
     }
-    return (BindingValue){ .type = BIND_INT, .as.i = on };
+    return (BindingValue){ .type = BIND_INT, .as.i = state };
+}
+
+// Backing buffer for the "N selected" header (module-owned so the returned pointer outlives the call).
+static char state_manager_selection_text[48];
+
+// Query for the selection header: "Editing N targets" when more than one target is selected, else
+// an empty string (BIND_NONE would leave stale text on the box).
+static BindingValue StateManager_QuerySelectionCount(int key)
+{
+    (void)key;
+    int count = SelectionSet_Count();
+    if (count > 1)
+    {
+        snprintf(state_manager_selection_text, sizeof(state_manager_selection_text),
+                 "Editing %d targets", count);
+    }
+    else
+    {
+        state_manager_selection_text[0] = '\0';
+    }
+    return (BindingValue){ .type = BIND_STRING, .as.s = state_manager_selection_text };
 }
 
 // ============================================================================
 // Flag Interaction
 // ============================================================================
 
-// Toggle a flag on the selection its family targets. ROLE is exclusive (clears the whole role
-// group, then sets this one). Toggling STATUS SLEEPING goes through sleep/wake so the body's
-// physics state stays consistent. Every other flag is a plain XOR toggle.
+// Click a flag across the whole selection. If the flag is ON for every applicable target it is
+// cleared on all; otherwise it is set on all (never a per-object XOR). ROLE is exclusive, so a
+// click always makes every applicable entity exactly that role.
 static void HandleFlagClick(UIElement *button)
 {
     const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->interaction_user_data;
-    uint32_t flags = 0;
-    if (!spec || !StateManager_ReadFlags(spec->family, &flags))
+    if (!spec)
     {
         return;
     }
 
-    if (spec->family == FLAG_FAMILY_ROLE)
+    FlagTally tally = StateManager_WalkFlag(spec->family, spec->flag, false, false);
+    if (tally.applicable == 0)
     {
-        StateManager_WriteFlags(spec->family, (flags & ~s_sm_flags.role_flags) | spec->flag);
+        return;
     }
-    else if (spec->family == FLAG_FAMILY_STATUS && spec->flag == ENTITY_STATUS_FLAG_SLEEPING)
-    {
-        // A status family read succeeded, so an object is selected.
-        Newtonoid2d *object = UIState_GetSelectedObject();
-        if (flags & ENTITY_STATUS_FLAG_SLEEPING)
-        {
-            WakeUp(object);
-        }
-        else
-        {
-            ApplySleep(object);
-        }
-    }
-    else
-    {
-        StateManager_WriteFlags(spec->family, flags ^ spec->flag);
-    }
+
+    bool value = (spec->family == FLAG_FAMILY_ROLE) ? true : (tally.on != tally.applicable);
+    StateManager_WalkFlag(spec->family, spec->flag, true, value);
 
     MarkStateManagerRefreshDirty();
 }
-
 // Build a default-initialised component payload for an addable type. Returns false if the
 // type cannot be attached with pure defaults (RELATION/WORLD/NONE). This is the single source
 // of truth for the "attach with defaults" path: both the PHYS-view component toggle and the
@@ -870,70 +1086,80 @@ static const char *ComponentTypeName(EntityComponentType type)
     }
 }
 
-// Toggle attachment of a component on the currently selected object.
+// Make `type` present (true) or absent (false) on every selected entity that differs. Only
+// enqueues for entities that need a change (the pre-check is the dedupe; the registry also
+// rejects duplicates). Enqueue only appends to the command queue, so nothing mutates mid-walk.
+static void StateManager_ApplyComponentToSelection(EntityComponentType type, bool present)
+{
+    // Build the defaults once; the queue copies the component by value so reuse is safe.
+    EntityComponent comp = {0};
+    if (present && !StateManager_BuildDefaultComponent(type, &comp))
+    {
+        return;
+    }
+
+    int count = SelectionSet_Count();
+    for (int i = 0; i < count; i++)
+    {
+        TargetRef ref;
+        if (!SelectionSet_Get(i, &ref))
+        {
+            continue;
+        }
+        Newtonoid2d *o = StateManager_ResolveLiveEntity(ref);
+        if (!o || EntityRegistry_HasComponent(o->id, type) == present)
+        {
+            continue;
+        }
+        if (present)
+        {
+            EnqueueAttachComponent(o->id, &comp);
+        }
+        else
+        {
+            EnqueueRemoveComponent(o->id, type);
+        }
+    }
+}
+
+// Toggle a component across the selection: if every applicable entity has it, remove it from all;
+// otherwise add it to those lacking it.
 static void HandleComponentToggleClick(UIElement *button)
 {
-    Newtonoid2d *object = UIState_GetSelectedObject();
-    if (!object || object->id == INVALID_ENTITY_ID || !button || !button->interaction_user_data)
+    if (!button || !button->interaction_user_data)
     {
         return;
     }
 
     const StateManagerComponentButton *spec = (const StateManagerComponentButton *)button->interaction_user_data;
-    EntityComponentType type = spec->type;
-
-    if (EntityRegistry_HasComponent(object->id, type))
+    FlagTally tally = StateManager_TallyComponent(spec->type);
+    if (tally.applicable == 0)
     {
-        EnqueueRemoveComponent(object->id, type);
+        return;
     }
-    else
-    {
-        // Reuse the shared default-construction helper so the toggle and the COMP-view Add
-        // buttons attach identical defaults.
-        EntityComponent comp = {0};
-        if (!StateManager_BuildDefaultComponent(type, &comp))
-        {
-            return;
-        }
-        EnqueueAttachComponent(object->id, &comp);
-    }
+    StateManager_ApplyComponentToSelection(spec->type, tally.on != tally.applicable);
 }
 
-// Attach the addable component the clicked Add button represents, with defaults, to the
-// currently selected entity (deferred via the existing command queue). One shared handler
+// Attach the addable component the clicked Add button represents, with defaults, to every
+// selected entity lacking it (deferred via the existing command queue). One shared handler
 // serves all four Add buttons: the type is read from the button's interaction_user_data spec.
 static void HandleComponentAddClick(UIElement *button)
 {
-    Newtonoid2d *object = UIState_GetSelectedObject();
-    if (!object || object->id == INVALID_ENTITY_ID || !button || !button->interaction_user_data)
+    if (!button || !button->interaction_user_data)
     {
         return;
     }
 
     const StateManagerComponentButton *spec = (const StateManagerComponentButton *)button->interaction_user_data;
-
-    // One-of-each guard (the registry is the real enforcer; this is a usability affordance).
-    if (EntityRegistry_HasComponent(object->id, spec->type))
-    {
-        return;
-    }
-
-    EntityComponent comp = {0};
-    if (!StateManager_BuildDefaultComponent(spec->type, &comp))
-    {
-        return;
-    }
-    // Existing command path: CMD_ATTACH_COMPONENT marks the panel dirty on success.
-    EnqueueAttachComponent(object->id, &comp);
+    StateManager_ApplyComponentToSelection(spec->type, true);
 }
 
-// Remove the component the clicked row represents from the selected entity, immediately (no
-// confirmation), via the existing command queue. The row slot is positional, so the type is
-// read from the slot spec assigned during the last refresh.
+// Remove the component the clicked row represents from every selected entity that has it,
+// immediately (no confirmation), via the existing command queue. The row slot is positional, so
+// the type is read from the slot spec assigned during the last refresh.
 static void HandleComponentRemoveClick(UIElement *button)
 {
-    Newtonoid2d *object = UIState_GetSelectedObject();
-    if (!object || object->id == INVALID_ENTITY_ID || !button || !button->interaction_user_data)
+    if (!button || !button->interaction_user_data)
     {
         return;
     }
@@ -943,10 +1169,8 @@ static void HandleComponentRemoveClick(UIElement *button)
     {
         return;
     }
-    // Existing command path: CMD_REMOVE_COMPONENT marks the panel dirty on success.
-    EnqueueRemoveComponent(object->id, row->type);
+    StateManager_ApplyComponentToSelection(row->type, false);
 }
-
 // ============================================================================
 // Element id-registration + wiring (post-load)
 // ============================================================================

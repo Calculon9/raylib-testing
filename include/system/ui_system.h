@@ -140,6 +140,8 @@ int SelectionSet_Count(void);                  // Number of members currently se
 void SelectionSet_Add(TargetRef ref);          // Add a member (idempotent; ignores TARGET_KIND_NONE).
 bool SelectionSet_Remove(TargetRef ref);       // Remove an equal member; returns whether removed.
 void SelectionSet_Toggle(TargetRef ref);       // Remove if present, otherwise add.
+bool SelectionSet_Get(int index, TargetRef *out); // Member at index; false if out of range (no allocation).
+Cell *UIState_ResolveCellRef(TargetRef ref);   // Live Cell* for a CELL ref, or NULL (stale / wrong kind).
 TargetRef SelectionSet_Primary(void);          // Last-added member, or a TARGET_KIND_NONE ref if empty.
 
 // Re-derive the single-valued primary fields from the set's primary member, firing the

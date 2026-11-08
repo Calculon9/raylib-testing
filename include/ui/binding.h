@@ -78,6 +78,9 @@ typedef struct BindingValue
     } as;
 } BindingValue;
 
+// BIND_INT toggle queries: 0 = off, 1 = on, 2 = mixed (bulk selection whose targets disagree).
+#define BIND_TOGGLE_MIXED 2
+
 // SOURCE: how to READ the current value for display.
 typedef enum BindingSourceKind
 {

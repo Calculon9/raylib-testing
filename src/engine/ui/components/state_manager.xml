@@ -35,6 +35,7 @@
         <Option text="COMP" view="components_view" />
         <Option text="GEOMETRY" view="geometry_view" />
     </ViewSelector>
+    <Textbox id="sm_selection" io="readonly" binding="sm.selection" size="5.25,0.5" width="fill" height="fixed" />
 
     <!-- ================= PHYS view ================= -->
     <View id="phys_view" type="STATE_MANAGER_PHYSICS_VIEW" scroll="y" layout="stack">
