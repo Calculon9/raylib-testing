@@ -22,30 +22,10 @@ typedef struct
     String64 temp_buffer;
 } Text_64_IOState;
 
-// Legacy UI drag types retained for migration reference. DragInteractionState is authoritative.
-// typedef PointerState MouseDownState;
-//
-// typedef struct
-// {
-//     UIElement *target_element;
-//     Vector2d drag_delta;
-//     Vector2d initial_element_offset;
-// } DragState;
-
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
-// Coordinate Space Properties
-// extern Vector2d lpanel_u;// = {1, 0};
-// extern Vector2d lpanel_v;// = {0, 1};
-// extern Vector2d lpanel_resolution; //= {0};
-// extern Vector2d lpanel_pixel_origin, lpanel_pixel_end; //= {0};
 
-// // Logical->pixel-space conversion properties
-// extern Vector2d lpanel_pixel_u;// = {75, 0};
-// extern Vector2d lpanel_pixel_v;// = {0, 75};
-// extern Vector2d lpanel_origin, lpanel_end; //= {0}; // Dependent on the game world screen area
-// extern Camera2d camera_lpanel;// = {0};
 
 //----------------------------------------------------------------------------------
 // Global Variables Declaration (shared by several modules)

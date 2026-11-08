@@ -298,6 +298,114 @@ static BindingValueType UILoader_MapDataType(DataType type)
 }
 
 /**
+ * Resolve a binding= attribute into the display source (and optionally a write sink) of `b`.
+ *
+ * Shared by BuildButton, BuildTextField and BuildTextbox so the three never drift. A source
+ * (address or query) drives the live display via the per-frame refresh walk. For fields, a
+ * query-paired write callback additionally makes the control editable (commit-on-ENTER through
+ * Binding_Commit); buttons pass allow_write_sink=false because their sink comes from action=.
+ *
+ * @param node              XML element node to read binding= from
+ * @param ctx               Loader context (supplies resolve_binding; may be NULL)
+ * @param b                 Output Binding to populate (source/sink written in place)
+ * @param have_source       Output: set true when a display source resolved
+ * @param have_sink         Output: set true when a dynamic write sink resolved
+ * @param data_type         In/out (may be NULL): parse/format DataType, overwritten to match an
+ *                          address source
+ * @param allow_write_sink  Attach the resolver's write callback as a sink when it supplies one
+ */
+static void UILoader_AssembleBindingSource(mxml_node_t *node, UILoaderContext *ctx,
+                                           Binding *b, bool *have_source, bool *have_sink,
+                                           DataType *data_type, bool allow_write_sink)
+{
+    *have_source = false;
+    *have_sink = false;
+
+    const char *binding_attr = mxmlElementGetAttr(node, "binding");
+    if (!binding_attr)
+        return;
+
+    if (!ctx || !ctx->resolve_binding)
+    {
+        LOADER_WARNING(ctx, "Binding specified but resolver not available");
+        return;
+    }
+
+    UIBinding src = ctx->resolve_binding(binding_attr, ctx);
+
+    // Honour the legacy implicit contract: a non-NULL address with kind NONE means an
+    // address source (an unmodified address resolver zero-inits the appended tail).
+    UIBindingSourceKind k = src.kind;
+    if (k == UI_BIND_SRC_NONE && src.address)
+        k = UI_BIND_SRC_ADDRESS;
+
+    if (k == UI_BIND_SRC_ADDRESS && src.address)
+    {
+        // Address source: read-only live label. Interpret the deref via the loader's
+        // DataType -> BindingValueType map. An unmapped DataType (BIND_NONE) attaches
+        // nothing and warns, mirroring BindTextboxStable's BINDING_NONE early-out.
+        BindingValueType vt = UILoader_MapDataType(src.data_type);
+        if (vt == BIND_NONE)
+        {
+            LOADER_WARNING(ctx, "Binding did not resolve");
+        }
+        else
+        {
+            b->source.kind = BIND_SRC_ADDRESS;
+            b->source.value_type = vt;
+            b->source.address = src.address;
+            if (data_type)
+                *data_type = src.data_type; // keep parse/format in step with the source
+            *have_source = true;
+        }
+    }
+    else if (k == UI_BIND_SRC_QUERY && src.query)
+    {
+        // Query source: live display driven by the query fn. The query owns the real
+        // type; value_type is advisory.
+        b->source.kind = BIND_SRC_QUERY;
+        b->source.value_type = src.value_type;
+        b->source.query = src.query;
+        b->source.query_key = src.query_key;
+        *have_source = true;
+    }
+    else
+    {
+        LOADER_WARNING(ctx, "Binding did not resolve");
+    }
+
+    // Optional dynamic WRITE sink: when the resolver returns a non-NULL write, complete the
+    // dynamic shape (BindTextboxDynamic) on the SAME Binding, so the field commits on ENTER
+    // through this callback. The sink's parse type is the source's advisory value_type (a dynamic
+    // field reads and writes one type). With a NULL write the control stays read-only.
+    if (allow_write_sink && src.write)
+    {
+        b->sink.kind = BIND_SINK_CALLBACK;
+        b->sink.value_type = src.value_type;
+        b->sink.write = src.write;
+        b->sink.write_key = src.write_key;
+        *have_sink = true;
+    }
+}
+
+/**
+ * Attach an assembled Binding to a textbox control when a source or sink resolved, and align the
+ * textbox's parse/format DataType with it. The precision uses the documented default sentinel
+ * (0). The binding is freed by DisposeUIElement's textbox cleanup, as for
+ * BindTextboxStable/Dynamic bindings. Shared by BuildTextField and BuildTextbox.
+ */
+static void UILoader_AttachTextboxBinding(UIElement *textbox, Binding *b, DataType data_type,
+                                          bool have_source, bool have_sink)
+{
+    if (!have_source && !have_sink)
+        return;
+
+    b->precision = 0;
+    textbox->data.textbox.data_type = data_type; // parse/format agrees with the source
+    textbox->data.textbox.binding = Binding_Create(*b);
+}
+
+/**
  * Builder for <Button> elements.
  * Attributes: text (required), type (optional: "simple"/"enumerate"/"submit"),
  *             binding (optional source), action (optional sink), size (optional),
@@ -334,102 +442,59 @@ static UIBuildResult BuildButton(mxml_node_t *node, UIElement *parent, const UIP
     bool have_source = false;
     bool have_sink = false;
 
-    // SOURCE from binding= (new). Resolve to an address or query source descriptor.
-    const char *binding_attr = mxmlElementGetAttr(node, "binding");
-    if (binding_attr && ctx && ctx->resolve_binding)
-    {
-        UIBinding src = ctx->resolve_binding(binding_attr, ctx);
+    // SOURCE from binding= (address or query descriptor); the button's sink comes from action=.
+    UILoader_AssembleBindingSource(node, ctx, &b, &have_source, &have_sink, NULL, false);
 
-        // Honour the legacy implicit contract: a non-NULL address with kind NONE means an
-        // address source (an unmodified address resolver zero-inits the appended tail).
-        UIBindingSourceKind k = src.kind;
-        if (k == UI_BIND_SRC_NONE && src.address)
-            k = UI_BIND_SRC_ADDRESS;
-
-        if (k == UI_BIND_SRC_ADDRESS && src.address)
-        {
-            b.source.kind = BIND_SRC_ADDRESS;
-            b.source.value_type = UILoader_MapDataType(src.data_type);
-            b.source.address = src.address;
-            have_source = true;
-        }
-        else if (k == UI_BIND_SRC_QUERY && src.query)
-        {
-            b.source.kind = BIND_SRC_QUERY;
-            b.source.value_type = src.value_type; // advisory; query owns the actual type
-            b.source.query = src.query;
-            b.source.query_key = src.query_key;
-            have_source = true;
-        }
-        else
-        {
-            LOADER_WARNING(ctx, "Binding did not resolve");
-        }
-    }
-    else if (binding_attr)
-    {
-        LOADER_WARNING(ctx, "Binding specified but resolver not available");
-    }
-
-    // SINK from action= (existing command path + new opt-in callback path).
+    // SINK from action=: the opt-in widened resolver (command OR callback), else the legacy command
+    // resolver, else a direct positive integer code. Command routes share one assembly below.
     const char *action_attr = mxmlElementGetAttr(node, "action");
-    if (action_attr && ctx && ctx->resolve_action)
+    if (action_attr)
     {
-        // (1) Opt-in widened sink resolver: command OR callback.
-        UIAction action = ctx->resolve_action(action_attr, ctx);
-        if (action.kind == UI_BIND_SINK_COMMAND && action.command_code != 0)
+        int command_code = 0;
+        if (ctx && ctx->resolve_action)
         {
-            b.sink.kind = BIND_SINK_COMMAND;
-            b.sink.command = UILoader_DispatchCommand;
-            b.sink.command_code = action.command_code;
-            have_sink = true;
+            UIAction action = ctx->resolve_action(action_attr, ctx);
+            if (action.kind == UI_BIND_SINK_COMMAND && action.command_code != 0)
+            {
+                command_code = action.command_code;
+            }
+            else if (action.kind == UI_BIND_SINK_CALLBACK && action.write)
+            {
+                // Callback sinks also use UILoader_HandleCommandClick; rename deferred - see design section 7.
+                b.sink.kind = BIND_SINK_CALLBACK;
+                b.sink.write = action.write;
+                b.sink.write_key = action.write_key;
+                b.sink.value_type = action.value_type;
+                have_sink = true;
+            }
+            else
+            {
+                LOADER_WARNING(ctx, "Unrecognised action string");
+            }
         }
-        else if (action.kind == UI_BIND_SINK_CALLBACK && action.write)
+        else if (ctx && ctx->resolve_command)
         {
-            // Callback sinks also use UILoader_HandleCommandClick; rename deferred - see design section 7.
-            b.sink.kind = BIND_SINK_CALLBACK;
-            b.sink.write = action.write;
-            b.sink.write_key = action.write_key;
-            b.sink.value_type = action.value_type;
-            have_sink = true;
+            command_code = ctx->resolve_command(action_attr, ctx);
+            if (command_code == 0)
+                LOADER_WARNING(ctx, "Unrecognised action string");
         }
         else
         {
-            LOADER_WARNING(ctx, "Unrecognised action string");
+            // No resolver available: try parsing the action as a direct integer code.
+            char *endptr;
+            long parsed = strtol(action_attr, &endptr, 10);
+            if (*endptr == '\0' && parsed > 0)
+                command_code = (int)parsed;
+            else
+                LOADER_WARNING(ctx, "Action value not a valid integer");
         }
-    }
-    else if (action_attr && ctx && ctx->resolve_command)
-    {
-        // (2) Legacy command-sink resolver (unchanged path).
-        int command_code = ctx->resolve_command(action_attr, ctx);
+
         if (command_code != 0)
         {
             b.sink.kind = BIND_SINK_COMMAND;
             b.sink.command = UILoader_DispatchCommand;
             b.sink.command_code = command_code;
             have_sink = true;
-        }
-        else
-        {
-            LOADER_WARNING(ctx, "Unrecognised action string");
-        }
-    }
-    else if (action_attr)
-    {
-        // (3) No resolver available: try parsing the action as a direct integer code.
-        char *endptr;
-        long parsed = strtol(action_attr, &endptr, 10);
-
-        if (*endptr == '\0' && parsed > 0)
-        {
-            b.sink.kind = BIND_SINK_COMMAND;
-            b.sink.command = UILoader_DispatchCommand;
-            b.sink.command_code = (int)parsed;
-            have_sink = true;
-        }
-        else
-        {
-            LOADER_WARNING(ctx, "Action value not a valid integer");
         }
     }
 
@@ -477,26 +542,6 @@ static UIBuildResult BuildLabel(mxml_node_t *node, UIElement *parent, const UIPa
 }
 
 /**
- * Builder for <TextField> elements.
- * Attributes: label (required), type (integer/float/vector2), binding (optional source,
- *             optionally a dynamic write sink), io (optional: "readonly"/"safe"/"raw"),
- *             value (optional - initial value seeded into the binding + shown in the field),
- *             size (optional "w,h"), width/height (optional per-axis mode
- *             "fixed|percent|fill|hug"), offset (optional "x,y"),
- *             offset-mode (optional "fixed"/"percent"), enabled (optional).
- * size/width/height and offset/offset-mode default to ui_standard_control_size and a zero
- * fixed offset when absent, so attribute-less markup is unchanged.
- *
- * Resolves binding= through ctx->resolve_binding and ATTACHES the result to the created
- * textbox (0.1): an address source becomes a read-only live label (BIND_SRC_ADDRESS, no
- * sink - see design section 1 sink policy); a query source becomes a live display
- * (BIND_SRC_QUERY) that, when the resolver also returns a non-NULL write, becomes editable
- * via a BIND_SINK_CALLBACK (0.2). This mirrors BindTextboxStable / BindTextboxDynamic in
- * integration_system.c. The io= attribute (0.4) selects the textbox IO type, defaulting to
- * UI_ELEMENT_TEXTBOX_IO so existing markup is byte-for-byte unchanged. The loader stays
- * domain-free: it only ever handles function pointers, opaque int keys, and generic types.
- */
-/**
  * Map a <TextField>/<Textbox> type= attribute to the DataType the field parses/formats with.
  * Absent/unrecognised => FLOAT (the historic default), matching the pre-refactor behaviour.
  */
@@ -538,99 +583,10 @@ static UIElementType UILoader_ParseFieldIoType(UILoaderContext *ctx, const char 
     return field_type;
 }
 
-/**
- * Resolve a binding= attribute and assemble the textbox source/sink into `b`.
- *
- * Shared verbatim by BuildTextField and BuildTextbox so the two never drift. A source
- * (address or query) drives the live display via the per-frame refresh walk; an optional
- * query-paired write callback makes the field editable (commit-on-ENTER through
- * Binding_Commit). Mirrors BuildButton's source logic exactly.
- *
- * @param node          XML element node to read binding= from
- * @param ctx           Loader context (supplies resolve_binding; may be NULL)
- * @param b             Output Binding to populate (source/sink written in place)
- * @param have_source   Output: set true when a display source resolved
- * @param have_sink     Output: set true when a dynamic write sink resolved
- * @param data_type     In/out: parse/format DataType, overwritten to match an address source
- */
-static void UILoader_AssembleTextboxBinding(mxml_node_t *node, UILoaderContext *ctx,
-                                            Binding *b, bool *have_source, bool *have_sink,
-                                            DataType *data_type)
-{
-    *have_source = false;
-    *have_sink = false;
-
-    const char *binding_attr = mxmlElementGetAttr(node, "binding");
-    if (binding_attr && ctx && ctx->resolve_binding)
-    {
-        UIBinding src = ctx->resolve_binding(binding_attr, ctx);
-
-        // Honour the legacy implicit contract: a non-NULL address with kind NONE means an
-        // address source (an unmodified address resolver zero-inits the appended tail).
-        UIBindingSourceKind k = src.kind;
-        if (k == UI_BIND_SRC_NONE && src.address)
-            k = UI_BIND_SRC_ADDRESS;
-
-        if (k == UI_BIND_SRC_ADDRESS && src.address)
-        {
-            // Address source: read-only live label. Interpret the deref via the loader's
-            // DataType -> BindingValueType map. An unmapped DataType (BIND_NONE) attaches
-            // nothing and warns, mirroring BindTextboxStable's BINDING_NONE early-out.
-            BindingValueType vt = UILoader_MapDataType(src.data_type);
-            if (vt == BIND_NONE)
-            {
-                LOADER_WARNING(ctx, "Binding did not resolve");
-            }
-            else
-            {
-                b->source.kind = BIND_SRC_ADDRESS;
-                b->source.value_type = vt;
-                b->source.address = src.address;
-                *data_type = src.data_type; // keep parse/format in step with the source
-                *have_source = true;
-            }
-        }
-        else if (k == UI_BIND_SRC_QUERY && src.query)
-        {
-            // Query source: live display driven by the query fn. The query owns the real
-            // type; value_type is advisory.
-            b->source.kind = BIND_SRC_QUERY;
-            b->source.value_type = src.value_type;
-            b->source.query = src.query;
-            b->source.query_key = src.query_key;
-            *have_source = true;
-        }
-        else
-        {
-            LOADER_WARNING(ctx, "Binding did not resolve");
-        }
-
-        // 0.2 - Optional dynamic WRITE sink. When the resolver returns a non-NULL write,
-        // complete the dynamic shape (BindTextboxDynamic) on the SAME Binding: the field
-        // commits on ENTER through this callback. The sink's parse type is the source's
-        // advisory value_type (a dynamic field reads and writes one type). When write is
-        // NULL (every existing resolver, incl. lpanel's {NULL, FLOAT}) no sink is attached
-        // and the field stays read-only, exactly as the source-only path leaves it.
-        if (src.write)
-        {
-            b->sink.kind = BIND_SINK_CALLBACK;
-            b->sink.value_type = src.value_type;
-            b->sink.write = src.write;
-            b->sink.write_key = src.write_key;
-            *have_sink = true;
-        }
-    }
-    else if (binding_attr)
-    {
-        // Binding specified but no resolver available.
-        LOADER_WARNING(ctx, "Binding specified but resolver not available");
-    }
-}
-
 // Apply an authored value= attribute: parse the string per the field's value type and seed it
 // into the field, both into the bound data (when the binding has an ADDRESS source we can
 // write) and into the textbox's displayed text, so the field starts at its authored value.
-// `b` is the binding assembled by UILoader_AssembleTextboxBinding; `data_type` is the field's
+// `b` is the binding assembled by UILoader_AssembleBindingSource; `data_type` is the field's
 // resolved parse/format DataType. No-ops when value= is absent. For a query-source or
 // address-less binding the data cannot be written (nothing to write to); the display text is
 // still seeded so the field shows the authored value.
@@ -670,6 +626,26 @@ static void UILoader_ApplyFieldValue(mxml_node_t *node, UIElement *textbox,
         safe_strncpy(textbox->data.textbox.text.string, value_attr, MAX_LABEL_CHARS);
 }
 
+/**
+ * Builder for <TextField> elements.
+ * Attributes: label (required), type (integer/float/vector2), binding (optional source,
+ *             optionally a dynamic write sink), io (optional: "readonly"/"safe"/"raw"),
+ *             value (optional - initial value seeded into the binding + shown in the field),
+ *             size (optional "w,h"), width/height (optional per-axis mode
+ *             "fixed|percent|fill|hug"), offset (optional "x,y"),
+ *             offset-mode (optional "fixed"/"percent"), enabled (optional).
+ * size/width/height and offset/offset-mode default to ui_standard_control_size and a zero
+ * fixed offset when absent, so attribute-less markup is unchanged.
+ *
+ * Resolves binding= through ctx->resolve_binding and ATTACHES the result to the created
+ * textbox (0.1): an address source becomes a read-only live label (BIND_SRC_ADDRESS, no
+ * sink - see design section 1 sink policy); a query source becomes a live display
+ * (BIND_SRC_QUERY) that, when the resolver also returns a non-NULL write, becomes editable
+ * via a BIND_SINK_CALLBACK (0.2). This mirrors BindTextboxStable / BindTextboxDynamic in
+ * integration_system.c. The io= attribute (0.4) selects the textbox IO type, defaulting to
+ * UI_ELEMENT_TEXTBOX_IO so existing markup is byte-for-byte unchanged. The loader stays
+ * domain-free: it only ever handles function pointers, opaque int keys, and generic types.
+ */
 static UIBuildResult BuildTextField(mxml_node_t *node, UIElement *parent, const UIPalette *palette,
                                     UILoaderContext *ctx, UICommonAttrs *common)
 {
@@ -686,7 +662,7 @@ static UIBuildResult BuildTextField(mxml_node_t *node, UIElement *parent, const 
     Binding b = {0};
     bool have_source = false;
     bool have_sink = false;
-    UILoader_AssembleTextboxBinding(node, ctx, &b, &have_source, &have_sink, &data_type);
+    UILoader_AssembleBindingSource(node, ctx, &b, &have_source, &have_sink, &data_type, true);
 
     // Size comes from the common pass (seeded with ui_standard_control_size) and is passed as
     // the ROW size. CreateUILabeledFieldDefault builds the UI_ELEMENT_TEXTFIELD row with a
@@ -706,17 +682,9 @@ static UIBuildResult BuildTextField(mxml_node_t *node, UIElement *parent, const 
     if (!row)
         return (UIBuildResult){ NULL };
 
-    // Attach the assembled Binding + data_type to the CONTROL (textbox) explicitly when a
-    // source OR a sink resolved (mirrors BuildButton's have_source || have_sink gate). The row
-    // is a container and has no meaningful data.textbox, so all data/binding writes target the
-    // textbox. The precision uses the documented default sentinel (0). The binding is freed by
-    // DisposeUIElement's textbox cleanup, as for BindTextboxStable/Dynamic bindings.
-    if (have_source || have_sink)
-    {
-        b.precision = 0;
-        textbox->data.textbox.data_type = data_type; // parse/format agrees with the source
-        textbox->data.textbox.binding = Binding_Create(b);
-    }
+    // Attach the assembled Binding + data_type to the CONTROL (textbox), not the row: the row is
+    // a container and has no meaningful data.textbox.
+    UILoader_AttachTextboxBinding(textbox, &b, data_type, have_source, have_sink);
 
     // Seed the field from an authored value= (writes the bound data + the display text).
     UILoader_ApplyFieldValue(node, textbox, &b, data_type);
@@ -761,7 +729,7 @@ static UIBuildResult BuildTextbox(mxml_node_t *node, UIElement *parent, const UI
     Binding b = {0};
     bool have_source = false;
     bool have_sink = false;
-    UILoader_AssembleTextboxBinding(node, ctx, &b, &have_source, &have_sink, &data_type);
+    UILoader_AssembleBindingSource(node, ctx, &b, &have_source, &have_sink, &data_type, true);
 
     // Derive the input-cell palette colours, mirroring how CreateUILabeledFieldDefault styles
     // the row's textbox child, so a standalone <Textbox> looks like a field input cell.
@@ -785,20 +753,33 @@ static UIBuildResult BuildTextbox(mxml_node_t *node, UIElement *parent, const UI
     textbox->data.textbox.font = FONT_MEDIUM_WITH_COLOUR(palette->text);
     SetUIElementTextVerticalAlignment(textbox, UI_TEXT_VERTICAL_ALIGN_CENTRE);
 
-    // Attach the Binding + data_type to the textbox (which IS outer here, so the data lands on
-    // the live union member and FindById returns this element naturally).
-    if (have_source || have_sink)
-    {
-        b.precision = 0;
-        textbox->data.textbox.data_type = data_type;
-        textbox->data.textbox.binding = Binding_Create(b);
-    }
+    // Attach the Binding + data_type to the textbox (which IS outer here, so FindById returns
+    // this element naturally).
+    UILoader_AttachTextboxBinding(textbox, &b, data_type, have_source, have_sink);
 
     // Seed the field from an authored value= (writes the bound data + the display text).
     UILoader_ApplyFieldValue(node, textbox, &b, data_type);
 
     // Single-element builder: control == outer. id/offset/enabled/size land on the textbox.
     return (UIBuildResult){ .element = textbox };
+}
+
+/**
+ * Create a container from the common attributes. Shared by every container-like builder
+ * (Container, View, ViewHost, ViewSelector). Size, offset and enabled come from the common pass;
+ * padding is the authored padding= when present, else `default_padding` (the builder's historic
+ * inset, so attribute-less markup is unchanged). The offset is passed into the constructor, so it
+ * is marked consumed (the skeleton must not re-apply it).
+ */
+static UIElement *UILoader_CreateContainerFromCommon(UIElement *parent, const UIPalette *palette,
+                                                     UICommonAttrs *common, Vector2d default_padding,
+                                                     UIPaletteSurface surface, Layout layout)
+{
+    Vector2d pad = common->padding_authored ? common->padding : default_padding;
+    UIElement *container = CreateUIContainer(parent, common->size, common->offset, pad, palette,
+                                             surface, layout, false, common->enabled);
+    common->offset_consumed = true;
+    return container;
 }
 
 /**
@@ -814,16 +795,10 @@ static UIBuildResult BuildContainer(mxml_node_t *node, UIElement *parent,
                                     UICommonAttrs *common)
 {
     // Size, offset, layout and enabled all come from the common pass (size seeded with
-    // ui_standard_container_size). The offset is passed into CreateUIContainer, so mark it
-    // consumed; the skeleton re-asserts the same enabled value afterwards (idempotent).
-    // Padding: use the authored padding= when present, else the historic default inset, so
-    // attribute-less markup is byte-identical to today.
-    Vector2d pad = common->padding_authored ? common->padding : ui_standard_container_padding;
-    UIElement *container = CreateUIContainer(parent, common->size, common->offset,
-                            pad, palette,
-                            UI_PALETTE_SURFACE_CONTAINER, common->layout,
-                            false, common->enabled);
-    common->offset_consumed = true;
+    // ui_standard_container_size); the skeleton re-asserts the same enabled value afterwards.
+    UIElement *container = UILoader_CreateContainerFromCommon(parent, palette, common,
+                                ui_standard_container_padding,
+                                UI_PALETTE_SURFACE_CONTAINER, common->layout);
 
     // An authored title turns the box into a titled "section": it gets the panel-control
     // edge tint and a heading label child. A title-less container stays a plain box with
@@ -901,21 +876,10 @@ static UIBuildResult BuildView(mxml_node_t *node, UIElement *parent,
     // Create container with UI_ELEMENT_VIEW type so post-processor can find it. Size/offset/
     // layout/enabled all come from the common pass; the offset is consumed at construct time
     // so the skeleton does not re-apply it.
-    // Padding: authored padding= when present, else the historic default inset (byte-identical).
-    Vector2d pad = common->padding_authored ? common->padding : ui_standard_container_padding;
-    UIElement *container = CreateUIContainer(
-        parent,
-        common->size,     // honour width=/height=/size= (defaults to fill/fill)
-        common->offset,   // honour offset=/offset-mode= (defaults to zero fixed)
-        pad,
-        palette,
-        UI_PALETTE_SURFACE_CONTAINER,
-        common->layout,  // honour layout= (defaults to stack)
-        false,
-        common->enabled   // honour enabled= (skeleton re-asserts the same value)
-    );
-    common->offset_consumed = true;
-    
+    UIElement *container = UILoader_CreateContainerFromCommon(parent, palette, common,
+                                ui_standard_container_padding,
+                                UI_PALETTE_SURFACE_CONTAINER, common->layout);
+
     if (container)
     {
         container->type = UI_ELEMENT_VIEW;  // Mark for post-processor
@@ -967,14 +931,8 @@ static UIBuildResult BuildViewSelector(mxml_node_t *node, UIElement *parent,
     Layout selector_spacing = layout_attr ? common->layout : ui_zero_inline_spacing;
     // Padding: authored padding= when present, else the selector's historic zero inset
     // (so the default is unchanged but a selector can opt into padding).
-    Vector2d pad = common->padding_authored ? common->padding : ZERO_VECTOR_2D;
-    UIElement *toggle_cont = CreateUIContainer(
-        parent, common->size,
-        common->offset, pad,
-        palette, UI_PALETTE_SURFACE_TRANSPARENT,
-        selector_spacing, false, common->enabled);
-    // Offset is passed into the constructor, so mark it consumed (no skeleton double-apply).
-    common->offset_consumed = true;
+    UIElement *toggle_cont = UILoader_CreateContainerFromCommon(parent, palette, common,
+                                ZERO_VECTOR_2D, UI_PALETTE_SURFACE_TRANSPARENT, selector_spacing);
 
     if (toggle_cont)
     {
@@ -1064,14 +1022,9 @@ static UIBuildResult BuildViewHost(mxml_node_t *node, UIElement *parent,
     // A plain fill-size container; the real UI_ELEMENT_ROOT is built by
     // ViewHostSystem_InitRoot in InitLPanel and this container is re-parented under
     // it. parent is NULL at the document root.
-    // Padding: authored padding= when present, else the historic default inset (byte-identical).
-    Vector2d pad = common->padding_authored ? common->padding : ui_standard_container_padding;
-    UIElement *host = CreateUIContainer(parent, common->size,  // honour width=/height=/size= (defaults fill/fill)
-                             common->offset,                    // honour offset=/offset-mode= (defaults zero fixed)
-                             pad, palette,
-                             UI_PALETTE_SURFACE_CONTAINER, common->layout,
-                             false, common->enabled);           // skeleton re-asserts the same enabled value
-    common->offset_consumed = true;
+    UIElement *host = UILoader_CreateContainerFromCommon(parent, palette, common,
+                                ui_standard_container_padding,
+                                UI_PALETTE_SURFACE_CONTAINER, common->layout);
 
     // Single-element builder: control == outer (offset consumed at construct time).
     return (UIBuildResult){ .element = host };
@@ -1223,25 +1176,16 @@ static AxisSizeMode UILoader_ParseAxisMode(UILoaderContext *ctx, const char *mod
     if (!mode_str)
         return AXIS_FIXED;
 
-    if (!strcmp(mode_str, "fixed"))
+    static const struct { const char *keyword; AxisSizeMode mode; } modes[] = {
+        {"fixed", AXIS_FIXED}, {"percent", AXIS_PERCENT}, {"fill", AXIS_FILL}, {"hug", AXIS_HUG},
+    };
+    for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++)
     {
-        if (present) *present = true;
-        return AXIS_FIXED;
-    }
-    else if (!strcmp(mode_str, "percent"))
-    {
-        if (present) *present = true;
-        return AXIS_PERCENT;
-    }
-    else if (!strcmp(mode_str, "fill"))
-    {
-        if (present) *present = true;
-        return AXIS_FILL;
-    }
-    else if (!strcmp(mode_str, "hug"))
-    {
-        if (present) *present = true;
-        return AXIS_HUG;
+        if (!strcmp(mode_str, modes[i].keyword))
+        {
+            if (present) *present = true;
+            return modes[i].mode;
+        }
     }
 
     LOADER_WARNING(ctx, "Unrecognised width/height mode; using element default");

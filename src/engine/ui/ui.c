@@ -176,126 +176,77 @@ static Vector2d ResolveMeasuredChildSize(const UIElement *child, float parent_co
     return (Vector2d){x, y};
 }
 
-// Measure inline children as rows constrained by the available content width.
-static Vector2d MeasureInlineWrapContent(UIElement *element, float content_width)
+// Shared wrapping measure. Children fill "lines" along the main axis (x for inline wrap, y for
+// stacked wrap); a line closes, and the next starts further along the cross axis, once the next
+// child would overflow the main-axis limit. The measured size is the longest line along the main
+// axis and the sum of line cross extents plus a cross gap between consecutive lines. Written in
+// main/cross terms (mirroring DistributeChildrenWrap) so the two orientations cannot drift apart.
+static Vector2d MeasureWrapContent(UIElement *element, float content_width, float content_height,
+                                   bool stacked)
 {
     if (!element)
     {
         return ZERO_VECTOR_2D;
     }
 
-    float gap_x = element->child_spacing.gap.x;
-    float gap_y = element->child_spacing.gap.y;
-    float measured_width = 0.0f;
-    float measured_height = 0.0f;
-    float row_width = 0.0f;
-    float row_height = 0.0f;
-    int completed_rows = 0;
-    float wrap_width = content_width > 0.0f ? content_width : FLT_MAX;
+    float main_gap = stacked ? element->child_spacing.gap.y : element->child_spacing.gap.x;
+    float cross_gap = stacked ? element->child_spacing.gap.x : element->child_spacing.gap.y;
+
+    // Main-axis limit at which lines wrap.
+    float main_limit = FLT_MAX;
+    if (!stacked)
+    {
+        // Inline rows wrap at the available content width.
+        main_limit = content_width > 0.0f ? content_width : FLT_MAX;
+    }
+    else if (element->size.height_mode == AXIS_HUG && element->size.dimensions.y > 0.0f)
+    {
+        // A capped HUG height uses its authored height (known at measure time).
+        main_limit = fmaxf(0.0f, element->size.dimensions.y - (2.0f * element->padding.y));
+    }
+    else if (element->size.height_mode == AXIS_FILL && content_height > 0.0f && content_height < FLT_MAX)
+    {
+        // A FILL height uses the content height handed down from the parent, so measurement wraps
+        // into the same number of columns the distribute pass produces against the real box.
+        main_limit = fmaxf(0.0f, content_height);
+    }
+    // Any other stacked mode leaves the limit unbounded (single column).
+
+    float measured_main = 0.0f;  // Longest line along the main axis.
+    float measured_cross = 0.0f; // Sum of closed lines' cross extents plus gaps.
+    float line_main = 0.0f;
+    float line_cross = 0.0f;
+    int closed_lines = 0;
 
     ForEachEnabledChild(element, child)
     {
         Vector2d child_size = ResolveMeasuredChildSize(child, content_width);
-        bool needs_wrap = row_width > 0.0f &&
-                          row_width + gap_x + child_size.x > wrap_width;
-        if (needs_wrap)
+        float child_main = stacked ? child_size.y : child_size.x;
+        float child_cross = stacked ? child_size.x : child_size.y;
+
+        // Close the current line when this child would overflow a non-empty line.
+        if (line_main > 0.0f && line_main + main_gap + child_main > main_limit)
         {
-            measured_width = fmaxf(measured_width, row_width);
-            measured_height += row_height;
-            if (completed_rows > 0)
-            {
-                measured_height += gap_y;
-            }
-            completed_rows++;
-            row_width = 0.0f;
-            row_height = 0.0f;
+            measured_main = fmaxf(measured_main, line_main);
+            measured_cross += line_cross + (closed_lines > 0 ? cross_gap : 0.0f);
+            closed_lines++;
+            line_main = 0.0f;
+            line_cross = 0.0f;
         }
 
-        float child_x = row_width > 0.0f ? row_width + gap_x : row_width;
-        row_width = child_x + child_size.x;
-        row_height = fmaxf(row_height, child_size.y);
+        line_main = (line_main > 0.0f ? line_main + main_gap : line_main) + child_main;
+        line_cross = fmaxf(line_cross, child_cross);
     }
 
-    if (row_width > 0.0f || row_height > 0.0f)
+    // Close the final line.
+    if (line_main > 0.0f || line_cross > 0.0f)
     {
-        measured_width = fmaxf(measured_width, row_width);
-        measured_height += row_height;
-        if (completed_rows > 0)
-        {
-            measured_height += gap_y;
-        }
+        measured_main = fmaxf(measured_main, line_main);
+        measured_cross += line_cross + (closed_lines > 0 ? cross_gap : 0.0f);
     }
 
-    return (Vector2d){measured_width, measured_height};
-}
-
-// Measure stacked children into vertical columns constrained by the content height.
-static Vector2d MeasureStackedWrapContent(UIElement *element, float content_width, float content_height)
-{
-    if (!element)
-    {
-        return ZERO_VECTOR_2D;
-    }
-
-    float gap_x = element->child_spacing.gap.x;
-    float gap_y = element->child_spacing.gap.y;
-
-    // Determine the height at which columns wrap, keyed on the parent's height mode. Two sources:
-    //  * A capped HUG height (old SIZE_CONTENT_MAX) uses its authored height (known at
-    //    measure time), and
-    //  * a FILL height (old SIZE_FILL / SIZE_HUG_WIDTH, both of which fill the vertical
-    //    axis) uses the content height handed down from the parent, so measurement wraps
-    //    into the same number of columns the distribute pass produces against the real box.
-    // Any other mode leaves the limit unbounded (single column, as before).
-    float column_height_limit = FLT_MAX;
-    if (element->size.height_mode == AXIS_HUG &&
-        element->size.dimensions.y > 0.0f)
-    {
-        column_height_limit = fmaxf(0.0f, element->size.dimensions.y -
-                                              (2.0f * element->padding.y));
-    }
-    else if (element->size.height_mode == AXIS_FILL &&
-             content_height > 0.0f && content_height < FLT_MAX)
-    {
-        column_height_limit = fmaxf(0.0f, content_height);
-    }
-
-    float measured_width = 0.0f;
-    float measured_height = 0.0f;
-    float column_width = 0.0f;
-    float column_height = 0.0f;
-    int column_count = 0;
-
-    ForEachEnabledChild(element, child)
-    {
-        Vector2d child_size = ResolveMeasuredChildSize(child, content_width);
-        bool needs_wrap = column_height > 0.0f &&
-                          column_height + gap_y + child_size.y > column_height_limit;
-        if (needs_wrap)
-        {
-            measured_width += column_width;
-            if (column_count > 0)
-            {
-                measured_width += gap_x;
-            }
-            measured_height = fmaxf(measured_height, column_height);
-            column_count++;
-            column_width = 0.0f;
-            column_height = 0.0f;
-        }
-
-        float child_y = column_height > 0.0f ? column_height + gap_y : column_height;
-        column_height = child_y + child_size.y;
-        column_width = fmaxf(column_width, child_size.x);
-    }
-
-    if (column_count > 0 || column_height > 0.0f || column_width > 0.0f)
-    {
-        measured_width += column_width;
-        measured_height = fmaxf(measured_height, column_height);
-    }
-
-    return (Vector2d){measured_width, measured_height};
+    return stacked ? (Vector2d){measured_cross, measured_main}
+                   : (Vector2d){measured_main, measured_cross};
 }
 
 // Walk up the parent chain to the owning UI_ELEMENT_ROOT, mirroring ui_input.c's
@@ -509,11 +460,11 @@ static Vector2d MeasureElementContent(UIElement *element, float parent_content_w
 
     if (element->child_spacing.flow == FLOW_INLINE_WRAP)
     {
-        measured = MeasureInlineWrapContent(element, content_width);
+        measured = MeasureWrapContent(element, content_width, content_height, false);
     }
     else if (element->child_spacing.flow == FLOW_STACKED_WRAP)
     {
-        measured = MeasureStackedWrapContent(element, content_width, content_height);
+        measured = MeasureWrapContent(element, content_width, content_height, true);
     }
     // else if (element->child_spacing.flow == FLOW_STACKED_SMART_WRAP)
     // {
@@ -750,6 +701,25 @@ static void DistributeChildrenNormal(UIElement *parent, Vector2d gap_step_fixed,
     }
 }
 
+// Place a child at its authored offset plus a flow cursor measured in fixed units. A child
+// authored in OFFSET_PERCENT receives the cursor converted to a fraction of the content area, so
+// every flow keeps each child's authored offset units.
+static void ApplyFlowCursor(UIElement *child, Vector2d cursor_fixed, Vector2d content_area_local)
+{
+    if (child->resolved_offset.offset_mode == OFFSET_PERCENT)
+    {
+        child->resolved_offset.offset = (Vector2d){
+            child->authored_offset.offset.x + ResolveOffsetToPercent(cursor_fixed.x, content_area_local.x),
+            child->authored_offset.offset.y + ResolveOffsetToPercent(cursor_fixed.y, content_area_local.y)};
+    }
+    else
+    {
+        child->resolved_offset.offset = (Vector2d){
+            child->authored_offset.offset.x + cursor_fixed.x,
+            child->authored_offset.offset.y + cursor_fixed.y};
+    }
+}
+
 static void DistributeChildrenStacked(UIElement *parent, Vector2d content_area_local, Vector2d gap_step_fixed)
 {
     StackedLayoutStats stats = CollectStackedLayoutStats(parent, content_area_local.y);
@@ -763,22 +733,9 @@ static void DistributeChildrenStacked(UIElement *parent, Vector2d content_area_l
 
     ForEachEnabledChild(parent, child)
     {
-        // Preserve authored offset units per child when applying stacked cursor placement.
-        if (child->resolved_offset.offset_mode == OFFSET_PERCENT)
-        {
-            float cursor_y_percent = ResolveOffsetToPercent(cursor_y, content_area_local.y);
-            child->resolved_offset.offset = (Vector2d){
-                child->authored_offset.offset.x,
-                child->authored_offset.offset.y + cursor_y_percent};
-        }
-        else
-        {
-            child->resolved_offset.offset = (Vector2d){
-                child->authored_offset.offset.x,
-                child->authored_offset.offset.y + cursor_y};
-        }
+        ApplyFlowCursor(child, (Vector2d){0.0f, cursor_y}, content_area_local);
 
-        // Height this child receives from the stacked distribution — via the SAME helper
+        // Height this child receives from the stacked distribution â€” via the SAME helper
         // the MEASURE pass uses, so the cached stacked-fill height can never diverge from
         // the measured column-height limit. Reuses the single fill_height_per_child
         // computed once above (O(1) here).
@@ -801,26 +758,10 @@ static void DistributeChildrenInline(UIElement *parent, Vector2d content_area_lo
 
     ForEachEnabledChild(parent, child)
     {
-        if (child->resolved_offset.offset_mode == OFFSET_PERCENT)
-        {
-            float cursor_x_percent = ResolveOffsetToPercent(cursor_x, content_area_local.x);
-            child->resolved_offset.offset = (Vector2d){
-                child->authored_offset.offset.x + cursor_x_percent,
-                child->authored_offset.offset.y};
-        }
-        else
-        {
-            child->resolved_offset.offset = (Vector2d){
-                child->authored_offset.offset.x + cursor_x,
-                child->authored_offset.offset.y};
-        }
+        ApplyFlowCursor(child, (Vector2d){cursor_x, 0.0f}, content_area_local);
 
-        // Width axis only. The AXIS_FILL arm advances by the literal dimensions.x (the old
-        // SIZE_FILL else-arm result). Note this folds two old modes into one arm:
-        // old SIZE_FILL (bare else -> dimensions.x) and old SIZE_HUG_HEIGHT (its own arm ->
-        // full content width). The per-axis model has a single width_mode == AXIS_FILL case
-        // and deliberately uses the SIZE_FILL result; no live inline-distributed element
-        // reaches this arm today, so the fold is bounded (see design Finding 1).
+        // Width axis only. AXIS_FILL advances by the literal dimensions.x, like AXIS_FIXED (the
+        // old SIZE_FILL result); no live inline-distributed element reaches the FILL case today.
         float child_width;
         switch (child->size.width_mode)
         {
@@ -831,8 +772,6 @@ static void DistributeChildrenInline(UIElement *parent, Vector2d content_area_lo
             child_width = child->measured_content_size.x;
             break;
         case AXIS_FILL:
-            child_width = child->size.dimensions.x;
-            break;
         case AXIS_FIXED:
         default:
             child_width = child->size.dimensions.x;
@@ -842,82 +781,42 @@ static void DistributeChildrenInline(UIElement *parent, Vector2d content_area_lo
     }
 }
 
-static void DistributeChildrenInlineWrap(UIElement *parent, Vector2d content_area_local, Vector2d gap_step_fixed)
+// Shared wrapping flow. Children fill "lines" along the main axis (x for inline wrap, y for
+// stacked wrap) and start a new line, offset along the cross axis, once the next child would
+// overflow the content area. `stacked` selects the main axis; all the arithmetic below is written
+// in main/cross terms so the two flows cannot drift apart.
+static void DistributeChildrenWrap(UIElement *parent, Vector2d content_area_local,
+                                   Vector2d gap_step_fixed, bool stacked)
 {
-    float cursor_x = 0.0f;
-    float cursor_y = 0.0f;
-    float row_height = 0.0f;
+    float main_limit = stacked ? content_area_local.y : content_area_local.x;
+    float main_gap = stacked ? gap_step_fixed.y : gap_step_fixed.x;
+    float cross_gap = stacked ? gap_step_fixed.x : gap_step_fixed.y;
+
+    float main_cursor = 0.0f;  // Extent used on the current line.
+    float cross_cursor = 0.0f; // Cross-axis start of the current line.
+    float line_cross = 0.0f;   // Largest cross extent on the current line.
 
     ForEachEnabledChild(parent, child)
     {
         Vector2d child_size = ResolveChildSizeFixed(child, content_area_local, 0.0f);
-        bool needs_wrap = cursor_x > 0.0f &&
-                          cursor_x + gap_step_fixed.x + child_size.x > content_area_local.x;
+        float child_main = stacked ? child_size.y : child_size.x;
+        float child_cross = stacked ? child_size.x : child_size.y;
 
-        if (needs_wrap)
+        // Wrap to a new line when this child would overflow a non-empty line.
+        if (main_cursor > 0.0f && main_cursor + main_gap + child_main > main_limit)
         {
-            cursor_x = 0.0f;
-            cursor_y += row_height + gap_step_fixed.y;
-            row_height = 0.0f;
+            main_cursor = 0.0f;
+            cross_cursor += line_cross + cross_gap;
+            line_cross = 0.0f;
         }
 
-        float child_x = cursor_x > 0.0f ? cursor_x + gap_step_fixed.x : cursor_x;
-        if (child->resolved_offset.offset_mode == OFFSET_PERCENT)
-        {
-            child->resolved_offset.offset = (Vector2d){
-                child->authored_offset.offset.x + ResolveOffsetToPercent(child_x, content_area_local.x),
-                child->authored_offset.offset.y + ResolveOffsetToPercent(cursor_y, content_area_local.y)};
-        }
-        else
-        {
-            child->resolved_offset.offset = (Vector2d){
-                child->authored_offset.offset.x + child_x,
-                child->authored_offset.offset.y + cursor_y};
-        }
+        float child_main_pos = main_cursor > 0.0f ? main_cursor + main_gap : main_cursor;
+        Vector2d cursor = stacked ? (Vector2d){cross_cursor, child_main_pos}
+                                  : (Vector2d){child_main_pos, cross_cursor};
+        ApplyFlowCursor(child, cursor, content_area_local);
 
-        cursor_x = child_x + child_size.x;
-        row_height = fmaxf(row_height, child_size.y);
-    }
-}
-
-static void DistributeChildrenStackedWrap(UIElement *parent, Vector2d content_area_local,
-                                          Vector2d gap_step_fixed)
-{
-    float cursor_x = 0.0f;
-    float cursor_y = 0.0f;
-    float column_width = 0.0f;
-
-    ForEachEnabledChild(parent, child)
-    {
-        Vector2d child_size = ResolveChildSizeFixed(child, content_area_local, 0.0f);
-        bool needs_wrap = cursor_y > 0.0f &&
-                          cursor_y + gap_step_fixed.y + child_size.y > content_area_local.y;
-
-        if (needs_wrap)
-        {
-            cursor_y = 0.0f;
-            cursor_x += column_width + gap_step_fixed.x;
-            column_width = 0.0f;
-        }
-
-        float child_y = cursor_y > 0.0f ? cursor_y + gap_step_fixed.y : cursor_y;
-        if (child->resolved_offset.offset_mode == OFFSET_PERCENT)
-        {
-            child->resolved_offset.offset = (Vector2d){
-                child->authored_offset.offset.x +
-                    ResolveOffsetToPercent(cursor_x, content_area_local.x),
-                child->authored_offset.offset.y +
-                    ResolveOffsetToPercent(child_y, content_area_local.y)};
-        }
-        else
-        {
-            child->resolved_offset.offset = (Vector2d){
-                child->authored_offset.offset.x + cursor_x,
-                child->authored_offset.offset.y + child_y};
-        }
-
-        cursor_y = child_y + child_size.y;
-        column_width = fmaxf(column_width, child_size.x);
+        main_cursor = child_main_pos + child_main;
+        line_cross = fmaxf(line_cross, child_cross);
     }
 }
 
@@ -951,11 +850,11 @@ static void DistributeChildrenWithContentArea(UIElement *e, Vector2d content_are
     }
     else if (s.flow == FLOW_INLINE_WRAP)
     {
-        DistributeChildrenInlineWrap(e, content_area_local, gap_step_fixed);
+        DistributeChildrenWrap(e, content_area_local, gap_step_fixed, false);
     }
     else if (s.flow == FLOW_STACKED_WRAP)
     {
-        DistributeChildrenStackedWrap(e, content_area_local, gap_step_fixed);
+        DistributeChildrenWrap(e, content_area_local, gap_step_fixed, true);
     }
 }
 

@@ -401,38 +401,28 @@ static ViewType StateManager_ResolveViewType(const char *type_string, bool *reso
 {
     (void)ctx; // Currently unused; provided for future application-specific context.
 
-    if (resolved)
-    {
-        *resolved = true;
-    }
+#define SM_VIEW_ENTRY(name) {#name, name}
+    static const struct { const char *name; ViewType type; } views[] = {
+        SM_VIEW_ENTRY(STATE_MANAGER_PHYSICS_VIEW),
+        SM_VIEW_ENTRY(STATE_MANAGER_ATTRIBUTES_VIEW),
+        SM_VIEW_ENTRY(STATE_MANAGER_WORLD_VIEW),
+        SM_VIEW_ENTRY(STATE_MANAGER_CELL_STATE_VIEW),
+        SM_VIEW_ENTRY(STATE_MANAGER_ANCESTRY_VIEW),
+        SM_VIEW_ENTRY(STATE_MANAGER_COMPONENTS_VIEW),
+        SM_VIEW_ENTRY(STATE_MANAGER_GEOMETRY_VIEW),
+    };
+#undef SM_VIEW_ENTRY
 
-    if (type_string && !strcmp(type_string, "STATE_MANAGER_PHYSICS_VIEW"))
+    for (size_t i = 0; i < ARRAY_COUNT(views); i++)
     {
-        return STATE_MANAGER_PHYSICS_VIEW;
-    }
-    if (type_string && !strcmp(type_string, "STATE_MANAGER_ATTRIBUTES_VIEW"))
-    {
-        return STATE_MANAGER_ATTRIBUTES_VIEW;
-    }
-    if (type_string && !strcmp(type_string, "STATE_MANAGER_WORLD_VIEW"))
-    {
-        return STATE_MANAGER_WORLD_VIEW;
-    }
-    if (type_string && !strcmp(type_string, "STATE_MANAGER_CELL_STATE_VIEW"))
-    {
-        return STATE_MANAGER_CELL_STATE_VIEW;
-    }
-    if (type_string && !strcmp(type_string, "STATE_MANAGER_ANCESTRY_VIEW"))
-    {
-        return STATE_MANAGER_ANCESTRY_VIEW;
-    }
-    if (type_string && !strcmp(type_string, "STATE_MANAGER_COMPONENTS_VIEW"))
-    {
-        return STATE_MANAGER_COMPONENTS_VIEW;
-    }
-    if (type_string && !strcmp(type_string, "STATE_MANAGER_GEOMETRY_VIEW"))
-    {
-        return STATE_MANAGER_GEOMETRY_VIEW;
+        if (type_string && !strcmp(type_string, views[i].name))
+        {
+            if (resolved)
+            {
+                *resolved = true;
+            }
+            return views[i].type;
+        }
     }
 
     // Unrecognised: report failure and default to the first state-manager view.
@@ -1405,41 +1395,28 @@ static void RefreshPhysView(Newtonoid2d *object)
     };
     RefreshTextboxFields(state_fields, ARRAY_COUNT(state_fields));
 
-    // Refresh geometry fields, synchronising object rotation when valid.
+    // Refresh geometry fields, synchronising object rotation when valid. With no object every
+    // field gets a NULL source and shows "N/A". The rotation field keeps precision 0 in that case,
+    // as before.
     if (object)
     {
         SyncNewtonoidRotation(object);
-        TextboxField geometry_fields[] = {
-            {s_sm_ui.rotation_tbox, FLOAT, (void *)&object->rotation, 3, "N/A"},
-            {s_sm_ui.basis_u_tbox, VECTOR2D, (void *)&object->local_axis_x, 0, "N/A"},
-            {s_sm_ui.basis_v_tbox, VECTOR2D, (void *)&object->local_axis_y, 0, "N/A"},
-            {s_sm_ui.geometry_center_tbox, VECTOR2D, (void *)&object->local_geometry_center, 0, "N/A"},
-        };
-        RefreshTextboxFields(geometry_fields, ARRAY_COUNT(geometry_fields));
     }
-    else
-    {
-        TextboxField geometry_fields[] = {
-            {s_sm_ui.rotation_tbox, FLOAT, NULL, 0, "N/A"},
-            {s_sm_ui.basis_u_tbox, VECTOR2D, NULL, 0, "N/A"},
-            {s_sm_ui.basis_v_tbox, VECTOR2D, NULL, 0, "N/A"},
-            {s_sm_ui.geometry_center_tbox, VECTOR2D, NULL, 0, "N/A"},
-        };
-        RefreshTextboxFields(geometry_fields, ARRAY_COUNT(geometry_fields));
-    }
+    TextboxField geometry_fields[] = {
+        {s_sm_ui.rotation_tbox, FLOAT, object ? (void *)&object->rotation : NULL, object ? 3 : 0, "N/A"},
+        {s_sm_ui.basis_u_tbox, VECTOR2D, object ? (void *)&object->local_axis_x : NULL, 0, "N/A"},
+        {s_sm_ui.basis_v_tbox, VECTOR2D, object ? (void *)&object->local_axis_y : NULL, 0, "N/A"},
+        {s_sm_ui.geometry_center_tbox, VECTOR2D, object ? (void *)&object->local_geometry_center : NULL, 0, "N/A"},
+    };
+    RefreshTextboxFields(geometry_fields, ARRAY_COUNT(geometry_fields));
 
     // Refresh contextual gameplay and component section visibility.
     RefreshGameplaySection(object);
     RefreshComponentsSection(object);
 }
 
-// Refresh the ATTRI view: roles, capabilities, constraints, status, and collision-role mask buttons.
-// The flag-button ON/OFF labels are now driven by the generic refresh walk via each button's
-// query-source Binding, so there is nothing to refresh here.
-static void RefreshAttributeView(const Newtonoid2d *object)
-{
-    (void)object; // selection is read directly by the per-family query fns during the refresh walk
-}
+// (The ATTRI view needs no refresh function: its flag-button ON/OFF labels are driven entirely by
+// the generic refresh walk via each button's query-source Binding.)
 
 // Refresh the WORLD view: world physics material properties and world status flags.
 static void RefreshWorldView(const World2d *world)
@@ -1659,7 +1636,6 @@ void UpdateStateManagerSelectedObject(void)
     Cell *cell = UIState_GetSelectedCell();
 
     RefreshPhysView(object);
-    RefreshAttributeView(object);
     RefreshWorldView(world);
     RefreshCellView(cell, UIState_GetSelectedCellOccupancy());
     RefreshComponentsView(object);
