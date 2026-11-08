@@ -94,6 +94,22 @@ static UIElement *CreateLabeledFieldElement(UIElement *parent, Size size,
         label->authored_offset = label->resolved_offset;
         textbox->authored_offset = textbox->resolved_offset;
     }
+    else if (textbox_size.width_mode == AXIS_FILL)
+    {
+        // Label column + filling input (style v2). The label is a FIXED-width column (the
+        // fallback width here; the per-section layout pass in ui.c widens it to the section's
+        // longest label), and the input sits at a FIXED x offset equal to that width with a
+        // FILL width, so it extends from the column to the row's inner right edge.
+        const float label_width = ui_standard_textfield_label_width;
+        label->size = (Size){{label_width, 1.0f}, AXIS_FIXED, AXIS_PERCENT};
+        label->resolved_offset = (Offset){ZERO_VECTOR_2D, OFFSET_FIXED};
+
+        textbox->size = (Size){{1.0f, 1.0f}, AXIS_FILL, AXIS_PERCENT};
+        textbox->resolved_offset = (Offset){{label_width, 0.0f}, OFFSET_FIXED};
+
+        label->authored_offset = label->resolved_offset;
+        textbox->authored_offset = textbox->resolved_offset;
+    }
 
     AddElementToTree(label, field);
     AddElementToTree(textbox, field);
@@ -147,9 +163,12 @@ UIElement *CreateUILabeledFieldDefault(UIElement *parent, const char *label_text
         palette = &ui_default_palette;
     }
 
+    // The row and its label cell are TRANSPARENT: borders are drawn whenever their alpha is
+    // non-zero, and only the input box should show one (the FIELD_ROW border would outline
+    // every row). Markup can still opt a row into surface="field_row".
     ColourRgba row_border;
     ColourRgba row_fill;
-    UIPalette_GetSurfaceColours(palette, UI_PALETTE_SURFACE_FIELD_ROW, &row_border, &row_fill);
+    UIPalette_GetSurfaceColours(palette, UI_PALETTE_SURFACE_TRANSPARENT, &row_border, &row_fill);
 
     ColourRgba input_border;
     ColourRgba input_fill;
@@ -285,9 +304,11 @@ UIElement *CreateViewSection(UIElement *parent, const char *title,
         child_spacing = &ui_standard_stack_spacing;
     }
     
+    // Boxed section: container fill + 1 px container border (kept, no dark-edge override)
+    // with the 6 px section padding.
     UIElement *section = CreateUIContainer(
         parent, section_size, section_offset,
-        ui_standard_container_padding, palette,
+        ui_section_padding, palette,
         UI_PALETTE_SURFACE_CONTAINER, *child_spacing, true, true);
     
     if (!section)
@@ -295,8 +316,6 @@ UIElement *CreateViewSection(UIElement *parent, const char *title,
         return NULL;
     }
 
-    // Use the dark ink used by panel controls for ViewSection edges.
-    section->colour_border = palette ? palette->button_border : ui_default_palette.button_border;
     // Section heading uses the larger title font (FONT_LARGE) for visual hierarchy over controls.
     // Title width HUGS its measured text (ui_title_size) so long titles are never clipped.
     CreateUILabelTitleDefault(section, title, ui_title_size,
@@ -310,16 +329,14 @@ UIElement *CreateViewSection_Stack(UIElement *parent, const char *title,
     // Build a reusable wrapped section for panel views.
     UIElement *section = CreateUIContainer(
         parent, section_size,
-        (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ui_standard_container_padding,
-        palette, UI_PALETTE_SURFACE_CONTAINER,
+        (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ui_section_padding,  // 6 px section padding
+        palette, UI_PALETTE_SURFACE_CONTAINER,                          // keeps the container border
         ui_standard_stack_spacing, true, true);
     if (!section)
     {
         return NULL;
     }
 
-    // Use the dark ink used by panel controls for ViewSection edges.
-    section->colour_border = palette ? palette->button_border : ui_default_palette.button_border;
     // Section heading uses the larger title font (FONT_LARGE) for visual hierarchy over controls.
     // Title width HUGS its measured text (ui_title_size) so long titles are never clipped.
     CreateUILabelTitleDefault(section, title, ui_title_size,

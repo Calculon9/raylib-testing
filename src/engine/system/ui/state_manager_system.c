@@ -2051,8 +2051,10 @@ static void StateManager_ShowOnlyView(int view_index)
     }
 }
 
-// Tint (or restore) the header box with existing palette colours: amber button_fill with
-// text_on_dark ink when several targets are selected, otherwise the default fill and text ink.
+// Tint (or restore) the header box with existing palette colours: amber button_fill when
+// several targets are selected, otherwise the default section fill. Only the fill swaps; the
+// ink is the dark text colour in both states (dark reads on both amber and the section fill)
+// and the coral section border is kept.
 static void StateManager_SetHeaderTint(bool tinted)
 {
     if (!s_sm_ui.header_box)
@@ -2060,7 +2062,7 @@ static void StateManager_SetHeaderTint(bool tinted)
         return;
     }
 
-    ColourRgba ink = tinted ? ui_default_palette.text_on_dark : ui_default_palette.text;
+    ColourRgba ink = ui_default_palette.text;
     s_sm_ui.header_box->colour_fill = tinted ? ui_default_palette.button_fill : s_sm_header_default_fill;
     if (s_sm_ui.header_title)
     {
@@ -2165,10 +2167,11 @@ static void StateManager_ApplyKindLayout(void)
         StateManager_SetButtonText(chip, label);
         SetEnabledState(chip, kind_count[s_sm_chip_kinds[i]] > 0);
 
-        // Active chip uses the amber button_fill like an active tab; inactive chips use toggle_off_fill.
+        // Chips share the tab/toggle two-state colours: active = amber + dark ink,
+        // inactive = toggle_off_fill + light ink.
         bool active = (s_sm_chip_kinds[i] == kind);
-        chip->colour_fill = active ? ui_default_palette.button_fill : ui_default_palette.toggle_off_fill;
-        chip->data.button.font.colour = active ? ui_default_palette.text_on_dark : ui_default_palette.text;
+        UIPalette_GetToggleColours(&ui_default_palette, active,
+                                   &chip->colour_fill, &chip->data.button.font.colour);
     }
 
     // Tab row: only entity selections (including nothing selected) have tabs. In multi-select the

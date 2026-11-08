@@ -172,7 +172,39 @@ Each element's effective size resolves through three layers, highest priority fi
 3. **Builder default** — neither given, so the builder supplies a `Size`. Buttons default to
    `ui_standard_button_size`, text fields to `ui_standard_control_size`, containers
    to `ui_standard_container_size`, and `<View>`/`<ViewHost>` to `ui_fill_container_size`
-   (fill/fill). All default constants live in `src/engine/system/ui_system.c`.
+   (fill/fill). Buttons and text-field rows are **fill width x fixed 0.5 height**, so they
+   span their container's inner width. All default constants live in
+   `src/engine/system/ui_system.c`.
+
+**Text-field label column.** A `UI_ELEMENT_TEXTFIELD` row (built by
+`CreateLabeledFieldElement`) holds a fixed-width label column and a fill-width input placed
+at a fixed x offset equal to the column. `AlignTextFieldLabelColumns` in `ui.c` runs at the
+start of each element's measure: it sizes one column for all text-field rows that share a
+parent, from the longest label's bitmap-font run + 2 px (capped at 60 % of the parent's
+content width), so labels such as "Restitution" are never truncated. Before the root has a
+pixel box (frame 0) the fallback `ui_standard_textfield_label_width` (2.36 u) applies.
+
+### UI style (surfaces, borders, spacing)
+
+The editor style is set once in the shared layer (`ui_system.c` palette and constants,
+`ui_constructors.c`, `ui_loader.c`, `view_host_system.c`, `ui_renderer.c`):
+
+- **Surfaces.** `ViewHost`/`View` use `UI_PALETTE_SURFACE_PANEL` (dark `panel_background`,
+  no border). Titled containers and `CreateViewSection*` are boxed sections
+  (`container_fill`, 1 px `container_border`, `ui_section_padding` = 0.12 u = 6 px).
+  Untitled containers are transparent layout boxes. Text-field rows and their labels are
+  transparent; inputs use the `input` surface; buttons the `button` surface; destructive
+  buttons the `danger` surface (`button_danger_fill`, set in every palette).
+- **Two-state colours.** Tabs, kind chips and bound text toggles all use
+  `UIPalette_GetToggleColours`: active = `toggle_on_fill` + dark `text`, inactive =
+  `toggle_off_fill` + `text_on_dark`.
+- **Borders.** The renderer draws a 1 px border (inside the box) whenever
+  `colour_border.a > 0`; constructors decide which elements carry one. The UI-borders debug
+  overlay (F3) adds a faint outline to borderless elements. Bordered textboxes inset their
+  text 5 px from each side.
+- **Spacing.** Panel inset 6 px (root 0.10 + `ui_host_padding` 0.02), 6 px between a panel's
+  top-level blocks (`ui_view_stack_spacing`), 3 px between controls inside a section
+  (`ui_standard_stack_spacing`), titles one 16 px FONT_LARGE row (`ui_title_size`).
 
 `<View>` and `<ViewHost>` default to fill/fill but now also honour authored
 `width`/`height`/`size`/`offset`. The concrete magnitudes enter at the application-built

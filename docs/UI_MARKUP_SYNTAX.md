@@ -46,7 +46,7 @@ per attribute). Attribute-less markup renders at each element's standard size.
 | `gap` | `"x y"` or `"v"` | layout preset gap | Inter-child spacing (literal units) that overrides the gap baked into the `layout=` preset. See "Layout". |
 | `padding` | `"h,v"` or `"v"` | container's constructor default | Inner inset (logical game units) between a container's own box edge and its children's content rectangle. A single `"v"` insets all four sides equally; `"h,v"` insets left+right by `h` and top+bottom by `v`. **Containers only** — see "Padding" below. |
 | `hint` | text | none | Static description shown in the **detail strip** while the pointer is over this element (or any descendant without its own hint). Live values (state, active selection) are appended in C through the element's `on_hint` callback. The detail strip textbox holds 63 characters, so keep hints short; longer text is truncated with `...`. |
-| `surface` | `transparent` \| `container` \| `field_row` \| `input` \| `button` | constructor default | Theme-safe fill/border override: resolves the named surface role from the active palette and replaces the element's constructor-chosen `colour_fill`/`colour_border`. An absent or unrecognised value leaves the constructor colours unchanged. |
+| `surface` | `transparent` \| `container` \| `field_row` \| `input` \| `button` \| `panel` \| `danger` | constructor default | Theme-safe fill/border override: resolves the named surface role from the active palette and replaces the element's constructor-chosen `colour_fill`/`colour_border`. `panel` = dark `panel_background`, no border; `danger` = coral `button_danger_fill` with the 1 px button border (destructive buttons such as DELETE). An absent or unrecognised value leaves the constructor colours unchanged. Borders are drawn whenever the border colour is not transparent (see "Borders"). |
 
 Legacy offset spelling (still accepted): `x="…"`, `y="…"`, `offset-type="…"`. The
 unified `offset`/`offset-mode` form is preferred and wins if both are present.
@@ -129,8 +129,10 @@ and is measured in logical game units:
   insets left+right by `h` and top+bottom by `v`. The value is a per-side amount on
   each axis.
 - **Default.** When `padding` is absent, the container keeps its constructor
-  default inset (non-zero for most containers; zero for `ViewSelector`). Authoring
-  `padding="0"` explicitly removes that default inset.
+  default inset: titled `<Container>` 0.12 (6 px section padding), untitled
+  `<Container>` 0.06, `<ViewHost>` 0.02 (added to the panel root's 0.10, giving a
+  6 px panel inset), `<View>` 0 (its host already supplies the inset) and
+  `<ViewSelector>` 0. Authoring `padding="0"` explicitly removes that default inset.
 - **Composition.** The content rectangle is shrunk by the padding *before* children
   are placed, so:
   - A `fill` child fills the box **minus** the padding.
@@ -139,6 +141,17 @@ and is measured in logical game units:
   - `percent`/`fixed` children resolve against the already-padded content extent.
   - Inter-child `gap` and child `offset` still apply **inside** the padded area —
     both compose with padding independently.
+
+### Borders
+
+Every element's 1 px border is drawn whenever its border colour is not fully
+transparent; the line sits **inside** the box, so a bordered element keeps its
+layout size and padding is measured from the outer edge. Which elements carry a
+border is decided by their surface: sections (`container`), inputs (`input`),
+buttons/tabs/toggles (`button`) and `danger` show one; `panel`, `transparent`
+(untitled containers, tab bars, text-field rows and labels) do not. A textbox with a
+visible border insets its text 5 px from each side. The UI-borders debug overlay
+(F3) additionally outlines borderless elements faintly so their bounds are visible.
 
 ---
 
@@ -160,7 +173,9 @@ are added.
 
 `gap="x y"` tunes the spacing inserted **between** successive children (not before
 the first or after the last), overriding the gap baked into the chosen `layout=`
-preset. Values are space-separated (comma also accepted); a single value applies to
+preset. A `<ViewHost>` or `<View>` whose layout resolves to `stack` and has no
+`gap=` uses a 0.12 (6 px) gap between its top-level blocks (header, tab row,
+sections); other containers keep the preset's 0.06 gap. Values are space-separated (comma also accepted); a single value applies to
 both axes. Units are literal (no percent gap yet). The relevant axis depends on the
 flow — `gap.y` spaces a `stack`/`stack_wrap`, `gap.x` spaces an `inline`/`inline_wrap`.
 
@@ -172,7 +187,10 @@ All elements accept the common attributes above. Listed below are each element's
 **additional** attributes and its default size.
 
 ### `<Button>` — a clickable button (leaf)
-Default size: standard button.
+Default size: standard button — `width="fill"` (spans its container's inner width)
+and a fixed 0.5 height. Author `size="w,h"` for a fixed-width button. Bound toggle
+buttons show ON as the amber `toggle_on_fill` with dark ink and OFF as
+`toggle_off_fill` with light ink (the same pair as tabs and kind chips).
 
 | Attribute | Values | Meaning |
 | --- | --- | --- |
@@ -213,8 +231,12 @@ internally, without a label or row wrapper.
 | `value` | string | Optional initial value. Parsed per `type` and seeded into the bound target (when the binding has a writable address) and shown in the field. |
 
 ### `<TextField>` — a labelled input row (composite)
-Default size: standard control (applied to the **row**). Convenience sugar for a
-label + input laid out side by side. Equivalent to:
+Default size: standard control (applied to the **row**): `width="fill"`, fixed 0.5
+height. The label is a fixed-width column and the input fills the rest of the row
+to the container's inner right edge. All `<TextField>`s that share a parent get one
+label column, sized at layout time to the longest label among them (+2 px, capped
+at 60 % of the parent's content width), so labels are never truncated. Convenience
+sugar for a label + input laid out side by side. Roughly equivalent to:
 
 ```xml
 <Container layout="inline"><Label text="…"/><Textbox …/></Container>
@@ -240,7 +262,7 @@ Default size: standard container. Groups its children per `layout`.
 
 | Attribute | Values | Meaning |
 | --- | --- | --- |
-| `title` | string | Optional heading. When set, the container renders a title label child and is drawn with the section edge tint. When absent, it is a plain box with the default container border (and no title slot). |
+| `title` | string | Optional heading. When set, the container is a boxed **section**: `container_fill` with a 1 px `container_border`, 0.12 (6 px) padding and a FONT_LARGE title label child. When absent, it is a **transparent** layout box (no fill, no border, 0.06 padding, no title slot); add `surface="container"` to box an untitled container explicitly. |
 
 (This tag supersedes the former `<Section>`: a titled `<Container>` is what used to be
 a `<Section>`.)
@@ -257,7 +279,8 @@ A `<View>` typically has no authored size (it fills its host); it may still set
 `width`/`height`/`size` if a non-filling view is wanted.
 
 ### `<ViewHost>` — root of a multi-view panel
-Default size: fill/fill. Hosts a `<ViewSelector>` and one or more `<View>`s.
+Default size: fill/fill. Hosts a `<ViewSelector>` and one or more `<View>`s. Both
+`<ViewHost>` and `<View>` draw the dark `panel` surface (no border).
 
 | Attribute | Values | Meaning |
 | --- | --- | --- |

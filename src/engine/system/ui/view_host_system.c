@@ -217,10 +217,10 @@ View *View_Create(UIElement *parent, const UIPalette *palette, ViewType type)
         parent,
         ui_fill_container_size,
         (Offset){{0, 0}, OFFSET_FIXED},
-        ui_standard_container_padding,
+        ui_host_padding,          // root 0.10 + 0.02 = 6 px panel inset
         palette,
-        UI_PALETTE_SURFACE_CONTAINER,
-        ui_standard_stack_spacing,
+        UI_PALETTE_SURFACE_PANEL, // dark panel background, no border
+        ui_view_stack_spacing,    // 6 px between top-level sections
         false,  // Not draggable
         true    // Enabled by default
     );
@@ -267,9 +267,9 @@ View *ViewHostSystem_CreateView(ViewHostSystem *panel, ViewType view_type)
 
     UIElement *container = CreateUIContainer(
         panel->root, ui_fill_container_size,
-        (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ui_standard_container_padding,
-        panel->palette, UI_PALETTE_SURFACE_CONTAINER,
-        ui_standard_stack_spacing, false, true);
+        (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ui_host_padding,  // 6 px panel inset
+        panel->palette, UI_PALETTE_SURFACE_PANEL,                    // dark panel background
+        ui_view_stack_spacing, false, true);                         // 6 px section gap
     if (!container)
     {
         Deallocate((void **)&view, sizeof(View));
@@ -479,9 +479,9 @@ View *ViewHostSystem_GetActiveView(ViewHostSystem *panel)
     return NULL;
 }
 
-// Recolour a selector's option elements to reflect the active selection. Active
-// options get the panel button_fill; inactive get the panel background. Font colour
-// follows the same active/inactive split. Hover highlight is now handler-driven
+// Recolour a selector's option elements to reflect the active selection, using the shared
+// two-state toggle colours (active = ON amber + dark ink, inactive = OFF fill + light ink) so
+// tabs match the kind chips and flag toggles. Hover highlight is handler-driven
 // (decision 1b); this routine still owns the persistent ACTIVE-selection colour.
 static void UpdatePanelViewSelectorButtons(ViewSelector *selector)
 {
@@ -489,10 +489,9 @@ static void UpdatePanelViewSelectorButtons(ViewSelector *selector)
     {
         bool is_active = i == selector->active_index;
         UIElement *option = selector->buttons[i];
-        ColourRgba fill = is_active ? selector->panel->palette->button_fill
-                                    : selector->panel->palette->panel_background;
-        ColourRgba text = is_active ? selector->panel->palette->text_on_dark
-                                    : selector->panel->palette->button_fill;
+        ColourRgba fill;
+        ColourRgba text;
+        UIPalette_GetToggleColours(selector->panel->palette, is_active, &fill, &text);
         option->colour_fill = fill;
 
         // Former hover items are LABELs; enumerate selectors are buttons. Pick the
@@ -835,7 +834,8 @@ ViewSelector *ViewHostSystem_CreateStandardViewSelector(ViewHostSystem *panel,
         (Offset){{0.0f, 0.0f}, OFFSET_FIXED}, ZERO_VECTOR_2D,
         panel->palette, UI_PALETTE_SURFACE_TRANSPARENT,
         ui_zero_inline_spacing, false, true);
-    toggle_cont->colour_border = panel->palette->container_border;
+    // No border override: borders are drawn whenever their alpha is non-zero, and the tab bar
+    // itself must stay unboxed (only the tabs carry a border).
 
     return ViewHostSystem_CreateViewSelector(
         panel, toggle_cont, ui_standard_selector_button_size,
@@ -844,7 +844,8 @@ ViewSelector *ViewHostSystem_CreateStandardViewSelector(ViewHostSystem *panel,
 
 /**
  * Apply standard styling to a view container.
- * Sets border/fill colours from palette and enables dragging.
+ * Gives it the boxed section look (container fill, 1 px container border, 6 px section
+ * padding so rows do not touch the border) and enables dragging.
  */
 void ViewHostSystem_StyleViewContainer(UIElement *container, const UIPalette *palette)
 {
@@ -855,6 +856,7 @@ void ViewHostSystem_StyleViewContainer(UIElement *container, const UIPalette *pa
 
     container->colour_border = palette->container_border;
     container->colour_fill = palette->container_fill;
+    container->padding = ui_section_padding;
     container->is_draggable = true;
 }
 

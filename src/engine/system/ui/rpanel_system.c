@@ -167,7 +167,7 @@ void InitRPanel(void)
     const char *labels[] = {"STATE", "CREATE"};
     rpanel = ViewHostSystem_CreateStandard(&rpanel_viewport, 2, labels, ARRAY_COUNT(labels),
                                         ViewHostSystem_HandleViewSelected,
-                                        &ui_default_palette, ui_standard_stack_spacing);
+                                        &ui_default_palette, ui_view_stack_spacing);
     if (!rpanel)
     {
         return;

@@ -332,57 +332,150 @@ static const UIElement *FindMeasureOwningRoot(const UIElement *element)
 // resolution is unchanged). If the owning root is not yet drawn (zero pixel box on the very
 // first frame) the function falls back to the authored padding-only width rather than
 // dividing by zero; the title corrects itself on the next frame once the pixel box exists.
-static Vector2d MeasureLeafLabelContent(const UIElement *element)
+// Measure a single-row text run's pixel width the SAME way the renderer draws it
+// (ConsumeTextRow in ui_renderer.c): the first glyph occupies a full cell (glyph_cell_width,
+// the glyph bitmap width) and every subsequent glyph steps by glyph_advance (cell width minus
+// inter-glyph spacing). Using advance for the final glyph too would under-measure the run by
+// (cell_width - advance), leaving the last character's cell poking past its box.
+// Returns 0 for an empty string or a degenerate font (never a negative width).
+static float MeasureTextRunPixels(const char *text, const Bitmap_Font *font)
 {
-    // Padding-only fallback (today's leaf result): used when no usable text width exists.
-    Vector2d fallback = {element->padding.x * 2.0f, element->padding.y * 2.0f};
-
-    // Count whole glyphs of the authored label text; bounded by String64 (MAX_LABEL_CHARS).
-    const char *text = element->data.label.text.string;
-    size_t glyph_count = strlen(text);
+    size_t glyph_count = text ? strlen(text) : 0;
     if (glyph_count == 0)
     {
-        return fallback; // Empty label contributes only its padding box.
+        return 0.0f;
     }
 
-    // Pixel metrics per glyph at this label's font scale. Measure the run the SAME way the
-    // renderer draws it (ConsumeTextRow in ui_renderer.c): the first glyph occupies a full
-    // cell (glyph_cell_width, the glyph bitmap width) and every subsequent glyph steps by
-    // glyph_advance (cell width minus inter-glyph spacing). Using advance for the final glyph
-    // too would under-measure the run by (cell_width - advance), leaving the last character's
-    // cell poking past the hug box, which the clipped draw path then trims off.
-    int glyph_advance = BitmapFont_GetGlyphAdvance(&element->data.label.font);
-    int glyph_cell_width = BitmapFont_GetGlyphCellWidth(&element->data.label.font);
+    int glyph_advance = BitmapFont_GetGlyphAdvance(font);
+    int glyph_cell_width = BitmapFont_GetGlyphCellWidth(font);
     if (glyph_advance <= 0 || glyph_cell_width <= 0)
     {
-        return fallback; // Degenerate font: never contribute a negative/zero text width.
+        return 0.0f;
     }
-    // First glyph = full cell; remaining (glyph_count - 1) glyphs = one advance each.
-    float text_pixels = (float)glyph_cell_width +
-                        (float)(glyph_count - 1) * (float)glyph_advance;
 
-    // Reuse the engine's pixel->UI-unit ratio from the owning root: UI units per pixel is
-    // space.columns / screen_box.dimensions.x (same quantity ResolvePixelToLocalDragScale
-    // derives for drag math). Guard every term so a not-yet-drawn root falls back safely.
+    // First glyph = full cell; remaining (glyph_count - 1) glyphs = one advance each.
+    return (float)glyph_cell_width + (float)(glyph_count - 1) * (float)glyph_advance;
+}
+
+// Return the UI-units-per-pixel ratio of the root that owns `element`: the root's
+// space.columns (UI units) divided by its screen_box pixel width, the same quantity
+// ResolvePixelToLocalDragScale derives for drag math. Returns 0 when the element has no root
+// yet or the root's pixel box is unresolved (frame 0), so callers can fall back safely.
+static float ResolveMeasureUnitsPerPixel(const UIElement *element)
+{
     const UIElement *root = FindMeasureOwningRoot(element);
     if (!root)
     {
-        return fallback;
+        return 0.0f;
     }
     float columns = (float)root->data.root.space.columns;
     float pixel_width = root->screen_box.dimensions.x;
     if (columns <= 0.0f || pixel_width <= 0.0f)
     {
-        return fallback; // Root pixel box not resolved yet (frame 0); corrects next frame.
+        return 0.0f;
+    }
+    return columns / pixel_width;
+}
+
+static Vector2d MeasureLeafLabelContent(const UIElement *element)
+{
+    // Padding-only fallback (today's leaf result): used when no usable text width exists.
+    Vector2d fallback = {element->padding.x * 2.0f, element->padding.y * 2.0f};
+
+    // Pixel width of the authored label text (empty label / degenerate font -> 0).
+    float text_pixels = MeasureTextRunPixels(element->data.label.text.string,
+                                             &element->data.label.font);
+    if (text_pixels <= 0.0f)
+    {
+        return fallback; // Empty label contributes only its padding box.
+    }
+
+    // Reuse the engine's pixel->UI-unit ratio from the owning root. A not-yet-drawn root
+    // (frame 0) yields 0, so the label falls back and corrects itself next frame.
+    float units_per_pixel = ResolveMeasureUnitsPerPixel(element);
+    if (units_per_pixel <= 0.0f)
+    {
+        return fallback;
     }
 
     // Convert the text's pixel width into UI units and add this element's horizontal padding.
-    float text_units = text_pixels * (columns / pixel_width);
+    float text_units = text_pixels * units_per_pixel;
     float measured_x = fmaxf(0.0f, text_units) + (element->padding.x * 2.0f);
 
     // Height stays the padding-only contribution; the title's authored-fixed height is
     // resolved unchanged by the generic box-resolution path.
     return (Vector2d){measured_x, element->padding.y * 2.0f};
+}
+
+// Give every text-field row directly under `parent` one shared label column, sized to the
+// longest label among those rows (the "longest label" rule of style v2), so no label is
+// truncated and every input starts at the same x within a section.
+//
+// Rows are UI_ELEMENT_TEXTFIELD elements built by CreateLabeledFieldElement: first child =
+// label (FIXED width column), second child = input (FILL width at a FIXED x offset). All rows
+// are considered, including disabled ones, so the column does not jump when a hidden row
+// appears. The column is the widest run + 2 px, converted to UI units with the owning root's
+// ratio and clamped to 60 % of `content_width` so the input always keeps at least 40 %.
+// Rows built with the legacy percent split (label width PERCENT) are left untouched.
+// Recoverable no-ops: no rows, no root / unresolved pixel box (frame 0: the constructor's
+// fallback width applies), or a malformed row missing a child.
+static void AlignTextFieldLabelColumns(UIElement *parent, float content_width)
+{
+    // Pass 1: find the widest label run (pixels) among the direct text-field rows.
+    float widest_px = 0.0f;
+    bool has_rows = false;
+    for (UIElement *row = parent->first_child; row; row = row->next_sibling)
+    {
+        if (row->type != UI_ELEMENT_TEXTFIELD)
+        {
+            continue;
+        }
+        UIElement *label = row->first_child;
+        if (!label || !label->next_sibling || label->type != UI_ELEMENT_LABEL ||
+            label->size.width_mode != AXIS_FIXED)
+        {
+            continue; // malformed or legacy percent-split row
+        }
+        has_rows = true;
+        widest_px = fmaxf(widest_px, MeasureTextRunPixels(label->data.label.text.string,
+                                                          &label->data.label.font));
+    }
+    if (!has_rows || widest_px <= 0.0f)
+    {
+        return;
+    }
+
+    float units_per_pixel = ResolveMeasureUnitsPerPixel(parent);
+    if (units_per_pixel <= 0.0f)
+    {
+        return; // frame 0: keep the fallback column until the root has a pixel box
+    }
+
+    // +2 px keeps the last glyph's cell clear of the input's border.
+    float label_units = (widest_px + 2.0f) * units_per_pixel;
+    if (content_width > 0.0f)
+    {
+        label_units = fminf(label_units, 0.6f * content_width);
+    }
+
+    // Pass 2: apply the shared column width and move each input to start right after it.
+    for (UIElement *row = parent->first_child; row; row = row->next_sibling)
+    {
+        if (row->type != UI_ELEMENT_TEXTFIELD)
+        {
+            continue;
+        }
+        UIElement *label = row->first_child;
+        UIElement *input = label ? label->next_sibling : NULL;
+        if (!label || !input || label->type != UI_ELEMENT_LABEL ||
+            label->size.width_mode != AXIS_FIXED)
+        {
+            continue;
+        }
+        label->size.dimensions.x = label_units;
+        input->authored_offset.offset.x = label_units;
+        input->resolved_offset.offset.x = label_units;
+    }
 }
 
 // Measure a subtree using the width (and available height) handed down by its parent.
@@ -408,6 +501,11 @@ static Vector2d MeasureElementContent(UIElement *element, float parent_content_w
     float element_height = ResolveMeasurementHeight(element, parent_content_height);
     float content_width = fmaxf(0.0f, element_width - (2.0f * element->padding.x));
     float content_height = fmaxf(0.0f, element_height - (2.0f * element->padding.y));
+
+    // Size this element's text-field label column before its children are measured, so the
+    // rows measure and lay out with the final column this frame.
+    AlignTextFieldLabelColumns(element, content_width);
+
     Vector2d measured = ZERO_VECTOR_2D;
     float gap_x = element->child_spacing.gap.x;
     float gap_y = element->child_spacing.gap.y;
@@ -1564,17 +1662,21 @@ void UIElement_RefreshBinding(UIElement *e)
                      BIND_TOGGLE_ON(value.as.i), BIND_TOGGLE_TOTAL(value.as.i));
             if (e->on_draw == NULL)
             {
-                e->colour_fill = ui_default_palette.toggle_off_fill;
+                // MIXED uses the inactive pair (OFF fill + light ink).
+                UIPalette_GetToggleColours(&ui_default_palette, false,
+                                           &e->colour_fill, &e->data.button.font.colour);
             }
             return;
         }
         // Icon toggles (an on_draw glyph present) keep their authored flat surface=input fill and
         // show ON/OFF via the glyph ink (UIIcon_StateInk), exactly like the Nudge button - so the
-        // amber box-fill swap is skipped for them, leaving the shared flat base intact.
+        // amber box-fill and caption-ink swap is skipped for them, leaving the shared flat base
+        // intact. Text toggles use the shared two-state pair (ON amber + dark ink, OFF dimmed
+        // fill + light ink) so the caption always contrasts with its fill.
         if (e->on_draw == NULL)
         {
-            e->colour_fill = on ? ui_default_palette.toggle_on_fill
-                                : ui_default_palette.toggle_off_fill;
+            UIPalette_GetToggleColours(&ui_default_palette, on,
+                                       &e->colour_fill, &e->data.button.font.colour);
         }
         return;
     }

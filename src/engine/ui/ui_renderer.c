@@ -94,15 +94,34 @@ static int CountTextRows(const char *text, float available_width, int glyph_adva
     return row_count;
 }
 
+// Faint outline drawn by the UI-borders debug overlay (F3) around elements that carry no
+// visible border of their own, so the overlay still shows every element's bounds.
+static const ColourRgba UI_DEBUG_BORDER_COLOUR = {{255, 255, 255, 80}};
+// Horizontal text inset inside a bordered textbox: 1 px border + 4 px gap. The glyph's own
+// 2 px blank column then places the first ink 7 px from the box edge, as in the mock.
+#define UI_TEXTBOX_TEXT_INSET_PX 5.0f
+
+// Resolve the border colour to draw for an element (style v2 border model). A border is
+// drawn whenever its alpha is non-zero, independent of the debug overlay; constructors decide
+// which elements carry one. With the UI-borders overlay on, borderless elements get the faint
+// debug outline instead, so the overlay still shows element bounds.
+static ColourRgba ResolveDrawnBorderColour(const UIElement *e)
+{
+    ColourRgba colour_border = e->colour_border;
+    if (colour_border.a == 0 && IsDebugEnabled(DEBUG_UI_BORDERS))
+    {
+        colour_border = UI_DEBUG_BORDER_COLOUR;
+    }
+    return colour_border;
+}
+
+// Draw an element's background fill and its 1 px border (drawn inside the box, so a bordered
+// element keeps its layout size).
 void DrawElementBox(UIElement *e)
 {
     UIBox box = e->screen_box;
     ColourRgba colour_fill = e->colour_fill;
-    ColourRgba colour_border = e->colour_border;
-    if (!IsDebugEnabled(DEBUG_UI_BORDERS))
-    {
-        colour_border.a = 0;
-    }
+    ColourRgba colour_border = ResolveDrawnBorderColour(e);
     DrawRectangleRec((Rectangle){box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y},
                      ToRaylibColor(colour_fill));
     DrawRectangleLinesEx((Rectangle){box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y},
@@ -130,11 +149,7 @@ void DrawElementBoxClipped(UIElement *e, UIClipRect clip)
     }
 
     ColourRgba colour_fill = e->colour_fill;
-    ColourRgba colour_border = e->colour_border;
-    if (!IsDebugEnabled(DEBUG_UI_BORDERS))
-    {
-        colour_border.a = 0;
-    }
+    ColourRgba colour_border = ResolveDrawnBorderColour(e);
 
     // Draw the clipped background fill.
     if (colour_fill.a > 0)
@@ -230,6 +245,16 @@ void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
     }
     Vector2d available_space = e->screen_box.dimensions;
 
+    // Text origin: a textbox with a visible border insets its text from both sides so the
+    // characters (and the cursor, which follows the drawn run) clear the border. Transparent
+    // textboxes, labels and buttons keep the flush/centred origin at the box edge.
+    float text_origin_x = e->screen_box.coords.x;
+    if (IsTextbox(e) && e->colour_border.a > 0)
+    {
+        text_origin_x += UI_TEXTBOX_TEXT_INSET_PX;
+        available_space.x = fmaxf(0.0f, available_space.x - 2.0f * UI_TEXTBOX_TEXT_INSET_PX);
+    }
+
     // Metrics calculation
     int glyph_advance = BitmapFont_GetGlyphAdvance(&font);
     int glyph_cell_width = BitmapFont_GetGlyphCellWidth(&font);
@@ -252,7 +277,7 @@ void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
     }
     const char *text_cursor = text_ptr;
     int current_row = 0;
-    float last_row_x_end = e->screen_box.coords.x;
+    float last_row_x_end = text_origin_x;
     bool fully_contained = UIClipRect_ContainsBox(clip, e->screen_box);
 
     // Segmenting and Drawing
@@ -271,7 +296,7 @@ void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
 
         // Draw the row
         Vector2d draw_pos = {
-            e->screen_box.coords.x,
+            text_origin_x,
             e->screen_box.coords.y + vertical_offset + (float)(current_row * row_height)};
 
         if (e->text_horizontal_alignment == UI_TEXT_ALIGN_CENTRE)

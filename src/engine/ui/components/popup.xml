@@ -54,7 +54,7 @@
         <!-- ENTITY item HOSTS the entity submenu; keep the label leaf-styled (no layout=). -->
         <Label id="popup_item_entity" text="ENTITY" size="3.75,0.5" width="fixed" height="fixed">
             <!-- Entity submenu: child of its item, fixed +x fan-out, starts disabled. -->
-            <Container id="popup_entity_submenu" enabled="false" overflow="true"
+            <Container id="popup_entity_submenu" surface="container" enabled="false" overflow="true"
                        offset="3.5,0" offset-mode="fixed" width="hug" height="hug" layout="stack">
                 <Label  text="Shapes" size="3.75,0.5" width="fixed" height="fixed" />
                 <Button type="simple" id="popup_btn_triangle" text="triangle" size="3.75,0.5" width="fixed" height="fixed" />
@@ -70,7 +70,7 @@
         <!-- WORLD item HOSTS the world submenu; keep the label leaf-styled (no layout=). -->
         <Label id="popup_item_world"  text="WORLD"  size="3.75,0.5" width="fixed" height="fixed">
             <!-- World submenu: child of its item, fixed +x fan-out, starts disabled. -->
-            <Container id="popup_world_submenu" enabled="false" overflow="true"
+            <Container id="popup_world_submenu" surface="container" enabled="false" overflow="true"
                        offset="3.5,0" offset-mode="fixed" width="hug" height="hug" layout="stack">
                 <Label  text="Small" size="3.75,0.5" width="fixed" height="fixed" />
                 <Button type="simple" id="popup_btn_regular"     text="regular"      size="3.75,0.5" width="fixed" height="fixed" />
@@ -86,7 +86,7 @@
     <!-- RECENT view: starts disabled; static placeholder (no C refresh today). -->
     <View id="recent_view" type="POPUP_MENU_RECENT_VIEW" enabled="false"
           size="3.75,5.0" width="fixed" height="fixed" offset="0,0.5" layout="stack">
-        <Container id="recent_list" width="fill" height="fill" layout="stack">
+        <Container id="recent_list" surface="container" width="fill" height="fill" layout="stack">
             <Label text="No recent actions" size="3.75,0.5" width="fixed" height="fixed" />
         </Container>
     </View>

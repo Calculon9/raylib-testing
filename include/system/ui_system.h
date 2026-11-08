@@ -27,7 +27,9 @@ typedef enum
 	UI_PALETTE_SURFACE_CONTAINER,
 	UI_PALETTE_SURFACE_FIELD_ROW,
 	UI_PALETTE_SURFACE_INPUT,
-	UI_PALETTE_SURFACE_BUTTON
+	UI_PALETTE_SURFACE_BUTTON,
+	UI_PALETTE_SURFACE_PANEL,  // Dark panel background (ViewHost / View), no border.
+	UI_PALETTE_SURFACE_DANGER  // Destructive button: button border with the coral danger fill.
 } UIPaletteSurface;
 
 typedef struct UIPalette
@@ -43,6 +45,7 @@ typedef struct UIPalette
 	ColourRgba button_fill;
 	ColourRgba toggle_on_fill;  // Fill for a source-bearing toggle button in its ON state.
 	ColourRgba toggle_off_fill; // Fill for a source-bearing toggle button in its OFF state (same hue, dimmed).
+	ColourRgba button_danger_fill; // Fill for destructive buttons such as DELETE (dark ink on top).
 	ColourRgba text;
 	ColourRgba label_text;
 	ColourRgba text_on_dark;
@@ -85,6 +88,12 @@ extern const Size ui_standard_container_size;
 extern const Size ui_fill_container_size;
 extern const Vector2d ui_standard_container_padding;
 extern const Vector2d ui_standard_field_padding;
+// Padding inside a titled section box (6 px at 50 px per unit).
+extern const Vector2d ui_section_padding;
+// ViewHost / View padding added on top of the root padding (root 0.10 + 0.02 = 6 px panel inset).
+extern const Vector2d ui_host_padding;
+// Fallback text-field label column width, used until the per-section column pass has run.
+extern const float ui_standard_textfield_label_width;
 extern const Size ui_standard_button_size;
 // Container title label size: width hugs the measured text, height stays fixed at 0.5.
 extern const Size ui_title_size;
@@ -95,6 +104,8 @@ extern const Vector2d ui_standard_button_padding;
 extern const Size ui_standard_selector_container_size;
 extern const Size ui_standard_selector_button_size;
 extern const Layout ui_standard_stack_spacing;
+// Stacked spacing between a panel's top-level blocks (header, tabs, sections): 6 px.
+extern const Layout ui_view_stack_spacing;
 extern const Layout ui_compact_stack_spacing;
 extern const Layout ui_standard_stack_wrap_spacing;
 extern const Layout ui_standard_stack_smart_wrap_spacing;
@@ -113,6 +124,10 @@ extern UIPalette ui_meadow_palette;
 
 void UIPalette_GetSurfaceColours(const UIPalette *palette, UIPaletteSurface surface,
 								 ColourRgba *out_border, ColourRgba *out_fill);
+// Two-state colours shared by tabs, kind chips and flag toggles: active = ON fill + dark ink,
+// inactive = OFF fill + light ink. A NULL palette uses the default; NULL outputs are skipped.
+void UIPalette_GetToggleColours(const UIPalette *palette, bool active,
+								ColourRgba *out_fill, ColourRgba *out_ink);
 InputRouteResult UpdateUISystem(const InputFrame *input);
 
 // Centralised selection setters reduce cross-module direct writes to UI state.
