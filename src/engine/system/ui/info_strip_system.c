@@ -350,7 +350,7 @@ void InitInfoStrip(void)
     // 1) Load the authoritative markup with the strip's own resolvers (no view-type resolver:
     //    the strip is a single Container root, not a multi-view ViewHost).
     UIElement *root = UILoader_LoadFromFileWithResolvers(
-        "C:\\Projects\\raylib-testing\\src\\engine\\ui\\components\\info_strip.xml",
+        UI_COMPONENTS_DIR "/info_strip.xml",
         &ui_default_palette,
         InfoStrip_ResolveBinding,
         InfoStrip_ResolveCommand,

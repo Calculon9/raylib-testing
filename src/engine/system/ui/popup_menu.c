@@ -375,7 +375,7 @@ void InitPopupMenu(void)
 
     // 1) Load the authoritative markup with the popup resolvers (mirrors state_manager).
     UIElement *root = UILoader_LoadFromFileWithResolvers(
-        "C:\\Projects\\raylib-testing\\src\\engine\\ui\\components\\popup.xml",
+        UI_COMPONENTS_DIR "/popup.xml",
         &ui_default_palette,
         Popup_ResolveBinding,
         Popup_ResolveCommand,

@@ -29,6 +29,13 @@
 // Maximum length of an element ID from XML markup
 #define MAX_UI_ELEMENT_ID (int)sizeof(String64)
 
+// Folder holding the XML UI component files. CMake defines this as the CURRENT source tree's
+// components folder, so a build from a git worktree loads its own markup rather than another
+// checkout's. The fallback keeps the historic location for builds without the definition.
+#ifndef UI_COMPONENTS_DIR
+#define UI_COMPONENTS_DIR "C:/Projects/raylib-testing/src/engine/ui/components"
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

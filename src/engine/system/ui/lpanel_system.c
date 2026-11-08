@@ -180,7 +180,7 @@ void InitLPanel()
     // Load the left panel from its authoritative XML markup, supplying the
     // application-specific binding / command / view-type resolvers.
     UIElement *root = UILoader_LoadFromFileWithResolvers(
-        "C:\\Projects\\raylib-testing\\src\\engine\\ui\\components\\lpanel.xml",
+        UI_COMPONENTS_DIR "/lpanel.xml",
         &ui_default_palette,
         LPanel_ResolveBinding,
         LPanel_ResolveCommand,

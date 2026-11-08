@@ -71,17 +71,27 @@ static bool g_geometry_edit_active = false;
 // Default UI Properties
 //Vector2d tfield_default_padding = {0.0, 0.0};
 const Vector2d ui_standard_container_padding = {0.06, 0.06};
-const Vector2d ui_standard_field_padding = {0.02f, 0.0f};
+// Field rows and titles start exactly at the content edge of their section.
+const Vector2d ui_standard_field_padding = {0.0f, 0.0f};
+// Titled section padding: 0.12 u = 6 px, measured from the box's outer edge (the 1 px border
+// is drawn inside the box, so content sits 6 px from the outer edge as in the mock).
+const Vector2d ui_section_padding = {0.12f, 0.12f};
+// ViewHost / View padding on top of the 0.10 root padding: 0.10 + 0.02 = 0.12 u = 6 px inset.
+const Vector2d ui_host_padding = {0.02f, 0.02f};
 const Vector2d ui_standard_button_padding = {0.025, 0.025};
-const Size ui_standard_control_size = {{4.65, 0.50}, AXIS_FIXED, AXIS_FIXED};
+// Text-field rows (and Textbox/Label defaults) fill their parent's width; height stays 25 px.
+const Size ui_standard_control_size = {{4.65, 0.50}, AXIS_FILL, AXIS_FIXED};
 //const Size ui_standard_textbox_size = {{4.55f, 0.50f}, AXIS_FIXED, AXIS_FIXED};
-// Give labels more room in inline text fields (label width = 1.0 - textbox width).
-const Size ui_standard_textfield_input_size = {{0.62f, 1.0f}, AXIS_PERCENT, AXIS_PERCENT};
-const Size ui_standard_button_size = {{3.22f, 0.5f}, AXIS_FIXED, AXIS_FIXED};
+// The input FILLS the row after the label column (the label is a fixed-width column).
+const Size ui_standard_textfield_input_size = {{1.0f, 1.0f}, AXIS_FILL, AXIS_PERCENT};
+// First-frame / fallback label column width: 2.36 u = 118 px ("Restitution" run + 2 px).
+const float ui_standard_textfield_label_width = 2.36f;
+// Buttons span the full inner width of their container; height stays 0.5 u = 25 px.
+const Size ui_standard_button_size = {{3.22f, 0.5f}, AXIS_FILL, AXIS_FIXED};
 // Shared size for container title labels: width HUGS the title's measured text (uncapped,
-// dimensions.x == 0) so the title can never be clipped, while the height stays the current
-// fixed 0.5 so vertical layout is unchanged from the old fixed-size title.
-const Size ui_title_size = {{0.0f, 0.5f}, AXIS_HUG, AXIS_FIXED};
+// dimensions.x == 0) so the title can never be clipped; the height is one 16 px FONT_LARGE row
+// (0.32 u) so, with 6 px padding and a 3 px gap, the first control lands 25 px below the box top.
+const Size ui_title_size = {{0.0f, 0.32f}, AXIS_HUG, AXIS_FIXED};
 const Size ui_wide_button_size = {{4.65f, 0.5f}, AXIS_FIXED, AXIS_FIXED};
 const Size ui_small_horizontal_button_size = {{1.91f, 0.5f}, AXIS_FIXED, AXIS_FIXED};
 const Size ui_fill_button_size = {{1.0f, 1.0f}, AXIS_FILL, AXIS_FILL};
@@ -91,6 +101,8 @@ const Size ui_standard_selector_container_size = UI_SIZE_HUG;
 const Size ui_standard_selector_button_size = {{1.75f, 0.5f}, AXIS_FIXED, AXIS_FIXED};
 // NOTE: the middle field of each Layout literal is NumberForm (NONE), NOT an AxisSizeMode.
 const Layout ui_standard_stack_spacing = {{0.0f, 0.06f}, NONE, FLOW_STACKED};
+// 6 px between a panel's top-level blocks (header, tab row, sections).
+const Layout ui_view_stack_spacing = {{0.0f, 0.12f}, NONE, FLOW_STACKED};
 const Layout ui_compact_stack_spacing = {{0.0f, 0.025f}, NONE, FLOW_STACKED};
 const Layout ui_standard_stack_wrap_spacing = {{0.06f, 0.06f}, NONE, FLOW_STACKED_WRAP};
 const Layout ui_standard_stack_smart_wrap_spacing = {{0.06f, 0.06f}, NONE, FLOW_STACKED_SMART_WRAP};
@@ -140,6 +152,8 @@ static void InitUIPalettes(void)
     // Toggle fills: ON reuses the amber button fill; OFF is the same hue dimmed towards the panel.
     ui_classic_palette.toggle_on_fill = MakeColour(230, 194, 119, 255);
     ui_classic_palette.toggle_off_fill = MakeColour(156, 132, 81, 255);
+    // Danger fill: the palette's terracotta container border.
+    ui_classic_palette.button_danger_fill = MakeColour(194, 105, 83, 255);
     ui_classic_palette.text = MakeColour(32, 42, 37, 255);
     ui_classic_palette.label_text = MakeColour(255, 255, 255, 255);
     ui_classic_palette.text_on_dark = MakeColour(245, 241, 230, 255);
@@ -158,6 +172,8 @@ static void InitUIPalettes(void)
     // Toggle fills: ON reuses the terracotta button fill; OFF is the same hue dimmed towards the panel.
     ui_earth_palette.toggle_on_fill = MakeColour(166, 109, 60, 255);
     ui_earth_palette.toggle_off_fill = MakeColour(112, 74, 41, 255);
+    // Danger fill: the palette's rust container border.
+    ui_earth_palette.button_danger_fill = MakeColour(191, 78, 36, 255);
     ui_earth_palette.text = MakeColour(38, 101, 115, 255);
     ui_earth_palette.label_text = MakeColour(166, 109, 60, 255);
     ui_earth_palette.text_on_dark = MakeColour(242, 211, 172, 255);
@@ -176,6 +192,8 @@ static void InitUIPalettes(void)
     // Toggle fills: ON reuses the amber button fill; OFF is the same amber hue dimmed towards the panel.
     ui_harbor_palette.toggle_on_fill = MakeColour(220, 158, 70, 255);
     ui_harbor_palette.toggle_off_fill = MakeColour(150, 108, 48, 255);
+    // Danger fill: the mock's coral (equal to the container border).
+    ui_harbor_palette.button_danger_fill = MakeColour(218, 117, 96, 255);
     // Contrast bump: near-black dark-teal ink (hue preserved) reads crisply on the sage container fill.
     ui_harbor_palette.text = MakeColour(18, 30, 34, 255);
     ui_harbor_palette.label_text = MakeColour(220, 158, 70, 255);
@@ -195,6 +213,8 @@ static void InitUIPalettes(void)
     // Toggle fills: ON reuses the amber button fill; OFF is the same hue dimmed towards the panel.
     ui_meadow_palette.toggle_on_fill = MakeColour(230, 194, 119, 255);
     ui_meadow_palette.toggle_off_fill = MakeColour(156, 132, 81, 255);
+    // Danger fill: a dedicated terracotta, because meadow's container border is the button amber.
+    ui_meadow_palette.button_danger_fill = MakeColour(196, 92, 70, 255);
     ui_meadow_palette.text = MakeColour(32, 42, 37, 255);
     ui_meadow_palette.label_text = MakeColour(38, 101, 115, 255);
     ui_meadow_palette.text_on_dark = MakeColour(245, 241, 230, 255);
@@ -234,6 +254,15 @@ void UIPalette_GetSurfaceColours(const UIPalette *palette, UIPaletteSurface surf
             border = palette->button_border;
             fill = palette->button_fill;
             break;
+        case UI_PALETTE_SURFACE_PANEL:
+            // Panel background: dark fill, no border (the panel edge is the window/dock edge).
+            fill = palette->panel_background;
+            break;
+        case UI_PALETTE_SURFACE_DANGER:
+            // Destructive button: same 1 px dark border as buttons, coral danger fill.
+            border = palette->button_border;
+            fill = palette->button_danger_fill;
+            break;
         case UI_PALETTE_SURFACE_TRANSPARENT:
         default:
             break;
@@ -246,6 +275,27 @@ void UIPalette_GetSurfaceColours(const UIPalette *palette, UIPaletteSurface surf
     if (out_fill)
     {
         *out_fill = fill;
+    }
+}
+
+// Resolve the shared two-state colours for tabs, kind chips and flag toggles.
+// Active = ON fill with the dark ink; inactive = OFF fill with the light ink, so the caption
+// always contrasts with its fill. NULL palette falls back to the default; NULL outputs are skipped.
+void UIPalette_GetToggleColours(const UIPalette *palette, bool active,
+                                ColourRgba *out_fill, ColourRgba *out_ink)
+{
+    if (!palette)
+    {
+        palette = &ui_default_palette;
+    }
+
+    if (out_fill)
+    {
+        *out_fill = active ? palette->toggle_on_fill : palette->toggle_off_fill;
+    }
+    if (out_ink)
+    {
+        *out_ink = active ? palette->text : palette->text_on_dark;
     }
 }
 
@@ -368,6 +418,24 @@ void SelectionSet_Toggle(TargetRef ref)
     {
         SelectionSet_Add(ref);
     }
+}
+
+// Copy the member at `index` into *out. Returns false when out of range. Does not allocate, so it
+// is safe to call per member in a loop.
+bool SelectionSet_Get(int index, TargetRef *out)
+{
+    SelectionSet_EnsureInit();
+    if (!out || index < 0 || index >= G_UIState.selection_set.count)
+    {
+        return false;
+    }
+    TargetRef *member = (TargetRef *)LArray_Get(&G_UIState.selection_set, index);
+    if (!member)
+    {
+        return false;
+    }
+    *out = *member;
+    return true;
 }
 
 // Return the primary (last-added) member, or a TARGET_KIND_NONE ref when the set is empty.
@@ -637,14 +705,21 @@ void UIState_ClearSelectedCell(void)
 // resolve to a live cell.
 Cell *UIState_GetSelectedCell(void)
 {
-    TargetRef primary = SelectionSet_Primary();
-    if (primary.kind != TARGET_KIND_CELL)
+    return UIState_ResolveCellRef(SelectionSet_Primary());
+}
+
+// Resolve any CELL TargetRef to its live Cell, re-deriving it from the world and lattice
+// coordinate each call. Returns NULL for non-cell refs and stale coordinates. Shared by the
+// primary-selection getter and the bulk-edit walker.
+Cell *UIState_ResolveCellRef(TargetRef ref)
+{
+    if (ref.kind != TARGET_KIND_CELL)
     {
         return NULL;
     }
 
     // Resolve the owning world (handles the UNIVERSE_ROOT_WORLD_INDEX sentinel via Universe_GetWorld).
-    World2d *world = Universe_GetWorld(&G_Universe, primary.as.cell.world_index);
+    World2d *world = Universe_GetWorld(&G_Universe, ref.as.cell.world_index);
     if (!world)
     {
         return NULL;
@@ -652,7 +727,7 @@ Cell *UIState_GetSelectedCell(void)
 
     // Resolve the stored lattice coordinate against the LIVE grid (NULL if outside or no buffer), so the
     // answer stays correct after the world has grown or its grid_origin has shifted.
-    return Space_GetCellAtLattice(&world->grid_space.space, primary.as.cell.lattice_x, primary.as.cell.lattice_y);
+    return Space_GetCellAtLattice(&world->grid_space.space, ref.as.cell.lattice_x, ref.as.cell.lattice_y);
 }
 
 // Report the selected cell's index from the SelectionSet primary, or -1 when the primary is not a

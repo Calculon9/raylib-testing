@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
     <!-- Describes the state-manager panel; runtime wiring is in state_manager_system.c.   -->
     <!-- Presented to the user as 'Entity Mgmt' and mounted on the former left-panel slot.  -->
-    <!-- Views: PHYS, ATTRI, WORLD, CELL, ANCESTRY.                                          -->
+    <!-- Layout is selection-driven (see state_manager_system.c):                             -->
+    <!--  * header (always): title + sub-line for the selection; amber-tinted in multi-select. -->
+    <!--  * kind chips (multi-select only): choose which kind is edited.                       -->
+    <!--  * ENTITY: tabs PHYS | FLAGS | COMP | SHAPE | TREE (SHAPE / TREE hidden in multi).     -->
+    <!--  * WORLD: world_view only; CELL: cell_view only (no tab row).                         -->
+    <!-- View order matters: the five entity views come first, in tab order.                   -->
     <!--                                                                                 -->
     <!-- Stage 1 of the XML migration: InitStateManagerSystem loads this markup through  -->
     <!-- the generic UI loader (mirroring InitLPanel), then an id-registration pass       -->
@@ -19,37 +24,49 @@
     <!--    binding= names return in Stage 2 once StateManager_ResolveBinding honours them.  -->
     <!--                                                                                    -->
     <!--  * io= expresses read-only (io="readonly") vs editable (io="safe"); every          -->
-    <!--    <Container> uses width="hug" height="fill" with layout="stack_wrap" so its width -->
-    <!--    hugs its content while its height fills the view, letting fields wrap into        -->
-    <!--    columns instead of clipping (a container with no width/height collapses/clips).   -->
+    <!--    titled <Container> uses width="fill" so the boxed section spans the panel and    -->
+    <!--    its rows/toggles fill the section inner width (a section with no width/height    -->
+    <!--    collapses or clips).                                                             -->
     <!--                                                                                     -->
     <!--  * Gameplay/Components visibility stays in the application (the C refresh            -->
     <!--    toggles it); markup only declares the containers.                                 -->
 <ViewHost id="state_manager" layout="stacked" initial-view="phys_view">
-    <ViewSelector id="state_manager_views" type="enumerate" layout="inline_wrap" gap="0,0" width="fill" height="hug">
-        <Option text="PHYS" view="phys_view" />
-        <Option text="ATTRI" view="attri_view" />
-        <Option text="WORLD" view="world_view" />
-        <Option text="CELL" view="cell_view" />
-        <Option text="ANCESTRY" view="ancestry_view" />
-        <Option text="COMP" view="components_view" />
-        <Option text="GEOMETRY" view="geometry_view" />
-    </ViewSelector>
+    <!-- Fixed header block (outside every View, so it never scrolls and shows on every tab).   -->
+    <!-- The selection decides the text (sm.header.title / sm.header.sub query bindings). The   -->
+    <!-- box fill is tinted from C in multi-select; the two textboxes are transparent so the     -->
+    <!-- box fill shows through. The title is switched to FONT_LARGE in C at registration.       -->
+    <Container id="entity_header" width="fill" height="hug" layout="stack" surface="container" padding="0.12">
+        <Textbox id="sm_header_title" io="readonly" binding="sm.header.title" surface="transparent" size="5.9,0.4" width="fill" height="fixed" />
+        <Textbox id="sm_header_sub" io="readonly" binding="sm.header.sub" surface="transparent" size="5.9,0.34" width="fill" height="fixed" />
+    </Container>
 
+    <!-- Kind switcher: shown only in multi-select (enabled from C). One chip per kind present;   -->
+    <!-- the chip of the primary's kind is the active (amber) one. Outside every View.             -->
+    <Container id="kind_chips" width="fill" height="hug" layout="inline_wrap" gap="0,0" enabled="false">
+        <Button type="simple" id="sm_kind_entity" text="ENTITIES" size="2.4,0.5" />
+        <Button type="simple" id="sm_kind_world" text="WORLDS" size="2.0,0.5" />
+        <Button type="simple" id="sm_kind_cell" text="CELLS" size="1.8,0.5" />
+    </Container>
+
+    <!-- Entity tabs. Option order MUST equal the first five View ids below (option index == view  -->
+    <!-- index). Each tab is sized explicitly (text run + 3 px each side) so all five fit one row   -->
+    <!-- of the 300 px panel (280 px of tabs in 288 px of inner width).                            -->
+    <!-- The row is hidden from C for WORLD / CELL selections; SHAPE and TREE are hidden in multi.  -->
+    <ViewSelector id="state_manager_views" type="enumerate" layout="inline_wrap" gap="0,0" width="fill" height="hug">
+        <Option text="PHYS" view="phys_view" size="1.04,0.5" />
+        <Option text="FLAGS" view="attri_view" size="1.24,0.5" />
+        <Option text="COMP" view="components_view" size="1.04,0.5" />
+        <Option text="SHAPE" view="geometry_view" size="1.24,0.5" />
+        <Option text="TREE" view="ancestry_view" size="1.04,0.5" />
+    </ViewSelector>
     <!-- ================= PHYS view ================= -->
     <View id="phys_view" type="STATE_MANAGER_PHYSICS_VIEW" scroll="y" layout="stack">
-        <Container id="identity" title="Identity" width="hug" height="hug" layout="stack">
-            <TextField id="sm_id" label="Id:" type="integer" io="readonly" />
-            <TextField id="sm_slot" label="Slot:" type="integer" io="readonly" />
-            <TextField id="sm_generation" label="Generation:" type="integer" io="readonly" />
-            <TextField id="sm_world" label="World" type="integer" io="readonly" />
-        </Container>
-
-        <Container id="physics" title="Physics" width="hug" height="hug" layout="stack">
+        <Container id="physics" title="Physics" width="fill" height="hug" layout="stack">
+            <!-- Shown from C in multi-select: values here are the primary's and read-only. -->
+            <Textbox id="sm_values_note" io="readonly" surface="transparent" size="5.25,0.5" width="fixed" height="fixed" enabled="false" />
             <TextField id="sm_mass" label="Mass" type="float" io="safe" />
             <TextField id="sm_restitution" label="Restitution" type="float" io="safe" />
             <TextField id="sm_friction" label="Friction" type="float" io="safe" />
-            <TextField id="sm_anchor" label="Anchor" type="vector2" io="safe" />
             <TextField id="sm_vel" label="Vel" type="vector2" io="safe" />
             <TextField id="sm_accel" label="Accel" type="vector2" io="safe" />
             <TextField id="sm_moment" label="Moment" type="vector2" io="safe" />
@@ -57,124 +74,47 @@
             <TextField id="sm_angaccel" label="AngAccel" type="float" io="readonly" />
         </Container>
 
-        <Container id="geometry" title="Geometry" width="hug" height="hug" layout="stack">
-            <TextField id="sm_bounds_min" label="Bounds.min" type="vector2" io="readonly" />
-            <TextField id="sm_geo_center" label="Geo.center" type="vector2" io="readonly" />
+        <Container id="transform" title="Transform" width="fill" height="hug" layout="stack">
+            <TextField id="sm_anchor" label="Anchor" type="vector2" io="safe" />
             <TextField id="sm_rotation" label="Rot" type="float" io="safe" />
             <TextField id="sm_basis_u" label="Basis u" type="vector2" io="safe" />
             <TextField id="sm_basis_v" label="Basis v" type="vector2" io="safe" />
         </Container>
 
-        <Container id="gameplay" title="Gameplay" width="hug" height="hug" layout="stack">
-            <TextField id="sm_health" label="Health" type="float" io="safe" />
-            <TextField id="sm_max_health" label="MaxHealth" type="float" io="safe" />
-            <TextField id="sm_damage" label="Damage" type="float" io="safe" />
-        </Container>
-
-        <Container id="components" title="Components" width="hug" height="hug" layout="stack">
-            <!-- Component toggles: wired in C (HandleComponentToggleClick) in the id pass. -->
-            <Button type="simple" id="sm_comp_portal" text="PORTAL" />
-            <Button type="simple" id="sm_comp_rotor" text="ROTOR" />
-            <Button type="simple" id="sm_comp_gear" text="GEAR" />
-            <Button type="simple" id="sm_comp_health" text="HEALTH" />
-            <TextField id="sm_portal_cooldown" label="Portal Cooldown" type="integer" io="safe" />
-            <TextField id="sm_portal_target_id" label="Portal Dest." type="integer" io="safe" />
-            <TextField id="sm_portal_roles" label="Portal Roles" type="integer" io="readonly" />
-            <TextField id="sm_relation_type" label="Relation Type" type="integer" io="readonly" />
-        </Container>
-
-        <Button id="sm_delete" type="submit" text="DELETE" size="3.22,0.5" width="fixed" height="fixed" />
+        <Button id="sm_delete" type="submit" text="DELETE" surface="danger" size="3.22,0.5" width="fill" height="fixed" />
     </View>
-
     <!-- ================= ATTRI view ================= -->
     <!-- Flag-button grids: each <Button type="simple"> is wired in C in the id pass    -->
     <!-- (handler + user_data + query-source "<label>: ON/OFF" display).                 -->
     <View id="attri_view" type="STATE_MANAGER_ATTRIBUTES_VIEW" scroll="y" layout="stack">
-        <Container id="entity_roles" title="Entity" width="hug" height="hug" layout="stack">
+        <Container id="entity_roles" title="Entity" width="fill" height="hug" layout="stack">
             <Button type="simple" id="sm_role_wall" text="WALL" />
             <Button type="simple" id="sm_role_newtonoid" text="NEWTONOID" />
             <Button type="simple" id="sm_role_projectile" text="PROJECTILE" />
             <Button type="simple" id="sm_role_effect" text="EFFECT" />
             <Button type="simple" id="sm_role_camera" text="CAMERA" />
         </Container>
-        <Container id="capabilities" title="Capabilities" width="hug" height="hug" layout="stack">
-            <Button type="simple" size="4,0.5" id="sm_cap_damageable" text="DAMAGEABLE" />
-            <Button type="simple" size="4,0.5" id="sm_cap_velocity" text="VELOCITY" />
-            <Button type="simple" size="4,0.5" id="sm_cap_affect_owner" text="AFFECT OWNER" />
-            <Button type="simple" size="4,0.5" id="sm_cap_sensor" text="SENSOR" />
+        <Container id="capabilities" title="Capabilities" width="fill" height="hug" layout="stack">
+            <Button type="simple" id="sm_cap_damageable" text="DAMAGEABLE" />
+            <Button type="simple" id="sm_cap_velocity" text="VELOCITY" />
+            <Button type="simple" id="sm_cap_affect_owner" text="AFFECT OWNER" />
+            <Button type="simple" id="sm_cap_sensor" text="SENSOR" />
         </Container>
-        <Container id="constraints" title="Constraints" width="hug" height="hug" layout="stack">
-            <Button type="simple" size="5,0.5" id="sm_con_position_locked" text="POSITION LOCKED" />
-            <Button type="simple" size="5,0.5" id="sm_con_no_contact_response" text="NO CONTACT RESPONSE" />
+        <Container id="constraints" title="Constraints" width="fill" height="hug" layout="stack">
+            <Button type="simple" id="sm_con_position_locked" text="POSITION LOCKED" />
+            <Button type="simple" id="sm_con_no_contact_response" text="NO CONTACT RESPONSE" />
         </Container>
-        <Container id="status" title="Status" width="hug" height="hug" layout="stack">
+        <Container id="status" title="Status" width="fill" height="hug" layout="stack">
             <Button type="simple" id="sm_status_alive" text="ALIVE" />
             <Button type="simple" id="sm_status_sleeping" text="SLEEPING" />
             <Button type="simple" id="sm_status_clocked" text="CLOCKED" />
         </Container>
-        <Container id="collision" title="Collision" width="hug" height="hug" layout="stack">
+        <Container id="collision" title="Collision" width="fill" height="hug" layout="stack">
             <Button type="simple" id="sm_coll_wall" text="WALL" />
             <Button type="simple" id="sm_coll_newtonoid" text="NEWTONOID" />
             <Button type="simple" id="sm_coll_projectile" text="PROJECTILE" />
             <Button type="simple" id="sm_coll_effect" text="EFFECT" />
             <Button type="simple" id="sm_coll_camera" text="CAMERA" />
-        </Container>
-    </View>
-
-    <!-- ================= WORLD view ================= -->
-    <!-- Starts disabled (enabled when a world is the active selection context). -->
-    <View id="world_view" type="STATE_MANAGER_WORLD_VIEW" enabled="false" scroll="y" layout="stack">
-        <Container id="world_flags" title="World" width="hug" height="hug" layout="stack">
-            <Button type="simple" id="sm_world_active" text="ACTIVE" />
-            <Button type="simple" id="sm_world_visible" text="VISIBLE" />
-            <Button type="simple" id="sm_world_selectable" text="SELECTABLE" />
-            <Button type="simple" id="sm_world_physics" text="PHYSICS" />
-            <Button type="simple" id="sm_world_spawns" text="SPAWNS" />
-            <Button type="simple" id="sm_world_locked" text="LOCKED" />
-            <Button type="simple" id="sm_world_drag" text="DRAG" />
-        </Container>
-        <Container id="world_physics" title="Physics" width="hug" height="hug" layout="stack">
-            <TextField id="sm_world_restitution" label="Restitution" type="float" io="safe" />
-            <TextField id="sm_world_friction" label="Friction" type="float" io="safe" />
-        </Container>
-    </View>
-
-    <!-- ================= CELL view ================= -->
-    <!-- Starts disabled (enabled when a cell is the active selection context). -->
-    <View id="cell_view" type="STATE_MANAGER_CELL_STATE_VIEW" enabled="false" scroll="y" layout="stack">
-        <Container id="cell_phys" title="Cell" width="hug" height="hug" layout="stack">
-            <TextField id="sm_cell_index" label="Index" type="integer" io="readonly" />
-            <TextField id="sm_cell_occu" label="Occu" type="integer" io="readonly" />
-            <TextField id="sm_cell_value" label="Value" type="float" io="readonly" />
-            <TextField id="sm_cell_fill" label="Fill" type="float" io="readonly" />
-            <!-- Read-only tile_type readout (authoring stays paint-only; the Cell View never edits it). -->
-            <TextField id="sm_cell_tile_type" label="Tile" type="integer" io="readonly" />
-            <TextField id="sm_cell_warp_u" label="Warp U" type="vector2" io="safe" />
-            <TextField id="sm_cell_warp_v" label="Warp V" type="vector2" io="safe" />
-        </Container>
-        <Container id="cell_flags" title="Flags" width="hug" height="hug" layout="stack">
-            <Button type="simple" id="sm_cell_solid" text="SOLID" />
-            <Button type="simple" id="sm_cell_walkable" text="WALKABLE" />
-            <Button type="simple" id="sm_cell_hazard" text="HAZARD" />
-            <Button type="simple" id="sm_cell_spawn" text="SPAWN" />
-        </Container>
-    </View>
-
-    <!-- ================= ANCESTRY view ================= -->
-    <!-- Read-only display of the primary selection's ancestry chain and relation, migrated from -->
-    <!-- the former left panel. All rows are readonly <Textbox> controls carrying binding= (a    -->
-    <!-- value SOURCE only); the binding core refreshes each per frame from its BIND_STRING query -->
-    <!-- shim. Six pre-declared line slots cover the chain; lines beyond its length render blank. -->
-    <View id="ancestry_view" type="STATE_MANAGER_ANCESTRY_VIEW" enabled="false" scroll="y" layout="stack">
-        <Container id="ancestry" title="Ancestry" width="hug" height="fill" layout="stack_wrap">
-            <Textbox id="ancestry_selected" io="readonly" binding="ancestry.selected" size="5.25,0.5" width="fixed" height="fixed" />
-            <Textbox id="ancestry_line0" io="readonly" binding="ancestry.line0" size="5.25,0.5" width="fixed" height="fixed" />
-            <Textbox id="ancestry_line1" io="readonly" binding="ancestry.line1" size="5.25,0.5" width="fixed" height="fixed" />
-            <Textbox id="ancestry_line2" io="readonly" binding="ancestry.line2" size="5.25,0.5" width="fixed" height="fixed" />
-            <Textbox id="ancestry_line3" io="readonly" binding="ancestry.line3" size="5.25,0.5" width="fixed" height="fixed" />
-            <Textbox id="ancestry_line4" io="readonly" binding="ancestry.line4" size="5.25,0.5" width="fixed" height="fixed" />
-            <Textbox id="ancestry_line5" io="readonly" binding="ancestry.line5" size="5.25,0.5" width="fixed" height="fixed" />
-            <Textbox id="ancestry_relation" io="readonly" binding="ancestry.relation" size="5.25,0.5" width="fixed" height="fixed" />
         </Container>
     </View>
 
@@ -186,33 +126,46 @@
     <!-- imperatively via UpdateString64 in RefreshComponentsView (binding-less, like     -->
     <!-- the CELL readouts in RefreshCellView).                                           -->
     <View id="components_view" type="STATE_MANAGER_COMPONENTS_VIEW" scroll="y" layout="stack">
-        <Container id="comp_attached" title="Attached" width="hug" height="hug" layout="stack">
+        <Container id="comp_attached" title="Attached" width="fill" height="hug" layout="stack">
             <Container id="comp_row0" width="hug" height="hug" layout="inline">
-                <Textbox id="comp_row0_name" io="readonly" size="4,0.5" width="fixed" height="fixed" />
-                <Button type="simple" id="comp_row0_remove" text="REMOVE" size="2.5,0.5" width="fixed" height="fixed" />
+                <Textbox id="comp_row0_name" io="readonly" size="3.2,0.5" width="fixed" height="fixed" />
+                <Button type="simple" id="comp_row0_remove" text="REMOVE" size="2.0,0.5" width="fixed" height="fixed" />
             </Container>
             <Container id="comp_row1" width="hug" height="hug" layout="inline">
-                <Textbox id="comp_row1_name" io="readonly" size="4,0.5" width="fixed" height="fixed" />
-                <Button type="simple" id="comp_row1_remove" text="REMOVE" size="2.5,0.5" width="fixed" height="fixed" />
+                <Textbox id="comp_row1_name" io="readonly" size="3.2,0.5" width="fixed" height="fixed" />
+                <Button type="simple" id="comp_row1_remove" text="REMOVE" size="2.0,0.5" width="fixed" height="fixed" />
             </Container>
             <Container id="comp_row2" width="hug" height="hug" layout="inline">
-                <Textbox id="comp_row2_name" io="readonly" size="4,0.5" width="fixed" height="fixed" />
-                <Button type="simple" id="comp_row2_remove" text="REMOVE" size="2.5,0.5" width="fixed" height="fixed" />
+                <Textbox id="comp_row2_name" io="readonly" size="3.2,0.5" width="fixed" height="fixed" />
+                <Button type="simple" id="comp_row2_remove" text="REMOVE" size="2.0,0.5" width="fixed" height="fixed" />
             </Container>
             <Container id="comp_row3" width="hug" height="hug" layout="inline">
-                <Textbox id="comp_row3_name" io="readonly" size="4,0.5" width="fixed" height="fixed" />
-                <Button type="simple" id="comp_row3_remove" text="REMOVE" size="2.5,0.5" width="fixed" height="fixed" />
+                <Textbox id="comp_row3_name" io="readonly" size="3.2,0.5" width="fixed" height="fixed" />
+                <Button type="simple" id="comp_row3_remove" text="REMOVE" size="2.0,0.5" width="fixed" height="fixed" />
             </Container>
             <Container id="comp_row4" width="hug" height="hug" layout="inline">
-                <Textbox id="comp_row4_name" io="readonly" size="4,0.5" width="fixed" height="fixed" />
-                <Button type="simple" id="comp_row4_remove" text="REMOVE" size="2.5,0.5" width="fixed" height="fixed" />
+                <Textbox id="comp_row4_name" io="readonly" size="3.2,0.5" width="fixed" height="fixed" />
+                <Button type="simple" id="comp_row4_remove" text="REMOVE" size="2.0,0.5" width="fixed" height="fixed" />
             </Container>
         </Container>
-        <Container id="comp_add" title="Add Component" width="hug" height="hug" layout="stack">
+        <Container id="comp_add" title="Add Component" width="fill" height="hug" layout="stack">
             <Button type="simple" id="comp_add_portal" text="PORTAL" size="4,0.5" width="fixed" height="fixed" />
             <Button type="simple" id="comp_add_rotor"  text="ROTOR"  size="4,0.5" width="fixed" height="fixed" />
             <Button type="simple" id="comp_add_gear"   text="GEAR"   size="4,0.5" width="fixed" height="fixed" />
             <Button type="simple" id="comp_add_health" text="HEALTH" size="4,0.5" width="fixed" height="fixed" />
+        </Container>
+        <!-- Component data fields (moved from the old PHYS view). Their visibility is driven from C -->
+        <!-- by the attached components; in multi-select they show the primary's values, read-only.   -->
+        <Container id="gameplay" title="Health / Damage" width="fill" height="hug" layout="stack">
+            <TextField id="sm_health" label="Health" type="float" io="safe" />
+            <TextField id="sm_max_health" label="MaxHealth" type="float" io="safe" />
+            <TextField id="sm_damage" label="Damage" type="float" io="safe" />
+        </Container>
+        <Container id="components" title="Component Data" width="fill" height="hug" layout="stack">
+            <TextField id="sm_portal_cooldown" label="Portal Cooldown" type="integer" io="safe" />
+            <TextField id="sm_portal_target_id" label="Portal Dest." type="integer" io="safe" />
+            <TextField id="sm_portal_roles" label="Portal Roles" type="integer" io="readonly" />
+            <TextField id="sm_relation_type" label="Relation Type" type="integer" io="readonly" />
         </Container>
     </View>
 
@@ -224,10 +177,12 @@
     <!-- comp_rowN and ANCESTRY ancestry_lineN fixed slots. No binding= on the rows: they are         -->
     <!-- refreshed imperatively via the TextboxField/RefreshTextboxFields path.                        -->
     <View id="geometry_view" type="STATE_MANAGER_GEOMETRY_VIEW" scroll="y" layout="stack">
-        <Container id="geo_summary" title="Surface" width="hug" height="hug" layout="stack">
+        <Container id="geo_summary" title="Surface" width="fill" height="hug" layout="stack">
             <TextField id="geo_vertex_count" label="Vertices" type="integer" io="readonly" />
+            <TextField id="sm_bounds_min" label="Bounds.min" type="vector2" io="readonly" />
+            <TextField id="sm_geo_center" label="Geo.center" type="vector2" io="readonly" />
         </Container>
-        <Container id="geo_vertices" title="Vertices (local)" width="hug" height="fill" layout="stack">
+        <Container id="geo_vertices" title="Vertices (local)" width="fill" height="fill" layout="stack">
             <TextField id="geo_vertex0"  label="V0"  type="vector2" io="readonly" />
             <TextField id="geo_vertex1"  label="V1"  type="vector2" io="readonly" />
             <TextField id="geo_vertex2"  label="V2"  type="vector2" io="readonly" />
@@ -294,4 +249,61 @@
             <TextField id="geo_vertex63" label="V63" type="vector2" io="readonly" />
         </Container>
     </View>
+    <!-- ================= ANCESTRY view ================= -->
+    <!-- Read-only display of the primary selection's ancestry chain and relation, migrated from -->
+    <!-- the former left panel. All rows are readonly <Textbox> controls carrying binding= (a    -->
+    <!-- value SOURCE only); the binding core refreshes each per frame from its BIND_STRING query -->
+    <!-- shim. Six pre-declared line slots cover the chain; lines beyond its length render blank. -->
+    <View id="ancestry_view" type="STATE_MANAGER_ANCESTRY_VIEW" enabled="false" scroll="y" layout="stack">
+        <Container id="ancestry" title="Ancestry" width="fill" height="fill" layout="stack_wrap">
+            <Textbox id="ancestry_selected" io="readonly" binding="ancestry.selected" size="5.25,0.5" width="fill" height="fixed" />
+            <Textbox id="ancestry_line0" io="readonly" binding="ancestry.line0" size="5.25,0.5" width="fill" height="fixed" />
+            <Textbox id="ancestry_line1" io="readonly" binding="ancestry.line1" size="5.25,0.5" width="fill" height="fixed" />
+            <Textbox id="ancestry_line2" io="readonly" binding="ancestry.line2" size="5.25,0.5" width="fill" height="fixed" />
+            <Textbox id="ancestry_line3" io="readonly" binding="ancestry.line3" size="5.25,0.5" width="fill" height="fixed" />
+            <Textbox id="ancestry_line4" io="readonly" binding="ancestry.line4" size="5.25,0.5" width="fill" height="fixed" />
+            <Textbox id="ancestry_line5" io="readonly" binding="ancestry.line5" size="5.25,0.5" width="fill" height="fixed" />
+            <Textbox id="ancestry_relation" io="readonly" binding="ancestry.relation" size="5.25,0.5" width="fill" height="fixed" />
+        </Container>
+    </View>
+
+    <!-- ================= WORLD view ================= -->
+    <!-- Starts disabled (enabled when a world is the active selection context). -->
+    <View id="world_view" type="STATE_MANAGER_WORLD_VIEW" enabled="false" scroll="y" layout="stack">
+        <Container id="world_flags" title="World" width="fill" height="hug" layout="stack">
+            <Button type="simple" id="sm_world_active" text="ACTIVE" />
+            <Button type="simple" id="sm_world_visible" text="VISIBLE" />
+            <Button type="simple" id="sm_world_selectable" text="SELECTABLE" />
+            <Button type="simple" id="sm_world_physics" text="PHYSICS" />
+            <Button type="simple" id="sm_world_spawns" text="SPAWNS" />
+            <Button type="simple" id="sm_world_locked" text="LOCKED" />
+            <Button type="simple" id="sm_world_drag" text="DRAG" />
+        </Container>
+        <Container id="world_physics" title="Physics" width="fill" height="hug" layout="stack">
+            <TextField id="sm_world_restitution" label="Restitution" type="float" io="safe" />
+            <TextField id="sm_world_friction" label="Friction" type="float" io="safe" />
+        </Container>
+    </View>
+
+    <!-- ================= CELL view ================= -->
+    <!-- Starts disabled (enabled when a cell is the active selection context). -->
+    <View id="cell_view" type="STATE_MANAGER_CELL_STATE_VIEW" enabled="false" scroll="y" layout="stack">
+        <Container id="cell_phys" title="Cell" width="fill" height="hug" layout="stack">
+            <TextField id="sm_cell_index" label="Index" type="integer" io="readonly" />
+            <TextField id="sm_cell_occu" label="Occu" type="integer" io="readonly" />
+            <TextField id="sm_cell_value" label="Value" type="float" io="readonly" />
+            <TextField id="sm_cell_fill" label="Fill" type="float" io="readonly" />
+            <!-- Read-only tile_type readout (authoring stays paint-only; the Cell View never edits it). -->
+            <TextField id="sm_cell_tile_type" label="Tile" type="integer" io="readonly" />
+            <TextField id="sm_cell_warp_u" label="Warp U" type="vector2" io="safe" />
+            <TextField id="sm_cell_warp_v" label="Warp V" type="vector2" io="safe" />
+        </Container>
+        <Container id="cell_flags" title="Flags" width="fill" height="hug" layout="stack">
+            <Button type="simple" id="sm_cell_solid" text="SOLID" />
+            <Button type="simple" id="sm_cell_walkable" text="WALKABLE" />
+            <Button type="simple" id="sm_cell_hazard" text="HAZARD" />
+            <Button type="simple" id="sm_cell_spawn" text="SPAWN" />
+        </Container>
+    </View>
+
 </ViewHost>

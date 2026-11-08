@@ -764,6 +764,19 @@ static UIBuildResult BuildTextbox(mxml_node_t *node, UIElement *parent, const UI
     return (UIBuildResult){ .element = textbox };
 }
 
+// Helper: resolve the child layout of a panel-level element (<ViewHost>/<View>). When the
+// resolved flow is plain FLOW_STACKED and no gap= was authored, the panel uses the 6 px
+// ui_view_stack_spacing between its top-level blocks (header, tab row, sections) instead of the
+// 3 px standard gap; any other layout, or an authored gap=, is returned unchanged.
+static Layout UILoader_PanelLayout(mxml_node_t *node, Layout resolved)
+{
+    if (resolved.flow == FLOW_STACKED && !mxmlElementGetAttr(node, "gap"))
+    {
+        return ui_view_stack_spacing;
+    }
+    return resolved;
+}
+
 /**
  * Create a container from the common attributes. Shared by every container-like builder
  * (Container, View, ViewHost, ViewSelector). Size, offset and enabled come from the common pass;
@@ -784,7 +797,9 @@ static UIElement *UILoader_CreateContainerFromCommon(UIElement *parent, const UI
 
 /**
  * Builder for <Container> elements: a box that groups children, with an optional title.
- * Attributes: title (optional - adds a heading label and the section edge tint when set),
+ * Attributes: title (optional - when set the container becomes a boxed section: container
+ *             fill, 1 px container border, 6 px padding and a heading label; when absent it
+ *             is a transparent layout box),
  *             size (optional "w,h"), width/height (optional per-axis mode
  *             "fixed|percent|fill|hug"), offset (optional "x,y"),
  *             offset-mode (optional "fixed"/"percent"), layout (optional).
@@ -796,18 +811,24 @@ static UIBuildResult BuildContainer(mxml_node_t *node, UIElement *parent,
 {
     // Size, offset, layout and enabled all come from the common pass (size seeded with
     // ui_standard_container_size); the skeleton re-asserts the same enabled value afterwards.
-    UIElement *container = UILoader_CreateContainerFromCommon(parent, palette, common,
-                                ui_standard_container_padding,
-                                UI_PALETTE_SURFACE_CONTAINER, common->layout);
-
-    // An authored title turns the box into a titled "section": it gets the panel-control
-    // edge tint and a heading label child. A title-less container stays a plain box with
-    // the default container border (and no phantom empty-label slot).
+    // Surface and padding follow the title (style v2):
+    //  - titled   -> a boxed "section": CONTAINER surface (container fill + 1 px container
+    //                border) with the 6 px section padding;
+    //  - untitled -> a transparent layout box (strips, chip rows, component rows) with the
+    //                standard 3 px inset, so it never turns into a boxed section.
+    // An authored padding= always wins, and an authored surface= is applied afterwards by the
+    // common skeleton, so markup can still opt an untitled container into the boxed look.
     const char *title = mxmlElementGetAttr(node, "title");
-    if (container && title && title[0] != '\0')
+    bool titled = title && title[0] != '\0';
+    UIElement *container = UILoader_CreateContainerFromCommon(parent, palette, common,
+                                titled ? ui_section_padding : ui_standard_container_padding,
+                                titled ? UI_PALETTE_SURFACE_CONTAINER : UI_PALETTE_SURFACE_TRANSPARENT,
+                                common->layout);
+
+    // An authored title also adds the heading label child (a title-less container gets no
+    // phantom empty-label slot).
+    if (container && titled)
     {
-        container->colour_border = palette ? palette->button_border
-                                           : ui_default_palette.button_border;
         // Heading uses the larger title font (FONT_LARGE) so section titles sit above controls.
         // Title width HUGS its measured text (ui_title_size) so long titles are never clipped.
         CreateUILabelTitleDefault(container, title, ui_title_size,
@@ -876,9 +897,12 @@ static UIBuildResult BuildView(mxml_node_t *node, UIElement *parent,
     // Create container with UI_ELEMENT_VIEW type so post-processor can find it. Size/offset/
     // layout/enabled all come from the common pass; the offset is consumed at construct time
     // so the skeleton does not re-apply it.
+    // Padding: authored padding= when present, else zero (the parent ViewHost already supplies
+    // the 6 px panel inset, so a View adds none of its own). Dark panel surface, no border
+    // (style v2); layout= honoured, with the 6 px stacked default gap.
     UIElement *container = UILoader_CreateContainerFromCommon(parent, palette, common,
-                                ui_standard_container_padding,
-                                UI_PALETTE_SURFACE_CONTAINER, common->layout);
+                                ZERO_VECTOR_2D, UI_PALETTE_SURFACE_PANEL,
+                                UILoader_PanelLayout(node, common->layout));
 
     if (container)
     {
@@ -936,7 +960,8 @@ static UIBuildResult BuildViewSelector(mxml_node_t *node, UIElement *parent,
 
     if (toggle_cont)
     {
-        toggle_cont->colour_border = palette->container_border;
+        // No border on the tab bar itself: borders are now drawn whenever their alpha is
+        // non-zero, so the transparent surface's empty border keeps the bar unboxed.
         // Record the selector container so the post-process pass can locate it.
         g_markup_table.selector_cont = toggle_cont;
     }
@@ -1022,9 +1047,11 @@ static UIBuildResult BuildViewHost(mxml_node_t *node, UIElement *parent,
     // A plain fill-size container; the real UI_ELEMENT_ROOT is built by
     // ViewHostSystem_InitRoot in InitLPanel and this container is re-parented under
     // it. parent is NULL at the document root.
+    // Padding: authored padding= when present, else the host inset (root 0.10 + 0.02 = 6 px).
+    // Dark panel surface (style v2); layout= honoured, with the 6 px stacked default gap.
     UIElement *host = UILoader_CreateContainerFromCommon(parent, palette, common,
-                                ui_standard_container_padding,
-                                UI_PALETTE_SURFACE_CONTAINER, common->layout);
+                                ui_host_padding, UI_PALETTE_SURFACE_PANEL,
+                                UILoader_PanelLayout(node, common->layout));
 
     // Single-element builder: control == outer (offset consumed at construct time).
     return (UIBuildResult){ .element = host };
@@ -1246,6 +1273,10 @@ static bool UILoader_ParseSurface(UILoaderContext *ctx, const char *surface_str,
         *out = UI_PALETTE_SURFACE_INPUT;
     else if (!strcmp(surface_str, "button"))
         *out = UI_PALETTE_SURFACE_BUTTON;
+    else if (!strcmp(surface_str, "panel"))
+        *out = UI_PALETTE_SURFACE_PANEL;
+    else if (!strcmp(surface_str, "danger"))
+        *out = UI_PALETTE_SURFACE_DANGER;
     else
     {
         // Unrecognised value: warn and leave the constructor colours unchanged.

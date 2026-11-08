@@ -352,7 +352,7 @@ void InitToolbar(void)
     // 1) Load the authoritative markup with the toolbar's own resolvers (no view-type resolver:
     //    the toolbar is a single Container root, not a multi-view ViewHost).
     UIElement *root = UILoader_LoadFromFileWithResolvers(
-        "C:\\Projects\\raylib-testing\\src\\engine\\ui\\components\\toolbar.xml",
+        UI_COMPONENTS_DIR "/toolbar.xml",
         &ui_default_palette,
         Toolbar_ResolveBinding,
         Toolbar_ResolveCommand,
