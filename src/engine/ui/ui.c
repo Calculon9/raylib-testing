@@ -1554,12 +1554,14 @@ void UIElement_RefreshBinding(UIElement *e)
         bool on = (value.as.i != 0);
         safe_strncpy(e->data.button.display_text.string, e->data.button.text.string,
                      sizeof(e->data.button.display_text.string));
-        if (value.as.i == BIND_TOGGLE_MIXED)
+        if (BIND_TOGGLE_IS_MIXED(value.as.i))
         {
-            // Bulk selection whose targets disagree: suffix the label and show the OFF fill (a
-            // click sets everything ON). snprintf truncates safely if the label is long.
+            // Bulk selection whose targets disagree: suffix the label with the "<on>/<applicable>"
+            // count and show the OFF fill (a click sets everything ON). snprintf truncates safely
+            // if the label is long.
             snprintf(e->data.button.display_text.string, sizeof(e->data.button.display_text.string),
-                     "%s (MIXED)", e->data.button.text.string);
+                     "%s: %d/%d", e->data.button.text.string,
+                     BIND_TOGGLE_ON(value.as.i), BIND_TOGGLE_TOTAL(value.as.i));
             if (e->on_draw == NULL)
             {
                 e->colour_fill = ui_default_palette.toggle_off_fill;

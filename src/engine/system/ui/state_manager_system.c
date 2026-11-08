@@ -1,6 +1,8 @@
 #include "system/ui/state_manager_system.h"
 #include <string.h>
 #include "system/command_system.h"
+#include "ui/ui_input.h"                         // ResetUIInputState (drop focus when fields lock)
+#include "ui/cfont.h"                            // FONT_LARGE_WITH_COLOUR / FONT_MEDIUM_WITH_COLOUR
 #include "system/ui/ui_loader.h"
 #include "system/view_host_system.h"
 #include "system/systems.h"
@@ -29,6 +31,18 @@
 static ViewHostSystem *state_manager_panel = NULL;
 
 static bool state_manager_refresh_dirty = true;
+
+// Selection-driven layout state (see "Selection-driven layout" below).
+static ViewSelector *s_sm_selector = NULL;   // The entity tab selector (NULL if allocation failed).
+static int s_sm_entity_tab = 0;              // Entity tab remembered across world / cell selections.
+static int s_sm_shown_view = -1;             // View currently shown (-1 until first layout).
+static bool s_sm_fields_locked = false;      // Cached lock state, so types only change on a flip.
+static ColourRgba s_sm_header_default_fill;  // Header box fill captured at load (restored when untinted).
+
+// Chip click payloads: one static TargetKind per chip (index == kind - 1).
+static const TargetKind s_sm_chip_kinds[3] = { TARGET_KIND_ENTITY, TARGET_KIND_WORLD, TARGET_KIND_CELL };
+
+static void HandleKindChipClick(UIElement *chip); // Defined with the layout code; wired at registration.
 
 // Component button binding: associates a button control with an EntityComponentType.
 typedef struct StateManagerComponentButton
@@ -63,20 +77,23 @@ typedef struct StateManagerUI
     // Action codes
     int delete_action;
 
-    // Component toggle buttons
-    StateManagerComponentButton comp_buttons[4];
-
     // COMP view (Phase 1): Add-component buttons (PORTAL/ROTOR/GEAR/HEALTH; RELATION/WORLD
     // excluded) and the fixed attached-row slots (name + Remove). The refresh shows/hides and
     // relabels these to mirror the selected entity's attached set.
     StateManagerComponentButton add_buttons[4];
     StateManagerComponentRow attached_rows[5];
 
-    // Identity readouts
-    UIElement *id_tbox;
-    UIElement *slot_tbox;
-    UIElement *generation_tbox;
-    UIElement *world_tbox;
+    // Header (selection-driven title / sub-line, tint, kind chips) and view-switching state.
+    UIElement *header_box;          // entity_header container; its fill is tinted in multi-select
+    UIElement *header_title;        // FONT_LARGE title textbox
+    UIElement *header_sub;          // FONT_MEDIUM sub-line textbox
+    UIElement *kind_chips;          // chip row container (multi-select only)
+    UIElement *kind_chip[3];        // ENTITY / WORLD / CELL chips (index == TargetKind - 1)
+    UIElement *values_note;         // "values: primary only" note, shown in multi-select
+    UIElement *delete_button;       // sm_delete (label reflects the selection)
+    UIElement *tab_container;       // the ViewSelector's container (hidden for world / cell)
+    UIElement *world_view_container;
+    UIElement *cell_view_container;
 
     // Physics readouts
     UIElement *mass_tbox;
@@ -453,7 +470,7 @@ static int StateManager_ResolveCommand(const char *cmd_string, UILoaderContext *
 }
 
 // Defined below with the other bulk-edit queries; forward-declared for the binding resolver.
-static BindingValue StateManager_QuerySelectionCount(int key);
+static BindingValue StateManager_QueryHeader(int key);
 
 // Resolve data bindings for the state-manager fields.
 // STAGE 1: field values stay driven by the per-frame C refresh (RefreshPhysView etc.), so no
@@ -511,13 +528,13 @@ static UIBinding StateManager_ResolveBinding(const char *binding_string, UILoade
         return (UIBinding){ .kind = UI_BIND_SRC_NONE };
     }
 
-    // Selection header: read-only "Editing N targets" label shown when several are selected.
-    if (!strcmp(binding_string, "sm.selection"))
+    // Entity Manager header: read-only title / sub-line chosen by the current selection.
+    if (!strcmp(binding_string, "sm.header.title") || !strcmp(binding_string, "sm.header.sub"))
     {
         return (UIBinding){
             .kind = UI_BIND_SRC_QUERY,
-            .query = StateManager_QuerySelectionCount,
-            .query_key = 0,
+            .query = StateManager_QueryHeader,
+            .query_key = !strcmp(binding_string, "sm.header.sub") ? 1 : 0, // HEADER_KEY_SUB / _TITLE
             .value_type = BIND_STRING,
         };
     }
@@ -765,16 +782,16 @@ typedef struct FlagTally
     int on;
 } FlagTally;
 
-// Collapse a tally to the toggle tri-state: 0 off (or nothing applicable), 1 all on,
-// BIND_TOGGLE_MIXED when the applicable targets disagree. Shared by flag and component queries so
-// the display and the click decision always agree.
+// Collapse a tally to the toggle state: 0 off (or nothing applicable), 1 all on, otherwise a
+// packed "<on>/<applicable>" count (BIND_TOGGLE_MIXED_PACK) when the applicable targets disagree.
+// Shared by flag and component queries so the display and the click decision always agree.
 static int StateManager_TriState(int applicable, int on)
 {
     if (applicable == 0 || on == 0)
     {
         return 0;
     }
-    return (on == applicable) ? 1 : BIND_TOGGLE_MIXED;
+    return (on == applicable) ? 1 : BIND_TOGGLE_MIXED_PACK(on, applicable);
 }
 
 // Set `bit` of `family` on one target to `value`. Holds the ROLE exclusivity and SLEEPING
@@ -952,40 +969,118 @@ static FlagTally StateManager_TallyComponent(EntityComponentType type)
     return tally;
 }
 
-// Attached query for the COMPONENT buttons (NOT a bitmask read). Bounds-guards the component type,
-// mirroring RefreshComponentsSection, and reports 0/1/BIND_TOGGLE_MIXED across the selected
-// entities. Key is the EntityComponentType cast to int.
-static BindingValue StateManager_QueryComponentAttached(int component_type)
-{
-    EntityComponentType t = (EntityComponentType)component_type;
-    int state = 0;
-    if (t >= 1 && t <= ENTITY_COMPONENT_HEALTH)
-    {
-        FlagTally tally = StateManager_TallyComponent(t);
-        state = StateManager_TriState(tally.applicable, tally.on);
-    }
-    return (BindingValue){ .type = BIND_INT, .as.i = state };
-}
+// Backing buffers for the header title / sub-line (module-owned so the returned pointers outlive
+// the call). Widest title "EDITING 12 SELECTED"; the sub-line carries slot/gen/world numbers.
+static char state_manager_header_title_text[48];
+static char state_manager_header_sub_text[64];
 
-// Backing buffer for the "N selected" header (module-owned so the returned pointer outlives the call).
-static char state_manager_selection_text[48];
-
-// Query for the selection header: "Editing N targets" when more than one target is selected, else
-// an empty string (BIND_NONE would leave stale text on the box).
-static BindingValue StateManager_QuerySelectionCount(int key)
+// Header query keys: which line of the always-shown header a shim call produces.
+enum
 {
-    (void)key;
+    HEADER_KEY_TITLE = 0,
+    HEADER_KEY_SUB = 1,
+};
+
+// Query for the Entity Manager header (key HEADER_KEY_TITLE or HEADER_KEY_SUB). The selection
+// decides the text: nothing, several (bulk edit), or the primary entity / world / cell. Always
+// returns BIND_STRING (an empty string, never BIND_NONE) so stale text is cleared. Stale or
+// unresolvable refs print "-" rather than being dereferenced.
+static BindingValue StateManager_QueryHeader(int key)
+{
+    char *out = (key == HEADER_KEY_SUB) ? state_manager_header_sub_text : state_manager_header_title_text;
+    size_t out_bytes = (key == HEADER_KEY_SUB) ? sizeof(state_manager_header_sub_text)
+                                               : sizeof(state_manager_header_title_text);
+    bool want_sub = (key == HEADER_KEY_SUB);
+    out[0] = '\0';
+
     int count = SelectionSet_Count();
-    if (count > 1)
+    TargetRef ref = SelectionSet_Primary();
+
+    if (count <= 0 || ref.kind == TARGET_KIND_NONE)
     {
-        snprintf(state_manager_selection_text, sizeof(state_manager_selection_text),
-                 "Editing %d targets", count);
+        snprintf(out, out_bytes, "%s", want_sub ? "click to select" : "NOTHING SELECTED");
     }
-    else
+    else if (count > 1)
     {
-        state_manager_selection_text[0] = '\0';
+        if (want_sub)
+        {
+            snprintf(out, out_bytes, "applies to all shown");
+        }
+        else
+        {
+            snprintf(out, out_bytes, "EDITING %d SELECTED", count);
+        }
     }
-    return (BindingValue){ .type = BIND_STRING, .as.s = state_manager_selection_text };
+    else if (ref.kind == TARGET_KIND_ENTITY)
+    {
+        if (!want_sub)
+        {
+            snprintf(out, out_bytes, "ENTITY #%d", (int)ref.as.entity);
+        }
+        else
+        {
+            // World index comes from the universe lookup, as RefreshPhysView does.
+            int world_index = -1;
+            Newtonoid2d *o = Universe_GetEntityByID(&G_Universe, ref.as.entity, &world_index);
+            if (o)
+            {
+                snprintf(out, out_bytes, "slot %u  gen %u  world %d",
+                         (unsigned)EntityId_GetSlotIndex(ref.as.entity),
+                         (unsigned)EntityId_GetGeneration(ref.as.entity), world_index);
+            }
+            else
+            {
+                snprintf(out, out_bytes, "-");
+            }
+        }
+    }
+    else if (ref.kind == TARGET_KIND_WORLD)
+    {
+        if (!want_sub)
+        {
+            if (ref.as.world_index == UNIVERSE_ROOT_WORLD_INDEX)
+            {
+                snprintf(out, out_bytes, "ROOT WORLD");
+            }
+            else
+            {
+                snprintf(out, out_bytes, "WORLD #%d", ref.as.world_index);
+            }
+        }
+        else
+        {
+            World2d *w = Universe_GetWorld(&G_Universe, ref.as.world_index);
+            if (w)
+            {
+                snprintf(out, out_bytes, "flags 0x%04X", (unsigned)w->flags);
+            }
+            else
+            {
+                snprintf(out, out_bytes, "-");
+            }
+        }
+    }
+    else // TARGET_KIND_CELL
+    {
+        if (!want_sub)
+        {
+            snprintf(out, out_bytes, "CELL (%d,%d)", ref.as.cell.lattice_x, ref.as.cell.lattice_y);
+        }
+        else
+        {
+            Cell *c = UIState_ResolveCellRef(ref);
+            if (c)
+            {
+                snprintf(out, out_bytes, "world %d  tile %d", ref.as.cell.world_index, (int)c->tile_type);
+            }
+            else
+            {
+                snprintf(out, out_bytes, "world %d  tile -", ref.as.cell.world_index);
+            }
+        }
+    }
+
+    return (BindingValue){ .type = BIND_STRING, .as.s = out };
 }
 
 // ============================================================================
@@ -1122,24 +1217,6 @@ static void StateManager_ApplyComponentToSelection(EntityComponentType type, boo
     }
 }
 
-// Toggle a component across the selection: if every applicable entity has it, remove it from all;
-// otherwise add it to those lacking it.
-static void HandleComponentToggleClick(UIElement *button)
-{
-    if (!button || !button->interaction_user_data)
-    {
-        return;
-    }
-
-    const StateManagerComponentButton *spec = (const StateManagerComponentButton *)button->interaction_user_data;
-    FlagTally tally = StateManager_TallyComponent(spec->type);
-    if (tally.applicable == 0)
-    {
-        return;
-    }
-    StateManager_ApplyComponentToSelection(spec->type, tally.on != tally.applicable);
-}
-
 // Attach the addable component the clicked Add button represents, with defaults, to every
 // selected entity lacking it (deferred via the existing command queue). One shared handler
 // serves all four Add buttons: the type is read from the button's interaction_user_data spec.
@@ -1237,12 +1314,40 @@ static void StateManager_WireFlags(UIElement *root, StateManagerFlagButton *butt
 // fails to resolve is logged and left NULL; the Refresh* helpers null-guard every pointer.
 static void StateManager_RegisterElements(UIElement *root)
 {
-    // --- Identity / physics / geometry / gameplay textboxes (ALL re-acquired in Stage 1) ---
-    s_sm_ui.id_tbox         = StateManager_Find(root, "sm_id");
-    s_sm_ui.slot_tbox       = StateManager_Find(root, "sm_slot");
-    s_sm_ui.generation_tbox = StateManager_Find(root, "sm_generation");
-    s_sm_ui.world_tbox      = StateManager_Find(root, "sm_world");
+    // --- Header (title / sub-line / tint box), kind chips, tab row, per-kind views, note ---
+    s_sm_ui.header_box   = StateManager_Find(root, "entity_header");
+    s_sm_ui.header_title = StateManager_Find(root, "sm_header_title");
+    s_sm_ui.header_sub   = StateManager_Find(root, "sm_header_sub");
+    if (s_sm_ui.header_box)
+    {
+        s_sm_header_default_fill = s_sm_ui.header_box->colour_fill; // restored when untinted
+    }
+    s_sm_ui.values_note = StateManager_Find(root, "sm_values_note");
+    if (s_sm_ui.values_note)
+    {
+        // Static caption (a Textbox value= attribute would be parsed as a number, so set it here).
+        snprintf(s_sm_ui.values_note->data.textbox.text.string,
+                 sizeof(s_sm_ui.values_note->data.textbox.text.string), "values: primary only");
+    }
+    if (s_sm_ui.header_title)
+    {
+        // Titles use FONT_LARGE; the tint pass re-applies it with the right ink colour.
+        s_sm_ui.header_title->data.textbox.font = FONT_LARGE_WITH_COLOUR(ui_default_palette.text);
+    }
+    s_sm_ui.kind_chips = StateManager_Find(root, "kind_chips");
+    static const char *chip_ids[3] = {"sm_kind_entity", "sm_kind_world", "sm_kind_cell"};
+    for (int i = 0; i < 3; i++)
+    {
+        s_sm_ui.kind_chip[i] = StateManager_Find(root, chip_ids[i]);
+        if (s_sm_ui.kind_chip[i])
+        {
+            s_sm_ui.kind_chip[i]->on_click = HandleKindChipClick;
+            s_sm_ui.kind_chip[i]->interaction_user_data = (void *)&s_sm_chip_kinds[i];
+        }
+    }
+    s_sm_ui.tab_container = StateManager_Find(root, "state_manager_views");
 
+    // --- Physics / geometry / gameplay textboxes (ALL re-acquired in Stage 1) ---
     s_sm_ui.mass_tbox                 = StateManager_Find(root, "sm_mass");
     s_sm_ui.restitution_tbox          = StateManager_Find(root, "sm_restitution");
     s_sm_ui.friction_tbox             = StateManager_Find(root, "sm_friction");
@@ -1370,29 +1475,6 @@ static void StateManager_RegisterElements(UIElement *root)
                            StateManager_QueryCellWarp, StateManager_WriteCellWarp, 1);
     }
 
-    // --- Component toggle buttons (labels/types set in C; only .button re-acquired + wired) ---
-    s_sm_ui.comp_buttons[0] = (StateManagerComponentButton){"PORTAL", ENTITY_COMPONENT_PORTAL, StateManager_Find(root, "sm_comp_portal")};
-    s_sm_ui.comp_buttons[1] = (StateManagerComponentButton){"ROTOR",  ENTITY_COMPONENT_ROTOR,  StateManager_Find(root, "sm_comp_rotor")};
-    s_sm_ui.comp_buttons[2] = (StateManagerComponentButton){"GEAR",   ENTITY_COMPONENT_GEAR,   StateManager_Find(root, "sm_comp_gear")};
-    s_sm_ui.comp_buttons[3] = (StateManagerComponentButton){"HEALTH", ENTITY_COMPONENT_HEALTH, StateManager_Find(root, "sm_comp_health")};
-    for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.comp_buttons); i++)
-    {
-        if (s_sm_ui.comp_buttons[i].button)
-        {
-            s_sm_ui.comp_buttons[i].button->on_click  = HandleComponentToggleClick;
-            s_sm_ui.comp_buttons[i].button->interaction_user_data = (void *)&s_sm_ui.comp_buttons[i];
-
-            // Re-attach the component query SOURCE (keyed on component TYPE) so the refresh walk
-            // composes "<label>: ON/OFF" exactly as the former construction loop did.
-            Binding b = {
-                .source = { .kind = BIND_SRC_QUERY, .value_type = BIND_INT,
-                            .query = StateManager_QueryComponentAttached,
-                            .query_key = (int)s_sm_ui.comp_buttons[i].type },
-            };
-            s_sm_ui.comp_buttons[i].button->data.button.binding = Binding_Create(b);
-        }
-    }
-
     // --- COMP view: Add-component buttons (PORTAL/ROTOR/GEAR/HEALTH only; RELATION/WORLD
     //     excluded). Each carries its EntityComponentType in interaction_user_data so the one
     //     shared HandleComponentAddClick handler serves every button. No query-source Binding:
@@ -1448,6 +1530,7 @@ static void StateManager_RegisterElements(UIElement *root)
     // --- DELETE: C-wired (deferred, world-guarded delete); no action= in the XML ---
     s_sm_ui.delete_action = BUTTON_ACTION_DELETE_ENTITY;
     UIElement *del = StateManager_Find(root, "sm_delete");
+    s_sm_ui.delete_button = del;
     if (del)
     {
         del->on_click  = HandleBtnSubmitClick;
@@ -1522,19 +1605,6 @@ static void RefreshComponentsSection(const Newtonoid2d *object)
 
     EntityDescription desc = EntityRegistry_Describe(object);
 
-    // Keep the per-frame enable state for the component toggle buttons (disabled when there is no
-    // valid selection). The ON/OFF label is now owned by the generic refresh walk via each
-    // button's query-source Binding (StateManager_QueryComponentAttached).
-    for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.comp_buttons); i++)
-    {
-        if (!s_sm_ui.comp_buttons[i].button)
-        {
-            continue;
-        }
-
-        s_sm_ui.comp_buttons[i].button->is_enabled = is_valid;
-    }
-
     // Toggle Portal property field row visibility
     bool has_portal = (desc.components[ENTITY_COMPONENT_PORTAL] != NULL);
     SetParentEnabledState(s_sm_ui.comp_portal_cooldown_tbox, has_portal);
@@ -1591,27 +1661,15 @@ static void RefreshComponentsSection(const Newtonoid2d *object)
     }
 }
 
-// Refresh the PHYS view: identity, physics, geometry, gameplay, and component readouts.
+// Refresh the PHYS/SHAPE/COMP value fields: physics, transform, geometry readouts, gameplay and
+// component data. (Header identity is bound separately.)
 static void RefreshPhysView(Newtonoid2d *object)
 {
-    // Derive identity values for the selected object.
-    int slot = object ? (int)EntityId_GetSlotIndex(object->id) : -1;
-    int generation = object ? (int)EntityId_GetGeneration(object->id) : -1;
-    int world_index = -1;
-    if (object)
-    {
-        Universe_GetEntityByID(&G_Universe, object->id, &world_index);
-    }
-    void *world_ptr = (object && world_index >= 0) ? &world_index : NULL;
+    // (Identity now lives in the header, resolved by StateManager_QueryHeader.)
     HealthComponent *health = object ? EntityRegistry_GetHealth(object->id) : NULL;
 
-    // Refresh identity, physics, and gameplay numerical fields.
+    // Refresh physics and gameplay numerical fields.
     TextboxField state_fields[] = {
-        {s_sm_ui.id_tbox, INT, object ? (void *)&object->id : NULL, 0, NULL},
-        {s_sm_ui.slot_tbox, INT, object ? (void *)&slot : NULL, 0, NULL},
-        {s_sm_ui.generation_tbox, INT, object ? (void *)&generation : NULL, 0, NULL},
-        {s_sm_ui.world_tbox, INT, world_ptr, 0, NULL},
-
         {s_sm_ui.mass_tbox, FLOAT, object ? (void *)&object->mass : NULL, 2, NULL},
         {s_sm_ui.restitution_tbox, FLOAT, object ? (void *)&object->restitution : NULL, 2, NULL},
         {s_sm_ui.friction_tbox, FLOAT, object ? (void *)&object->friction : NULL, 2, NULL},
@@ -1749,12 +1807,21 @@ static void RefreshComponentsView(const Newtonoid2d *object)
     if (is_valid)
     {
         EntityDescription desc = EntityRegistry_Describe(object);
+        bool multi = SelectionSet_Count() > 1;
         for (size_t t = 0; t < ARRAY_COUNT(attached_types) && row < ARRAY_COUNT(s_sm_ui.attached_rows); t++)
         {
             EntityComponentType type = attached_types[t];
-            if (desc.components[type] == NULL)
+
+            // Single target: the object's own set. Multi-select: the union over the selected
+            // entities (a row exists when any member has it) with an "<on>/<applicable>" count.
+            FlagTally tally = { .applicable = 1, .on = desc.components[type] ? 1 : 0 };
+            if (multi)
             {
-                continue; // not attached: no row for this type
+                tally = StateManager_TallyComponent(type);
+            }
+            if (tally.on == 0)
+            {
+                continue; // not attached anywhere: no row for this type
             }
 
             // Fill this slot: assign the live type (read by the Remove handler), relabel the name,
@@ -1762,7 +1829,15 @@ static void RefreshComponentsView(const Newtonoid2d *object)
             s_sm_ui.attached_rows[row].type = type;
             if (s_sm_ui.attached_rows[row].name_str)
             {
-                UpdateString64(s_sm_ui.attached_rows[row].name_str->string, "%s", ComponentTypeName(type));
+                if (tally.applicable > 1)
+                {
+                    UpdateString64(s_sm_ui.attached_rows[row].name_str->string, "%s %d/%d",
+                                   ComponentTypeName(type), tally.on, tally.applicable);
+                }
+                else
+                {
+                    UpdateString64(s_sm_ui.attached_rows[row].name_str->string, "%s", ComponentTypeName(type));
+                }
             }
             // Guard each slot pointer: EnableElement/DisableElement dereference without a NULL
             // check, so a row id that failed to resolve in the id pass (e.g. a renamed markup id)
@@ -1804,7 +1879,20 @@ static void RefreshComponentsView(const Newtonoid2d *object)
             continue;
         }
 
-        bool offer = is_valid && !EntityRegistry_HasComponent(object->id, s_sm_ui.add_buttons[i].type);
+        // Offer Add while any selected entity still lacks the component (single target: not attached).
+        bool offer = false;
+        if (is_valid)
+        {
+            if (SelectionSet_Count() > 1)
+            {
+                FlagTally tally = StateManager_TallyComponent(s_sm_ui.add_buttons[i].type);
+                offer = tally.on < tally.applicable;
+            }
+            else
+            {
+                offer = !EntityRegistry_HasComponent(object->id, s_sm_ui.add_buttons[i].type);
+            }
+        }
         if (offer)
         {
             EnableElement(s_sm_ui.add_buttons[i].button);
@@ -1875,9 +1963,284 @@ static void RefreshGeometryView(const Newtonoid2d *object)
     }
 }
 
+// ============================================================================
+// Selection-driven layout (header tint, kind chips, per-kind views, field lock)
+// ============================================================================
+// The primary selection's kind decides which views exist: ENTITY gets the five-tab row, WORLD and
+// CELL get one tab-less view. Chips (multi-select only) promote the last member of a kind to
+// primary, so "active kind" is always "kind of primary" and views, field readouts and the legacy
+// UIState_GetSelected* mirrors agree by construction.
+
+// View indices in markup order. 0..4 are the entity tabs (option index == view index, which the
+// selector relies on); WORLD and CELL are reached only by selection.
+enum
+{
+    SM_VIEW_PHYS = 0,
+    SM_VIEW_FLAGS,
+    SM_VIEW_COMP,
+    SM_VIEW_SHAPE,
+    SM_VIEW_TREE,
+    SM_VIEW_WORLD,
+    SM_VIEW_CELL,
+};
+
+// Selector callback. Runs for user tab clicks (and the layout's own SelectView, which restores the
+// remembered tab afterwards): records the tab and keeps the active-view code in step.
+static void StateManager_OnViewSelected(View *view)
+{
+    ViewHostSystem_HandleViewSelected(view);
+    if (s_sm_selector)
+    {
+        s_sm_entity_tab = (int)s_sm_selector->active_index;
+        s_sm_shown_view = s_sm_entity_tab;
+    }
+}
+
+// Click a kind chip: make the last member of that kind the primary (remove then re-add moves it to
+// the end of the set), then re-derive the single-valued primary fields and refresh the panel.
+static void HandleKindChipClick(UIElement *chip)
+{
+    if (!chip || !chip->interaction_user_data)
+    {
+        return;
+    }
+
+    TargetKind kind = *(const TargetKind *)chip->interaction_user_data;
+    if (SelectionSet_Primary().kind == kind)
+    {
+        return; // Already the edited kind.
+    }
+
+    TargetRef last = { .kind = TARGET_KIND_NONE };
+    int count = SelectionSet_Count();
+    for (int i = 0; i < count; i++)
+    {
+        TargetRef ref;
+        if (SelectionSet_Get(i, &ref) && ref.kind == kind)
+        {
+            last = ref;
+        }
+    }
+    if (last.kind == TARGET_KIND_NONE)
+    {
+        return;
+    }
+
+    SelectionSet_Remove(last);
+    SelectionSet_Add(last);
+    UIState_SyncPrimaryFieldsFromSet();
+    MarkStateManagerRefreshDirty();
+}
+
+// Show exactly one of the panel's views by index (used for the WORLD / CELL views, which have no
+// tab). Mirrors the host's own single-view activation.
+static void StateManager_ShowOnlyView(int view_index)
+{
+    for (int i = 0; i < state_manager_panel->views.count; i++)
+    {
+        View *view = *((View **)LArray_Get(&state_manager_panel->views, i));
+        if (!view || !view->container)
+        {
+            continue;
+        }
+        SetEnabledState(view->container, i == view_index);
+        if (i == view_index)
+        {
+            ViewHostSystem_HandleViewSelected(view);
+        }
+    }
+}
+
+// Tint (or restore) the header box with existing palette colours: amber button_fill with
+// text_on_dark ink when several targets are selected, otherwise the default fill and text ink.
+static void StateManager_SetHeaderTint(bool tinted)
+{
+    if (!s_sm_ui.header_box)
+    {
+        return;
+    }
+
+    ColourRgba ink = tinted ? ui_default_palette.text_on_dark : ui_default_palette.text;
+    s_sm_ui.header_box->colour_fill = tinted ? ui_default_palette.button_fill : s_sm_header_default_fill;
+    if (s_sm_ui.header_title)
+    {
+        s_sm_ui.header_title->data.textbox.font = FONT_LARGE_WITH_COLOUR(ink);
+    }
+    if (s_sm_ui.header_sub)
+    {
+        s_sm_ui.header_sub->data.textbox.font = FONT_MEDIUM_WITH_COLOUR(ink);
+    }
+}
+
+// Lock (read-only) or unlock the single-valued editable fields. Value edits are not bulk-editable
+// yet, so in multi-select they show the primary's values and ignore input. IsEditableTextbox is
+// the single choke point for input, and it keys on the element type, so swapping SAFE_IO <-> O
+// is enough. Only acts when the state flips.
+static void StateManager_SetFieldsLocked(bool locked)
+{
+    if (locked == s_sm_fields_locked)
+    {
+        return;
+    }
+    s_sm_fields_locked = locked;
+
+    UIElement *fields[] = {
+        s_sm_ui.mass_tbox, s_sm_ui.restitution_tbox, s_sm_ui.friction_tbox, s_sm_ui.pos_c_tbox,
+        s_sm_ui.vel_tbox, s_sm_ui.accel_tbox, s_sm_ui.moment_tbox, s_sm_ui.angular_velocity_tbox,
+        s_sm_ui.rotation_tbox, s_sm_ui.basis_u_tbox, s_sm_ui.basis_v_tbox,
+        s_sm_ui.health_tbox, s_sm_ui.max_health_tbox, s_sm_ui.damage_tbox,
+        s_sm_ui.comp_portal_cooldown_tbox, s_sm_ui.comp_portal_target_tbox,
+        s_sm_ui.world_restitution_tbox, s_sm_ui.world_friction_tbox,
+        s_sm_ui.cell_warp_u_tbox, s_sm_ui.cell_warp_v_tbox,
+    };
+    for (size_t i = 0; i < ARRAY_COUNT(fields); i++)
+    {
+        if (fields[i])
+        {
+            fields[i]->type = locked ? UI_ELEMENT_TEXTBOX_O : UI_ELEMENT_TEXTBOX_SAFE_IO;
+        }
+    }
+
+    // Drop focus and any pending edit so a half-typed value cannot commit into a locked field.
+    if (locked)
+    {
+        ResetUIInputState();
+    }
+}
+
+// Set a button's authored and drawn text together (the chips and DELETE carry no binding).
+static void StateManager_SetButtonText(UIElement *button, const char *text)
+{
+    if (!button)
+    {
+        return;
+    }
+    snprintf(button->data.button.text.string, sizeof(button->data.button.text.string), "%s", text);
+    snprintf(button->data.button.display_text.string, sizeof(button->data.button.display_text.string), "%s", text);
+}
+
+// Apply everything the selection decides: header tint, kind chips, tab row and shown view, the
+// multi-select field lock and note, and the DELETE label. Called at the top of every refresh.
+static void StateManager_ApplyKindLayout(void)
+{
+    if (!state_manager_panel || !s_sm_selector || s_sm_selector->count <= SM_VIEW_TREE)
+    {
+        return;
+    }
+
+    int count = SelectionSet_Count();
+    TargetRef primary = SelectionSet_Primary();
+    TargetKind kind = (count > 0) ? primary.kind : TARGET_KIND_NONE;
+    bool multi = count > 1;
+
+    // Tally the members per kind (one pass, no allocation).
+    int kind_count[4] = {0};
+    for (int i = 0; i < count; i++)
+    {
+        TargetRef ref;
+        if (SelectionSet_Get(i, &ref) && ref.kind >= TARGET_KIND_ENTITY && ref.kind <= TARGET_KIND_CELL)
+        {
+            kind_count[ref.kind]++;
+        }
+    }
+
+    // Header tint.
+    StateManager_SetHeaderTint(multi);
+
+    // Kind chips: the row is shown only in multi-select; a chip only when its kind is present.
+    if (s_sm_ui.kind_chips)
+    {
+        SetEnabledState(s_sm_ui.kind_chips, multi);
+    }
+    static const char *chip_names[3] = { "ENTITIES", "WORLDS", "CELLS" };
+    for (int i = 0; i < 3; i++)
+    {
+        UIElement *chip = s_sm_ui.kind_chip[i];
+        if (!chip)
+        {
+            continue;
+        }
+        char label[32];
+        snprintf(label, sizeof(label), "%s %d", chip_names[i], kind_count[s_sm_chip_kinds[i]]);
+        StateManager_SetButtonText(chip, label);
+        SetEnabledState(chip, kind_count[s_sm_chip_kinds[i]] > 0);
+
+        // Active chip uses the amber button_fill like an active tab; inactive chips use toggle_off_fill.
+        bool active = (s_sm_chip_kinds[i] == kind);
+        chip->colour_fill = active ? ui_default_palette.button_fill : ui_default_palette.toggle_off_fill;
+        chip->data.button.font.colour = active ? ui_default_palette.text_on_dark : ui_default_palette.text;
+    }
+
+    // Tab row: only entity selections (including nothing selected) have tabs. In multi-select the
+    // SHAPE and TREE tabs are hidden (single-entity views).
+    bool single_view_kind = (kind == TARGET_KIND_WORLD || kind == TARGET_KIND_CELL);
+    if (s_sm_ui.tab_container)
+    {
+        SetEnabledState(s_sm_ui.tab_container, !single_view_kind);
+    }
+    SetEnabledState(s_sm_selector->buttons[SM_VIEW_SHAPE], !multi);
+    SetEnabledState(s_sm_selector->buttons[SM_VIEW_TREE], !multi);
+
+    // Shown view.
+    int desired = s_sm_entity_tab;
+    if (kind == TARGET_KIND_WORLD)
+    {
+        desired = SM_VIEW_WORLD;
+    }
+    else if (kind == TARGET_KIND_CELL)
+    {
+        desired = SM_VIEW_CELL;
+    }
+    else if (multi && desired > SM_VIEW_COMP)
+    {
+        desired = SM_VIEW_PHYS;
+    }
+    if (desired != s_sm_shown_view)
+    {
+        if (desired <= SM_VIEW_TREE)
+        {
+            // SelectView fires the callback, which would overwrite the remembered tab; keep it.
+            int remembered_tab = s_sm_entity_tab;
+            ViewHostSystem_SelectView(s_sm_selector, (size_t)desired);
+            s_sm_entity_tab = remembered_tab;
+        }
+        else
+        {
+            StateManager_ShowOnlyView(desired);
+        }
+        s_sm_shown_view = desired;
+    }
+
+    // Value fields are read-only in multi-select; the PHYS note says so.
+    StateManager_SetFieldsLocked(multi);
+    if (s_sm_ui.values_note)
+    {
+        SetEnabledState(s_sm_ui.values_note, multi);
+    }
+
+    // DELETE acts on the primary entity only (HandleBtnSubmitClick), so the multi-select label says
+    // so; a non-entity primary has nothing to delete here, so the button is hidden.
+    if (s_sm_ui.delete_button)
+    {
+        if (multi && kind == TARGET_KIND_ENTITY)
+        {
+            char label[32];
+            snprintf(label, sizeof(label), "DELETE PRIMARY #%d", (int)primary.as.entity);
+            StateManager_SetButtonText(s_sm_ui.delete_button, label);
+        }
+        else
+        {
+            StateManager_SetButtonText(s_sm_ui.delete_button, "DELETE");
+        }
+        SetEnabledState(s_sm_ui.delete_button, !(multi && kind != TARGET_KIND_ENTITY));
+    }
+}
+
 // Push the selected object, world, cell, and capability state into the UI views.
 void UpdateStateManagerSelectedObject(void)
 {
+    StateManager_ApplyKindLayout();
+
     Newtonoid2d *object = UIState_GetSelectedObject();
     World2d *world = Universe_GetSelectedWorld(&G_Universe);
     Cell *cell = UIState_GetSelectedCell();
@@ -1949,8 +2312,12 @@ void InitStateManagerSystem(void)
     }
 
     // 5) Build the selector from the XML <Option> metadata.
+    //    StateManager_OnViewSelected records the chosen tab and forwards to the host's handler.
     ViewSelector *view_selector =
-        UILoader_BuildSelectorFromMarkup(state_manager_panel, ViewHostSystem_HandleViewSelected);
+        UILoader_BuildSelectorFromMarkup(state_manager_panel, StateManager_OnViewSelected);
+    s_sm_selector = view_selector;
+    s_sm_entity_tab = 0;
+    s_sm_shown_view = -1;
 
     // 6) Honour initial-view="phys_view" (fall back to the first view).
     if (view_selector)
@@ -2032,6 +2399,31 @@ void DrawStateManagerSystem(void)
             MarkStateManagerRefreshDirty();
         }
 
+        // The layout (tabs, chips, field lock, DELETE label) is a function of the set's size, its
+        // per-kind counts and the primary's kind. SelectionSet_Add does not fire the selection
+        // callback, so detect those changes here and mark dirty (same approach as the cell case).
+        static int last_set_count = -1;
+        static int last_primary_kind = -1;
+        static int last_kind_counts[4] = {-1, -1, -1, -1};
+        int set_count = SelectionSet_Count();
+        int kind_counts[4] = {0};
+        for (int i = 0; i < set_count; i++)
+        {
+            TargetRef member;
+            if (SelectionSet_Get(i, &member) && member.kind >= TARGET_KIND_ENTITY && member.kind <= TARGET_KIND_CELL)
+            {
+                kind_counts[member.kind]++;
+            }
+        }
+        if (set_count != last_set_count || (int)primary.kind != last_primary_kind ||
+            memcmp(kind_counts, last_kind_counts, sizeof(kind_counts)) != 0)
+        {
+            last_set_count = set_count;
+            last_primary_kind = (int)primary.kind;
+            memcpy(last_kind_counts, kind_counts, sizeof(kind_counts));
+            MarkStateManagerRefreshDirty();
+        }
+
         // Dynamic entities update continuously; otherwise update when state is marked dirty.
         if (object || state_manager_refresh_dirty)
         {
@@ -2073,10 +2465,9 @@ void DestroyStateManagerSystem(void)
     ResetFlagButtons(s_sm_flags.collision_role_mask, ARRAY_COUNT(s_sm_flags.collision_role_mask));
     ResetFlagButtons(s_sm_flags.world, ARRAY_COUNT(s_sm_flags.world));
     ResetFlagButtons(s_sm_flags.cell, ARRAY_COUNT(s_sm_flags.cell));
-    for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.comp_buttons); i++)
-    {
-        s_sm_ui.comp_buttons[i].button = NULL;
-    }
-
     memset(&s_sm_ui, 0, sizeof(s_sm_ui));
+    s_sm_selector = NULL; // Freed by ViewHostSystem_Destroy with the panel.
+    s_sm_entity_tab = 0;
+    s_sm_shown_view = -1;
+    s_sm_fields_locked = false;
 }

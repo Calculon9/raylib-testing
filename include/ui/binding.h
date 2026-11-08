@@ -78,8 +78,14 @@ typedef struct BindingValue
     } as;
 } BindingValue;
 
-// BIND_INT toggle queries: 0 = off, 1 = on, 2 = mixed (bulk selection whose targets disagree).
-#define BIND_TOGGLE_MIXED 2
+// BIND_INT toggle queries: 0 = off, 1 = on. A bulk selection whose targets disagree packs the
+// "on" and "applicable" counts (15 bits each, so the label can read "<on>/<applicable>") under a
+// flag bit. Plain 0/1 results never carry the flag, so single-target queries are unaffected.
+#define BIND_TOGGLE_MIXED_FLAG (1 << 30)
+#define BIND_TOGGLE_MIXED_PACK(on, n) (BIND_TOGGLE_MIXED_FLAG | (((on) & 0x7FFF) << 15) | ((n) & 0x7FFF))
+#define BIND_TOGGLE_IS_MIXED(v) (((v) & BIND_TOGGLE_MIXED_FLAG) != 0)
+#define BIND_TOGGLE_ON(v) (((v) >> 15) & 0x7FFF)
+#define BIND_TOGGLE_TOTAL(v) ((v) & 0x7FFF)
 
 // SOURCE: how to READ the current value for display.
 typedef enum BindingSourceKind
