@@ -280,7 +280,7 @@ void InitDetailStrip(void)
     //    component location, matching the convention used by info_strip_system.c / toolbar_system.c
     //    / state_manager_system.c (they all load from src/engine/ui/components/).
     UIElement *root = UILoader_LoadFromFileWithResolvers(
-        "C:\\Projects\\raylib-testing\\src\\engine\\ui\\components\\detail_strip.xml",
+        UI_COMPONENTS_DIR "/detail_strip.xml",
         &ui_default_palette,
         DetailStrip_ResolveBinding,
         DetailStrip_ResolveCommand,

@@ -1898,7 +1898,7 @@ void InitStateManagerSystem(void)
 {
     // 1) Load the authoritative markup with the state-manager resolvers (mirrors InitLPanel).
     UIElement *root = UILoader_LoadFromFileWithResolvers(
-        "C:\\Projects\\raylib-testing\\src\\engine\\ui\\components\\state_manager.xml",
+        UI_COMPONENTS_DIR "/state_manager.xml",
         &ui_default_palette,
         StateManager_ResolveBinding,
         StateManager_ResolveCommand,

@@ -26,6 +26,17 @@
     <!--  * Gameplay/Components visibility stays in the application (the C refresh            -->
     <!--    toggles it); markup only declares the containers.                                 -->
 <ViewHost id="state_manager" layout="stacked" initial-view="phys_view">
+    <!-- Fixed header block (outside every View, so it never scrolls with view content and is -->
+    <!-- visible on every tab): title, multi-select header, then the Identity readouts.           -->
+    <Container id="entity_header" title="Entity Manager" width="fill" height="hug" layout="stack">
+        <Textbox id="sm_selection" io="readonly" binding="sm.selection" size="5.25,0.5" width="fill" height="fixed" />
+        <Container id="identity" title="Identity" width="hug" height="hug" layout="stack">
+            <TextField id="sm_id" label="Id:" type="integer" io="readonly" />
+            <TextField id="sm_slot" label="Slot:" type="integer" io="readonly" />
+            <TextField id="sm_generation" label="Generation:" type="integer" io="readonly" />
+            <TextField id="sm_world" label="World" type="integer" io="readonly" />
+        </Container>
+    </Container>
     <ViewSelector id="state_manager_views" type="enumerate" layout="inline_wrap" gap="0,0" width="fill" height="hug">
         <Option text="PHYS" view="phys_view" />
         <Option text="ATTRI" view="attri_view" />
@@ -35,17 +46,9 @@
         <Option text="COMP" view="components_view" />
         <Option text="GEOMETRY" view="geometry_view" />
     </ViewSelector>
-    <Textbox id="sm_selection" io="readonly" binding="sm.selection" size="5.25,0.5" width="fill" height="fixed" />
 
     <!-- ================= PHYS view ================= -->
     <View id="phys_view" type="STATE_MANAGER_PHYSICS_VIEW" scroll="y" layout="stack">
-        <Container id="identity" title="Identity" width="hug" height="hug" layout="stack">
-            <TextField id="sm_id" label="Id:" type="integer" io="readonly" />
-            <TextField id="sm_slot" label="Slot:" type="integer" io="readonly" />
-            <TextField id="sm_generation" label="Generation:" type="integer" io="readonly" />
-            <TextField id="sm_world" label="World" type="integer" io="readonly" />
-        </Container>
-
         <Container id="physics" title="Physics" width="hug" height="hug" layout="stack">
             <TextField id="sm_mass" label="Mass" type="float" io="safe" />
             <TextField id="sm_restitution" label="Restitution" type="float" io="safe" />

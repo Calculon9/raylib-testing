@@ -21,6 +21,10 @@ target_sources(${PROJECT_NAME} PRIVATE ${SOURCE_FILES})
 # We use PUBLIC if we want Raylib or other modules to potentially see our types
 target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_SOURCE_DIR}/include")
 
+# Point the UI loaders at this source tree's XML components (not a hard-coded checkout path).
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    UI_COMPONENTS_DIR="${CMAKE_SOURCE_DIR}/src/engine/ui/components")
+
 # Force CMake to pass -DDEBUG when building in Debug mode
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug) # Fallback default if not specified
