@@ -1004,7 +1004,9 @@ void MapEntityToASpace(Space2d *space, Newtonoid2d *object, Matrix2x2 snapped_aa
             OccupancyAddResult result = CellOccupancy_Add(occupancy, cell_i, object->id);
             if (result == CELL_OCC_FULL)
             {
-                LOG_WARN("Cell index %d full. ID %d not tracked spatially.\n", cell_i, object->id);
+                // One line per second at most: a dense pile refuses hundreds of inserts per frame and each stderr
+                // write is costly (see Log_LimiterAllow in log.c).
+                LOG_WARN_LIMIT(1, 1.0f, "Cell index %d full. ID %d not tracked spatially.", cell_i, object->id);
             }
             else if (result == CELL_OCC_OUT_OF_RANGE)
             {

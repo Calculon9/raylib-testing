@@ -163,7 +163,8 @@ Vector2d ResolvePixelToLocalDragScale(UIElement *element)
         scale.y = local_size.y / pixel_size.y;
     }
 
-    frame_counter.total_frames % 1800 == 0 ? LOG_INFO("Drag scale for element [%s]: (%.2f, %.2f)", GetElementTypeName(element->type), scale.x, scale.y) : (void)0;
+    if (frame_counter.total_frames % 1800 == 0)
+        LOG_INFO("Drag scale for element [%s]: (%.2f, %.2f)", GetElementTypeName(element->type), scale.x, scale.y);
 
     return scale;
 }

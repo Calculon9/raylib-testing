@@ -16,6 +16,7 @@ COMMON MODULE
 #include <stdint.h>
 #include <math.h>
 #include <time.h>
+#include "common/log.h"
 #include "memory/cmemory.h"
 #include "math/cvectors.h"
 #include "math/helpers.h"
@@ -28,30 +29,26 @@ COMMON MODULE
 #include "entities/entity_id.h"
 
 // Check if DEBUG is defined (usually passed by your compiler/IDE)
-// ANSI Escape Codes for Colors (Works beautifully in modern terminals/cmd)
-#define LOG_CLR_RESET   "\033[0m"
-#define LOG_CLR_RED     "\033[1;31m"
-#define LOG_CLR_YELLOW  "\033[1;33m"
-#define LOG_CLR_GREEN   "\033[1;32m"
+// Logging: colour codes, rate limiting and one-line formatting live in common/log.h and src/common/log.c.
+// Each message prints exactly one line whether or not its format string ends in '\n'. Every macro has its own
+// per-call-site token bucket using the global per-level defaults (Log_SetLevelLimits); the *_LIMIT variants
+// override them at one site: burst = messages allowed at once, rate_per_sec = refill rate (0 = burst only).
 
 // --- ALWAYS ENABLED (Errors and Warnings should show in both Debug and Release) ---
-
-#define LOG_ERROR(fmt, ...) \
-    fprintf(stderr, LOG_CLR_RED "[ERROR] (%s:%d) " fmt LOG_CLR_RESET "\n", __FILE__, __LINE__, ##__VA_ARGS__)
-
-#define LOG_WARN(fmt, ...) \
-    fprintf(stderr, LOG_CLR_YELLOW "[WARN] (%s:%d) " fmt LOG_CLR_RESET "\n", __FILE__, __LINE__, ##__VA_ARGS__)
-
+#define LOG_ERROR(fmt, ...) LOG_EMIT_(LOG_LEVEL_ERROR, LOG_USE_DEFAULT, 0.0f, fmt, ##__VA_ARGS__)
+#define LOG_WARN(fmt, ...)  LOG_EMIT_(LOG_LEVEL_WARN, LOG_USE_DEFAULT, 0.0f, fmt, ##__VA_ARGS__)
+#define LOG_ERROR_LIMIT(burst, rate_per_sec, fmt, ...) LOG_EMIT_(LOG_LEVEL_ERROR, burst, rate_per_sec, fmt, ##__VA_ARGS__)
+#define LOG_WARN_LIMIT(burst, rate_per_sec, fmt, ...)  LOG_EMIT_(LOG_LEVEL_WARN, burst, rate_per_sec, fmt, ##__VA_ARGS__)
 
 // --- DEBUG ONLY (Info/Logs disappear entirely in Release mode) ---
 //#define DEBUG
 #ifdef DEBUG
-    #define LOG_INFO(fmt, ...) \
-        printf(LOG_CLR_GREEN "[INFO] " fmt LOG_CLR_RESET "\n", ##__VA_ARGS__)
+    #define LOG_INFO(fmt, ...) LOG_EMIT_(LOG_LEVEL_INFO, LOG_USE_DEFAULT, 0.0f, fmt, ##__VA_ARGS__)
+    #define LOG_INFO_LIMIT(burst, rate_per_sec, fmt, ...) LOG_EMIT_(LOG_LEVEL_INFO, burst, rate_per_sec, fmt, ##__VA_ARGS__)
 #else
     #define LOG_INFO(fmt, ...) ((void)0)
+    #define LOG_INFO_LIMIT(burst, rate_per_sec, fmt, ...) ((void)0)
 #endif
-
 // Global Math Constants
 #ifndef PI
     #define PI 3.14159265358979323846f
