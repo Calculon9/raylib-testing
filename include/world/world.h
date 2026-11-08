@@ -11,6 +11,8 @@ WORLD MODULE
 #include "events/events.h"
 #include "system/systems.h"
 #include "world/contact_cache.h" // ContactCache (pure, header-only)
+#include "world/contact_persist.h" // ContactPersist (pure, header-only): which pairs touched on recent frames
+#include "world/sleep_wake.h" // Static sleepers and event waking (pure, header-only)
 #include "system/texture_registry.h" // TextureId (for TilePalette_TextureForType)
 
 //----------------------------------------------------------------------------------
@@ -45,6 +47,8 @@ typedef struct World2d
     LArray objects;
     LArray collisions;
     ContactCache contact_cache;   // Cached contacts + warm-start table (detect emits, solve iterates); rebuilt every tick.
+    ContactPersist contact_persist; // Pairs that touched on recent frames (new / gone contact detection for sleepers); persists across ticks.
+    SleepWakeScratch sleep_wake_scratch; // Wake-pass id lists (reused every tick).
     CellOccupancy cell_occupancy; // Sparse per-cell entity lists (occupied cells only); rebuilt every tick and by RefreshWorldSpatialMap.
     FlatMapInt resolved_collisions;
     LArray scheduled_world_cmds;

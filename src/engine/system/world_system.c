@@ -114,6 +114,9 @@ static void DragMotion_PushEntity(Newtonoid2d *entity)
     snapshot.has_snapshot = true;
 
     entity->collision_role_mask = ENTITY_ROLE_NONE;
+    // Static sleepers: a held body stops colliding, so sleepers resting on it must fall (loud wake: the
+    // WOKEN flag lets the wake reach what rests on them). Its pairs also stop being carried and expire.
+    WakeUp(entity);
     LArray_Push(&g_drag_motion_snapshots, &snapshot);
 }
 
@@ -155,6 +158,9 @@ static void RestoreDraggedEntitiesMotion(void)
         entity->acceleration = snapshot->acceleration;
         entity->momentum = snapshot->momentum;
         entity->collision_role_mask = snapshot->collision_role_mask;
+        // A body that fell asleep while held must be awake when its mask returns, or it would be released
+        // into a sleeping pile without ever being detected against it. Quiet: it is new to the pile.
+        WakeUpQuiet(entity);
     }
 
     g_drag_motion_snapshots.count = 0;

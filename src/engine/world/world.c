@@ -228,6 +228,11 @@ static void RecoverEntitiesFromAbsentCells(World2d *world, CellOccupancy *occupa
                                  ZERO_VECTOR_2D, old_snapped_verts);
         Matrix2x2 old_snapped_box = CalcAABBCoords_Tight(old_snapped_verts, 4, ZERO_VECTOR_2D);
 
+        // A relocated body leaves its neighbours: wake it (loud, so what rested on it is released) and note it
+        // gone so their persistence records are delivered by the next wake pass.
+        WakeUp(entity);
+        ContactPersist_NoteGone(&world->contact_persist, entity->id);
+
         // Relocate to the target cell's centre and refresh the bounds from the new pose.
         Vector2d old_centre = entity->anchor_position;
         entity->anchor_position = (Vector2d){space->grid_origin.x + (float)to_col + 0.5f,
@@ -347,6 +352,13 @@ bool CreateWorld(GridSpace2d space_obj, float gravity, struct Universe *universe
     // Final settings (design 6.5): K = Kp = 4 sequential-impulse velocity iterations with warm start, the
     // restitution threshold, and the separate NGS position phase.
     out_world->contact_cache.config = ContactSolverConfig_Default();
+    // Contact persistence set for the static-sleeper wake events. A failed initial Reserve is non-fatal:
+    // Touch retries and a body whose pair cannot be tracked is simply never reported as new.
+    out_world->contact_persist = (ContactPersist){0};
+    out_world->contact_persist.grace = out_world->contact_cache.config.persist_grace;
+    out_world->sleep_wake_scratch = (SleepWakeScratch){0};
+    if (!ContactPersist_Reserve(&out_world->contact_persist, CONTACT_PERSIST_MIN_CAPACITY / 2))
+        LOG_ERROR("Contact persistence set initial allocation failed; it will retry on first use.\n");
     if (!ContactCache_Reserve(&out_world->contact_cache, CONTACT_CACHE_MIN_CAPACITY, CONTACT_CACHE_MIN_CAPACITY, CONTACT_CACHE_MIN_CAPACITY))
         LOG_ERROR("Contact cache initial allocation failed; it will retry every tick.\n");
     out_world->cell_occupancy = (CellOccupancy){0};
@@ -374,6 +386,8 @@ void DestroyWorld(World2d *world)
     ClearDArray(&world->grid_space.space.cells);
     CellOccupancy_Free(&world->cell_occupancy);
     ContactCache_Free(&world->contact_cache);
+    ContactPersist_Free(&world->contact_persist);
+    SleepWake_Free(&world->sleep_wake_scratch);
     ClearFlatMapInt(&world->resolved_collisions);
     MemorySet(world, 0, sizeof(*world));
 }
@@ -421,6 +435,8 @@ void UpdateWorld(World2d *world, float delta_time)
     // Contact cache: O(used) reset for this tick's detect phase (stores the step, gravity and restitution threshold).
     float physics_dt = WorldPhysicsDeltaTime();
     ContactCache_BeginFrame(&world->contact_cache, obj_count, physics_dt, world->gravity);
+    world->contact_persist.grace = world->contact_cache.config.persist_grace;
+    ContactPersist_BeginFrame(&world->contact_persist, physics_dt);
     PROFILE_END(PROF_RESET); // PROFILER
     Cell *cells = (Cell *)space->cells.items;
 
@@ -524,6 +540,7 @@ void UpdateWorld(World2d *world, float delta_time)
     // SOLVE: iterate every cached contact (pairs, container, solid cells) and write the results back. The
     // centre clamp afterwards is the safety net for an axis with no detected wall contact.
     PROFILE_BEGIN(PROF_SOLVE); // PROFILER
+    ResolveSleepWakes(world);
     SolveWorldContacts(world, physics_dt);
     ClampEntitiesToContainer(world);
     PROFILE_END(PROF_SOLVE); // PROFILER

@@ -72,6 +72,10 @@ Vector2d StaticContactPoint(const Newtonoid2d *entity, const Vector2d *vertices,
 void DetectContainerContacts(World2d *world);
 // Centre-only safety net after the solve: move any escaped centre back inside the grid. No impulse.
 void ClampEntitiesToContainer(World2d *world);
+// WAKE pass (between detection and the solve): sweeps the contact persistence set and wakes sleepers on
+// impact, new contact, support lost and neighbour waking (world/sleep_wake.h), then detects the pairs of
+// the bodies it woke that were carried instead of emitted. Runs every tick, also with no contacts.
+void ResolveSleepWakes(World2d *world);
 // SOLVE half of the frame: iterate the cached contacts and write the results back to the entities.
 void SolveWorldContacts(World2d *world, float dt);
 // Physics step used by the solver: the same clamped delta as PhysicsUpdateJob.

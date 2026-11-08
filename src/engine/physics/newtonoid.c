@@ -14,8 +14,11 @@
 //----------------------------------------------------------------------------------
 static const float default_restitution = 0.9f;
 static const float default_friction = 0.8f;
-static const float SLEEP_LINEAR_DISPLACEMENT_TOLERANCE_SQ = 0.0001f; // Very small per-frame movement
-static const float SLEEP_ANGULAR_DISPLACEMENT_TOLERANCE_SQ = 0.000055f; // Very small per-frame rotation
+// Sleep criteria are speeds (units/s, rad/s), so the decision does not depend on the frame time. The values
+// equal the old per-step displacement tolerances at 60 fps (0.01 units per step = 0.6 u/s, about 0.445 rad/s).
+#define SLEEP_LINEAR_SPEED 0.6f // (macro: C11 needs a constant expression for the squared value below)
+#define SLEEP_LINEAR_SPEED_SQ (SLEEP_LINEAR_SPEED * SLEEP_LINEAR_SPEED)
+static const float SLEEP_ANGULAR_SPEED = 0.45f;
 static const float TIME_TO_SLEEP = 0.3f;
 
 //----------------------------------------------------------------------------------
@@ -89,6 +92,19 @@ void ApplySleep(Newtonoid2d *entity)
 
 // Wake an entity and restart the quiet-period timer used by automatic sleeping.
 void WakeUp(Newtonoid2d *entity)
+{
+   if (!entity)
+   {
+      return;
+   }
+
+   entity->status_flags &= ~ENTITY_STATUS_FLAG_SLEEPING;
+   entity->status_flags |= ENTITY_STATUS_FLAG_WOKEN; // Consumed by the next wake pass (one-hop propagation).
+   entity->sleep_timer = 0.0f;
+}
+
+// Wake an entity without the WOKEN transition flag, so nothing resting on it is released.
+void WakeUpQuiet(Newtonoid2d *entity)
 {
    if (!entity)
    {
@@ -459,15 +475,11 @@ void CalcVectors(Newtonoid2d *obj, float delta_time)
    bool position_locked = (obj->constraints & ENTITY_CONSTRAINT_POSITION_LOCKED) != 0;
    bool is_sleeping = (obj->status_flags & ENTITY_STATUS_FLAG_SLEEPING) != 0;
 
-   // A sleeping body can be woken by an impulse applied since its last update.
-   float linear_displacement_x = obj->velocity.x * delta_time;
-   float linear_displacement_y = obj->velocity.y * delta_time;
-   float linear_displacement_sq = (linear_displacement_x * linear_displacement_x) +
-                                  (linear_displacement_y * linear_displacement_y);
-   float angular_displacement = obj->angular_velocity * delta_time;
-   float angular_displacement_sq = angular_displacement * angular_displacement;
-   bool below_linear_tolerance = linear_displacement_sq < SLEEP_LINEAR_DISPLACEMENT_TOLERANCE_SQ;
-   bool below_angular_tolerance = angular_displacement_sq < SLEEP_ANGULAR_DISPLACEMENT_TOLERANCE_SQ &&
+   // A sleeper (a static body in the solver) wakes here only if something outside the contact solver set
+   // its velocity or torque (toolbar nudge, rotor drive). The solver itself never moves a sleeper.
+   float linear_speed_sq = (obj->velocity.x * obj->velocity.x) + (obj->velocity.y * obj->velocity.y);
+   bool below_linear_tolerance = linear_speed_sq < SLEEP_LINEAR_SPEED_SQ;
+   bool below_angular_tolerance = fabsf(obj->angular_velocity) < SLEEP_ANGULAR_SPEED &&
                                    fabsf(obj->torque) <= 0.001f;
 
    if (is_sleeping)

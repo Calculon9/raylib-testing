@@ -146,7 +146,10 @@ Matrix2x2 UpdateEntityBounds(Newtonoid2d *object, Vector2d out_world_vertices[MA
 // with an identity basis so transform helpers stay well-defined.
 Frame2d Newtonoid_GetFrame(const Newtonoid2d *object);
 void ApplySleep(Newtonoid2d *entity);
+// Loud wake: clears SLEEPING and flags the body as woken so the wake can propagate to what rests on it.
 void WakeUp(Newtonoid2d *entity);
+// Quiet wake: clears SLEEPING only. For bodies that need to become dynamic but release nothing above them.
+void WakeUpQuiet(Newtonoid2d *entity);
 // Matrix2x2 FindBoxedCoords(DArray vertices);
 // Vector2d GetObjectCentre(Surface2d object_surface);
 

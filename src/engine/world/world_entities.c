@@ -104,6 +104,11 @@ static EntityId AddObjectToWorldChecked(World2d *world, Newtonoid2d *object, Ent
 
     object->parent_id = parent_id;
 
+    // Static sleepers: an entity entering a world (spawn, prefab copy, portal transfer, rollback) starts awake,
+    // so it is detected against the sleeping pile. Quiet: nothing rests on a new body, so no wave is needed.
+    // This runs BEFORE RegisterEntity copies *object, so the stored copy carries the cleared flag.
+    WakeUpQuiet(object);
+
     EntityId assigned_id = RegisterEntity(world, object);
     if (assigned_id == INVALID_ENTITY_ID)
     {
@@ -236,6 +241,10 @@ static bool RemoveRegisteredEntity(World2d *world, EntityId entity_id, bool rele
     }
 
     Newtonoid2d *entity_to_remove = (Newtonoid2d *)LArray_Get(world_objects, deleted_idx);
+    // Static sleepers: tell the contact persistence set this body is gone, so the sleepers that rested on it
+    // wake this frame instead of waiting out the grace period. Effects (collision markers) never get records.
+    if (!(entity_to_remove->roles & ENTITY_ROLE_EFFECT))
+        ContactPersist_NoteGone(&world->contact_persist, entity_id);
     if (release_id)
     {
         FreeEntitySurfaceVectors(entity_to_remove);
@@ -300,6 +309,9 @@ EntityId MoveObjectBetweenWorlds(World2d *source_world, World2d *destination_wor
     {
         // Same-world portal transfers keep the existing registry identity and
         // component, so only the entity location and spatial map need work.
+        // A teleported body leaves its old neighbours: release whatever rested on it (loud wake) and note it gone.
+        WakeUp(source_entity);
+        ContactPersist_NoteGone(&source_world->contact_persist, source_entity->id);
         source_entity->parent_id = destination_parent_id;
         source_entity->anchor_position = destination_coords;
         Vector2d world_vertices[MAX_SHAPE_VERTICES] = {0};

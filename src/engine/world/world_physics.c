@@ -523,12 +523,18 @@ bool DetectCollisionPair(World2d *world, EntityId obj_id_a, EntityId obj_id_b, i
 
     // Sensors must still be checked while sleeping because overlap can trigger
     // gameplay behaviour. Ordinary sleeping pairs have no active motion that
-    // needs a response, so mark them resolved without running SAT or impulses.
+    // needs a response, so they skip SAT and impulses. Sleepers are static bodies and cannot move,
+    // so a pair that touched before still touches: CARRY its persistence record (refresh only) to
+    // show both bodies are still enumerated. The pair is deliberately NOT marked resolved: if one end
+    // wakes later this frame, ResolveSleepWakes detects it through this function and the gameplay
+    // callbacks below still fire exactly once. Role masks gate the carry, so a dragged entity (mask
+    // NONE) is not carried and its pairs expire.
     bool a_is_sensor = (a->capabilities & ENTITY_CAPABILITY_SENSOR) != 0;
     bool b_is_sensor = (b->capabilities & ENTITY_CAPABILITY_SENSOR) != 0;
     if (!a_is_sensor && !b_is_sensor && (a->status_flags & ENTITY_STATUS_FLAG_SLEEPING) && (b->status_flags & ENTITY_STATUS_FLAG_SLEEPING))
     {
-        FlatMapInt_InsertOrUpdate(resolved_collisions, obj_pair_hash_key, 1);
+        if ((a->collision_role_mask & b->roles) && (b->collision_role_mask & a->roles))
+            ContactPersist_Carry(&world->contact_persist, a->id, b->id);
         return true;
     }
 

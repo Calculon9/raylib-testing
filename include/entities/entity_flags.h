@@ -22,6 +22,7 @@ typedef enum EntityStatusFlags
     ENTITY_STATUS_FLAG_NONE = 0,
     ENTITY_STATUS_FLAG_ALIVE = 1 << 0,
     ENTITY_STATUS_FLAG_SLEEPING = 1 << 1,
+    ENTITY_STATUS_FLAG_WOKEN = 1 << 2, // Transient: woken (loudly) since the last wake pass; lets the wake propagate one hop.
     ENTITY_STATUS_FLAG_CLOCKED = 1 << 6,
 } EntityStatusFlags;
 

@@ -25,6 +25,12 @@
  *  - Restitution threshold: bounce is only requested for closing speeds above a threshold, so resting
  *    contacts (which see about g*dt of closing speed each frame) stay inelastic.
  *
+ *  - Static sleepers: a body that is asleep when the solve starts is given zero inverse mass and inertia
+ *    (world/sleep_wake.h), exactly like slot 0. An awake body resting on it is supported as by the floor,
+ *    takes all of the position correction, and its weight never reaches the sleeper, so a sleeper can
+ *    neither be woken by a resting neighbour nor drift. Sleepers wake on EVENTS instead (impact, new
+ *    contact, support lost, neighbour waking; see sleep_wake.h and contact_persist.h).
+ *
  * Bodies and contacts are arrays of structs. Slot 0 of the body array is a permanent immovable body
  * (zero inverse mass and inertia) used as the partner of container and solid-cell contacts, so the
  * solver loops need no branch for static contacts.
@@ -52,7 +58,11 @@
 #define CONTACT_CACHE_MIN_CAPACITY 256
 #define CONTACT_FLAG_A_SLEEPING 1u               // SolverContact.flags: body A was asleep at detection.
 #define CONTACT_FLAG_B_SLEEPING 2u               // body B was asleep at detection.
-#define BODY_STAT_WAS_SLEEPING 1u                // BodyStats.flags: some contact saw the body asleep.
+#define CONTACT_FLAG_NEW 4u                      // The pair had no persistence record before this frame (a NEW contact).
+#define BODY_STAT_STATIC 1u                      // BodyStats.flags: body sleeps this frame and acts as a static body in the solve.
+#define BODY_STAT_WAKE_LOUD 2u                   // Wake pass: body is marked to wake, and the wake propagates upward.
+#define BODY_STAT_WAKE_QUIET 4u                  // Wake pass: body is marked to wake, nothing resting on it is released.
+#define BODY_STAT_WOKE_NOW 8u                    // Wake pass: body was woken this frame (its warm-start impulses are cleared).
 
 typedef enum ContactKind
 {
@@ -84,9 +94,9 @@ typedef struct SolverContact // 64 B = one cache line (hot: read every iteration
 
 typedef struct BodyStats // 12 B per body, parallel to bodies[] (kept out of the hot 32 B SolverBody)
 {
+    EntityId id;             // Entity of this slot (set by ContactCache_SetBodyId; INVALID for slot 0).
     float max_depth0;        // Largest detected depth over the body's contacts (sleep-inhibit guard).
-    float impulse_in;        // Sum of the normal impulse (lambda_n) over the body's contacts (wake test).
-    uint32_t flags;          // BODY_STAT_WAS_SLEEPING.
+    uint32_t flags;          // BODY_STAT_* bits.
 } BodyStats;
 
 typedef struct ContactMeta // 24 B (cold: sort key, warm key, markers, metrics)
@@ -113,8 +123,11 @@ typedef struct ContactSolverConfig
     float max_correction;          // Largest single pair/solid push per position iteration.
     float restitution_threshold;   // Closing speed above which restitution is requested.
     float sleep_inhibit_depth;     // A body overlapped deeper than this cannot start to sleep.
-    float wake_gravity_fraction;   // Wake threshold: fraction of one gravity step of impulse per unit mass.
-    float wake_min_speed;          // Wake threshold floor (velocity change) so zero gravity is still robust.
+    float wake_impact_speed_min;   // A sleeper is hit awake by an awake body closing faster than this (floor of wake_v_thr).
+    float wake_kinematic_speed_min; // A position-locked / rotor body wakes a sleeper it touches above this closing speed.
+    float wake_embed_depth;        // A sleeper contact deeper than this means the world changed under it: wake.
+    float persist_grace;           // Seconds a touching pair may go unseen before it counts as gone (support lost).
+    float support_down_cos;        // A body counts as "below" a sleeper when its direction lies within this cosine of straight down.
 } ContactSolverConfig;
 
 typedef struct ContactSolverStats // per frame; read by the profiler line and tests
@@ -154,6 +167,7 @@ typedef struct ContactCache
     int warm_capacity, warm_log2, warm_count; // Power-of-two table, load <= 0.5.
     float prev_dt;
     float dt, gravity, v_thr;      // Set by BeginFrame; v_thr = effective restitution threshold.
+    float wake_v_thr;              // Set by BeginFrame; closing speed above which a hit wakes a sleeper (independent of v_thr).
     int last_count;
     // Deallocate() free()s the pointer it is given, so the 64-byte-aligned interior pointer is never passed to it.
     void *contacts_raw;
@@ -179,8 +193,11 @@ static inline ContactSolverConfig ContactSolverConfig_Default(void)
     cfg.max_correction = 0.2f;
     cfg.restitution_threshold = 1.0f;
     cfg.sleep_inhibit_depth = 0.05f;
-    cfg.wake_gravity_fraction = 0.1f;
-    cfg.wake_min_speed = 1e-3f;
+    cfg.wake_impact_speed_min = 1.0f;
+    cfg.wake_kinematic_speed_min = 0.1f;
+    cfg.wake_embed_depth = 0.1f;
+    cfg.persist_grace = 0.06f;
+    cfg.support_down_cos = 0.3f;
     return cfg;
 }
 
@@ -412,6 +429,7 @@ static inline void ContactCache_BeginFrame(ContactCache *c, int object_count, fl
     c->dt = dt;
     c->gravity = gravity;
     c->v_thr = fmaxf(c->config.restitution_threshold, 2.0f * fabsf(gravity) * dt);
+    c->wake_v_thr = fmaxf(c->config.wake_impact_speed_min, 2.0f * fabsf(gravity) * dt);
     memset(&c->stats, 0, sizeof(c->stats));
 
     // Size for last frame's load plus headroom; failure leaves the old buffers and the frame continues.
@@ -459,6 +477,13 @@ static inline int ContactCache_AcquireBody(ContactCache *c, int object_index, fl
     return slot;
 }
 
+// Record which entity owns a body slot (the wake pass maps slots back to entities through this). Idempotent.
+static inline void ContactCache_SetBodyId(ContactCache *c, int slot, EntityId id)
+{
+    if (c->body_stats && slot > 0 && slot < c->body_count)
+        c->body_stats[slot].id = id;
+}
+
 //----------------------------------------------------------------------------------
 // Warm table (open addressing, power-of-two capacity, linear probing, key 0 = empty)
 //----------------------------------------------------------------------------------
@@ -496,10 +521,26 @@ static inline bool ContactCache_Finite(float v)
     return isfinite(v) != 0;
 }
 
+// Effective mass along the normal (k_n) and tangent (k_t) of a contact between bodies a and b, from their
+// CURRENT inverse masses and inertias. Shared by Add and by the static-sleeper pass (sleep_wake.h), which
+// recomputes it after zeroing the sleepers' inverse mass so both use one formula.
+static inline void ContactCache_EffectiveMass(const SolverBody *a, const SolverBody *b, float rax, float ray,
+                                              float rbx, float rby, float nx, float ny, float *k_n, float *k_t)
+{
+    float tx = -ny, ty = nx;
+    float ra_n = rax * ny - ray * nx;
+    float rb_n = rbx * ny - rby * nx;
+    float ra_t = rax * ty - ray * tx;
+    float rb_t = rbx * ty - rby * tx;
+    float inv_mass_sum = a->inv_mass + b->inv_mass;
+    *k_n = inv_mass_sum + ra_n * ra_n * a->inv_inertia + rb_n * rb_n * b->inv_inertia;
+    *k_t = inv_mass_sum + ra_t * ra_t * a->inv_inertia + rb_t * rb_t * b->inv_inertia;
+}
+
 // Compute K_n, K_t and the restitution target from the bodies' CURRENT velocities, look up the warm
 // impulse, and append the contact. Returns false and counts a drop on any rejection (invalid input,
-// two immovable bodies, full cache). Warm start is skipped for any sleeping dynamic body so residue
-// can never wake a sleeper (the solver only wakes on a real impulse, see ContactCache_BodyWoken).
+// two immovable bodies, full cache). Warm start applies to sleeper contacts too: a sleeper is made
+// static before the solve (sleep_wake.h), so the stored impulse only ever reaches the awake side.
 static inline bool ContactCache_Add(ContactCache *c, const ContactInput *in)
 {
     if (!c->contacts || !c->meta || !c->bodies || c->count >= c->capacity)
@@ -535,17 +576,11 @@ static inline bool ContactCache_Add(ContactCache *c, const ContactInput *in)
         return false;
     }
     float nx = in->nx / nlen, ny = in->ny / nlen;
-    float tx = -ny, ty = nx;
 
     const SolverBody *a = &c->bodies[in->body_a];
     const SolverBody *b = &c->bodies[in->body_b];
-    float ra_n = in->rax * ny - in->ray * nx;
-    float rb_n = in->rbx * ny - in->rby * nx;
-    float ra_t = in->rax * ty - in->ray * tx;
-    float rb_t = in->rbx * ty - in->rby * tx;
-    float inv_mass_sum = a->inv_mass + b->inv_mass;
-    float k_n = inv_mass_sum + ra_n * ra_n * a->inv_inertia + rb_n * rb_n * b->inv_inertia;
-    float k_t = inv_mass_sum + ra_t * ra_t * a->inv_inertia + rb_t * rb_t * b->inv_inertia;
+    float k_n, k_t;
+    ContactCache_EffectiveMass(a, b, in->rax, in->ray, in->rbx, in->rby, nx, ny, &k_n, &k_t);
     if (!(k_n > 1e-8f)) // Two immovable bodies (or NaN): nothing to solve, skipped silently as before.
         return false;
 
@@ -581,9 +616,7 @@ static inline bool ContactCache_Add(ContactCache *c, const ContactInput *in)
     m->px = in->px;
     m->py = in->py;
 
-    // Warm start lookup. Skipped on the first frame (prev_dt <= 0), and for any contact
-    // with a sleeping dynamic body (a sleeper keeps no gravity step, so last frame's support impulse
-    // would be pure residue and would wake it).
+    // Warm start lookup. Skipped on the first frame (prev_dt <= 0).
     uint64_t warm_key = 0u;
     if (in->kind == CONTACT_KIND_PAIR)
         warm_key = ContactKey_Pair(in->id_a, in->id_b);
@@ -591,12 +624,10 @@ static inline bool ContactCache_Add(ContactCache *c, const ContactInput *in)
         warm_key = ContactKey_Container(in->id_a, (int)in->aux);
     else
         warm_key = ContactKey_SolidCell(in->id_a, (int)in->aux);
-    bool sleeper = ((in->flags & CONTACT_FLAG_A_SLEEPING) && a->inv_mass > 0.0f) ||
-                   ((in->flags & CONTACT_FLAG_B_SLEEPING) && b->inv_mass > 0.0f);
     if (c->prev_dt > 0.0f && c->warm && warm_key != 0u)
     {
         c->stats.warm_lookups++;
-        const WarmEntry *w = sleeper ? NULL : ContactWarm_Find(c, warm_key);
+        const WarmEntry *w = ContactWarm_Find(c, warm_key);
         if (w)
         {
             c->stats.warm_hits++;
@@ -860,17 +891,19 @@ static inline void ContactSolver_PositionIterations(ContactCache *c)
 // Per-body results
 //----------------------------------------------------------------------------------
 
-// One pass over the contacts: per body the largest detected depth, the sleeping flag, and the total
-// normal impulse received (lambda_n ONLY). Slot 0 is not written.
+// One pass over the contacts: per body the largest detected depth (sleep-inhibit guard). The per-frame
+// flags and depth are cleared first; the id is NOT, so it survives to the end of the frame. Slot 0 is not written.
 static inline void ContactSolver_AccumulateBodyStats(ContactCache *c)
 {
     for (int s = 1; s < c->body_count; s++)
-        memset(&c->body_stats[s], 0, sizeof(BodyStats));
+    {
+        c->body_stats[s].max_depth0 = 0.0f;
+        c->body_stats[s].flags = 0u;
+    }
     for (int i = 0; i < c->count; i++)
     {
         const SolverContact *k = &c->contacts[i];
         int slots[2] = {k->body_a, k->body_b};
-        uint32_t sleeping[2] = {CONTACT_FLAG_A_SLEEPING, CONTACT_FLAG_B_SLEEPING};
         for (int side = 0; side < 2; side++)
         {
             if (slots[side] <= 0)
@@ -878,21 +911,8 @@ static inline void ContactSolver_AccumulateBodyStats(ContactCache *c)
             BodyStats *s = &c->body_stats[slots[side]];
             if (k->depth0 > s->max_depth0)
                 s->max_depth0 = k->depth0;
-            if (k->flags & sleeping[side])
-                s->flags |= BODY_STAT_WAS_SLEEPING;
-            s->impulse_in += k->lambda_n;
         }
     }
-}
-
-// True when the impulse a sleeping body received this frame is a real hit, not warm-start residue.
-// Threshold per unit mass: wake_gravity_fraction of one gravity step (g * dt), floored at
-// wake_min_speed. An awake body resting on the sleeper supplies about 1.0 x m*g*dt, so it still wakes
-// it; float residue is orders of magnitude below 0.1 x.
-static inline bool ContactCache_BodyWoken(const ContactCache *c, int slot, float mass)
-{
-    float per_mass = fmaxf(c->config.wake_gravity_fraction * fabsf(c->gravity) * c->dt, c->config.wake_min_speed);
-    return c->body_stats[slot].impulse_in > mass * per_mass;
 }
 
 // Rebuild the warm table from the final contacts (lambda_n, lambda_t, n). The table grows by a

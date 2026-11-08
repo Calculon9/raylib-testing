@@ -25,8 +25,11 @@ static int AcquireEntityBody(World2d *world, const Newtonoid2d *entity)
     ptrdiff_t index = entity - base;
     if (index < 0 || index >= (ptrdiff_t)world->objects.count)
         return -1;
-    return ContactCache_AcquireBody(&world->contact_cache, (int)index, entity->velocity.x, entity->velocity.y,
-                                    entity->angular_velocity, entity->inverse_mass, entity->inverse_inertia);
+    int slot = ContactCache_AcquireBody(&world->contact_cache, (int)index, entity->velocity.x, entity->velocity.y,
+                                        entity->angular_velocity, entity->inverse_mass, entity->inverse_inertia);
+    // The wake pass maps body slots back to entities through this id.
+    ContactCache_SetBodyId(&world->contact_cache, slot, entity->id);
+    return slot;
 }
 
 // Cache one pair contact from a SAT result. The pair is put in canonical order (lower entity slot first,
@@ -53,6 +56,9 @@ void EmitPairContact(World2d *world, Newtonoid2d *a, Newtonoid2d *b, const Colli
 
     Vector2d point = result->contact_point;
     ContactInput in = {0};
+    // Touch the persistence record: a pair with no record yet is a NEW contact (wake event B for a sleeper).
+    if (!ContactPersist_Touch(&world->contact_persist, a->id, b->id, normal.x, normal.y))
+        in.flags |= CONTACT_FLAG_NEW;
     in.id_a = a->id;
     in.id_b = b->id;
     in.body_a = body_a;
@@ -69,8 +75,8 @@ void EmitPairContact(World2d *world, Newtonoid2d *a, Newtonoid2d *b, const Colli
     in.depth = result->penetration_depth;
     in.restitution = CalcCollisionRestitution(a, b);
     in.friction = CalcCollisionFriction(a, b);
-    in.flags = ((a->status_flags & ENTITY_STATUS_FLAG_SLEEPING) ? CONTACT_FLAG_A_SLEEPING : 0u) |
-               ((b->status_flags & ENTITY_STATUS_FLAG_SLEEPING) ? CONTACT_FLAG_B_SLEEPING : 0u);
+    in.flags |= ((a->status_flags & ENTITY_STATUS_FLAG_SLEEPING) ? CONTACT_FLAG_A_SLEEPING : 0u) |
+                ((b->status_flags & ENTITY_STATUS_FLAG_SLEEPING) ? CONTACT_FLAG_B_SLEEPING : 0u);
     ContactCache_Add(&world->contact_cache, &in);
 }
 
@@ -188,6 +194,9 @@ void ClampEntitiesToContainer(World2d *world)
         Vector2d shift = ContainerCorrection_ClampCentre(entity->anchor_position, grid_min, grid_max);
         if (shift.x != 0.0f || shift.y != 0.0f)
         {
+            // A moved body must not stay a static sleeper: wake it and release what rested on it.
+            WakeUp(entity);
+            ContactPersist_NoteGone(&world->contact_persist, entity->id);
             entity->anchor_position = VectorSum_2d(entity->anchor_position, shift);
             entity->bounds_origin = VectorSum_2d(entity->bounds_origin, shift);
         }
@@ -196,8 +205,8 @@ void ClampEntitiesToContainer(World2d *world)
 
 // Write the solved state back to the entities (the only entity writes of the solve phase). Bodies are
 // reloaded by object index each time: collision markers may have grown the object array during detect.
-// A sleeper keeps its zeroed velocity unless the impulse it received was a real hit (ContactCache_BodyWoken);
-// its position delta is still applied.
+// A body that is still asleep is a static body in the solve (see SolveWorldContacts): it is never written
+// back, so it keeps the zero velocity and the position it went to sleep with.
 static void ApplySolverResults(World2d *world)
 {
     ContactCache *cache = &world->contact_cache;
@@ -218,17 +227,12 @@ static void ApplySolverResults(World2d *world)
         }
 
         Newtonoid2d *entity = &entities[body->object_index];
-        bool sleeping = (entity->status_flags & ENTITY_STATUS_FLAG_SLEEPING) != 0;
-        bool woken = sleeping && ContactCache_BodyWoken(cache, slot, entity->mass);
+        if (entity->status_flags & ENTITY_STATUS_FLAG_SLEEPING)
+            continue; // Static sleeper: its state is final (velocity zero, no position delta by construction).
 
-        if (!sleeping || woken)
-        {
-            entity->velocity = (Vector2d){body->vx, body->vy};
-            entity->angular_velocity = body->w;
-            entity->momentum = VectorScale_2d(entity->velocity, entity->mass);
-            if (woken)
-                WakeUp(entity);
-        }
+        entity->velocity = (Vector2d){body->vx, body->vy};
+        entity->angular_velocity = body->w;
+        entity->momentum = VectorScale_2d(entity->velocity, entity->mass);
 
         // Positional correction accumulated by the solver; anchor and bounds origin always move together.
         if (body->dpx != 0.0f || body->dpy != 0.0f)
@@ -248,9 +252,85 @@ static void ApplySolverResults(World2d *world)
     }
 }
 
-// SOLVE half of the frame. Order: sort bottom-up, warm start, K velocity iterations, position
-// iterations, per-body stats, write-back, and
-// the warm table for next frame. No geometry tests and no gameplay callbacks happen here.
+// Wake-pass host callback: classify an entity that is asleep right now (see SleeperKind).
+static int WakeHost_SleeperKind(void *user, EntityId id)
+{
+    const Newtonoid2d *entity = (const Newtonoid2d *)GetEntityByID((World2d *)user, id);
+    if (!entity || !(entity->status_flags & ENTITY_STATUS_FLAG_SLEEPING))
+        return SLEEPER_NONE;
+    if (entity->inverse_mass == 0.0f)
+        return entity->inverse_inertia == 0.0f ? SLEEPER_LOCKED : SLEEPER_ROTOR;
+    return SLEEPER_DYNAMIC;
+}
+
+// Wake-pass host callback: wake a sleeping entity (loud flags it WOKEN so the wake propagates). False if it
+// was not asleep or no longer resolves.
+static bool WakeHost_Wake(void *user, EntityId id, bool loud)
+{
+    Newtonoid2d *entity = (Newtonoid2d *)GetEntityByID((World2d *)user, id);
+    if (!entity || !(entity->status_flags & ENTITY_STATUS_FLAG_SLEEPING))
+        return false;
+    if (loud)
+        WakeUp(entity);
+    else
+        WakeUpQuiet(entity);
+    return true;
+}
+
+// WAKE pass of the frame, between detection and the solve (static sleepers + event waking, sleep_wake.h).
+// 1. Collect the bodies loudly woken since the last pass (WOKEN flag, read and cleared here).
+// 2. Sweep the persistence set and wake sleepers on impact, new contact, support lost and neighbour waking.
+// 3. A body woken now may have pairs with sleeping neighbours that were only CARRIED, not emitted. Detect
+//    those through DetectCollisionPair (carried pairs are not marked resolved, so each pair's gameplay
+//    callbacks still fire once), so the newly dynamic body is constrained in this same frame.
+// Runs every tick, also with no contacts: support loss needs none.
+void ResolveSleepWakes(World2d *world)
+{
+    ContactCache *cache = &world->contact_cache;
+    ContactPersist *persist = &world->contact_persist;
+    SleepWakeScratch *scratch = &world->sleep_wake_scratch;
+
+    SleepWake_BeginFrame(scratch);
+    Newtonoid2d *entity = NULL;
+    LArray_ForEach(&world->objects, Newtonoid2d *, entity)
+    {
+        if (entity->status_flags & ENTITY_STATUS_FLAG_WOKEN)
+        {
+            entity->status_flags &= ~ENTITY_STATUS_FLAG_WOKEN;
+            SleepWake_AddPrevWoken(scratch, entity->id);
+        }
+    }
+
+    int gone_count = 0;
+    const GonePair *gone = ContactPersist_Sweep(persist, &gone_count);
+    SleepWakeHost host = {world, WakeHost_SleeperKind, WakeHost_Wake};
+    int woken = SleepWake_Resolve(cache, persist, gone, gone_count, &host, scratch);
+
+    if (woken > 0 && persist->records)
+    {
+        // Late detection. DetectCollisionPair only refreshes existing records here (Touch never inserts for a
+        // carried pair), so the table is not rebuilt under this loop. A collision marker may grow the object array.
+        for (int i = 0; i < persist->capacity; i++)
+        {
+            const PersistRecord *record = &persist->records[i];
+            if (!ContactPersist_RecordLive(record) || !ContactPersist_IsCarriedThisFrame(persist, record))
+                continue;
+            if (SleepWake_WasWoken(scratch, record->id_a) || SleepWake_WasWoken(scratch, record->id_b))
+                DetectCollisionPair(world, record->id_a, record->id_b, -1, &world->resolved_collisions,
+                                    &world->scheduled_world_cmds);
+        }
+        SleepWake_ClearWarmOfWoken(cache, scratch);
+    }
+
+    if (persist->pending > 0)
+        LOG_WARN_LIMIT(1, 1.0f, "Contact persistence: %d expired pairs are waiting for output space.\n", persist->pending);
+    if (ContactPersist_TakeAllocFailureReport(persist) || SleepWake_TakeAllocFailureReport(scratch))
+        LOG_ERROR("Contact persistence / wake lists allocation failed. Some wake events are delayed this tick.\n");
+}
+
+// SOLVE half of the frame. Order: sleepers made static, sort bottom-up, warm start, K velocity iterations,
+// position iterations, per-body stats, write-back, and the warm table for next frame. No geometry tests
+// and no gameplay callbacks happen here.
 void SolveWorldContacts(World2d *world, float dt)
 {
     (void)dt; // The cache holds the step set by BeginFrame; kept in the signature for the call site's clarity.
@@ -258,6 +338,20 @@ void SolveWorldContacts(World2d *world, float dt)
 
     if (cache->count > 0)
     {
+        // Static sleepers: ResolveSleepWakes has already woken whatever must move, so a body that is STILL
+        // asleep now is immovable for this solve (zero inverse mass and inertia, like the container). An awake
+        // body resting on it is supported as by the floor and its weight never reaches the sleeper.
+        const Newtonoid2d *entities = (const Newtonoid2d *)world->objects.items;
+        int object_count = (int)world->objects.count;
+        for (int slot = 1; slot < cache->body_count; slot++)
+        {
+            int index = cache->bodies[slot].object_index;
+            if (index >= 0 && index < object_count && (entities[index].status_flags & ENTITY_STATUS_FLAG_SLEEPING))
+                cache->body_stats[slot].flags |= BODY_STAT_STATIC;
+        }
+        ContactCache_MakeSleepersStatic(cache);
+        ContactCache_RefreshEffectiveMass(cache);
+
         const Space2d *space = &world->grid_space.space;
         ContactCache_Sort(cache, space->grid_origin.y, space->grid_origin.y + (float)space->rows);
         ContactSolver_WarmStart(cache);
