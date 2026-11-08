@@ -219,7 +219,6 @@ Vector2d Frame_GetBasisScaling(Basis2d source, Basis2d destination)
     return scale;
 }
 
-// Legacy draft block kept for reference only.
 Vector2d Frame_CalcExtent_Local(const Frame2d *frame)
 {
     if (!frame)

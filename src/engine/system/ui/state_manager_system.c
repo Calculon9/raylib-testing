@@ -136,12 +136,26 @@ typedef struct StateManagerUI
 
 static StateManagerUI s_sm_ui = {0};
 
+// Which bitmask on the current selection a flag button targets (object fields, world or cell).
+typedef enum FlagFamily
+{
+    FLAG_FAMILY_ROLE,           // Exclusive entity role
+    FLAG_FAMILY_CAPABILITY,
+    FLAG_FAMILY_CONSTRAINT,
+    FLAG_FAMILY_STATUS,
+    FLAG_FAMILY_COLLISION_MASK,
+    FLAG_FAMILY_WORLD,
+    FLAG_FAMILY_CELL,
+} FlagFamily;
+
 // Flag button binding: associates a button control with its display label and underlying bitflag.
+// `family` is assigned when the button is wired (StateManager_WireFlags).
 typedef struct StateManagerFlagButton
 {
     const char *label;
     uint32_t flag;
     UIElement *button;
+    FlagFamily family;
 } StateManagerFlagButton;
 
 // All flag definitions and their bound controls stay together as module state.
@@ -535,14 +549,32 @@ static void HandleSelectionChanged(EntityId selected_object_id,
 // Dynamic damage binding (selection policy lives here, not in the generic core)
 // ============================================================================
 
-// DYNAMIC read: the current selection's damage, or BIND_NONE when nothing is selected
-// (clear-when-none policy owned here, so the core never learns what "selected" means). The
-// query keys only on selection, NOT on is_projectile - visibility stays in RefreshGameplaySection.
+// DYNAMIC bindings below share two selection helpers; the clear-when-none policy lives here, so
+// the generic binding core never learns what "selected" means.
+
+// The selected object, or NULL when nothing valid is selected.
+static Newtonoid2d *StateManager_SelectedObject(void)
+{
+    Newtonoid2d *object = UIState_GetSelectedObject();
+    return (object && object->id != INVALID_ENTITY_ID) ? object : NULL;
+}
+
+// The selected object's attached portal, or NULL when there is no selection or no portal. The
+// portal can go stale (selection changes, portal detaches), so it is re-resolved every call
+// rather than address-bound.
+static PortalComponent *StateManager_SelectedPortal(void)
+{
+    Newtonoid2d *object = StateManager_SelectedObject();
+    return object ? EntityRegistry_GetPortal(object->id) : NULL;
+}
+
+// DYNAMIC read: the current selection's damage, or BIND_NONE when nothing is selected. The query
+// keys only on selection, NOT on is_projectile - visibility stays in RefreshGameplaySection.
 static BindingValue StateManager_QueryDamage(int key)
 {
     (void)key;
-    Newtonoid2d *object = UIState_GetSelectedObject();
-    if (!object || object->id == INVALID_ENTITY_ID)
+    Newtonoid2d *object = StateManager_SelectedObject();
+    if (!object)
     {
         return (BindingValue){ .type = BIND_NONE };
     }
@@ -555,8 +587,8 @@ static BindingValue StateManager_QueryDamage(int key)
 static bool StateManager_WriteDamage(int key, BindingValue value)
 {
     (void)key;
-    Newtonoid2d *object = UIState_GetSelectedObject();
-    if (!object || object->id == INVALID_ENTITY_ID || value.type != BIND_FLOAT)
+    Newtonoid2d *object = StateManager_SelectedObject();
+    if (!object || value.type != BIND_FLOAT)
     {
         return false;
     }
@@ -564,200 +596,146 @@ static bool StateManager_WriteDamage(int key, BindingValue value)
     return true;
 }
 
-// DYNAMIC read for the selected object's portal cooldown (configured frames, NOT the live
-// cooldown_frames_remaining counter). The target is reached via the selection -> attached
-// portal, which can go stale (selection changes, portal detaches), so it is re-resolved every
-// call rather than address-bound. Returns BIND_NONE when there is no selection or no portal.
-static BindingValue StateManager_QueryPortalCooldown(int key)
+// Portal field keys for the shared portal query/write pair below.
+enum
 {
-    (void)key;
-    Newtonoid2d *object = UIState_GetSelectedObject();
-    if (!object || object->id == INVALID_ENTITY_ID)
-    {
-        return (BindingValue){ .type = BIND_NONE };
-    }
-    PortalComponent *portal = EntityRegistry_GetPortal(object->id);
+    PORTAL_FIELD_COOLDOWN = 0,    // Configured cooldown_frames (NOT the live cooldown_frames_remaining counter).
+    PORTAL_FIELD_DESTINATION = 1, // portal_destination_id
+};
+
+// DYNAMIC read for one INT field of the selected object's portal. Returns BIND_NONE when there
+// is no selection or no portal.
+static BindingValue StateManager_QueryPortalField(int key)
+{
+    PortalComponent *portal = StateManager_SelectedPortal();
     if (!portal)
     {
         return (BindingValue){ .type = BIND_NONE };
     }
-    return (BindingValue){ .type = BIND_INT, .as.i = portal->cooldown_frames };
+    int field = (key == PORTAL_FIELD_DESTINATION) ? (int)portal->portal_destination_id
+                                                  : portal->cooldown_frames;
+    return (BindingValue){ .type = BIND_INT, .as.i = field };
 }
 
-static BindingValue StateManager_QueryPortalDestination(int key)
+// DYNAMIC write: store a committed INT into one field of the selected object's portal. Rejects
+// (false, caller reverts) when there is no selection/portal, the value is the wrong type, or the
+// value is negative (both fields must stay >= 0, per PortalComponent_IsValid). Only the configured
+// cooldown_frames is written; the runtime cooldown_frames_remaining counter is owned by the portal
+// system and left untouched.
+static bool StateManager_WritePortalField(int key, BindingValue value)
 {
-    (void)key;
-    Newtonoid2d *object = UIState_GetSelectedObject();
-    if (!object || object->id == INVALID_ENTITY_ID)
-    {
-        return (BindingValue){ .type = BIND_NONE };
-    }
-    PortalComponent *portal = EntityRegistry_GetPortal(object->id);
-    if (!portal)
-    {
-        return (BindingValue){ .type = BIND_NONE };
-    }
-    return (BindingValue){ .type = BIND_INT, .as.i = portal->portal_destination_id };
-}
-
-static bool StateManager_WritePortalDestination(int key, BindingValue value)
-{
-    (void)key;
-    Newtonoid2d *object = UIState_GetSelectedObject();
-    if (!object || object->id == INVALID_ENTITY_ID || value.type != BIND_INT || value.as.i < 0)
+    PortalComponent *portal = StateManager_SelectedPortal();
+    if (!portal || value.type != BIND_INT || value.as.i < 0)
     {
         return false;
     }
-    PortalComponent *portal = EntityRegistry_GetPortal(object->id);
-    if (!portal)
+    if (key == PORTAL_FIELD_DESTINATION)
     {
-        return false;
+        portal->portal_destination_id = value.as.i;
     }
-    portal->portal_destination_id = value.as.i;
-    return true;
-}
-
-// DYNAMIC write: store a committed INT into the selected object's portal cooldown. Rejects
-// (false, caller reverts) when there is no selection/portal, the value is the wrong type, or
-// the value is negative (cooldown_frames must stay >= 0, per PortalComponent_IsValid). Only the
-// configured cooldown_frames is written; the runtime cooldown_frames_remaining counter is owned
-// by the portal system and left untouched.
-static bool StateManager_WritePortalCooldown(int key, BindingValue value)
-{
-    (void)key;
-    Newtonoid2d *object = UIState_GetSelectedObject();
-    if (!object || object->id == INVALID_ENTITY_ID || value.type != BIND_INT || value.as.i < 0)
+    else
     {
-        return false;
+        portal->cooldown_frames = value.as.i;
     }
-    PortalComponent *portal = EntityRegistry_GetPortal(object->id);
-    if (!portal)
-    {
-        return false;
-    }
-    portal->cooldown_frames = value.as.i;
     return true;
 }
 
 // ============================================================================
-// Flag-button display queries (one per family; is-set returning BIND_INT 0/1)
+// Flag-button families (shared read/write/query)
 // ============================================================================
 //
-// These drive the generic refresh walk's "<label>: ON/OFF" composition for the flag/component
-// buttons, replacing the retired UpdateFlagButtons hand-roll. The int key is the flag bit
-// (spec->flag) for the bitmask families, or the EntityComponentType for the component query.
-// Each query owns the clear-when-none policy; the core never learns what "selected" means.
+// Each FlagFamily names one bitmask on the current selection (object, world or cell). The generic
+// refresh walk composes "<label>: ON/OFF" through StateManager_QueryFlag, and HandleFlagClick
+// toggles through the same accessors, so adding a family means one enum value and one case in
+// each accessor. Unselected families report "not set" (clear-when-none).
 
-// Is-set query for the exclusive entity ROLE family. Guard is `o != NULL` ONLY, matching
-// RefreshAttributeView's `is_valid = (object != NULL)` term (no id != INVALID_ENTITY_ID term,
-// which would silently flip a non-NULL/INVALID object's display to OFF).
-static BindingValue StateManager_QueryEntityRole(int flag_key)
+// Read the bitmask a family targets on the current selection. Returns false when nothing of that
+// kind is selected. Guard is `!= NULL` only (no id check), so a non-NULL object with an invalid id
+// still displays its real flags.
+static bool StateManager_ReadFlags(FlagFamily family, uint32_t *out)
 {
     Newtonoid2d *o = UIState_GetSelectedObject();
-    int on = (o && (o->roles & (uint32_t)flag_key)) ? 1 : 0; // no id check (matches RefreshAttributeView)
-    return (BindingValue){ .type = BIND_INT, .as.i = on };
-}
-
-// Is-set query for the entity CAPABILITY family. Guard is `o != NULL` ONLY (matches RefreshAttributeView).
-static BindingValue StateManager_QueryEntityCapability(int flag_key)
-{
-    Newtonoid2d *o = UIState_GetSelectedObject();
-    int on = (o && (o->capabilities & (uint32_t)flag_key)) ? 1 : 0; // no id check (matches RefreshAttributeView)
-    return (BindingValue){ .type = BIND_INT, .as.i = on };
-}
-
-// Is-set query for the entity CONSTRAINT family. Guard is `o != NULL` ONLY (matches RefreshAttributeView).
-static BindingValue StateManager_QueryEntityConstraint(int flag_key)
-{
-    Newtonoid2d *o = UIState_GetSelectedObject();
-    int on = (o && (o->constraints & (uint32_t)flag_key)) ? 1 : 0; // no id check (matches RefreshAttributeView)
-    return (BindingValue){ .type = BIND_INT, .as.i = on };
-}
-
-// Is-set query for the entity STATUS family. Guard is `o != NULL` ONLY (matches RefreshAttributeView).
-static BindingValue StateManager_QueryEntityStatus(int flag_key)
-{
-    Newtonoid2d *o = UIState_GetSelectedObject();
-    int on = (o && (o->status_flags & (uint32_t)flag_key)) ? 1 : 0; // no id check (matches RefreshAttributeView)
-    return (BindingValue){ .type = BIND_INT, .as.i = on };
-}
-
-// Is-set query for the COLLISION role-mask family. Guard is `o != NULL` ONLY (matches RefreshAttributeView).
-static BindingValue StateManager_QueryCollisionMask(int flag_key)
-{
-    Newtonoid2d *o = UIState_GetSelectedObject();
-    int on = (o && (o->collision_role_mask & (uint32_t)flag_key)) ? 1 : 0; // no id check (matches RefreshAttributeView)
-    return (BindingValue){ .type = BIND_INT, .as.i = on };
-}
-
-// Is-set query for the WORLD flag family. Mirrors RefreshWorldView's plain `world != NULL` gate.
-static BindingValue StateManager_QueryWorldFlag(int flag_key)
-{
     World2d *w = Universe_GetSelectedWorld(&G_Universe);
-    int on = (w && (w->flags & (uint32_t)flag_key)) ? 1 : 0;
-    return (BindingValue){ .type = BIND_INT, .as.i = on };
-}
-
-// Is-set query for the CELL flag family. Mirrors RefreshCellView's plain `selected_cell != NULL` gate.
-static BindingValue StateManager_QueryCellFlag(int flag_key)
-{
     Cell *c = UIState_GetSelectedCell();
-    int on = (c && (c->flags & (uint32_t)flag_key)) ? 1 : 0;
-    return (BindingValue){ .type = BIND_INT, .as.i = on };
-}
 
-// DYNAMIC read for the selected cell's warp basis U vector (warp_basis.u). The selection can go
-// stale, so it is re-resolved every call. Returns the identity U component (1,0) when there is
-// no selection, so an inert/neutral value is displayed rather than stale data.
-static BindingValue StateManager_QueryCellWarpU(int key)
-{
-    (void)key;
-    Cell *c = UIState_GetSelectedCell();
-    if (!c)
+    switch (family)
     {
-        return (BindingValue){ .type = BIND_VECTOR2D, .as.v = (Vector2d){1.0f, 0.0f} };
+    case FLAG_FAMILY_ROLE:           if (!o) return false; *out = o->roles; return true;
+    case FLAG_FAMILY_CAPABILITY:     if (!o) return false; *out = o->capabilities; return true;
+    case FLAG_FAMILY_CONSTRAINT:     if (!o) return false; *out = o->constraints; return true;
+    case FLAG_FAMILY_STATUS:         if (!o) return false; *out = o->status_flags; return true;
+    case FLAG_FAMILY_COLLISION_MASK: if (!o) return false; *out = o->collision_role_mask; return true;
+    case FLAG_FAMILY_WORLD:          if (!w) return false; *out = w->flags; return true;
+    case FLAG_FAMILY_CELL:           if (!c) return false; *out = c->flags; return true;
     }
-    return (BindingValue){ .type = BIND_VECTOR2D, .as.v = c->warp_basis.u };
+    return false;
 }
 
-// DYNAMIC write: store a committed VECTOR2D into the selected cell's warp basis U vector. Rejects
-// (false, caller reverts) when there is no selection or the value is the wrong type.
-static bool StateManager_WriteCellWarpU(int key, BindingValue value)
+// Store a bitmask into the field a family targets on the current selection. Returns false when
+// nothing of that kind is selected.
+static bool StateManager_WriteFlags(FlagFamily family, uint32_t value)
 {
-    (void)key;
+    Newtonoid2d *o = UIState_GetSelectedObject();
+    World2d *w = Universe_GetSelectedWorld(&G_Universe);
+    Cell *c = UIState_GetSelectedCell();
+
+    switch (family)
+    {
+    case FLAG_FAMILY_ROLE:           if (!o) return false; o->roles = value; return true;
+    case FLAG_FAMILY_CAPABILITY:     if (!o) return false; o->capabilities = value; return true;
+    case FLAG_FAMILY_CONSTRAINT:     if (!o) return false; o->constraints = value; return true;
+    case FLAG_FAMILY_STATUS:         if (!o) return false; o->status_flags = value; return true;
+    case FLAG_FAMILY_COLLISION_MASK: if (!o) return false; o->collision_role_mask = value; return true;
+    case FLAG_FAMILY_WORLD:          if (!w) return false; w->flags = value; return true;
+    case FLAG_FAMILY_CELL:           if (!c) return false; c->flags = value; return true;
+    }
+    return false;
+}
+
+// Pack a family and flag bit into the int key a flag button's query binding carries. Flag bits are
+// all below 1 << 16, so the family lives in the upper half.
+#define STATE_MANAGER_FLAG_KEY(family, flag) (((int)(family) << 16) | (int)(flag))
+
+// Is-set query shared by every flag family; returns BIND_INT 0/1. Key from STATE_MANAGER_FLAG_KEY.
+static BindingValue StateManager_QueryFlag(int key)
+{
+    uint32_t flags = 0;
+    bool have = StateManager_ReadFlags((FlagFamily)(key >> 16), &flags);
+    int on = (have && (flags & (uint32_t)(key & 0xFFFF))) ? 1 : 0;
+    return (BindingValue){ .type = BIND_INT, .as.i = on };
+}
+
+// DYNAMIC read for one axis of the selected cell's warp basis (key 0 = U, 1 = V). Returns the
+// identity component ((1,0) for U, (0,1) for V) when no cell is selected, so an inert/neutral value
+// is displayed rather than stale data. The selection can go stale, so it is re-resolved every call.
+static BindingValue StateManager_QueryCellWarp(int key)
+{
+    Cell *c = UIState_GetSelectedCell();
+    Vector2d v = (key == 0) ? (Vector2d){1.0f, 0.0f} : (Vector2d){0.0f, 1.0f};
+    if (c)
+    {
+        v = (key == 0) ? c->warp_basis.u : c->warp_basis.v;
+    }
+    return (BindingValue){ .type = BIND_VECTOR2D, .as.v = v };
+}
+
+// DYNAMIC write: store a committed VECTOR2D into the selected cell's warp basis U (key 0) or V
+// (key 1). Rejects (false, caller reverts) when there is no selection or the value is the wrong type.
+static bool StateManager_WriteCellWarp(int key, BindingValue value)
+{
     Cell *c = UIState_GetSelectedCell();
     if (!c || value.type != BIND_VECTOR2D)
     {
         return false;
     }
-    c->warp_basis.u = value.as.v;
-    return true;
-}
-
-// DYNAMIC read for the selected cell's warp basis V vector (warp_basis.v). Returns the identity V
-// component (0,1) when there is no selection, matching the Warp U query's neutral behaviour.
-static BindingValue StateManager_QueryCellWarpV(int key)
-{
-    (void)key;
-    Cell *c = UIState_GetSelectedCell();
-    if (!c)
+    if (key == 0)
     {
-        return (BindingValue){ .type = BIND_VECTOR2D, .as.v = (Vector2d){0.0f, 1.0f} };
+        c->warp_basis.u = value.as.v;
     }
-    return (BindingValue){ .type = BIND_VECTOR2D, .as.v = c->warp_basis.v };
-}
-
-// DYNAMIC write: store a committed VECTOR2D into the selected cell's warp basis V vector. Rejects
-// (false, caller reverts) when there is no selection or the value is the wrong type.
-static bool StateManager_WriteCellWarpV(int key, BindingValue value)
-{
-    (void)key;
-    Cell *c = UIState_GetSelectedCell();
-    if (!c || value.type != BIND_VECTOR2D)
+    else
     {
-        return false;
+        c->warp_basis.v = value.as.v;
     }
-    c->warp_basis.v = value.as.v;
     return true;
 }
 
@@ -783,62 +761,27 @@ static BindingValue StateManager_QueryComponentAttached(int component_type)
 // Flag Interaction
 // ============================================================================
 
-// Toggle the exclusive entity role on the currently selected object.
-static void HandleEntityTypeFlagClick(UIElement *button)
+// Toggle a flag on the selection its family targets. ROLE is exclusive (clears the whole role
+// group, then sets this one). Toggling STATUS SLEEPING goes through sleep/wake so the body's
+// physics state stays consistent. Every other flag is a plain XOR toggle.
+static void HandleFlagClick(UIElement *button)
 {
-    Newtonoid2d *object = UIState_GetSelectedObject();
     const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->interaction_user_data;
-    if (!object || !spec)
+    uint32_t flags = 0;
+    if (!spec || !StateManager_ReadFlags(spec->family, &flags))
     {
         return;
     }
 
-    object->roles &= ~s_sm_flags.role_flags;
-    object->roles |= spec->flag;
-    MarkStateManagerRefreshDirty();
-}
-
-// Toggle an entity capability flag on the currently selected object.
-static void HandleEntityCapabilityFlagClick(UIElement *button)
-{
-    Newtonoid2d *object = UIState_GetSelectedObject();
-    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->interaction_user_data;
-    if (!object || !spec)
+    if (spec->family == FLAG_FAMILY_ROLE)
     {
-        return;
+        StateManager_WriteFlags(spec->family, (flags & ~s_sm_flags.role_flags) | spec->flag);
     }
-
-    object->capabilities ^= spec->flag;
-    MarkStateManagerRefreshDirty();
-}
-
-// Toggle an entity physics constraint on the currently selected object.
-static void HandleEntityConstraintFlagClick(UIElement *button)
-{
-    Newtonoid2d *object = UIState_GetSelectedObject();
-    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->interaction_user_data;
-    if (!object || !spec)
+    else if (spec->family == FLAG_FAMILY_STATUS && spec->flag == ENTITY_STATUS_FLAG_SLEEPING)
     {
-        return;
-    }
-
-    object->constraints ^= spec->flag;
-    MarkStateManagerRefreshDirty();
-}
-
-// Toggle an entity status flag on the currently selected object.
-static void HandleEntityStatusFlagClick(UIElement *button)
-{
-    Newtonoid2d *object = UIState_GetSelectedObject();
-    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->interaction_user_data;
-    if (!object || !spec)
-    {
-        return;
-    }
-
-    if (spec->flag == ENTITY_STATUS_FLAG_SLEEPING)
-    {
-        if (object->status_flags & ENTITY_STATUS_FLAG_SLEEPING)
+        // A status family read succeeded, so an object is selected.
+        Newtonoid2d *object = UIState_GetSelectedObject();
+        if (flags & ENTITY_STATUS_FLAG_SLEEPING)
         {
             WakeUp(object);
         }
@@ -849,52 +792,9 @@ static void HandleEntityStatusFlagClick(UIElement *button)
     }
     else
     {
-        // The XOR operation equates to a toggling of the flag.
-        object->status_flags ^= spec->flag;
+        StateManager_WriteFlags(spec->family, flags ^ spec->flag);
     }
 
-    MarkStateManagerRefreshDirty();
-}
-
-// Toggle a collision mask flag on the currently selected object.
-static void HandleCollisionMaskFlagClick(UIElement *button)
-{
-    Newtonoid2d *object = UIState_GetSelectedObject();
-    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->interaction_user_data;
-    if (!object || !spec)
-    {
-        return;
-    }
-
-    object->collision_role_mask ^= spec->flag;
-    MarkStateManagerRefreshDirty();
-}
-
-// Toggle a world flag on the currently selected world.
-static void HandleWorldFlagClick(UIElement *button)
-{
-    World2d *world = Universe_GetSelectedWorld(&G_Universe);
-    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->interaction_user_data;
-    if (!world || !spec)
-    {
-        return;
-    }
-
-    world->flags ^= spec->flag;
-    MarkStateManagerRefreshDirty();
-}
-
-// Toggle a cell flag on the currently selected cell.
-static void HandleCellFlagClick(UIElement *button)
-{
-    Cell *cell = UIState_GetSelectedCell();
-    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->interaction_user_data;
-    if (!cell || !spec)
-    {
-        return;
-    }
-
-    cell->flags ^= spec->flag;
     MarkStateManagerRefreshDirty();
 }
 
@@ -1085,21 +985,23 @@ static UIElement *StateManager_Find(UIElement *root, const char *id)
 // Reproduces CreateFlagButtons' wiring verbatim, now on id-acquired buttons.
 static void StateManager_WireFlags(UIElement *root, StateManagerFlagButton *buttons,
                                    const char **ids, size_t count,
-                                   UIEventHandler handler, BindingQueryFn query)
+                                   FlagFamily family)
 {
     for (size_t i = 0; i < count; i++)
     {
+        buttons[i].family = family;
         buttons[i].button = StateManager_Find(root, ids[i]);
         if (buttons[i].button)
         {
-            buttons[i].button->on_click  = handler;
+            buttons[i].button->on_click  = HandleFlagClick;
             buttons[i].button->interaction_user_data = (void *)&buttons[i];
 
             // Query SOURCE restores the "<label>: ON/OFF" display (sink stays NONE; the handler
             // owns the write path).
             Binding b = {
                 .source = { .kind = BIND_SRC_QUERY, .value_type = BIND_INT,
-                            .query = query, .query_key = (int)buttons[i].flag },
+                            .query = StateManager_QueryFlag,
+                            .query_key = STATE_MANAGER_FLAG_KEY(family, buttons[i].flag) },
             };
             buttons[i].button->data.button.binding = Binding_Create(b);
         }
@@ -1163,7 +1065,7 @@ static void StateManager_RegisterElements(UIElement *root)
     if (s_sm_ui.comp_portal_cooldown_tbox)
     {
         BindTextboxDynamic(s_sm_ui.comp_portal_cooldown_tbox, BIND_INT, 0,
-                           StateManager_QueryPortalCooldown, StateManager_WritePortalCooldown, 0);
+                           StateManager_QueryPortalField, StateManager_WritePortalField, PORTAL_FIELD_COOLDOWN);
     }
     s_sm_ui.comp_portal_cooldown_str = NULL;
 
@@ -1174,7 +1076,7 @@ static void StateManager_RegisterElements(UIElement *root)
     if (s_sm_ui.comp_portal_target_tbox)
     {
         BindTextboxDynamic(s_sm_ui.comp_portal_target_tbox, BIND_INT, 0,
-                           StateManager_QueryPortalDestination, StateManager_WritePortalDestination, 0);
+                           StateManager_QueryPortalField, StateManager_WritePortalField, PORTAL_FIELD_DESTINATION);
     }
     s_sm_ui.comp_portal_entrant_roles_tbox = StateManager_Find(root, "sm_portal_roles");
     if (s_sm_ui.comp_portal_entrant_roles_tbox)
@@ -1235,13 +1137,13 @@ static void StateManager_RegisterElements(UIElement *root)
     if (s_sm_ui.cell_warp_u_tbox)
     {
         BindTextboxDynamic(s_sm_ui.cell_warp_u_tbox, BIND_VECTOR2D, 2,
-                           StateManager_QueryCellWarpU, StateManager_WriteCellWarpU, 0);
+                           StateManager_QueryCellWarp, StateManager_WriteCellWarp, 0);
     }
     s_sm_ui.cell_warp_v_tbox = StateManager_Find(root, "sm_cell_warp_v");
     if (s_sm_ui.cell_warp_v_tbox)
     {
         BindTextboxDynamic(s_sm_ui.cell_warp_v_tbox, BIND_VECTOR2D, 2,
-                           StateManager_QueryCellWarpV, StateManager_WriteCellWarpV, 0);
+                           StateManager_QueryCellWarp, StateManager_WriteCellWarp, 1);
     }
 
     // --- Component toggle buttons (labels/types set in C; only .button re-acquired + wired) ---
@@ -1311,13 +1213,13 @@ static void StateManager_RegisterElements(UIElement *root)
     }
 
     // --- Flag buttons: acquire + wire handler + user_data + query SOURCE per family ---
-    StateManager_WireFlags(root, s_sm_flags.entity_role,         sm_role_ids,   5, HandleEntityTypeFlagClick,       StateManager_QueryEntityRole);
-    StateManager_WireFlags(root, s_sm_flags.entity_capability,   sm_cap_ids,    4, HandleEntityCapabilityFlagClick, StateManager_QueryEntityCapability);
-    StateManager_WireFlags(root, s_sm_flags.entity_constraint,   sm_con_ids,    2, HandleEntityConstraintFlagClick, StateManager_QueryEntityConstraint);
-    StateManager_WireFlags(root, s_sm_flags.entity_status,       sm_status_ids, 3, HandleEntityStatusFlagClick,     StateManager_QueryEntityStatus);
-    StateManager_WireFlags(root, s_sm_flags.collision_role_mask, sm_coll_ids,   5, HandleCollisionMaskFlagClick,    StateManager_QueryCollisionMask);
-    StateManager_WireFlags(root, s_sm_flags.world,               sm_world_ids,  7, HandleWorldFlagClick,            StateManager_QueryWorldFlag);
-    StateManager_WireFlags(root, s_sm_flags.cell,                sm_cell_ids,   4, HandleCellFlagClick,             StateManager_QueryCellFlag);
+    StateManager_WireFlags(root, s_sm_flags.entity_role,         sm_role_ids,   5, FLAG_FAMILY_ROLE);
+    StateManager_WireFlags(root, s_sm_flags.entity_capability,   sm_cap_ids,    4, FLAG_FAMILY_CAPABILITY);
+    StateManager_WireFlags(root, s_sm_flags.entity_constraint,   sm_con_ids,    2, FLAG_FAMILY_CONSTRAINT);
+    StateManager_WireFlags(root, s_sm_flags.entity_status,       sm_status_ids, 3, FLAG_FAMILY_STATUS);
+    StateManager_WireFlags(root, s_sm_flags.collision_role_mask, sm_coll_ids,   5, FLAG_FAMILY_COLLISION_MASK);
+    StateManager_WireFlags(root, s_sm_flags.world,               sm_world_ids,  7, FLAG_FAMILY_WORLD);
+    StateManager_WireFlags(root, s_sm_flags.cell,                sm_cell_ids,   4, FLAG_FAMILY_CELL);
 
     // --- DELETE: C-wired (deferred, world-guarded delete); no action= in the XML ---
     s_sm_ui.delete_action = BUTTON_ACTION_DELETE_ENTITY;
@@ -1343,12 +1245,8 @@ static void StateManager_RegisterElements(UIElement *root)
 // ============================================================================
 // View Refresh
 // ============================================================================
-// (The imperative view builders InitPhysStateView / InitAttributeStateView /
-// InitWorldStateView / InitCellStateView, plus CreateStateManagerView and
-// CreateFlagButtons, were retired in Stage 1 of the XML migration: the views now
-// come from state_manager.xml and the pointers/handlers are re-acquired in
-// StateManager_RegisterElements. Their bodies are preserved verbatim in the LEGACY
-// block at the bottom of this file for easy revert.)
+// (The views come from state_manager.xml; the pointers/handlers are re-acquired in
+// StateManager_RegisterElements.)
 
 // Refresh gameplay section visibility and row states.
 static void RefreshGameplaySection(const Newtonoid2d *object)
@@ -1402,8 +1300,7 @@ static void RefreshComponentsSection(const Newtonoid2d *object)
 
     // Keep the per-frame enable state for the component toggle buttons (disabled when there is no
     // valid selection). The ON/OFF label is now owned by the generic refresh walk via each
-    // button's query-source Binding (StateManager_QueryComponentAttached), so the label write and
-    // its `attached` local were removed from this loop (preserved verbatim in the LEGACY block).
+    // button's query-source Binding (StateManager_QueryComponentAttached).
     for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.comp_buttons); i++)
     {
         if (!s_sm_ui.comp_buttons[i].button)
@@ -1538,8 +1435,7 @@ static void RefreshPhysView(Newtonoid2d *object)
 
 // Refresh the ATTRI view: roles, capabilities, constraints, status, and collision-role mask buttons.
 // The flag-button ON/OFF labels are now driven by the generic refresh walk via each button's
-// query-source Binding; the five UpdateFlagButtons calls (and their now-dead locals) were removed
-// and preserved verbatim in the LEGACY block.
+// query-source Binding, so there is nothing to refresh here.
 static void RefreshAttributeView(const Newtonoid2d *object)
 {
     (void)object; // selection is read directly by the per-family query fns during the refresh walk
@@ -1557,8 +1453,8 @@ static void RefreshWorldView(const World2d *world)
     };
     RefreshTextboxFields(world_physics_fields, ARRAY_COUNT(world_physics_fields));
 
-    // World flag ON/OFF labels are now driven by the generic refresh walk via each button's
-    // query-source Binding; the UpdateFlagButtons call was removed (preserved in the LEGACY block).
+    // World flag ON/OFF labels are driven by the generic refresh walk via each button's
+    // query-source Binding.
 }
 
 // Refresh the CELL view: grid cell state string readouts and cell behaviour flags.
@@ -1602,8 +1498,8 @@ static void RefreshCellView(const Cell *selected_cell, int selected_cell_occupan
         ClearString64(s_sm_ui.cell_tile_type_str);
     }
 
-    // Cell flag ON/OFF labels are now driven by the generic refresh walk via each button's
-    // query-source Binding; the UpdateFlagButtons call was removed (preserved in the LEGACY block).
+    // Cell flag ON/OFF labels are driven by the generic refresh walk via each button's
+    // query-source Binding.
 }
 
 // Refresh the COMP view (Phase 1: attach/remove only): rebuild the fixed Attached-row slots and
@@ -1960,393 +1856,3 @@ void DestroyStateManagerSystem(void)
 
     memset(&s_sm_ui, 0, sizeof(s_sm_ui));
 }
-
-// === LEGACY (pre-binding-consistency) — retained for easy revert ===
-// See .agents/tasks/binding-consistency-design.md (section 6).
-//
-// REVERT IS ALL-OR-NOTHING: restoring the pre-change behaviour means restoring the old
-// CreateFlagButtons signature/body AND re-adding the UpdateFlagButtons definition + all seven
-// call sites + the component label line together. Do NOT un-comment individual lines in
-// isolation - the live CreateFlagButtons (with its query param + query-source Binding) and the
-// query fns must be removed as a set when reverting. Every line below is an inert // comment.
-//
-// --- 1. Retired UpdateFlagButtons definition (removed from the Flag Interaction section) ---
-//
-// // Update the label and active state for a set of flag buttons based on the current bitmask.
-// static void UpdateFlagButtons(StateManagerFlagButton *buttons, size_t count, uint32_t current_flags, bool is_valid)
-// {
-//     for (size_t i = 0; i < count; i++)
-//     {
-//         if (!buttons[i].button)
-//         {
-//             continue;
-//         }
-//
-//         bool enabled = is_valid && ((current_flags & buttons[i].flag) != 0);
-//         UpdateString64(buttons[i].button->data.button.display_text.string,
-//                        "%s: %s", buttons[i].label, enabled ? "ON" : "OFF");
-//         buttons[i].button->is_enabled = true;
-//     }
-// }
-//
-// --- 2. Old CreateFlagButtons signature/body (BEFORE the query param + query-source Binding) ---
-//
-// // Create toggle buttons within a section and bind them to their respective flag definitions.
-// static void CreateFlagButtons(UIElement *section, StateManagerFlagButton *buttons, size_t count, UIEventHandler click_handler)
-// {
-//     for (size_t i = 0; i < count; i++)
-//     {
-//         buttons[i].button = CreateUIButtonDefault(
-//             section, UI_ELEMENT_BUTTON_SIMPLE, buttons[i].label,
-//             ui_wide_button_size, ui_standard_button_padding,
-//             state_manager_panel->palette, click_handler, (void *)&buttons[i], NULL);
-//     }
-// }
-//
-// --- 3. Removed UpdateFlagButtons(...) call sites (verbatim, with enclosing context) ---
-//
-// From RefreshAttributeView (five calls; the whole body before the migration was):
-// {
-//     bool is_valid = (object != NULL);
-//     uint32_t role_flags = object ? object->roles : 0;
-//     uint32_t capability_flags = object ? object->capabilities : 0;
-//     uint32_t constraint_flags = object ? object->constraints : 0;
-//     uint32_t status_flags = object ? object->status_flags : 0;
-//     uint32_t collision_role_mask = object ? object->collision_role_mask : 0;
-//
-//     UpdateFlagButtons(s_sm_flags.entity_role, ARRAY_COUNT(s_sm_flags.entity_role),
-//                       role_flags, is_valid);
-//     UpdateFlagButtons(s_sm_flags.entity_capability, ARRAY_COUNT(s_sm_flags.entity_capability),
-//                       capability_flags, is_valid);
-//     UpdateFlagButtons(s_sm_flags.entity_constraint, ARRAY_COUNT(s_sm_flags.entity_constraint),
-//                       constraint_flags, is_valid);
-//     UpdateFlagButtons(s_sm_flags.entity_status, ARRAY_COUNT(s_sm_flags.entity_status),
-//                       status_flags, is_valid);
-//     UpdateFlagButtons(s_sm_flags.collision_role_mask, ARRAY_COUNT(s_sm_flags.collision_role_mask),
-//                       collision_role_mask, is_valid);
-// }
-//
-// From RefreshWorldView (one call, after RefreshTextboxFields(world_physics_fields, ...)):
-//     UpdateFlagButtons(s_sm_flags.world, ARRAY_COUNT(s_sm_flags.world),
-//                       world ? world->flags : 0, world != NULL);
-//
-// From RefreshCellView (one call, after the cell string readouts):
-//     UpdateFlagButtons(s_sm_flags.cell, ARRAY_COUNT(s_sm_flags.cell),
-//                       selected_cell ? selected_cell->flags : 0, selected_cell != NULL);
-//
-// --- 4. Removed component label line + its `attached` local (from RefreshComponentsSection) ---
-//     The CURRENT single component loop was (three statements per button); the live loop keeps
-//     only the `is_enabled = is_valid;` write - the two lines below were removed:
-//
-//         bool attached = is_valid && (desc.components[s_sm_ui.comp_buttons[i].type] != NULL);
-//         UpdateString64(s_sm_ui.comp_buttons[i].button->data.button.display_text.string,
-//                        "%s: %s", s_sm_ui.comp_buttons[i].label, attached ? "ON" : "OFF");
-// ============================================================================
-
-// === LEGACY (pre-xml-migration stage 1) — retained for easy revert; all-or-nothing ===
-// Stage 1 of the state-manager XML migration (.agents/tasks/statemgr-stage1-design.md):
-// InitStateManagerSystem now LOADS state_manager.xml (mirroring InitLPanel) and re-acquires
-// every element pointer / wires every C click in StateManager_RegisterElements. The imperative
-// builders below (CreateStateManagerView, CreateFlagButtons, and the four Init*StateView bodies,
-// plus the old InitStateManagerSystem view_section_size recompute) were removed from live code.
-//
-// REVERT IS ALL-OR-NOTHING: restoring the pre-migration behaviour means restoring these
-// imperative builders AND reverting the state_manager.xml flesh-out/strip AND removing the id
-// pass (StateManager_RegisterElements) + the XML-loading InitStateManagerSystem together. Do NOT
-// un-comment individual lines in isolation. Every line below is an inert // comment.
-//
-// CARVE-OUT: the damage BindTextboxDynamic(... StateManager_QueryDamage, StateManager_WriteDamage
-// ...) call that lived inside InitPhysStateView is NOT retired here - it is re-issued LIVE in
-// StateManager_RegisterElements (the damage field's only value source in Stage 1), and its
-// query/write helpers stay live. It is therefore shown below as a comment marking where it was.
-//
-// --- Old module-level view_section_size recompute (from the former InitStateManagerSystem) ---
-//
-// // Match section measurement to the view height left after the selector and container padding.
-// float state_manager_view_height = (float)state_manager_panel->space.rows -
-//                                   (2.0f * state_manager_panel->default_padding.y) -
-//                                   ui_standard_selector_button_size.dimensions.y -
-//                                   state_manager_panel->root_child_spacing.spacing.y -
-//                                   (2.0f * ui_standard_container_padding.y);
-// view_section_size = UI_SIZE_HUG_CAPPED(0.0f, fmaxf(0.0f, state_manager_view_height));
-//
-// --- CreateStateManagerView (no remaining caller once the builders are gone) ---
-//
-// // Create and register a state-manager view with its requested child layout.
-// static View *CreateStateManagerView(int view_id, bool is_draggable, bool is_enabled, Layout child_spacing)
-// {
-//     View *view = ViewHostSystem_CreateView(state_manager_panel, view_id);
-//     UIElement *container = view ? view->container : NULL;
-//     if (!view)
-//     {
-//         return NULL;
-//     }
-//
-//     container->child_spacing = child_spacing;
-//     container->is_draggable = is_draggable;
-//     container->is_enabled = is_enabled;
-//
-//     return view;
-// }
-//
-// --- CreateFlagButtons (flag buttons now come from markup, wired in the id pass) ---
-//
-// // Create toggle buttons within a section and bind them to their respective flag definitions.
-// // Each button is given a query-SOURCE Binding (keyed on its flag bit) so the generic refresh
-// // walk composes "<label>: ON/OFF"; the sink is left BIND_SINK_NONE because the supplied
-// // click_handler (UIEventHandler) owns the write path for these C-built buttons.
-// static void CreateFlagButtons(UIElement *section, StateManagerFlagButton *buttons, size_t count,
-//                               UIEventHandler click_handler, BindingQueryFn query)
-// {
-//     for (size_t i = 0; i < count; i++)
-//     {
-//         buttons[i].button = CreateUIButtonDefault(
-//             section, UI_ELEMENT_BUTTON_SIMPLE, buttons[i].label,
-//             ui_wide_button_size, ui_standard_button_padding,
-//             state_manager_panel->palette, click_handler, (void *)&buttons[i], NULL);
-//
-//         // Attach a query SOURCE so the refresh walk owns the ON/OFF label (sink stays NONE).
-//         if (buttons[i].button)
-//         {
-//             Binding b = {
-//                 .source = { .kind = BIND_SRC_QUERY, .value_type = BIND_INT,
-//                             .query = query, .query_key = (int)buttons[i].flag },
-//             };
-//             buttons[i].button->data.button.binding = Binding_Create(b);
-//         }
-//     }
-// }
-//
-// --- InitPhysStateView (whole body; the damage BindTextboxDynamic is carved out, see above) ---
-//
-// // Build the four StateManager views and their sections.
-// static void InitPhysStateView(void)
-// {
-//     View *physics_view = CreateStateManagerView(
-//         STATE_MANAGER_PHYSICS_VIEW, true, true, ui_zero_inline_spacing);
-//     if (!physics_view)
-//     {
-//         return;
-//     }
-//     View_SetScrollableX(physics_view, true);
-//
-//     UIElement *view_cont = physics_view->container;
-//
-//     UIElement *identity_section = CreateViewSection_StackWrap(view_cont, "Identity", view_section_size,
-//                                                               state_manager_panel->palette);
-//     const UIFieldSpec identity_specs[] = {
-//         {"Id:", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.id_tbox, NULL},
-//         {"Slot:", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.slot_tbox, NULL},
-//         {"Generation:", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.generation_tbox, NULL},
-//         {"World", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.world_tbox, NULL},
-//     };
-//     InitUIFields(identity_section, identity_specs, ARRAY_COUNT(identity_specs),
-//                  ui_standard_field_padding, state_manager_panel->palette);
-//
-//     UIElement *physics_section = CreateViewSection_StackWrap(view_cont, "Physics", view_section_size,
-//                                                              state_manager_panel->palette);
-//     const UIFieldSpec physics_specs[] = {
-//         {"Mass", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.mass_tbox, NULL},
-//         {"Restitution", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.restitution_tbox, NULL},
-//         {"Friction", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.friction_tbox, NULL},
-//         {"Anchor", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.pos_c_tbox, NULL},
-//         {"Vel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.vel_tbox, NULL},
-//         {"Accel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.accel_tbox, NULL},
-//         {"Moment", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.moment_tbox, NULL},
-//         {"AngVel", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.angular_velocity_tbox, NULL},
-//         {"AngAccel", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, &s_sm_ui.angular_acceleration_tbox, NULL},
-//     };
-//     InitUIFields(physics_section, physics_specs,
-//                  ARRAY_COUNT(physics_specs),
-//                  ui_standard_field_padding, state_manager_panel->palette);
-//
-//     UIElement *geometry_section = CreateViewSection_StackWrap(view_cont, "Geometry", view_section_size,
-//                                                               state_manager_panel->palette);
-//     const UIFieldSpec geometry_specs[] = {
-//         {"Bounds.min", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, VECTOR2D, &s_sm_ui.pos_tl_tbox, NULL},
-//         {"Geo.center", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, VECTOR2D, &s_sm_ui.geometry_center_tbox, NULL},
-//         {"Rot", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.rotation_tbox, NULL},
-//         {"Basis u", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.basis_u_tbox, NULL},
-//         {"Basis v", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, VECTOR2D, &s_sm_ui.basis_v_tbox, NULL},
-//     };
-//     InitUIFields(geometry_section, geometry_specs,
-//                  ARRAY_COUNT(geometry_specs),
-//                  ui_standard_field_padding, state_manager_panel->palette);
-//
-//     UIElement *gameplay_section = CreateViewSection_StackWrap(view_cont, "Gameplay", view_section_size,
-//                                                               state_manager_panel->palette);
-//     s_sm_ui.gameplay_section = gameplay_section;
-//     const UIFieldSpec gameplay_specs[] = {
-//         {"Health", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.health_tbox, NULL},
-//         {"MaxHealth", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.max_health_tbox, NULL},
-//         {"Damage", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT, &s_sm_ui.damage_tbox, NULL},
-//     };
-//     InitUIFields(gameplay_section, gameplay_specs,
-//                  ARRAY_COUNT(gameplay_specs),
-//                  ui_standard_field_padding, state_manager_panel->palette);
-//
-//     // CARVED OUT (re-issued LIVE in StateManager_RegisterElements, NOT retired here):
-//     // // DYNAMIC binding proof: damage targets the current selection; the query/callback own the
-//     // // selection and clear-when-none policy (domain knowledge stays here, not in the core).
-//     // BindTextboxDynamic(s_sm_ui.damage_tbox, BIND_FLOAT, 2,
-//     //                    StateManager_QueryDamage, StateManager_WriteDamage, 0);
-//
-//     // Components section: shows attached components and their properties.
-//     UIElement *components_section = CreateViewSection_StackWrap(view_cont, "Components", view_section_size,
-//                                                                 state_manager_panel->palette);
-//     s_sm_ui.components_section = components_section;
-//
-//     // Component toggle buttons: PORTAL, ROTOR, GEAR, HEALTH
-//     s_sm_ui.comp_buttons[0] = (StateManagerComponentButton){"PORTAL", ENTITY_COMPONENT_PORTAL, NULL};
-//     s_sm_ui.comp_buttons[1] = (StateManagerComponentButton){"ROTOR", ENTITY_COMPONENT_ROTOR, NULL};
-//     s_sm_ui.comp_buttons[2] = (StateManagerComponentButton){"GEAR", ENTITY_COMPONENT_GEAR, NULL};
-//     s_sm_ui.comp_buttons[3] = (StateManagerComponentButton){"HEALTH", ENTITY_COMPONENT_HEALTH, NULL};
-//
-//     for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.comp_buttons); i++)
-//     {
-//         s_sm_ui.comp_buttons[i].button = CreateUIButtonDefault(
-//             components_section, UI_ELEMENT_BUTTON_SIMPLE, s_sm_ui.comp_buttons[i].label,
-//             ui_wide_button_size, ui_standard_button_padding,
-//             state_manager_panel->palette, HandleComponentToggleClick,
-//             (void *)&s_sm_ui.comp_buttons[i], NULL);
-//
-//         // Attach a query SOURCE keyed on the component TYPE (not a flag bit) so the refresh walk
-//         // composes "<label>: ON/OFF". This is a separate site from CreateFlagButtons; its query
-//         // parameter does NOT reach these buttons.
-//         if (s_sm_ui.comp_buttons[i].button)
-//         {
-//             Binding b = {
-//                 .source = { .kind = BIND_SRC_QUERY, .value_type = BIND_INT,
-//                             .query = StateManager_QueryComponentAttached,
-//                             .query_key = (int)s_sm_ui.comp_buttons[i].type },
-//             };
-//             s_sm_ui.comp_buttons[i].button->data.button.binding = Binding_Create(b);
-//         }
-//     }
-//
-//     const UIFieldSpec components_specs[] = {
-//         {"Portal Cooldown", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, INT, &s_sm_ui.comp_portal_cooldown_tbox, &s_sm_ui.comp_portal_cooldown_str},
-//         {"Portal Roles", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_portal_entrant_roles_tbox, &s_sm_ui.comp_portal_entrant_roles_str},
-//         {"Relation Type", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_relation_type_tbox, &s_sm_ui.comp_relation_type_str},
-//         {"Relation Target", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_relation_target_tbox, &s_sm_ui.comp_relation_target_str},
-//         {"Relation Active", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, INT, &s_sm_ui.comp_relation_active_tbox, &s_sm_ui.comp_relation_active_str},
-//     };
-//     InitUIFields(components_section, components_specs,
-//                  ARRAY_COUNT(components_specs),
-//                  ui_standard_field_padding, state_manager_panel->palette);
-//
-//     s_sm_ui.delete_action = BUTTON_ACTION_DELETE_ENTITY;
-//     CreateUIButtonDefault(view_cont, UI_ELEMENT_BUTTON_SUBMIT,
-//                           "DELETE", ui_standard_button_size, ui_standard_button_padding,
-//                           state_manager_panel->palette, HandleBtnSubmitClick,
-//                           &s_sm_ui.delete_action, NULL);
-// }
-//
-// --- InitAttributeStateView (whole body) ---
-//
-// static void InitAttributeStateView(void)
-// {
-//     View *attributes_view = CreateStateManagerView(
-//         STATE_MANAGER_ATTRIBUTES_VIEW, true, true, ui_zero_inline_spacing);
-//     if (!attributes_view)
-//     {
-//         return;
-//     }
-//     View_SetScrollableX(attributes_view, true);
-//     UIElement *view_cont = attributes_view->container;
-//
-//     // Customise the View
-//     UIElement *identity_section = CreateViewSection_StackWrap(view_cont, "Entity", view_section_size,
-//                                                               state_manager_panel->palette);
-//     UIElement *capability_section = CreateViewSection_StackWrap(view_cont, "Capabilities", view_section_size,
-//                                                                 state_manager_panel->palette);
-//     UIElement *constraint_section = CreateViewSection_StackWrap(view_cont, "Constraints", view_section_size,
-//                                                                 state_manager_panel->palette);
-//     UIElement *status_section = CreateViewSection_StackWrap(view_cont, "Status", view_section_size,
-//                                                             state_manager_panel->palette);
-//     UIElement *collision_section = CreateViewSection_StackWrap(view_cont, "Collision", view_section_size,
-//                                                                state_manager_panel->palette);
-//
-//     CreateFlagButtons(identity_section, s_sm_flags.entity_role,
-//                       ARRAY_COUNT(s_sm_flags.entity_role), HandleEntityTypeFlagClick,
-//                       StateManager_QueryEntityRole);
-//     CreateFlagButtons(capability_section, s_sm_flags.entity_capability,
-//                       ARRAY_COUNT(s_sm_flags.entity_capability), HandleEntityCapabilityFlagClick,
-//                       StateManager_QueryEntityCapability);
-//     CreateFlagButtons(constraint_section, s_sm_flags.entity_constraint,
-//                       ARRAY_COUNT(s_sm_flags.entity_constraint), HandleEntityConstraintFlagClick,
-//                       StateManager_QueryEntityConstraint);
-//     CreateFlagButtons(status_section, s_sm_flags.entity_status,
-//                       ARRAY_COUNT(s_sm_flags.entity_status), HandleEntityStatusFlagClick,
-//                       StateManager_QueryEntityStatus);
-//     CreateFlagButtons(collision_section, s_sm_flags.collision_role_mask,
-//                       ARRAY_COUNT(s_sm_flags.collision_role_mask), HandleCollisionMaskFlagClick,
-//                       StateManager_QueryCollisionMask);
-// }
-//
-// --- InitWorldStateView (whole body) ---
-//
-// static void InitWorldStateView(void)
-// {
-//     View *world_view = CreateStateManagerView(
-//         STATE_MANAGER_WORLD_VIEW, true, false, ui_zero_x_inline_wrap_spacing);
-//     if (!world_view)
-//     {
-//         return;
-//     }
-//     View_SetScrollableX(world_view, true);
-//
-//     UIElement *world_section = CreateViewSection_StackWrap(world_view->container, "World", view_section_size,
-//                                                            state_manager_panel->palette);
-//
-//     UIElement *world_physics_section = CreateViewSection_StackWrap(
-//         world_view->container, "Physics", view_section_size, state_manager_panel->palette);
-//     const UIFieldSpec world_physics_specs[] = {
-//         {"Restitution", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT,
-//          &s_sm_ui.world_restitution_tbox, NULL},
-//         {"Friction", UI_ELEMENT_TEXTBOX_SAFE_IO, ui_standard_control_size, FLOAT,
-//          &s_sm_ui.world_friction_tbox, NULL},
-//     };
-//     InitUIFields(world_physics_section, world_physics_specs,
-//                  ARRAY_COUNT(world_physics_specs),
-//                  ui_standard_field_padding, state_manager_panel->palette);
-//
-//     CreateFlagButtons(world_section, s_sm_flags.world,
-//                       ARRAY_COUNT(s_sm_flags.world), HandleWorldFlagClick,
-//                       StateManager_QueryWorldFlag);
-// }
-//
-// --- InitCellStateView (whole body) ---
-//
-// static void InitCellStateView(void)
-// {
-//     View *cell_view = CreateStateManagerView(
-//         STATE_MANAGER_CELL_STATE_VIEW, true, false, ui_zero_inline_spacing);
-//     if (!cell_view)
-//     {
-//         return;
-//     }
-//     View_SetScrollableX(cell_view, true);
-//     UIElement *cell_container = cell_view->container;
-//
-//     const UIFieldSpec cell_specs[] = {
-//         {"Index", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &s_sm_ui.cell_id_str},
-//         {"Occu", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &s_sm_ui.cell_occu_str},
-//         {"Value", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &s_sm_ui.cell_value_str},
-//         {"Fill", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &s_sm_ui.cell_fill_str},
-//     };
-//
-//     UIElement *cell_phys_section = CreateViewSection_StackWrap(cell_container, "Cell", view_section_size,
-//                                                                state_manager_panel->palette);
-//     InitUIFields(cell_phys_section, cell_specs,
-//                  ARRAY_COUNT(cell_specs),
-//                  ui_standard_field_padding, state_manager_panel->palette);
-//
-//     UIElement *cell_flags_section = CreateViewSection_StackWrap(cell_container, "Flags", view_section_size,
-//                                                                 state_manager_panel->palette);
-//
-//     CreateFlagButtons(cell_flags_section, s_sm_flags.cell,
-//                       ARRAY_COUNT(s_sm_flags.cell), HandleCellFlagClick,
-//                       StateManager_QueryCellFlag);
-// }
-// ============================================================================

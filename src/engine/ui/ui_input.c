@@ -26,15 +26,7 @@
 //----------------------------------------------------------------------------------
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
-// Legacy UI drag mirror retained for reference; DragInteractionState is authoritative.
-// DragState G_DragState = {0};
-// UIElement *G_DraggedElement = NULL;
-// Vector2d G_DragOffset = ZERO_VECTOR_2D;
 Text_64_IOState tbox_io_buffers = {0};
-// MouseDownState mouse_down_state = {0};
-// char tbox_input_buffer[sizeof(G_UIState.focused_element->data.textbox.text.string)] = ""; // Stores textbox input
-// char tbox_temp_buffer[sizeof(G_UIState.focused_element->data.textbox.text.string)] = "";  // Stores the original text being output to a focused textbox before it was modified by the user - this buffer is used to restore it if needed
-
 //----------------------------------------------------------------------------------
 // Functions Definition
 //----------------------------------------------------------------------------------
@@ -657,18 +649,6 @@ void UpdateTextIO()
     }
 }
 
-// Legacy UI drag predicates retained for reference; use DragInteraction_IsDragActive
-// and DragInteraction_IsClick instead.
-// bool IsMouseDragged(MouseDownState mouse_down_state)
-// {
-//     return IsPointerDrag(mouse_down_state, 5.0f);
-// }
-//
-// bool IsMouseClicked(MouseDownState mouse_down_state)
-// {
-//     return IsPointerClick(mouse_down_state, 20, 5.0f);
-// }
-
 // ----------------------------------------------------------------------------------
 // Utility Functions
 void ClearUIFocus()
@@ -735,15 +715,6 @@ void UpdateDragFocus(UIElement *element, Vector2d mouse_coords)
     DragInteraction_BeginCapture(drag_ctx, DRAG_TARGET_UI_ELEMENT, element, initial_element_offset);
     printf("DRAG FOCUS CHANGE: [%s]\n", GetElementTypeName(element->type));
 }
-
-// Legacy reset path retained for reference; DragInteraction_UpdateButtonUp clears
-// the pointer state and capture together.
-// void ResetDragState(void)
-// {
-//     DragInteractionState *drag_ctx = GetUIDragContext();
-//     DragInteraction_ClearCapture(drag_ctx);
-//     printf("DRAG FOCUS CLEARED\n");
-// }
 
 void InitTextBuffers(UIElement *e, Text_64_IOState *t_bufs)
 {
