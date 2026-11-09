@@ -22,10 +22,10 @@ static Vector2d popup_spawn_position = {0.0f, 0.0f};
 // is passed to ViewHostSystem_Create in InitPopupMenu, and the padding/child-spacing
 // are re-applied to the view/submenu containers by Popup_RegisterElements (they are not
 // expressible on those markup tags today).
-static const Vector2d popup_menu_padding = {0.15f, 0.15f};
+static const Vector2d popup_menu_padding = {8.0f, 8.0f};
 static const Layout popup_menu_root_spacing = UI_SPACING_NONE;
 // NOTE: popup_menu_child_spacing's middle field is NumberForm (NONE), NOT an AxisSizeMode.
-static const Layout popup_menu_child_spacing = {{0.0f, 0.025f}, NONE, FLOW_STACKED};
+static const Layout popup_menu_child_spacing = {{0.0f, 1.0f}, NONE, FLOW_STACKED};
 
 // Forward declarations for the loader-hybrid wiring pass (defined below InitPopupMenu
 // mirrors state_manager; the id-pass and its helpers are declared here so InitPopupMenu
@@ -330,6 +330,7 @@ static void Popup_RegisterElements(UIElement *root)
         entity_item->interaction_user_data = &popup_create_entity_action;
         UIPalette_GetSurfaceColours(popup_menu->palette, UI_PALETTE_SURFACE_BUTTON,
                                     &entity_item->colour_border, &entity_item->colour_fill);
+        entity_item->border_weight = UIPalette_GetSurfaceBorderWeight(popup_menu->palette, UI_PALETTE_SURFACE_BUTTON);
         SetUIElementTextHorizontalAlignment(entity_item, UI_TEXT_ALIGN_LEFT);
         SetUIElementTextVerticalAlignment(entity_item, UI_TEXT_VERTICAL_ALIGN_CENTRE);
         entity_item->is_draggable = false;
@@ -341,6 +342,7 @@ static void Popup_RegisterElements(UIElement *root)
         world_item->interaction_user_data = &popup_create_world_action;
         UIPalette_GetSurfaceColours(popup_menu->palette, UI_PALETTE_SURFACE_BUTTON,
                                     &world_item->colour_border, &world_item->colour_fill);
+        world_item->border_weight = UIPalette_GetSurfaceBorderWeight(popup_menu->palette, UI_PALETTE_SURFACE_BUTTON);
         SetUIElementTextHorizontalAlignment(world_item, UI_TEXT_ALIGN_LEFT);
         SetUIElementTextVerticalAlignment(world_item, UI_TEXT_VERTICAL_ALIGN_CENTRE);
         world_item->is_draggable = false;
@@ -463,8 +465,10 @@ void ShowPopupMenu(Vector2d position)
     // Convert the world anchor into the popup panel's game-viewport-local coordinates.
     Vector2d popup_pixel_position = TransformCoordinates(
         ResolveWorldToPixelMatrix(&G_Universe.root_world, &G_Universe.camera), position);
-    Vector2d popup_local_position = TransformCoordinates(
+    Vector2d popup_viewport_position = TransformCoordinates(
         game_viewport.tunnel.dest_to_source_mtx, popup_pixel_position);
+    // The popup panel lays out in UI pixels, so convert from game-viewport units.
+    Vector2d popup_local_position = ViewHostSystem_ViewportToLocal(popup_menu, popup_viewport_position);
 
     // Keep the world position for entity creation, but position the UI in panel space.
     popup_spawn_position = position;

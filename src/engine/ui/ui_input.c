@@ -27,6 +27,8 @@
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
 Text_64_IOState tbox_io_buffers = {0};
+// Scroll distance per mouse-wheel notch, in UI pixels.
+#define UI_SCROLL_STEP_PX 38.0f
 //----------------------------------------------------------------------------------
 // Functions Definition
 //----------------------------------------------------------------------------------
@@ -175,12 +177,13 @@ bool ResolvePointerLocalCoords(UIElement *element, Vector2d mouse_pixel_coords, 
     }
 
     Vector2d pixels_to_local_scale = ResolvePixelToLocalDragScale(root);
-    Vector2d root_local_origin = root->data.root.space.frame.origin_in_parent;
     Vector2d root_pixel_origin = root->screen_box.coords;
     Vector2d pixel_delta = VectorDiff_2d(mouse_pixel_coords, root_pixel_origin);
 
-    out_local_coords->x = root_local_origin.x + (pixel_delta.x * pixels_to_local_scale.x);
-    out_local_coords->y = root_local_origin.y + (pixel_delta.y * pixels_to_local_scale.y);
+    // Panel-local UI pixels measured from the root's top-left (the root's viewport origin is in a
+    // different unit, so it is not added).
+    out_local_coords->x = pixel_delta.x * pixels_to_local_scale.x;
+    out_local_coords->y = pixel_delta.y * pixels_to_local_scale.y;
     return true;
 }
 // DISPATCHER - UI activities
@@ -241,11 +244,11 @@ void ProcessUIInput(const InputFrame *input, bool cursor_in_region)
             {
                 if (scrollable->is_scrollable_x && !scrollable->is_scrollable_y)
                 {
-                    ScrollUIElementX(scrollable, -input->wheel_delta * 0.75f);
+                    ScrollUIElementX(scrollable, -input->wheel_delta * UI_SCROLL_STEP_PX);
                 }
                 else
                 {
-                    ScrollUIElementY(scrollable, -input->wheel_delta * 0.75f);
+                    ScrollUIElementY(scrollable, -input->wheel_delta * UI_SCROLL_STEP_PX);
                 }
             }
         }

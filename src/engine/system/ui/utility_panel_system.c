@@ -37,7 +37,7 @@ static void InitUtilityStatsView(void)
 
 void InitUtilityPanel(void)
 {
-    utility_panel = ViewHostSystem_Create(&utility_panel_viewport, 1.0f, (Vector2d){0.1f, 0.1f},
+    utility_panel = ViewHostSystem_Create(&utility_panel_viewport, 1.0f, (Vector2d){5.0f, 5.0f},
         &ui_default_palette, ui_standard_stack_spacing);
     if (!utility_panel)
     {

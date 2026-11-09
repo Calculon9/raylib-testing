@@ -8,13 +8,13 @@
 <Container id="info_strip" layout="inline" width="fill" height="fill">    
     <!-- Cursor-coordinate fields. Root: pointer in the root world's frame (always shown). -->
     <!-- Child: pointer in a hovered nested world's local frame, or a dash over root/empty space. -->
-    <!-- Height 0.5 matches the two fields above; width 10.0 fits the short coord labels and keeps -->
+    <!-- Height 25 matches the two fields above; width 500 fits the short coord labels and keeps -->
     <!-- all four fields on one row in the wide central-column strip (see info-strip-coords-design.md). -->
-    <Textbox id="info_strip_rootcoords" io="readonly" binding="infostrip.rootcoords" size="4,0.5" />
-    <Textbox id="info_strip_childcoords" io="readonly" binding="infostrip.childcoords" size="4,0.5"/>
-    <Textbox id="info_strip_hover" io="readonly" binding="infostrip.hover" size="5,0.5" />
-    <Textbox id="info_strip_selection" io="readonly" binding="infostrip.selection" size="5,0.5" />
+    <Textbox id="info_strip_rootcoords" io="readonly" binding="infostrip.rootcoords" size="200,25" />
+    <Textbox id="info_strip_childcoords" io="readonly" binding="infostrip.childcoords" size="200,25"/>
+    <Textbox id="info_strip_hover" io="readonly" binding="infostrip.hover" size="250,25" />
+    <Textbox id="info_strip_selection" io="readonly" binding="infostrip.selection" size="250,25" />
     <!-- Active paint tile type (read-only, "Tile: <n>"), surfaced via the same BIND_STRING query -->
-    <!-- shim pattern as the fields above. Narrow (3.0) so the five fields still sit on one row. -->
-    <Textbox id="info_strip_tile" io="readonly" binding="infostrip.tile" size="2.0,0.5" />
+    <!-- shim pattern as the fields above. Narrow (150) so the five fields still sit on one row. -->
+    <Textbox id="info_strip_tile" io="readonly" binding="infostrip.tile" size="100,25" />
 </Container>

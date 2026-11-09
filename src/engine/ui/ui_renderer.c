@@ -24,6 +24,11 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel, UICl
 void DrawTextArea(UIElement *e);
 void DrawTextAreaClipped(UIElement *e, UIClipRect clip);
 
+// Screen pixels per UI pixel for the tree currently being drawn. UI content is laid out in UI
+// pixels; DrawRootUIElement derives this integer factor from the root's UI-to-pixel transform so
+// text glyphs, border lines and text insets are drawn at the same crisp integer scale as the boxes.
+static int s_ui_pixel_scale = 1;
+
 // Consume one wrapped text row and optionally copy its characters into a draw buffer.
 static int ConsumeTextRow(const char **text_cursor, float available_width,
                           int glyph_advance, int glyph_cell_width,
@@ -97,9 +102,10 @@ static int CountTextRows(const char *text, float available_width, int glyph_adva
 // Faint outline drawn by the UI-borders debug overlay (F3) around elements that carry no
 // visible border of their own, so the overlay still shows every element's bounds.
 static const ColourRgba UI_DEBUG_BORDER_COLOUR = {{255, 255, 255, 80}};
-// Horizontal text inset inside a bordered textbox: 1 px border + 4 px gap. The glyph's own
-// 2 px blank column then places the first ink 7 px from the box edge, as in the mock.
-#define UI_TEXTBOX_TEXT_INSET_PX 5.0f
+// Horizontal text inset inside a bordered textbox: the border weight + a 4 px gap (5 px for the
+// default 1 px border). The glyph's own 2 px blank column then places the first ink 7 px from the
+// box edge, as in the mock.
+#define UI_TEXTBOX_TEXT_GAP_PX 4.0f
 
 // Resolve the border colour to draw for an element (style v2 border model). A border is
 // drawn whenever its alpha is non-zero, independent of the debug overlay; constructors decide
@@ -115,19 +121,33 @@ static ColourRgba ResolveDrawnBorderColour(const UIElement *e)
     return colour_border;
 }
 
-// Draw an element's background fill and its 1 px border (drawn inside the box, so a bordered
-// element keeps its layout size).
+// Resolve the border thickness to draw, in pixels. The element's weight is clamped to half the
+// shorter side so opposite edges never overdraw; the faint debug outline of a borderless element
+// is always 1 px so the overlay does not change with the weight.
+static float ResolveDrawnBorderWeight(const UIElement *e, const UIBox *box)
+{
+    // Authored weights are UI pixels; the debug outline is always one screen pixel.
+    float weight = (e->colour_border.a == 0) ? 1.0f : (float)(e->border_weight * s_ui_pixel_scale);
+    float half_short_side = fminf(box->dimensions.x, box->dimensions.y) * 0.5f;
+    return fminf(weight, half_short_side);
+}
+
+// Draw an element's background fill and its border (drawn inside the box, so a bordered
+// element keeps its layout size). A zero border weight draws no line.
 void DrawElementBox(UIElement *e)
 {
     UIBox box = e->screen_box;
     ColourRgba colour_fill = e->colour_fill;
     ColourRgba colour_border = ResolveDrawnBorderColour(e);
+    float weight = ResolveDrawnBorderWeight(e, &box);
     DrawRectangleRec((Rectangle){box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y},
                      ToRaylibColor(colour_fill));
-    DrawRectangleLinesEx((Rectangle){box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y},
-                         1.0f, ToRaylibColor(colour_border));
+    if (weight > 0.0f)
+    {
+        DrawRectangleLinesEx((Rectangle){box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y},
+                             weight, ToRaylibColor(colour_border));
+    }
 }
-
 // Draw an element's background and border clipped against an active clip rectangle.
 void DrawElementBoxClipped(UIElement *e, UIClipRect clip)
 {
@@ -160,7 +180,8 @@ void DrawElementBoxClipped(UIElement *e, UIClipRect clip)
     }
 
     // Only draw borders along the original element edges if they fall within the clip rect.
-    if (colour_border.a > 0)
+    float weight = ResolveDrawnBorderWeight(e, &e->screen_box);
+    if (colour_border.a > 0 && weight > 0.0f)
     {
         Color border_color = ToRaylibColor(colour_border);
         const float epsilon = 0.5f;
@@ -169,7 +190,7 @@ void DrawElementBoxClipped(UIElement *e, UIClipRect clip)
         if (fabsf(clipped_box.coords.y - e->screen_box.coords.y) <= epsilon)
         {
             DrawRectangleRec((Rectangle){clipped_box.coords.x, clipped_box.coords.y,
-                                         clipped_box.dimensions.x, 1.0f},
+                                         clipped_box.dimensions.x, fminf(weight, clipped_box.dimensions.y)},
                              border_color);
         }
 
@@ -178,8 +199,8 @@ void DrawElementBoxClipped(UIElement *e, UIClipRect clip)
                   (e->screen_box.coords.y + e->screen_box.dimensions.y)) <= epsilon)
         {
             DrawRectangleRec((Rectangle){clipped_box.coords.x,
-                                         clipped_box.coords.y + clipped_box.dimensions.y - 1.0f,
-                                         clipped_box.dimensions.x, 1.0f},
+                                         clipped_box.coords.y + clipped_box.dimensions.y - fminf(weight, clipped_box.dimensions.y),
+                                         clipped_box.dimensions.x, fminf(weight, clipped_box.dimensions.y)},
                              border_color);
         }
 
@@ -187,7 +208,7 @@ void DrawElementBoxClipped(UIElement *e, UIClipRect clip)
         if (fabsf(clipped_box.coords.x - e->screen_box.coords.x) <= epsilon)
         {
             DrawRectangleRec((Rectangle){clipped_box.coords.x, clipped_box.coords.y,
-                                         1.0f, clipped_box.dimensions.y},
+                                         fminf(weight, clipped_box.dimensions.x), clipped_box.dimensions.y},
                              border_color);
         }
 
@@ -195,9 +216,9 @@ void DrawElementBoxClipped(UIElement *e, UIClipRect clip)
         if (fabsf((clipped_box.coords.x + clipped_box.dimensions.x) -
                   (e->screen_box.coords.x + e->screen_box.dimensions.x)) <= epsilon)
         {
-            DrawRectangleRec((Rectangle){clipped_box.coords.x + clipped_box.dimensions.x - 1.0f,
+            DrawRectangleRec((Rectangle){clipped_box.coords.x + clipped_box.dimensions.x - fminf(weight, clipped_box.dimensions.x),
                                          clipped_box.coords.y,
-                                         1.0f, clipped_box.dimensions.y},
+                                         fminf(weight, clipped_box.dimensions.x), clipped_box.dimensions.y},
                              border_color);
         }
     }
@@ -243,6 +264,9 @@ void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
     {
         return;
     }
+    // Fonts are authored at their UI-pixel scale; draw them at the UI pixel scale so text grows with
+    // the UI in whole-pixel steps. Every metric below derives from this scaled copy.
+    font.scale *= s_ui_pixel_scale;
     Vector2d available_space = e->screen_box.dimensions;
 
     // Text origin: a textbox with a visible border insets its text from both sides so the
@@ -251,8 +275,9 @@ void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
     float text_origin_x = e->screen_box.coords.x;
     if (IsTextbox(e) && e->colour_border.a > 0)
     {
-        text_origin_x += UI_TEXTBOX_TEXT_INSET_PX;
-        available_space.x = fmaxf(0.0f, available_space.x - 2.0f * UI_TEXTBOX_TEXT_INSET_PX);
+        float text_inset = ((float)e->border_weight + UI_TEXTBOX_TEXT_GAP_PX) * (float)s_ui_pixel_scale;
+        text_origin_x += text_inset;
+        available_space.x = fmaxf(0.0f, available_space.x - 2.0f * text_inset);
     }
 
     // Metrics calculation
@@ -393,6 +418,10 @@ void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Matrix3x3 M_ui_t
         {M_ui_to_pixel.col1.x, M_ui_to_pixel.col1.y},
         {M_ui_to_pixel.col2.x, M_ui_to_pixel.col2.y}};
     Vector2d basis_tfrm = VectorSum_2d(basis_matrix.col1, basis_matrix.col2);
+
+    // One UI pixel spans basis_tfrm.x screen pixels; round to the integer UI pixel scale (>= 1).
+    int pixel_scale = (int)roundf(fabsf(basis_tfrm.x));
+    s_ui_pixel_scale = pixel_scale < 1 ? 1 : pixel_scale;
 
     // Resolve rendered position and dimensions of panel element
     root_element->screen_box.coords = TransformCoordinates(M_ui_to_pixel, seed_box.coords);

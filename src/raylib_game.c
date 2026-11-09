@@ -51,7 +51,7 @@ const int screenHeight = 900;
 // static const int screenHeight = 1080;
 int screen_resolution_scalar = 0; // <= 0 uses dynamic world scaling from target logical height
 static float viewport_target_game_logical_height = 18.0f;
-static int viewport_ui_pixels_per_unit_override = 0;
+static int viewport_ui_scale_override = 0;
 
 // Required variables to manage screen transitions (fade-in, fade-out)
 typedef struct
@@ -390,7 +390,7 @@ static void UpdateDrawFrame(void)
 void InitGameplayScreen(void)
 {
     SetViewportTargetLogicalHeight(viewport_target_game_logical_height);
-    SetViewportUIScaleScalar(viewport_ui_pixels_per_unit_override);
+    SetViewportUIScaleScalar(viewport_ui_scale_override);
     InitViewportLayout(screenWidth, screenHeight, screen_resolution_scalar);
     // Populate the prefab catalogue before the UI mounts: the toolbar selecter and the detail
     // strip both read Catalogue_Count()/GetParams() as soon as InitUI builds them.
@@ -411,7 +411,7 @@ void UpdateGameplayScreen(void)
 {
     UpdateDebugOverlayHotkeys(screenWidth, screenHeight, screen_resolution_scalar,
                               &viewport_target_game_logical_height,
-                              &viewport_ui_pixels_per_unit_override);
+                              &viewport_ui_scale_override);
 
     int mouse_x = GetMouseX();
     int mouse_y = GetMouseY();

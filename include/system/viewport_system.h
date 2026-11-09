@@ -66,8 +66,13 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
 // Configure desired game logical height used when game_pixels_per_unit_override <= 0.
 void SetViewportTargetLogicalHeight(float logical_height);
 
-// Configure optional UI pixels-per-unit override; <= 0 means follow game scale.
-void SetViewportUIScaleScalar(int ui_pixels_per_unit_override);
+// Configure the UI pixel scale override (screen pixels per UI pixel); <= 0 means automatic
+// (derived from the screen height). Takes effect on the next InitViewportLayout.
+void SetViewportUIScaleScalar(int ui_scale);
+// Largest UI pixel scale an override may request.
+#define VIEWPORT_UI_MAX_PIXEL_SCALE 6
+// Integer number of screen pixels one UI pixel (one UI layout unit) is drawn at. Always >= 1.
+int GetViewportUIPixelScale(void);
 
 // Configure left/right panel width ratios before layout initialisation.
 void SetViewportPanelRatios(float left_panel_ratio, float right_panel_ratio);

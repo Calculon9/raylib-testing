@@ -249,40 +249,6 @@ static Vector2d MeasureWrapContent(UIElement *element, float content_width, floa
                    : (Vector2d){measured_main, measured_cross};
 }
 
-// Walk up the parent chain to the owning UI_ELEMENT_ROOT, mirroring ui_input.c's
-// FindOwningRoot. Returns NULL when the element is not (yet) attached to a root.
-static const UIElement *FindMeasureOwningRoot(const UIElement *element)
-{
-    const UIElement *current = element;
-    while (current)
-    {
-        if (current->type == UI_ELEMENT_ROOT)
-        {
-            return current;
-        }
-        current = current->parent;
-    }
-    return NULL;
-}
-
-// Measure a leaf label's content extent from its text, in UI units.
-//
-// A childless UI_ELEMENT_LABEL has no measured geometry to hug (ForEachEnabledChild yields
-// nothing), so the generic measure path would collapse its width to just padding and the
-// title would vanish. This helper gives the label a real width: it takes the text's pixel
-// width (whole-glyph advance x character count) and converts it to UI units using the same
-// UI-unit/pixel ratio the drag system already relies on (ResolvePixelToLocalDragScale in
-// ui_input.c) — the owning root's space.columns (UI units) divided by the root's
-// screen_box pixel width. The height axis is left to the generic path (the title keeps its
-// authored-fixed height), so only the width axis becomes text-driven.
-//
-//   element : the leaf label to measure. Must be a non-NULL UI_ELEMENT_LABEL.
-//
-// Returns a measured content size whose x is the text width in UI units plus this element's
-// horizontal padding, and whose y is the generic padding-only height (the caller's height
-// resolution is unchanged). If the owning root is not yet drawn (zero pixel box on the very
-// first frame) the function falls back to the authored padding-only width rather than
-// dividing by zero; the title corrects itself on the next frame once the pixel box exists.
 // Measure a single-row text run's pixel width the SAME way the renderer draws it
 // (ConsumeTextRow in ui_renderer.c): the first glyph occupies a full cell (glyph_cell_width,
 // the glyph bitmap width) and every subsequent glyph steps by glyph_advance (cell width minus
@@ -308,26 +274,18 @@ static float MeasureTextRunPixels(const char *text, const Bitmap_Font *font)
     return (float)glyph_cell_width + (float)(glyph_count - 1) * (float)glyph_advance;
 }
 
-// Return the UI-units-per-pixel ratio of the root that owns `element`: the root's
-// space.columns (UI units) divided by its screen_box pixel width, the same quantity
-// ResolvePixelToLocalDragScale derives for drag math. Returns 0 when the element has no root
-// yet or the root's pixel box is unresolved (frame 0), so callers can fall back safely.
-static float ResolveMeasureUnitsPerPixel(const UIElement *element)
-{
-    const UIElement *root = FindMeasureOwningRoot(element);
-    if (!root)
-    {
-        return 0.0f;
-    }
-    float columns = (float)root->data.root.space.columns;
-    float pixel_width = root->screen_box.dimensions.x;
-    if (columns <= 0.0f || pixel_width <= 0.0f)
-    {
-        return 0.0f;
-    }
-    return columns / pixel_width;
-}
-
+// Measure a leaf label's content extent from its text, in UI pixels (the layout unit).
+//
+// A childless UI_ELEMENT_LABEL has no measured geometry to hug (ForEachEnabledChild yields
+// nothing), so the generic measure path would collapse its width to just padding and the
+// title would vanish. This helper gives the label a real width from its text run. The height
+// axis is left to the generic path (the title keeps its authored-fixed height), so only the
+// width is text-driven.
+//
+//   element : the leaf label to measure. Must be a non-NULL UI_ELEMENT_LABEL.
+//
+// Returns a measured content size whose x is the text width plus this element's horizontal
+// padding, and whose y is the generic padding-only height.
 static Vector2d MeasureLeafLabelContent(const UIElement *element)
 {
     // Padding-only fallback (today's leaf result): used when no usable text width exists.
@@ -341,17 +299,9 @@ static Vector2d MeasureLeafLabelContent(const UIElement *element)
         return fallback; // Empty label contributes only its padding box.
     }
 
-    // Reuse the engine's pixel->UI-unit ratio from the owning root. A not-yet-drawn root
-    // (frame 0) yields 0, so the label falls back and corrects itself next frame.
-    float units_per_pixel = ResolveMeasureUnitsPerPixel(element);
-    if (units_per_pixel <= 0.0f)
-    {
-        return fallback;
-    }
-
-    // Convert the text's pixel width into UI units and add this element's horizontal padding.
-    float text_units = text_pixels * units_per_pixel;
-    float measured_x = fmaxf(0.0f, text_units) + (element->padding.x * 2.0f);
+    // Fonts are measured at their authored scale, which is in UI pixels (the renderer multiplies
+    // by the UI pixel scale when drawing), so the run width is already in layout units.
+    float measured_x = text_pixels + (element->padding.x * 2.0f);
 
     // Height stays the padding-only contribution; the title's authored-fixed height is
     // resolved unchanged by the generic box-resolution path.
@@ -396,14 +346,9 @@ static void AlignTextFieldLabelColumns(UIElement *parent, float content_width)
         return;
     }
 
-    float units_per_pixel = ResolveMeasureUnitsPerPixel(parent);
-    if (units_per_pixel <= 0.0f)
-    {
-        return; // frame 0: keep the fallback column until the root has a pixel box
-    }
-
-    // +2 px keeps the last glyph's cell clear of the input's border.
-    float label_units = (widest_px + 2.0f) * units_per_pixel;
+    // Text runs are measured in UI pixels (the layout unit). +2 px keeps the last glyph's cell
+    // clear of the input's border.
+    float label_units = widest_px + 2.0f;
     if (content_width > 0.0f)
     {
         label_units = fminf(label_units, 0.6f * content_width);
@@ -996,6 +941,7 @@ UIElement *CreateUIElement(UIElementType type, Size size, Offset parent_offset, 
 
     e->colour_fill = colour_fill;
     e->colour_border = colour_border;
+    e->border_weight = 1; // Historic 1 px border; surfaces and border-weight= override it
     e->size = size;
     e->text_horizontal_alignment = UI_TEXT_ALIGN_LEFT;
     e->text_vertical_alignment = UI_TEXT_VERTICAL_ALIGN_CENTRE;

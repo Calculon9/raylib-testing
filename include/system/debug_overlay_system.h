@@ -29,7 +29,7 @@ extern bool ui_borders_enabled;
 void ToggleDebug(DebugOverlayId overlay_id);
 int IsDebugEnabled(DebugOverlayId overlay_id);
 void UpdateDebugOverlayHotkeys(int screen_width,int screen_height, int screen_resolution_scalar,
-                               float *viewport_target_game_logical_height, int *viewport_ui_pixels_per_unit_override);
+                               float *viewport_target_game_logical_height, int *viewport_ui_scale_override);
 
 // Draw overlays that depend on the universe/world transform chain.
 void DrawUniverseDebugOverlays(void);

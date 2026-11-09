@@ -90,6 +90,13 @@ Use the shared constructors in `src/engine/ui/ui_constructors.c` and `CreateUICo
 > [`UI_MARKUP_SYNTAX.md`](UI_MARKUP_SYNTAX.md). This section covers the underlying
 > sizing model that markup's `width`/`height`/`size` attributes map onto.
 
+UI layout values (sizes, offsets, padding, gaps, border weights) are authored in **UI pixels**.
+Each panel's coordinate space is built in `ViewHostSystem_InitRoot` so one layout unit is one UI
+pixel, drawn at the integer UI pixel scale (`GetViewportUIPixelScale()`, chosen from the window
+height; F9/F10 step it). Bitmap fonts and border weights are multiplied by the same scale at draw
+time, so text and lines stay crisp. The docked panel regions themselves are still sized in game
+units by `viewport_system.c`.
+
 Sizing is **per-axis**. `Size` holds one authored `dimensions` pair plus an independent
 `AxisSizeMode` for each axis — `width_mode` and `height_mode`. Every element always has a
 mode on both axes; the only question is whether it is authored in markup or supplied by a
@@ -107,7 +114,7 @@ typedef struct {
 
 | Axis mode | Meaning on that axis | Reads `dimensions`? |
 | --- | --- | --- |
-| `AXIS_FIXED` | The authored literal (world units). | Yes — it is the value. |
+| `AXIS_FIXED` | The authored literal (UI pixels). | Yes — it is the value. |
 | `AXIS_PERCENT` | A 0..1 fraction of the parent content extent. | Yes — as the fraction. |
 | `AXIS_FILL` | Take all remaining parent content extent on that axis. | No. |
 | `AXIS_HUG` | Shrink to fit children + padding. If the authored dimension on that axis is `> 0` it is a **max cap** (hug but never exceed it); `0`/absent means uncapped. | Optionally — as a cap. |
@@ -144,10 +151,10 @@ leaf controls an explicit size or place them inside a measured container.
 Markup sets the mode with two attributes and supplies numbers with `size`:
 
 ```xml
-<Container title="X" width="hug"  height="fill" layout="stack_wrap" />  <!-- width hugs content, height fills -->
-<Container title="Y" width="fill" height="hug" />                       <!-- width fills, height hugs content -->
-<Button  size="3.22,0.5" width="fixed" height="fixed" />        <!-- explicit fixed box -->
-<Button  size="3.22,0.5" />                                     <!-- same: size= with no mode infers fixed -->
+<Container width="hug"  height="fill" layout="stack_wrap" />  <!-- width hugs content, height fills -->
+<Container width="fill" height="hug" />                             <!-- width fills, height hugs content -->
+<Button  size="161,25" width="fixed" height="fixed" />          <!-- explicit fixed box -->
+<Button  size="161,25" />                                       <!-- same: size= with no mode infers fixed -->
 ```
 
 - `width` / `height` take `fixed` | `percent` | `fill` | `hug`.
@@ -181,8 +188,9 @@ Each element's effective size resolves through three layers, highest priority fi
 at a fixed x offset equal to the column. `AlignTextFieldLabelColumns` in `ui.c` runs at the
 start of each element's measure: it sizes one column for all text-field rows that share a
 parent, from the longest label's bitmap-font run + 2 px (capped at 60 % of the parent's
-content width), so labels such as "Restitution" are never truncated. Before the root has a
-pixel box (frame 0) the fallback `ui_standard_textfield_label_width` (2.36 u) applies.
+content width), so labels such as "Restitution" are never truncated. Text runs are measured in
+UI pixels directly, so the column is exact from the first layout; `ui_standard_textfield_label_width`
+(118 px) is only the constructor's initial value.
 
 ### UI style (surfaces, borders, spacing)
 
@@ -191,18 +199,18 @@ The editor style is set once in the shared layer (`ui_system.c` palette and cons
 
 - **Surfaces.** `ViewHost`/`View` use `UI_PALETTE_SURFACE_PANEL` (dark `panel_background`,
   no border). Titled containers and `CreateViewSection*` are boxed sections
-  (`container_fill`, 1 px `container_border`, `ui_section_padding` = 0.12 u = 6 px).
+  (`container_fill`, 1 px `container_border`, `ui_section_padding` = 6 px).
   Untitled containers are transparent layout boxes. Text-field rows and their labels are
   transparent; inputs use the `input` surface; buttons the `button` surface; destructive
   buttons the `danger` surface (`button_danger_fill`, set in every palette).
 - **Two-state colours.** Tabs, kind chips and bound text toggles all use
   `UIPalette_GetToggleColours`: active = `toggle_on_fill` + dark `text`, inactive =
   `toggle_off_fill` + `text_on_dark`.
-- **Borders.** The renderer draws a 1 px border (inside the box) whenever
+- **Borders.** The renderer draws a border (inside the box, `border_weight` UI px, default 1) whenever
   `colour_border.a > 0`; constructors decide which elements carry one. The UI-borders debug
   overlay (F3) adds a faint outline to borderless elements. Bordered textboxes inset their
-  text 5 px from each side.
-- **Spacing.** Panel inset 6 px (root 0.10 + `ui_host_padding` 0.02), 6 px between a panel's
+  text by the border weight + 4 px from each side.
+- **Spacing.** Panel inset 6 px (root 5 + `ui_host_padding` 1), 6 px between a panel's
   top-level blocks (`ui_view_stack_spacing`), 3 px between controls inside a section
   (`ui_standard_stack_spacing`), titles one 16 px FONT_LARGE row (`ui_title_size`).
 
@@ -220,7 +228,7 @@ panel->space (columns × rows, set by the application)
 ```
 
 Everything from the root down to the containers is `fill`, carrying the panel's size downward
-in world units (the renderer scales world units to pixels); the containers then switch to `hug`
+in UI pixels (the renderer draws one UI pixel as `GetViewportUIPixelScale()` screen pixels); the containers then switch to `hug`
 on one axis to size to their own content.
 
 ## UI Spacing and Offsets

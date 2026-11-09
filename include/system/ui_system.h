@@ -43,6 +43,11 @@ typedef struct UIPalette
 	ColourRgba input_fill;
 	ColourRgba button_border;
 	ColourRgba button_fill;
+	// Border line thickness (screen pixels) per surface role. panel/transparent have no border.
+	uint8_t container_border_weight;
+	uint8_t field_row_border_weight;
+	uint8_t input_border_weight;
+	uint8_t button_border_weight;
 	ColourRgba toggle_on_fill;  // Fill for a source-bearing toggle button in its ON state.
 	ColourRgba toggle_off_fill; // Fill for a source-bearing toggle button in its OFF state (same hue, dimmed).
 	ColourRgba button_danger_fill; // Fill for destructive buttons such as DELETE (dark ink on top).
@@ -88,9 +93,9 @@ extern const Size ui_standard_container_size;
 extern const Size ui_fill_container_size;
 extern const Vector2d ui_standard_container_padding;
 extern const Vector2d ui_standard_field_padding;
-// Padding inside a titled section box (6 px at 50 px per unit).
+// Padding inside a boxed section (6 UI px).
 extern const Vector2d ui_section_padding;
-// ViewHost / View padding added on top of the root padding (root 0.10 + 0.02 = 6 px panel inset).
+// ViewHost / View padding added on top of the root padding (root 5 + 1 = 6 px panel inset).
 extern const Vector2d ui_host_padding;
 // Fallback text-field label column width, used until the per-section column pass has run.
 extern const float ui_standard_textfield_label_width;
@@ -122,6 +127,8 @@ extern UIPalette ui_earth_palette;
 extern UIPalette ui_harbor_palette;
 extern UIPalette ui_meadow_palette;
 
+// Border thickness (screen pixels) for a surface role from the palette; 0 for borderless roles.
+uint8_t UIPalette_GetSurfaceBorderWeight(const UIPalette *palette, UIPaletteSurface surface);
 void UIPalette_GetSurfaceColours(const UIPalette *palette, UIPaletteSurface surface,
 								 ColourRgba *out_border, ColourRgba *out_fill);
 // Two-state colours shared by tabs, kind chips and flag toggles: active = ON fill + dark ink,

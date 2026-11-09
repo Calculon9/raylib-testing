@@ -27,8 +27,14 @@ static void DrawViewScrollbar(const View *view, const UIPalette *palette)
     }
 
     UIBox box = view->container->screen_box;
-    const float scrollbar_width = 6.0f;
-    const float inset = 4.0f;
+    // Bar geometry is authored in UI pixels and drawn at the UI pixel scale (screen pixels).
+    const float px = (float)GetViewportUIPixelScale();
+    const float scrollbar_width = 6.0f * px;
+    const float inset = 4.0f * px;
+    const float min_thumb = 20.0f * px;
+    // Visible fraction of the content, compared in the SAME unit (UI pixels) on both sides.
+    const float visible_w = view->container->local_box.dimensions.x;
+    const float visible_h = view->container->local_box.dimensions.y;
 
     Color track_colour = ToRaylibColor(palette ? palette->container_border : ui_default_palette.container_border);
     Color thumb_colour = ToRaylibColor(palette ? palette->button_fill : ui_default_palette.button_fill);
@@ -39,7 +45,7 @@ static void DrawViewScrollbar(const View *view, const UIPalette *palette)
     {
         float reserve = show_x ? (scrollbar_width + inset) : 0.0f;
         float track_height = fmaxf(0.0f, box.dimensions.y - (2.0f * inset) - reserve);
-        float thumb_height = fmaxf(20.0f, track_height * (box.dimensions.y / view->content_height));
+        float thumb_height = fmaxf(min_thumb, track_height * (visible_h / view->content_height));
         thumb_height = fminf(track_height, thumb_height);
         float travel = fmaxf(0.0f, track_height - thumb_height);
         float thumb_offset = travel * (view->scroll_y / view->max_scroll_y);
@@ -54,7 +60,7 @@ static void DrawViewScrollbar(const View *view, const UIPalette *palette)
     {
         float reserve = show_y ? (scrollbar_width + inset) : 0.0f;
         float track_width = fmaxf(0.0f, box.dimensions.x - (2.0f * inset) - reserve);
-        float thumb_width = fmaxf(20.0f, track_width * (box.dimensions.x / view->content_width));
+        float thumb_width = fmaxf(min_thumb, track_width * (visible_w / view->content_width));
         thumb_width = fminf(track_width, thumb_width);
         float travel = fmaxf(0.0f, track_width - thumb_width);
         float thumb_offset = travel * (view->scroll_x / view->max_scroll_x);
@@ -153,18 +159,32 @@ void ViewHostSystem_InitRoot(ViewHostSystem *panel)
         return;
     }
 
-    // Calculate resolution scaled to panel space
-    Vector2d resolution = VectorScale_2d(panel->viewport->resolution, panel->space_to_viewport_scale);
+    // Panel content is laid out in UI PIXELS: one UI unit is drawn as GetViewportUIPixelScale()
+    // screen pixels. The viewport maps its own (game) units to screen pixels at |pixel_u| / |pixel_v|
+    // pixels per unit, so the number of UI pixels per viewport unit on each axis is that
+    // pixels-per-unit divided by the integer UI scale (times the caller's optional extra scale).
+    float ui_scale = (float)GetViewportUIPixelScale();
+    float ppu_x = VectorMagnitude_2d(panel->viewport->pixel_u);
+    float ppu_y = VectorMagnitude_2d(panel->viewport->pixel_v);
+    Vector2d ui_per_viewport_unit = {
+        panel->space_to_viewport_scale * (ppu_x > 0.0f ? ppu_x / ui_scale : 1.0f),
+        panel->space_to_viewport_scale * (ppu_y > 0.0f ? ppu_y / ui_scale : 1.0f)};
 
-    // Setup basis (default or override)
+    // Resolution of the panel's UI space (in UI pixels).
+    Vector2d resolution = {panel->viewport->resolution.x * ui_per_viewport_unit.x,
+                           panel->viewport->resolution.y * ui_per_viewport_unit.y};
+
+    // Basis: one UI pixel expressed in viewport units (default or override).
     Basis2d viewport_basis = (Basis2d){
-        (Vector2d){1.0f / panel->space_to_viewport_scale, 0.0f},
-        (Vector2d){0.0f, 1.0f / panel->space_to_viewport_scale}};
+        (Vector2d){1.0f / ui_per_viewport_unit.x, 0.0f},
+        (Vector2d){0.0f, 1.0f / ui_per_viewport_unit.y}};
 
     if (panel->basis_override_enabled)
     {
-        viewport_basis.u = panel->basis_override_u;
-        viewport_basis.v = panel->basis_override_v;
+        // The override is authored in viewport units per panel unit, as before; rescale it so a
+        // panel unit is still one UI pixel.
+        viewport_basis.u = VectorScale_2d(panel->basis_override_u, 1.0f / ui_per_viewport_unit.x);
+        viewport_basis.v = VectorScale_2d(panel->basis_override_v, 1.0f / ui_per_viewport_unit.y);
     }
 
     // Initialise UI coordinate-space geometry.
@@ -186,6 +206,26 @@ void ViewHostSystem_InitRoot(ViewHostSystem *panel)
     // Setup seed box for rendering
     panel->seed_box.coords = ZERO_VECTOR_2D;
     panel->seed_box.dimensions = resolution;
+}
+
+Vector2d ViewHostSystem_ViewportToLocal(const ViewHostSystem *panel, Vector2d viewport_coords)
+{
+    if (!panel)
+    {
+        return viewport_coords;
+    }
+
+    // Invert the panel's 2x2 basis (UI pixel -> viewport units). A degenerate basis returns the
+    // input unchanged rather than dividing by zero.
+    Vector2d bu = panel->space.frame.basis.u;
+    Vector2d bv = panel->space.frame.basis.v;
+    float det = bu.x * bv.y - bv.x * bu.y;
+    if (fabsf(det) < 1e-8f)
+    {
+        return viewport_coords;
+    }
+    return (Vector2d){(viewport_coords.x * bv.y - viewport_coords.y * bv.x) / det,
+                      (viewport_coords.y * bu.x - viewport_coords.x * bu.y) / det};
 }
 
 void ViewHostSystem_InitViews(ViewHostSystem *panel, size_t view_count)
@@ -217,7 +257,7 @@ View *View_Create(UIElement *parent, const UIPalette *palette, ViewType type)
         parent,
         ui_fill_container_size,
         (Offset){{0, 0}, OFFSET_FIXED},
-        ui_host_padding,          // root 0.10 + 0.02 = 6 px panel inset
+        ui_host_padding,          // root 5 + 1 = 6 px panel inset
         palette,
         UI_PALETTE_SURFACE_PANEL, // dark panel background, no border
         ui_view_stack_spacing,    // 6 px between top-level sections
@@ -801,7 +841,7 @@ ViewHostSystem *ViewHostSystem_CreateStandard(ViewportRegion *viewport, size_t v
                                         ViewSelectionCallback selector_callback,
                                         const UIPalette *palette, Layout root_child_spacing)
 {
-    ViewHostSystem *panel = ViewHostSystem_Create(viewport, 1.0f, (Vector2d){0.1f, 0.1f},
+    ViewHostSystem *panel = ViewHostSystem_Create(viewport, 1.0f, (Vector2d){5.0f, 5.0f},
                                             palette, root_child_spacing);
     if (!panel)
     {

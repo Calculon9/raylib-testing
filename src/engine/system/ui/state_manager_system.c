@@ -2263,7 +2263,7 @@ void InitStateManagerSystem(void)
     //    unchanged. Scale 1.0f / padding {0.1,0.1} are adopted from InitLPanel; UpdateUISpace
     //    (step 10) re-lays-out the panel over the valid viewport space afterwards.
     state_manager_panel = ViewHostSystem_Create(&lpanel_viewport, 1.0f,
-                                                (Vector2d){0.1f, 0.1f},
+                                                (Vector2d){5.0f, 5.0f},
                                                 &ui_default_palette, ui_standard_stack_spacing);
     if (!state_manager_panel)
     {

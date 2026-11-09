@@ -25,10 +25,10 @@
 
 static void RefreshViewportBase(int screen_width, int screen_height, int screen_resolution_scalar,
                                float viewport_target_game_logical_height,
-                               int viewport_ui_pixels_per_unit_override)
+                               int viewport_ui_scale_override)
 {
     SetViewportTargetLogicalHeight(viewport_target_game_logical_height);
-    SetViewportUIScaleScalar(viewport_ui_pixels_per_unit_override);
+    SetViewportUIScaleScalar(viewport_ui_scale_override);
     InitViewportLayout(screen_width, screen_height, screen_resolution_scalar);
     SyncUniverseCameraToViewport();
 }
@@ -49,30 +49,30 @@ static float ClampViewportLogicalHeight(float height)
 
 static void RefreshViewportForBasisEdit(int screen_width, int screen_height, int screen_resolution_scalar,
                                         float viewport_target_game_logical_height,
-                                        int viewport_ui_pixels_per_unit_override)
+                                        int viewport_ui_scale_override)
 {
     RefreshViewportBase(screen_width, screen_height, screen_resolution_scalar,
                         viewport_target_game_logical_height,
-                        viewport_ui_pixels_per_unit_override);
+                        viewport_ui_scale_override);
     // Rebuild through the teardown path so the previous UI tree is not orphaned.
     ResetUI();
 }
 
 static void RefreshViewportAndDependentSystems(int screen_width, int screen_height, int screen_resolution_scalar,
-                                               float viewport_target_game_logical_height, int viewport_ui_pixels_per_unit_override,
+                                               float viewport_target_game_logical_height, int viewport_ui_scale_override,
                                                bool viewport_scale_changed,  bool ui_scale_changed)
 {
     RefreshViewportBase(screen_width, screen_height, screen_resolution_scalar,
                         viewport_target_game_logical_height,
-                        viewport_ui_pixels_per_unit_override);
+                        viewport_ui_scale_override);
 
     if (viewport_scale_changed)
     {
         InitWorldSystem();
         // Rebuild through the teardown path so the previous UI tree is not orphaned.
         ResetUI();
-        printf("[Viewport] Target game logical height set to %.1f. UI px-per-unit override: %d\n",
-               viewport_target_game_logical_height, viewport_ui_pixels_per_unit_override);
+        printf("[Viewport] Target game logical height set to %.1f. UI scale override: %d\n",
+               viewport_target_game_logical_height, viewport_ui_scale_override);
         return;
     }
 
@@ -80,8 +80,8 @@ static void RefreshViewportAndDependentSystems(int screen_width, int screen_heig
     {
         // Rebuild through the teardown path so the previous UI tree is not orphaned.
         ResetUI();
-        printf("[Viewport] UI px-per-unit override set to %d (0 = follow game viewport scale).\n",
-               viewport_ui_pixels_per_unit_override);
+        printf("[Viewport] UI scale override set to %d (0 = automatic); UI pixel scale is now %d.\n",
+               viewport_ui_scale_override, GetViewportUIPixelScale());
     }
 }
 
@@ -224,11 +224,11 @@ static void HandleDebugToggleHotkeys(void)
 }
 
 static void HandleViewportScaleHotkeys(float *viewport_target_game_logical_height,
-                                       int *viewport_ui_pixels_per_unit_override,
+                                       int *viewport_ui_scale_override,
                                        bool *viewport_scale_changed,
                                        bool *ui_scale_changed)
 {
-    if (!viewport_target_game_logical_height || !viewport_ui_pixels_per_unit_override ||
+    if (!viewport_target_game_logical_height || !viewport_ui_scale_override ||
         !viewport_scale_changed || !ui_scale_changed)
     {
         return;
@@ -245,35 +245,26 @@ static void HandleViewportScaleHotkeys(float *viewport_target_game_logical_heigh
         *viewport_scale_changed = true;
     }
 
+    // F9/F10 step the integer UI pixel scale down/up. The steps start from the CURRENT scale (so
+    // the first press from automatic moves one step from what is on screen); stepping below 1
+    // returns to automatic (0). SetViewportUIScaleScalar caps the upper end.
     if (IsKeyPressed(KEY_F9))
     {
-        if (*viewport_ui_pixels_per_unit_override <= 1)
-        {
-            *viewport_ui_pixels_per_unit_override = 0;
-        }
-        else
-        {
-            *viewport_ui_pixels_per_unit_override -= 1;
-        }
+        int current = *viewport_ui_scale_override > 0 ? *viewport_ui_scale_override : GetViewportUIPixelScale();
+        *viewport_ui_scale_override = current - 1; // 0 = automatic
         *ui_scale_changed = true;
     }
     if (IsKeyPressed(KEY_F10))
     {
-        if (*viewport_ui_pixels_per_unit_override == 0)
-        {
-            *viewport_ui_pixels_per_unit_override = 10;
-        }
-        else
-        {
-            *viewport_ui_pixels_per_unit_override += 1;
-        }
+        int current = *viewport_ui_scale_override > 0 ? *viewport_ui_scale_override : GetViewportUIPixelScale();
+        *viewport_ui_scale_override = current < VIEWPORT_UI_MAX_PIXEL_SCALE ? current + 1 : VIEWPORT_UI_MAX_PIXEL_SCALE;
         *ui_scale_changed = true;
     }
 }
 
 static void ApplyDebugHotkeyChanges(int screen_width, int screen_height, int screen_resolution_scalar,
                                     float viewport_target_game_logical_height,
-                                    int viewport_ui_pixels_per_unit_override,bool basis_changed,
+                                    int viewport_ui_scale_override,bool basis_changed,
                                     bool viewport_scale_changed, bool ui_scale_changed)
 {
     if (basis_changed)
@@ -286,26 +277,26 @@ static void ApplyDebugHotkeyChanges(int screen_width, int screen_height, int scr
         {
             RefreshViewportForBasisEdit(screen_width, screen_height, screen_resolution_scalar,
                                         viewport_target_game_logical_height,
-                                        viewport_ui_pixels_per_unit_override);
+                                        viewport_ui_scale_override);
         }
     }
 
     if (viewport_scale_changed || ui_scale_changed)
     {
         RefreshViewportAndDependentSystems(screen_width, screen_height, screen_resolution_scalar,
-                                           viewport_target_game_logical_height, viewport_ui_pixels_per_unit_override,
+                                           viewport_target_game_logical_height, viewport_ui_scale_override,
                                            viewport_scale_changed, ui_scale_changed);
     }
 }
 
 void UpdateDebugOverlayHotkeys(int screen_width, int screen_height, int screen_resolution_scalar,
-                               float *viewport_target_game_logical_height, int *viewport_ui_pixels_per_unit_override)
+                               float *viewport_target_game_logical_height, int *viewport_ui_scale_override)
 {
     bool viewport_scale_changed = false;
     bool ui_scale_changed = false;
     bool basis_changed = false;
 
-    if (!viewport_target_game_logical_height || !viewport_ui_pixels_per_unit_override)
+    if (!viewport_target_game_logical_height || !viewport_ui_scale_override)
     {
         return;
     }
@@ -313,13 +304,13 @@ void UpdateDebugOverlayHotkeys(int screen_width, int screen_height, int screen_r
     HandleDebugToggleHotkeys();
     basis_changed = Diagnostics_HandleBasisEditorHotkeys();
     HandleViewportScaleHotkeys(viewport_target_game_logical_height,
-                               viewport_ui_pixels_per_unit_override,
+                               viewport_ui_scale_override,
                                &viewport_scale_changed,
                                &ui_scale_changed);
 
     ApplyDebugHotkeyChanges(screen_width, screen_height, screen_resolution_scalar,
                             *viewport_target_game_logical_height,
-                            *viewport_ui_pixels_per_unit_override,
+                            *viewport_ui_scale_override,
                             basis_changed,
                             viewport_scale_changed,
                             ui_scale_changed);

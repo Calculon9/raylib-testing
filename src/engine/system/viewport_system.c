@@ -54,7 +54,13 @@ static ViewportLayoutConfig g_viewport_layout_config = {
 static float left_panel_ratio = 0.175f;
 static float right_panel_ratio = 0.175f;
 static float target_game_logical_height = 9.0f;
-static int ui_ppu_override = 0;
+// UI pixel scale: one UI unit (one UI pixel) is drawn as this many screen pixels. 0 = automatic
+// (derived from the screen height); a positive value is an explicit override (F9/F10).
+static int ui_scale_override = 0;
+static int ui_pixel_scale = 1;
+// Screen height at which the automatic UI scale is 1 (the mocks' 18 game units x 50 px).
+#define UI_REFERENCE_SCREEN_HEIGHT 900.0f
+
 static int debug_grid_enabled = 0;
 
 #ifndef VIEWPORT_VERBOSE_LOGGING
@@ -299,9 +305,15 @@ void SetViewportTargetLogicalHeight(float logical_height)
                                             g_viewport_layout_config.max_target_logical_height);
 }
 
-void SetViewportUIScaleScalar(int ui_pixels_per_unit_override)
+void SetViewportUIScaleScalar(int ui_scale)
 {
-    ui_ppu_override = ui_pixels_per_unit_override;
+    // Negative values mean automatic, the same as 0; large values are capped.
+    ui_scale_override = ui_scale < 0 ? 0 : (ui_scale > VIEWPORT_UI_MAX_PIXEL_SCALE ? VIEWPORT_UI_MAX_PIXEL_SCALE : ui_scale);
+}
+
+int GetViewportUIPixelScale(void)
+{
+    return ui_pixel_scale;
 }
 
 void SetViewportPanelRatios(float left_panel_ratio, float right_panel_ratio)
@@ -556,7 +568,20 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
             screen_pixels_per_unit = 1;
     }
 
-    int ui_pixels_per_unit = ui_ppu_override > 0 ? ui_ppu_override : screen_pixels_per_unit;
+    // The docked panel regions keep using the game pixels-per-unit for their screen extents; their
+    // CONTENT is laid out in UI pixels (see ViewHostSystem_InitRoot), drawn at the integer UI pixel
+    // scale so bitmap text and 1 px lines stay crisp. The automatic scale follows the screen height,
+    // independent of the game zoom.
+    int ui_pixels_per_unit = screen_pixels_per_unit;
+    if (ui_scale_override > 0)
+    {
+        ui_pixel_scale = ui_scale_override;
+    }
+    else
+    {
+        int auto_scale = (int)roundf((float)screen_height / UI_REFERENCE_SCREEN_HEIGHT);
+        ui_pixel_scale = auto_scale < 1 ? 1 : (auto_scale > VIEWPORT_UI_MAX_PIXEL_SCALE ? VIEWPORT_UI_MAX_PIXEL_SCALE : auto_scale);
+    }
 
     // Calculate logical screen size
     Vector2d logical_screen = {floorf((float)screen_width / (float)screen_pixels_per_unit),
@@ -614,6 +639,6 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
            lpanel_viewport.pixel_origin.x, lpanel_viewport.pixel_origin.y,
            game_viewport.pixel_origin.x, game_viewport.pixel_origin.y,
            rpanel_viewport.pixel_origin.x, rpanel_viewport.pixel_origin.y);
-    printf("VIEWPORT SCALE --> GAME_PX_PER_UNIT:%d UI_PX_PER_UNIT:%d TARGET_GAME_H:%.1f\n",
-           screen_pixels_per_unit, ui_pixels_per_unit, target_game_logical_height);
+    printf("VIEWPORT SCALE --> GAME_PX_PER_UNIT:%d UI_PIXEL_SCALE:%d TARGET_GAME_H:%.1f\n",
+           screen_pixels_per_unit, ui_pixel_scale, target_game_logical_height);
 }

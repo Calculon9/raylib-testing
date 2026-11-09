@@ -175,11 +175,16 @@ UIElement *CreateUILabeledFieldDefault(UIElement *parent, const char *label_text
     UIPalette_GetSurfaceColours(palette, UI_PALETTE_SURFACE_INPUT,
                                 &input_border, &input_fill);
 
-    return CreateUILabeledField(parent, label_text, input_type, row_size,
+    UIElement *input = CreateUILabeledField(parent, label_text, input_type, row_size,
                                 ui_standard_textfield_input_size, row_padding, row_border, row_fill,
                                 ZERO_VECTOR_2D, input_border, input_fill,
                                 FONT_MEDIUM_WITH_COLOUR(palette->label_text),
                                 FONT_MEDIUM_WITH_COLOUR(palette->text));
+    if (input)
+    {
+        input->border_weight = UIPalette_GetSurfaceBorderWeight(palette, UI_PALETTE_SURFACE_INPUT);
+    }
+    return input;
 }
 
 UIElement *CreateUIButton(UIElement *parent, UIElementType type, const char *text,
@@ -223,9 +228,14 @@ UIElement *CreateUIButtonDefault(UIElement *parent, UIElementType type, const ch
     UIPalette_GetSurfaceColours(palette, UI_PALETTE_SURFACE_BUTTON,
                                 &border, &fill);
 
-    return CreateUIButton(parent, type, text, size, padding,
+    UIElement *btn = CreateUIButton(parent, type, text, size, padding,
                           border, fill, FONT_MEDIUM_WITH_COLOUR(palette->text),
                           on_click, user_data, data_bind);
+    if (btn)
+    {
+        btn->border_weight = UIPalette_GetSurfaceBorderWeight(palette, UI_PALETTE_SURFACE_BUTTON);
+    }
+    return btn;
 }
 
 // Create a hover-reactive LABEL: a text label whose base on_hover fires while the
@@ -255,6 +265,7 @@ UIElement *CreateUIHoverItemDefault(UIElement *parent, const char *text, Size si
     // Former hover-item text + font map onto the LABEL's label buffer and font.
     safe_strncpy(item->data.label.text.string, text, MAX_LABEL_CHARS);
     item->data.label.font = FONT_MEDIUM_WITH_COLOUR(palette->text);
+    item->border_weight = UIPalette_GetSurfaceBorderWeight(palette, UI_PALETTE_SURFACE_BUTTON);
     item->on_hover = on_hover;                 // base handler (presence-based dispatch)
     item->interaction_user_data = user_data;   // base opaque per-element state
     item->is_draggable = false;
@@ -284,6 +295,7 @@ UIElement *CreateUIContainer(UIElement *parent, Size size, Offset offset,
         return NULL;
     }
 
+    cont->border_weight = UIPalette_GetSurfaceBorderWeight(palette, surface);
     cont->child_spacing = child_spacing;
     cont->is_draggable = is_draggable;
     cont->is_enabled = is_enabled;

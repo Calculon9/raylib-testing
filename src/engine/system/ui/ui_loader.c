@@ -523,7 +523,11 @@ static UIBuildResult BuildButton(mxml_node_t *node, UIElement *parent, const UIP
 
 /**
  * Builder for <Label> elements.
- * Attributes: text (required)
+ * Attributes: text (required), style (optional: "title").
+ *
+ * style="title" makes a section heading: the large font, a width that HUGS the measured text
+ * (ui_title_size, so a long title is never clipped) and zero padding so it starts exactly at the
+ * content edge. An authored size/width/height still wins over the title size.
  */
 static UIBuildResult BuildLabel(mxml_node_t *node, UIElement *parent, const UIPalette *palette,
                                 UILoaderContext *ctx, UICommonAttrs *common)
@@ -532,15 +536,35 @@ static UIBuildResult BuildLabel(mxml_node_t *node, UIElement *parent, const UIPa
     if (!text)
         text = "";
 
+    bool is_title = false;
+    const char *style = mxmlElementGetAttr(node, "style");
+    if (style)
+    {
+        if (!strcmp(style, "title"))
+            is_title = true;
+        else
+            LOADER_WARNING(ctx, "Unrecognised label style; using the default");
+    }
+
     // Size comes from the common pass (seeded with ui_standard_control_size). Offset is
     // applied POST by the skeleton (not consumed) and enabled by the skeleton too.
-    UIElement *label_elem = CreateUILabelDefault(parent, text, common->size,
-                               ui_standard_button_padding, palette);
+    UIElement *label_elem;
+    if (is_title)
+    {
+        bool size_authored = mxmlElementGetAttr(node, "size") || mxmlElementGetAttr(node, "width") ||
+                             mxmlElementGetAttr(node, "height");
+        label_elem = CreateUILabelTitleDefault(parent, text, size_authored ? common->size : ui_title_size,
+                                               ui_standard_field_padding, palette);
+    }
+    else
+    {
+        label_elem = CreateUILabelDefault(parent, text, common->size,
+                                          ui_standard_button_padding, palette);
+    }
 
     // Single-element builder: control == outer. id/offset/enabled/size land on the label.
     return (UIBuildResult){ .element = label_elem };
 }
-
 /**
  * Map a <TextField>/<Textbox> type= attribute to the DataType the field parses/formats with.
  * Absent/unrecognised => FLOAT (the historic default), matching the pre-refactor behaviour.
@@ -625,7 +649,6 @@ static void UILoader_ApplyFieldValue(mxml_node_t *node, UIElement *textbox,
     else
         safe_strncpy(textbox->data.textbox.text.string, value_attr, MAX_LABEL_CHARS);
 }
-
 /**
  * Builder for <TextField> elements.
  * Attributes: label (required), type (integer/float/vector2), binding (optional source,
@@ -748,6 +771,8 @@ static UIBuildResult BuildTextbox(mxml_node_t *node, UIElement *parent, const UI
     if (!textbox)
         return (UIBuildResult){ NULL };
 
+    textbox->border_weight = UIPalette_GetSurfaceBorderWeight(palette, UI_PALETTE_SURFACE_INPUT);
+
     // Match the row child's cosmetics: medium font in the palette's text colour and
     // vertically-centred text.
     textbox->data.textbox.font = FONT_MEDIUM_WITH_COLOUR(palette->text);
@@ -796,14 +821,14 @@ static UIElement *UILoader_CreateContainerFromCommon(UIElement *parent, const UI
 }
 
 /**
- * Builder for <Container> elements: a box that groups children, with an optional title.
- * Attributes: title (optional - when set the container becomes a boxed section: container
- *             fill, 1 px container border, 6 px padding and a heading label; when absent it
- *             is a transparent layout box),
- *             size (optional "w,h"), width/height (optional per-axis mode
+ * Builder for <Container> elements: a transparent box that groups children.
+ * Attributes: size (optional "w,h"), width/height (optional per-axis mode
  *             "fixed|percent|fill|hug"), offset (optional "x,y"),
- *             offset-mode (optional "fixed"/"percent"), layout (optional).
- * Children are added to the container. (This tag supersedes the former <Section>.)
+ *             offset-mode (optional "fixed"/"percent"), layout (optional),
+ *             padding / surface / border (optional, generic - see the common attributes).
+ * Children are added to the container. A container is transparent and borderless by default;
+ * a boxed "section" is authored explicitly with surface="container" (and a heading is just a
+ * <Label style="title"> child). (This tag supersedes the former <Section>.)
  */
 static UIBuildResult BuildContainer(mxml_node_t *node, UIElement *parent,
                                     const UIPalette *palette, UILoaderContext *ctx,
@@ -811,29 +836,12 @@ static UIBuildResult BuildContainer(mxml_node_t *node, UIElement *parent,
 {
     // Size, offset, layout and enabled all come from the common pass (size seeded with
     // ui_standard_container_size); the skeleton re-asserts the same enabled value afterwards.
-    // Surface and padding follow the title (style v2):
-    //  - titled   -> a boxed "section": CONTAINER surface (container fill + 1 px container
-    //                border) with the 6 px section padding;
-    //  - untitled -> a transparent layout box (strips, chip rows, component rows) with the
-    //                standard 3 px inset, so it never turns into a boxed section.
-    // An authored padding= always wins, and an authored surface= is applied afterwards by the
-    // common skeleton, so markup can still opt an untitled container into the boxed look.
-    const char *title = mxmlElementGetAttr(node, "title");
-    bool titled = title && title[0] != '\0';
+    // A container is a transparent layout box with the standard 3 px inset. The boxed "section"
+    // look (container fill + 1 px border) and its 6 px inset are authored explicitly with
+    // surface="container" padding="0.12"; both are applied by the common pass / skeleton.
     UIElement *container = UILoader_CreateContainerFromCommon(parent, palette, common,
-                                titled ? ui_section_padding : ui_standard_container_padding,
-                                titled ? UI_PALETTE_SURFACE_CONTAINER : UI_PALETTE_SURFACE_TRANSPARENT,
-                                common->layout);
-
-    // An authored title also adds the heading label child (a title-less container gets no
-    // phantom empty-label slot).
-    if (container && titled)
-    {
-        // Heading uses the larger title font (FONT_LARGE) so section titles sit above controls.
-        // Title width HUGS its measured text (ui_title_size) so long titles are never clipped.
-        CreateUILabelTitleDefault(container, title, ui_title_size,
-                                  ui_standard_field_padding, palette);
-    }
+                                ui_standard_container_padding,
+                                UI_PALETTE_SURFACE_TRANSPARENT, common->layout);
 
     // Single-element builder: control == outer (offset consumed at construct time).
     return (UIBuildResult){ .element = container };
@@ -1254,6 +1262,28 @@ static OffsetMode UILoader_ParseOffsetMode(const char *mode_str)
     return OFFSET_FIXED;  // Default
 }
 
+// Silent lookup of a surface role name (transparent, container, field_row, input, button, panel,
+// danger).
+// Returns true and writes *out when recognised. Shared by surface= and border=.
+static bool UILoader_LookupSurface(const char *name, UIPaletteSurface *out)
+{
+    static const struct { const char *name; UIPaletteSurface role; } roles[] = {
+        {"transparent", UI_PALETTE_SURFACE_TRANSPARENT}, {"container", UI_PALETTE_SURFACE_CONTAINER},
+        {"field_row", UI_PALETTE_SURFACE_FIELD_ROW},     {"input", UI_PALETTE_SURFACE_INPUT},
+        {"button", UI_PALETTE_SURFACE_BUTTON},           {"panel", UI_PALETTE_SURFACE_PANEL},
+        {"danger", UI_PALETTE_SURFACE_DANGER},
+    };
+    for (size_t i = 0; i < sizeof(roles) / sizeof(roles[0]); i++)
+    {
+        if (!strcmp(name, roles[i].name))
+        {
+            *out = roles[i].role;
+            return true;
+        }
+    }
+    return false;
+}
+
 // Helper: Map a surface= attribute string to a UIPaletteSurface role. Returns true and writes
 // *out when the string is recognised; returns false (leaving *out untouched) when the attribute
 // is absent/NULL so the caller keeps the element's constructor-chosen colours. An unrecognised
@@ -1263,27 +1293,58 @@ static bool UILoader_ParseSurface(UILoaderContext *ctx, const char *surface_str,
     if (!surface_str)
         return false;  // Absent: leave constructor colours unchanged
 
-    if (!strcmp(surface_str, "transparent"))
-        *out = UI_PALETTE_SURFACE_TRANSPARENT;
-    else if (!strcmp(surface_str, "container"))
-        *out = UI_PALETTE_SURFACE_CONTAINER;
-    else if (!strcmp(surface_str, "field_row"))
-        *out = UI_PALETTE_SURFACE_FIELD_ROW;
-    else if (!strcmp(surface_str, "input"))
-        *out = UI_PALETTE_SURFACE_INPUT;
-    else if (!strcmp(surface_str, "button"))
-        *out = UI_PALETTE_SURFACE_BUTTON;
-    else if (!strcmp(surface_str, "panel"))
-        *out = UI_PALETTE_SURFACE_PANEL;
-    else if (!strcmp(surface_str, "danger"))
-        *out = UI_PALETTE_SURFACE_DANGER;
-    else
+    if (UILoader_LookupSurface(surface_str, out))
+        return true;
+
+    // Unrecognised value: warn and leave the constructor colours unchanged.
+    LOADER_WARNING(ctx, "Unrecognised surface value; leaving element colours unchanged");
+    return false;
+}
+// Helper: Map a border= attribute string to a border colour from the active palette. Accepts
+// "none" (no border) or any surface role name (the role's palette border colour, e.g.
+// "container", "input", "button"). Returns true and writes *out when recognised; returns false
+// (leaving *out untouched) when the attribute is absent or unrecognised (the latter also warns),
+// so the element keeps its constructor/surface-chosen border.
+static bool UILoader_ParseBorder(UILoaderContext *ctx, const UIPalette *palette,
+                                 const char *border_str, ColourRgba *out)
+{
+    if (!border_str)
+        return false;
+
+    if (!strcmp(border_str, "none"))
     {
-        // Unrecognised value: warn and leave the constructor colours unchanged.
-        LOADER_WARNING(ctx, "Unrecognised surface value; leaving element colours unchanged");
+        *out = COLOURLESS_RGBA;
+        return true;
+    }
+
+    UIPaletteSurface role;
+    if (!UILoader_LookupSurface(border_str, &role))
+    {
+        LOADER_WARNING(ctx, "Unrecognised border value; leaving element border unchanged");
         return false;
     }
 
+    UIPalette_GetSurfaceColours(palette, role, out, NULL);
+    return true;
+}
+// Helper: Parse a border-weight= attribute: a whole number of screen pixels in 0..UI_MAX_BORDER_WEIGHT.
+// Returns true and writes *out when valid; returns false (leaving *out untouched) when absent, or
+// when malformed/out of range (which also warns), so the element keeps its surface weight.
+#define UI_MAX_BORDER_WEIGHT 16
+static bool UILoader_ParseBorderWeight(UILoaderContext *ctx, const char *weight_str, int *out)
+{
+    if (!weight_str)
+        return false;
+
+    char *end = NULL;
+    long value = strtol(weight_str, &end, 10);
+    if (end == weight_str || *end != '\0' || value < 0 || value > UI_MAX_BORDER_WEIGHT)
+    {
+        LOADER_WARNING(ctx, "border-weight must be a whole number of pixels from 0 to 16; ignored");
+        return false;
+    }
+
+    *out = (int)value;
     return true;
 }
 
@@ -1609,8 +1670,23 @@ static UIElement *UILoader_ParseElementNode(mxml_node_t *node, UIElement *parent
     {
         UIPalette_GetSurfaceColours(ctx->palette, surface_role,
                                     &outer->colour_border, &outer->colour_fill);
+        outer->border_weight = UIPalette_GetSurfaceBorderWeight(ctx->palette, surface_role);
     }
-    // hint: optional static hover text for the detail strip. Applied at this single generic
+    // border: optional border-colour override, applied after surface= so it can strip or recolour
+    // just the border of a surface-filled element. Same generic choke point, so ANY element can
+    // opt in; an absent or unrecognised value leaves the border untouched.
+    ColourRgba border_colour;
+    if (UILoader_ParseBorder(ctx, ctx->palette, mxmlElementGetAttr(node, "border"), &border_colour))
+    {
+        outer->colour_border = border_colour;
+    }
+    // border-weight: optional border thickness in whole screen pixels, applied last so it wins over
+    // the surface role's weight. 0 hides the border line. Absent keeps the surface/constructor weight.
+    int border_weight;
+    if (UILoader_ParseBorderWeight(ctx, mxmlElementGetAttr(node, "border-weight"), &border_weight))
+    {
+        outer->border_weight = (uint8_t)border_weight;
+    }    // hint: optional static hover text for the detail strip. Applied at this single generic
     // choke point so ANY element can carry one; live values are added in C through on_hint.
     const char *hint_attr = mxmlElementGetAttr(node, "hint");
     if (hint_attr && hint_attr[0] != '\0')

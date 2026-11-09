@@ -211,6 +211,7 @@ typedef struct UIElement
     Vector2d padding;
     Vector2d scroll_offset; // Scroll offset in local units applied to child placement
     ColourRgba colour_border;
+    uint8_t border_weight;  // Border line thickness in screen pixels (drawn inside the box); 0 = none. Defaults to 1.
     ColourRgba colour_fill;
     Size size;
     UITextHorizontalAlignment text_horizontal_alignment;

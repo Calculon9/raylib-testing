@@ -70,48 +70,52 @@ static bool g_geometry_edit_active = false;
 
 // Default UI Properties
 //Vector2d tfield_default_padding = {0.0, 0.0};
-const Vector2d ui_standard_container_padding = {0.06, 0.06};
+// All UI layout values below are in UI pixels (drawn at the integer UI pixel scale).
+const Vector2d ui_standard_container_padding = {3.0f, 3.0f};
 // Field rows and titles start exactly at the content edge of their section.
 const Vector2d ui_standard_field_padding = {0.0f, 0.0f};
-// Titled section padding: 0.12 u = 6 px, measured from the box's outer edge (the 1 px border
+// Section padding: 6 px, measured from the box's outer edge (the 1 px border
 // is drawn inside the box, so content sits 6 px from the outer edge as in the mock).
-const Vector2d ui_section_padding = {0.12f, 0.12f};
-// ViewHost / View padding on top of the 0.10 root padding: 0.10 + 0.02 = 0.12 u = 6 px inset.
-const Vector2d ui_host_padding = {0.02f, 0.02f};
-const Vector2d ui_standard_button_padding = {0.025, 0.025};
+const Vector2d ui_section_padding = {6.0f, 6.0f};
+// ViewHost / View padding on top of the 5 px root padding: 5 + 1 = 6 px panel inset.
+const Vector2d ui_host_padding = {1.0f, 1.0f};
+const Vector2d ui_standard_button_padding = {1.0f, 1.0f};
 // Text-field rows (and Textbox/Label defaults) fill their parent's width; height stays 25 px.
-const Size ui_standard_control_size = {{4.65, 0.50}, AXIS_FILL, AXIS_FIXED};
+const Size ui_standard_control_size = {{233.0f, 25.0f}, AXIS_FILL, AXIS_FIXED};
 //const Size ui_standard_textbox_size = {{4.55f, 0.50f}, AXIS_FIXED, AXIS_FIXED};
 // The input FILLS the row after the label column (the label is a fixed-width column).
 const Size ui_standard_textfield_input_size = {{1.0f, 1.0f}, AXIS_FILL, AXIS_PERCENT};
-// First-frame / fallback label column width: 2.36 u = 118 px ("Restitution" run + 2 px).
-const float ui_standard_textfield_label_width = 2.36f;
-// Buttons span the full inner width of their container; height stays 0.5 u = 25 px.
-const Size ui_standard_button_size = {{3.22f, 0.5f}, AXIS_FILL, AXIS_FIXED};
+// First-frame / fallback label column width: 118 px ("Restitution" run + 2 px).
+const float ui_standard_textfield_label_width = 118.0f;
+// Buttons span the full inner width of their container; height is 25 px.
+const Size ui_standard_button_size = {{161.0f, 25.0f}, AXIS_FILL, AXIS_FIXED};
 // Shared size for container title labels: width HUGS the title's measured text (uncapped,
 // dimensions.x == 0) so the title can never be clipped; the height is one 16 px FONT_LARGE row
-// (0.32 u) so, with 6 px padding and a 3 px gap, the first control lands 25 px below the box top.
-const Size ui_title_size = {{0.0f, 0.32f}, AXIS_HUG, AXIS_FIXED};
-const Size ui_wide_button_size = {{4.65f, 0.5f}, AXIS_FIXED, AXIS_FIXED};
-const Size ui_small_horizontal_button_size = {{1.91f, 0.5f}, AXIS_FIXED, AXIS_FIXED};
+// so, with 6 px padding and a 3 px gap, the first control lands 25 px below the box top.
+const Size ui_title_size = {{0.0f, 16.0f}, AXIS_HUG, AXIS_FIXED};
+const Size ui_wide_button_size = {{233.0f, 25.0f}, AXIS_FIXED, AXIS_FIXED};
+const Size ui_small_horizontal_button_size = {{96.0f, 25.0f}, AXIS_FIXED, AXIS_FIXED};
 const Size ui_fill_button_size = {{1.0f, 1.0f}, AXIS_FILL, AXIS_FILL};
 const Size ui_standard_container_size = {{1, 0.5}, AXIS_PERCENT, AXIS_PERCENT};
 const Size ui_fill_container_size = {{1.0f, 1.0f}, AXIS_FILL, AXIS_FILL};
 const Size ui_standard_selector_container_size = UI_SIZE_HUG;
-const Size ui_standard_selector_button_size = {{1.75f, 0.5f}, AXIS_FIXED, AXIS_FIXED};
+const Size ui_standard_selector_button_size = {{88.0f, 25.0f}, AXIS_FIXED, AXIS_FIXED};
 // NOTE: the middle field of each Layout literal is NumberForm (NONE), NOT an AxisSizeMode.
-const Layout ui_standard_stack_spacing = {{0.0f, 0.06f}, NONE, FLOW_STACKED};
+const Layout ui_standard_stack_spacing = {{0.0f, 3.0f}, NONE, FLOW_STACKED};
 // 6 px between a panel's top-level blocks (header, tab row, sections).
-const Layout ui_view_stack_spacing = {{0.0f, 0.12f}, NONE, FLOW_STACKED};
-const Layout ui_compact_stack_spacing = {{0.0f, 0.025f}, NONE, FLOW_STACKED};
-const Layout ui_standard_stack_wrap_spacing = {{0.06f, 0.06f}, NONE, FLOW_STACKED_WRAP};
-const Layout ui_standard_stack_smart_wrap_spacing = {{0.06f, 0.06f}, NONE, FLOW_STACKED_SMART_WRAP};
-const Layout ui_compact_stack_wrap_spacing = {{0.025f, 0.025f}, NONE, FLOW_STACKED_WRAP};
-const Layout ui_zero_x_stack_wrap_spacing = {{0.0f, 0.06f}, NONE, FLOW_STACKED_WRAP};
-const Layout ui_standard_inline_wrap_spacing = {{0.06f, 0.06f}, NONE, FLOW_INLINE_WRAP};
-const Layout ui_zero_x_inline_wrap_spacing = {{0.0f, 0.06f}, NONE, FLOW_INLINE_WRAP};
-const Layout ui_standard_inline_spacing = {{0.06f, 0.0f}, NONE, FLOW_INLINE};
+const Layout ui_view_stack_spacing = {{0.0f, 6.0f}, NONE, FLOW_STACKED};
+const Layout ui_compact_stack_spacing = {{0.0f, 1.0f}, NONE, FLOW_STACKED};
+const Layout ui_standard_stack_wrap_spacing = {{3.0f, 3.0f}, NONE, FLOW_STACKED_WRAP};
+const Layout ui_standard_stack_smart_wrap_spacing = {{3.0f, 3.0f}, NONE, FLOW_STACKED_SMART_WRAP};
+const Layout ui_compact_stack_wrap_spacing = {{1.0f, 1.0f}, NONE, FLOW_STACKED_WRAP};
+const Layout ui_zero_x_stack_wrap_spacing = {{0.0f, 3.0f}, NONE, FLOW_STACKED_WRAP};
+const Layout ui_standard_inline_wrap_spacing = {{3.0f, 3.0f}, NONE, FLOW_INLINE_WRAP};
+const Layout ui_zero_x_inline_wrap_spacing = {{0.0f, 3.0f}, NONE, FLOW_INLINE_WRAP};
+const Layout ui_standard_inline_spacing = {{3.0f, 0.0f}, NONE, FLOW_INLINE};
 const Layout ui_zero_inline_spacing = {{0.0f, 0.0f}, NONE, FLOW_INLINE};
+
+// Border thickness every themed surface role starts with (1 screen pixel, the historic look).
+#define UI_DEFAULT_BORDER_WEIGHT 1
 
 UIPalette ui_classic_palette = {0};
 UIPalette ui_earth_palette = {0};
@@ -148,6 +152,10 @@ static void InitUIPalettes(void)
     ui_classic_palette.input_border = MakeColour(32, 42, 37, 255);
     ui_classic_palette.input_fill = MakeColour(245, 241, 230, 255);
     ui_classic_palette.button_border = MakeColour(32, 42, 37, 255);
+    ui_classic_palette.container_border_weight = UI_DEFAULT_BORDER_WEIGHT;
+    ui_classic_palette.field_row_border_weight = UI_DEFAULT_BORDER_WEIGHT;
+    ui_classic_palette.input_border_weight = UI_DEFAULT_BORDER_WEIGHT;
+    ui_classic_palette.button_border_weight = UI_DEFAULT_BORDER_WEIGHT;
     ui_classic_palette.button_fill = MakeColour(230, 194, 119, 255);
     // Toggle fills: ON reuses the amber button fill; OFF is the same hue dimmed towards the panel.
     ui_classic_palette.toggle_on_fill = MakeColour(230, 194, 119, 255);
@@ -168,6 +176,10 @@ static void InitUIPalettes(void)
     ui_earth_palette.input_border = MakeColour(38, 101, 115, 255);
     ui_earth_palette.input_fill = MakeColour(242, 211, 172, 255);
     ui_earth_palette.button_border = MakeColour(38, 101, 115, 255);
+    ui_earth_palette.container_border_weight = UI_DEFAULT_BORDER_WEIGHT;
+    ui_earth_palette.field_row_border_weight = UI_DEFAULT_BORDER_WEIGHT;
+    ui_earth_palette.input_border_weight = UI_DEFAULT_BORDER_WEIGHT;
+    ui_earth_palette.button_border_weight = UI_DEFAULT_BORDER_WEIGHT;
     ui_earth_palette.button_fill = MakeColour(166, 109, 60, 255);
     // Toggle fills: ON reuses the terracotta button fill; OFF is the same hue dimmed towards the panel.
     ui_earth_palette.toggle_on_fill = MakeColour(166, 109, 60, 255);
@@ -188,6 +200,10 @@ static void InitUIPalettes(void)
     ui_harbor_palette.input_border = MakeColour(28, 58, 67, 255);
     ui_harbor_palette.input_fill = MakeColour(239, 221, 184, 255);
     ui_harbor_palette.button_border = MakeColour(28, 58, 67, 255);
+    ui_harbor_palette.container_border_weight = UI_DEFAULT_BORDER_WEIGHT;
+    ui_harbor_palette.field_row_border_weight = UI_DEFAULT_BORDER_WEIGHT;
+    ui_harbor_palette.input_border_weight = UI_DEFAULT_BORDER_WEIGHT;
+    ui_harbor_palette.button_border_weight = UI_DEFAULT_BORDER_WEIGHT;
     ui_harbor_palette.button_fill = MakeColour(220, 158, 70, 255);
     // Toggle fills: ON reuses the amber button fill; OFF is the same amber hue dimmed towards the panel.
     ui_harbor_palette.toggle_on_fill = MakeColour(220, 158, 70, 255);
@@ -209,6 +225,10 @@ static void InitUIPalettes(void)
     ui_meadow_palette.input_border = MakeColour(38, 101, 115, 255);
     ui_meadow_palette.input_fill = MakeColour(245, 241, 230, 255);
     ui_meadow_palette.button_border = MakeColour(38, 101, 115, 255);
+    ui_meadow_palette.container_border_weight = UI_DEFAULT_BORDER_WEIGHT;
+    ui_meadow_palette.field_row_border_weight = UI_DEFAULT_BORDER_WEIGHT;
+    ui_meadow_palette.input_border_weight = UI_DEFAULT_BORDER_WEIGHT;
+    ui_meadow_palette.button_border_weight = UI_DEFAULT_BORDER_WEIGHT;
     ui_meadow_palette.button_fill = MakeColour(230, 194, 119, 255);
     // Toggle fills: ON reuses the amber button fill; OFF is the same hue dimmed towards the panel.
     ui_meadow_palette.toggle_on_fill = MakeColour(230, 194, 119, 255);
@@ -225,6 +245,25 @@ static void InitUIPalettes(void)
     ui_palettes_initialized = true;
 }
 
+uint8_t UIPalette_GetSurfaceBorderWeight(const UIPalette *palette, UIPaletteSurface surface)
+{
+    if (!palette)
+    {
+        palette = &ui_default_palette;
+    }
+
+    switch (surface)
+    {
+        case UI_PALETTE_SURFACE_CONTAINER: return palette->container_border_weight;
+        case UI_PALETTE_SURFACE_FIELD_ROW: return palette->field_row_border_weight;
+        case UI_PALETTE_SURFACE_INPUT:     return palette->input_border_weight;
+        case UI_PALETTE_SURFACE_BUTTON:
+        case UI_PALETTE_SURFACE_DANGER:    return palette->button_border_weight; // danger shares the button border
+        case UI_PALETTE_SURFACE_PANEL:
+        case UI_PALETTE_SURFACE_TRANSPARENT:
+        default:                           return 0; // borderless roles
+    }
+}
 void UIPalette_GetSurfaceColours(const UIPalette *palette, UIPaletteSurface surface,
                                  ColourRgba *out_border, ColourRgba *out_fill)
 {

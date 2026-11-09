@@ -69,6 +69,10 @@ struct ViewSelector {
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 
+// Convert a point in the panel viewport's own units (e.g. from viewport->tunnel.dest_to_source_mtx)
+// into the panel's local UI-pixel coordinates.
+Vector2d ViewHostSystem_ViewportToLocal(const ViewHostSystem *panel, Vector2d viewport_coords);
+
 // Create a new panel system instance
 ViewHostSystem* ViewHostSystem_Create(ViewportRegion *viewport, float scale, Vector2d padding,
                                 const UIPalette *palette, Layout root_child_spacing);

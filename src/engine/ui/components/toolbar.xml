@@ -15,7 +15,7 @@
     <!-- on_draw hook (Toolbar_DrawNudgeIcon reads UIState_IsToolActive), so the toggle feedback -->
     <!-- is the glyph's look, not text. action="tool-nudge" still sets the active tool on click. -->
     <!-- surface="input" gives the flat info-strip tint (vs the bright BUTTON surface). -->
-    <Button id="tool_nudge" type="simple" surface="input" action="tool-nudge" hint="Nudge tool: click an entity to push it" size="0.67,0.45" />
+    <Button id="tool_nudge" type="simple" surface="input" action="tool-nudge" hint="Nudge tool: click an entity to push it" size="34,23" />
 
     <!-- Cell paint TOOL button, cloned from Nudge above. Same rationale: NO binding= (a display -->
     <!-- source would make the refresh write button text that text="" cannot suppress); the active- -->
@@ -27,7 +27,7 @@
     <!-- in InitToolbar). The glyph (UIIcon_DrawCellPaint) shows BOTH the tool-active state (frame -->
     <!-- ink) and the active tile colour (inner swatch), so the retired separate cycle button is -->
     <!-- fully consolidated here. -->
-    <Button id="tool_cell_paint" type="simple" surface="input" action="tool-cell-paint" hint="Cell paint tool | Wheel: cycle tile" size="0.67,0.45" />
+    <Button id="tool_cell_paint" type="simple" surface="input" action="tool-cell-paint" hint="Cell paint tool | Wheel: cycle tile" size="34,23" />
 
     <!-- Spawn TOOL button (radio, click-to-place). NO binding= here (a display source would make -->
     <!-- the per-frame refresh WRITE the button text that text="" cannot suppress); the active-tool -->
@@ -38,30 +38,30 @@
     <!-- spawn prefab (on_scroll = Toolbar_ScrollCyclePrefab, wired by id in InitToolbar), so the -->
     <!-- retired separate prefab cycle button is consolidated onto this one. The prefab identity is -->
     <!-- read out in the always-present detail/info strips (the spawn glyph stays generic). -->
-    <Button id="tool_spawn" type="simple" surface="input" action="tool-spawn" hint="Spawn tool | Wheel: cycle prefab" size="0.67,0.45" />
+    <Button id="tool_spawn" type="simple" surface="input" action="tool-spawn" hint="Spawn tool | Wheel: cycle prefab" size="34,23" />
 
     <!-- Thin empty separator so the tool and the toggle group read as two distinct bands. -->
-    <Label id="toolbar_separator" size="1,0.25" width="fixed" height="fixed" />
+    <Label id="toolbar_separator" size="50,13" width="fixed" height="fixed" />
 
     <!-- The nine independent visual toggles (rehomed from lpanel.xml's state_view). -->
-    <Button id="toggle_dashboard" type="simple" surface="input" binding="debug.dashboard" action="toggle-debug-dashboard" hint="Debug dashboard" size="0.67,0.45" />
-    <Button id="toggle_viewport_grid" type="simple" surface="input" binding="view.viewport-grid" action="toggle-viewport-grid" hint="Viewport grid" size="0.67,0.45" />
-    <Button id="toggle_world_grid" type="simple" surface="input" binding="view.world-grid" action="toggle-world-grid" hint="World grid | Click: cycle" size="0.67,0.45" />
-    <Button id="toggle_world_grid_labels" type="simple" surface="input" binding="view.world-grid-labels" action="toggle-world-grid-labels" hint="World grid labels" size="0.67,0.45" />
-    <Button id="toggle_universe_grid_labels" type="simple" surface="input" binding="view.universe-grid-labels" action="toggle-universe-grid-labels" hint="Universe grid labels" size="0.67,0.45" />
-    <Button id="toggle_ui_borders" type="simple" surface="input" binding="view.ui-borders" action="toggle-ui-borders" hint="UI borders" size="0.67,0.45" />
-    <Button id="toggle_object_axes" type="simple" surface="input" binding="gizmo.object-axes" action="toggle-object-axes" hint="Object axes gizmo" size="0.67,0.45" />
-    <Button id="toggle_object_hull" type="simple" surface="input" binding="gizmo.object-hull" action="toggle-object-hull" hint="Object hull gizmo" size="0.67,0.45" />
-    <Button id="toggle_object_aabb" type="simple" surface="input" binding="gizmo.object-aabb" action="toggle-object-aabb" hint="Object AABB gizmo" size="0.67,0.45" />
+    <Button id="toggle_dashboard" type="simple" surface="input" binding="debug.dashboard" action="toggle-debug-dashboard" hint="Debug dashboard" size="34,23" />
+    <Button id="toggle_viewport_grid" type="simple" surface="input" binding="view.viewport-grid" action="toggle-viewport-grid" hint="Viewport grid" size="34,23" />
+    <Button id="toggle_world_grid" type="simple" surface="input" binding="view.world-grid" action="toggle-world-grid" hint="World grid | Click: cycle" size="34,23" />
+    <Button id="toggle_world_grid_labels" type="simple" surface="input" binding="view.world-grid-labels" action="toggle-world-grid-labels" hint="World grid labels" size="34,23" />
+    <Button id="toggle_universe_grid_labels" type="simple" surface="input" binding="view.universe-grid-labels" action="toggle-universe-grid-labels" hint="Universe grid labels" size="34,23" />
+    <Button id="toggle_ui_borders" type="simple" surface="input" binding="view.ui-borders" action="toggle-ui-borders" hint="UI borders" size="34,23" />
+    <Button id="toggle_object_axes" type="simple" surface="input" binding="gizmo.object-axes" action="toggle-object-axes" hint="Object axes gizmo" size="34,23" />
+    <Button id="toggle_object_hull" type="simple" surface="input" binding="gizmo.object-hull" action="toggle-object-hull" hint="Object hull gizmo" size="34,23" />
+    <Button id="toggle_object_aabb" type="simple" surface="input" binding="gizmo.object-aabb" action="toggle-object-aabb" hint="Object AABB gizmo" size="34,23" />
     <!-- Collision-marker toggle: gates CREATION of the short-lived effect entity spawned at each -->
     <!-- contact point (default ON). Same binding=/action= shape as the toggles above; the glyph -->
     <!-- ink (UIIcon_DrawCollisions) shows ON/OFF. -->
-    <Button id="toggle_collisions" type="simple" surface="input" binding="gizmo.collisions" action="toggle-collisions" hint="Collision markers" size="0.67,0.45" />
+    <Button id="toggle_collisions" type="simple" surface="input" binding="gizmo.collisions" action="toggle-collisions" hint="Collision markers" size="34,23" />
 
     <!-- Independent geometry-edit toggle. Unlike the nine debug toggles above it carries NO       -->
     <!-- binding= (a display source would make the per-frame refresh WRITE button text that text="" -->
     <!-- cannot suppress); its ON/OFF feedback is the on_draw glyph's INK (UIIcon_DrawGeometryEdit  -->
     <!-- reads UIState_IsGeometryEditActive), exactly like the tool buttons. action="toggle-geometry- -->
     <!-- edit" -> CMD_TOGGLE_GEOMETRY_EDIT flips the flag independently (no tool change, no overlay). -->
-    <Button id="toggle_geometry_edit" type="simple" surface="input" action="toggle-geometry-edit" hint="Geometry edit: drag vertex handles" size="0.67,0.45" />
+    <Button id="toggle_geometry_edit" type="simple" surface="input" action="toggle-geometry-edit" hint="Geometry edit: drag vertex handles" size="34,23" />
 </Container>

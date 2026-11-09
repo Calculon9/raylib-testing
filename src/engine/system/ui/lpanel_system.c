@@ -208,7 +208,7 @@ void InitLPanel()
     // Create the host, then build its real root (with a valid coordinate space /
     // seed box) and re-parent the XML <ViewHost> container under it. The XML tree
     // drives everything inside the single real root.
-    lpanel = ViewHostSystem_Create(&lpanel_viewport, 1.0f, (Vector2d){0.1f, 0.1f},
+    lpanel = ViewHostSystem_Create(&lpanel_viewport, 1.0f, (Vector2d){5.0f, 5.0f},
                                    &ui_default_palette, ui_standard_stack_spacing);
     if (!lpanel)
     {
