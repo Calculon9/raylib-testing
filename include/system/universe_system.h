@@ -26,6 +26,8 @@ void DrawUniverse(void);
 int CreateNewWorld(bool select);
 int CreateNewWorld_Preset(bool select, CoordinateSpacePreset preset);
 
+// Enqueue deletes for world indices in descending order (sorts `indices` in place); returns the number enqueued.
+int EnqueueDeleteWorldsDescending(int *indices, int count);
 int GetWorldCount(void);
 World2d *GetWorldByIndex(int index);
 

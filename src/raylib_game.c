@@ -20,7 +20,7 @@
 #include "system/universe_system.h"
 #include "system/viewport_system.h"
 #include "entities/entity_catalogue.h"
-#include "system/ui/rpanel_system.h"
+#include "system/ui/world_manager_system.h"
 #include "system/debug_overlay_system.h"
 #include "editor/geometry_editor.h"
 #include "input/drag_interaction.h"

@@ -145,6 +145,8 @@ void UIState_SetSelectedCell(Cell *cell, int cell_index);
 void UIState_ClearSelectedCell(void);
 Cell *UIState_GetSelectedCell(void);
 int UIState_GetSelectedCellIndex(void);
+int UIState_GetCellIndexForRef(TargetRef ref);     // Live dense index of any CELL ref (-1 if not a cell / unresolved).
+int UIState_GetCellOccupancyForRef(TargetRef ref); // Occupancy count of any CELL ref (0 if not a cell / unresolved).
 int UIState_GetSelectedCellOccupancy(void); // Entities listed in the selected cell's occupancy store entry (0 if none).
 
 // Central mixed SelectionSet operations. The set (TargetRef entries owned in G_UIState) is the

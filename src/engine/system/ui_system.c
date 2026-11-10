@@ -13,7 +13,7 @@
 #include "ui/ui_input.h"
 #include "system/ui_system.h"
 #include "system/ui/lpanel_system.h"
-#include "system/ui/rpanel_system.h"
+#include "system/ui/world_manager_system.h"
 #include "system/ui/state_manager_system.h"
 #include "system/view_host_system.h"
 #include "system/ui/utility_panel_system.h"
@@ -770,39 +770,38 @@ Cell *UIState_ResolveCellRef(TargetRef ref)
     return Space_GetCellAtLattice(&world->grid_space.space, ref.as.cell.lattice_x, ref.as.cell.lattice_y);
 }
 
+// Report the live dense index of any CELL ref (-1 for a non-cell ref or an unresolved world). The index
+// is re-derived from the lattice coordinate each call because it changes when the world grows on the
+// left/top.
+int UIState_GetCellIndexForRef(TargetRef ref)
+{
+    if (ref.kind != TARGET_KIND_CELL)
+    {
+        return -1;
+    }
+    World2d *world = Universe_GetWorld(&G_Universe, ref.as.cell.world_index);
+    return world ? Space_IndexFromLattice(&world->grid_space.space, ref.as.cell.lattice_x, ref.as.cell.lattice_y) : -1;
+}
 // Report the selected cell's index from the SelectionSet primary, or -1 when the primary is not a
 // cell. Mirrors UIState_GetSelectedCell's single-source-of-truth derivation.
 int UIState_GetSelectedCellIndex(void)
 {
-    TargetRef primary = SelectionSet_Primary();
-    if (primary.kind != TARGET_KIND_CELL)
-    {
-        return -1;
-    }
-    // Live dense index of the lattice coordinate (it changes when the world grows on the left/top).
-    World2d *world = Universe_GetWorld(&G_Universe, primary.as.cell.world_index);
-    return world ? Space_IndexFromLattice(&world->grid_space.space, primary.as.cell.lattice_x, primary.as.cell.lattice_y) : -1;
+    return UIState_GetCellIndexForRef(SelectionSet_Primary());
 }
-
-// Report how many entities the selected cell currently lists in its world's occupancy store (the previous
-// tick's mapping, as before), or 0 when the primary is not a cell or the cell does not resolve.
+// Report how many entities any CELL ref currently lists in its world's occupancy store (the previous
+// tick's mapping), or 0 when the ref is not a cell or does not resolve.
+int UIState_GetCellOccupancyForRef(TargetRef ref)
+{
+    int index = UIState_GetCellIndexForRef(ref);
+    World2d *world = (index >= 0) ? Universe_GetWorld(&G_Universe, ref.as.cell.world_index) : NULL;
+    return world ? CellOccupancy_Count(&world->cell_occupancy, index) : 0;
+}
+// Report how many entities the selected cell currently lists in its world's occupancy store, or 0
+// when the primary is not a cell or the cell does not resolve.
 int UIState_GetSelectedCellOccupancy(void)
 {
-    TargetRef primary = SelectionSet_Primary();
-    if (primary.kind != TARGET_KIND_CELL)
-    {
-        return 0;
-    }
-    World2d *world = Universe_GetWorld(&G_Universe, primary.as.cell.world_index);
-    if (!world)
-    {
-        return 0;
-    }
-    int index = Space_IndexFromLattice(&world->grid_space.space, primary.as.cell.lattice_x, primary.as.cell.lattice_y);
-    return index >= 0 ? CellOccupancy_Count(&world->cell_occupancy, index) : 0;
-}
-
-// Return the currently active tool (TOOL_NONE when none is active).
+    return UIState_GetCellOccupancyForRef(SelectionSet_Primary());
+}// Return the currently active tool (TOOL_NONE when none is active).
 ActiveTool UIState_GetActiveTool(void)
 {
     return g_active_tool;
@@ -924,7 +923,7 @@ void InitUI(void)
     // space-basis getters) are kept only so diagnostics.c still links against the lpanel-space
     // debug-basis target; the lpanel's viewport slot now hosts the Entity Mgmt panel.
     InitUtilityPanel();
-    InitRPanel();
+    InitWorldManagerSystem();
     InitStateManagerSystem();
     InitPopupMenu();
     InitInfoStrip();
@@ -948,7 +947,7 @@ void DestroyUI(void)
 
     // Each panel owns and disposes its root, views, selectors, and cached pointers. The lpanel is
     // retired (never initialised), so it is not destroyed here.
-    DestroyRPanel();
+    DestroyWorldManagerSystem();
     DestroyUtilityPanel();
     DestroyPopupMenu();
     DestroyStateManagerSystem();
@@ -1063,7 +1062,7 @@ InputRouteResult UpdateUISystem(const InputFrame *input)
 void DrawUI()
 {
     // The lpanel is retired (never initialised), so it is not drawn here.
-    DrawRPanel();
+    DrawWorldManagerSystem();
     DrawStateManagerSystem();
     DrawUtilityPanel();
     DrawPopupMenu();

@@ -16,7 +16,7 @@
 #include "system/utility_system.h"
 #include <stdlib.h>
 #include "world/world.h"
-#include "system/ui/rpanel_system.h"
+#include "system/ui/world_manager_system.h"
 #include "system/ui/popup_menu.h"
 #include "system/ui/toolbar_system.h"
 #include "world/universe.h"
@@ -720,7 +720,7 @@ UIElement *ResolveUIRootTarget(Vector2d mouse_coords)
         GetPopupMenuRoot(),
         GetUtilityPanelRoot(),
         GetStateManagerRoot(),
-        GetRPanelRoot(),
+        GetWorldManagerRoot(),
         GetToolbarRoot()};
 
     for (int i = 0; i < (int)ARRAY_COUNT(roots); i++)

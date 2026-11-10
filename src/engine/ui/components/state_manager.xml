@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
     <!-- Describes the state-manager panel; runtime wiring is in state_manager_system.c.   -->
     <!-- Presented to the user as 'Entity Mgmt' and mounted on the former left-panel slot.  -->
-    <!-- Layout is selection-driven (see state_manager_system.c):                             -->
-    <!--  * header (always): title + sub-line for the selection; amber-tinted in multi-select. -->
-    <!--  * kind chips (multi-select only): choose which kind is edited.                       -->
-    <!--  * ENTITY: tabs PHYS | FLAGS | COMP | SHAPE | TREE (SHAPE / TREE hidden in multi).     -->
-    <!--  * WORLD: world_view only; CELL: cell_view only (no tab row).                         -->
+    <!-- Layout is selection-driven (see state_manager_system.c). The panel edits ENTITIES only; -->
+    <!-- worlds and cells are edited in the World Manager (world_manager.xml):                   -->
+    <!--  * header (always): title + sub-line for the entity selection; amber in multi-select.   -->
+    <!--  * tabs PHYS | FLAGS | COMP | SHAPE | TREE (SHAPE / TREE hidden in multi-select).      -->
+    <!--  * no entity selected: header reads NO ENTITY SELECTED, tab row and views are hidden.   -->
     <!-- View order matters: the five entity views come first, in tab order.                   -->
     <!--                                                                                 -->
     <!-- Stage 1 of the XML migration: InitStateManagerSystem loads this markup through  -->
@@ -16,8 +16,8 @@
     <!--    (type="simple" for the flag/component toggles, type="submit" for DELETE).      -->
     <!--    Their click handlers and their "<label>: ON/OFF" query-source display are      -->
     <!--    re-attached in C in the id-registration pass; DELETE carries no action= and    -->
-    <!--    is wired to HandleBtnSubmitClick in C to preserve the deferred, world-guarded   -->
-    <!--    delete behaviour.                                                               -->
+    <!--    is wired to HandleEntityDeleteClick in C (deferred, command-queue delete).      -->
+    <!--    The primary entity is the one deleted.                                          -->
     <!--                                                                                   -->
     <!--  * binding= attributes are intentionally ABSENT in Stage 1: field VALUES stay     -->
     <!--    driven by the per-frame C refresh (RefreshPhysView etc.). The declarative       -->
@@ -40,18 +40,10 @@
         <Textbox id="sm_header_sub" io="readonly" binding="sm.header.sub" surface="transparent" size="5.9,0.34" width="fill" height="fixed" />
     </Container>
 
-    <!-- Kind switcher: shown only in multi-select (enabled from C). One chip per kind present;   -->
-    <!-- the chip of the primary's kind is the active (amber) one. Outside every View.             -->
-    <Container id="kind_chips" width="fill" height="hug" layout="inline_wrap" gap="0,0" enabled="false">
-        <Button type="simple" id="sm_kind_entity" text="ENTITIES" size="2.4,0.5" />
-        <Button type="simple" id="sm_kind_world" text="WORLDS" size="2.0,0.5" />
-        <Button type="simple" id="sm_kind_cell" text="CELLS" size="1.8,0.5" />
-    </Container>
-
     <!-- Entity tabs. Option order MUST equal the first five View ids below (option index == view  -->
     <!-- index). Each tab is sized explicitly (text run + 3 px each side) so all five fit one row   -->
     <!-- of the 300 px panel (280 px of tabs in 288 px of inner width).                            -->
-    <!-- The row is hidden from C for WORLD / CELL selections; SHAPE and TREE are hidden in multi.  -->
+    <!-- The row is hidden from C when no entity is selected; SHAPE and TREE are hidden in multi.   -->
     <ViewSelector id="state_manager_views" type="enumerate" layout="inline_wrap" gap="0,0" width="fill" height="hug">
         <Option text="PHYS" view="phys_view" size="1.04,0.5" />
         <Option text="FLAGS" view="attri_view" size="1.24,0.5" />
@@ -123,8 +115,8 @@
     <!-- in C in the id pass; the per-frame refresh shows/hides/relabels these fixed     -->
     <!-- slots to reflect the current selection. No inline value editing in Phase 1.     -->
     <!-- The comp_rowN_name Textboxes carry NO binding= on purpose: they are relabelled  -->
-    <!-- imperatively via UpdateString64 in RefreshComponentsView (binding-less, like     -->
-    <!-- the CELL readouts in RefreshCellView).                                           -->
+    <!-- imperatively via UpdateString64 in RefreshComponentsView (binding-less, like the   -->
+    <!-- other fixed-slot readouts).                                                      -->
     <View id="components_view" type="STATE_MANAGER_COMPONENTS_VIEW" scroll="y" layout="stack">
         <Container id="comp_attached" title="Attached" width="fill" height="hug" layout="stack">
             <Container id="comp_row0" width="hug" height="hug" layout="inline">
@@ -266,44 +258,4 @@
             <Textbox id="ancestry_relation" io="readonly" binding="ancestry.relation" size="5.25,0.5" width="fill" height="fixed" />
         </Container>
     </View>
-
-    <!-- ================= WORLD view ================= -->
-    <!-- Starts disabled (enabled when a world is the active selection context). -->
-    <View id="world_view" type="STATE_MANAGER_WORLD_VIEW" enabled="false" scroll="y" layout="stack">
-        <Container id="world_flags" title="World" width="fill" height="hug" layout="stack">
-            <Button type="simple" id="sm_world_active" text="ACTIVE" />
-            <Button type="simple" id="sm_world_visible" text="VISIBLE" />
-            <Button type="simple" id="sm_world_selectable" text="SELECTABLE" />
-            <Button type="simple" id="sm_world_physics" text="PHYSICS" />
-            <Button type="simple" id="sm_world_spawns" text="SPAWNS" />
-            <Button type="simple" id="sm_world_locked" text="LOCKED" />
-            <Button type="simple" id="sm_world_drag" text="DRAG" />
-        </Container>
-        <Container id="world_physics" title="Physics" width="fill" height="hug" layout="stack">
-            <TextField id="sm_world_restitution" label="Restitution" type="float" io="safe" />
-            <TextField id="sm_world_friction" label="Friction" type="float" io="safe" />
-        </Container>
-    </View>
-
-    <!-- ================= CELL view ================= -->
-    <!-- Starts disabled (enabled when a cell is the active selection context). -->
-    <View id="cell_view" type="STATE_MANAGER_CELL_STATE_VIEW" enabled="false" scroll="y" layout="stack">
-        <Container id="cell_phys" title="Cell" width="fill" height="hug" layout="stack">
-            <TextField id="sm_cell_index" label="Index" type="integer" io="readonly" />
-            <TextField id="sm_cell_occu" label="Occu" type="integer" io="readonly" />
-            <TextField id="sm_cell_value" label="Value" type="float" io="readonly" />
-            <TextField id="sm_cell_fill" label="Fill" type="float" io="readonly" />
-            <!-- Read-only tile_type readout (authoring stays paint-only; the Cell View never edits it). -->
-            <TextField id="sm_cell_tile_type" label="Tile" type="integer" io="readonly" />
-            <TextField id="sm_cell_warp_u" label="Warp U" type="vector2" io="safe" />
-            <TextField id="sm_cell_warp_v" label="Warp V" type="vector2" io="safe" />
-        </Container>
-        <Container id="cell_flags" title="Flags" width="fill" height="hug" layout="stack">
-            <Button type="simple" id="sm_cell_solid" text="SOLID" />
-            <Button type="simple" id="sm_cell_walkable" text="WALKABLE" />
-            <Button type="simple" id="sm_cell_hazard" text="HAZARD" />
-            <Button type="simple" id="sm_cell_spawn" text="SPAWN" />
-        </Container>
-    </View>
-
 </ViewHost>

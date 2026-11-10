@@ -51,6 +51,22 @@ static void SortWorldIndicesDescending(int *indices, int count)
     }
 }
 
+// Enqueue deletes for the given world indices in descending order (sorts `indices` in place), so the
+// array compaction in Universe_DeleteWorld can never invalidate a still-pending smaller index. Shared by
+// the DELETE key and the World Manager DELETE WORLD button. Returns how many deletes were enqueued.
+int EnqueueDeleteWorldsDescending(int *indices, int count)
+{
+    SortWorldIndicesDescending(indices, count);
+    int enqueued = 0;
+    for (int i = 0; i < count; i++)
+    {
+        if (EnqueueDeleteWorld(indices[i])) // reuse the existing world-delete path
+        {
+            enqueued++;
+        }
+    }
+    return enqueued;
+}
 static void ApplyWorldDragTransform(World2d *world, Vector2d new_universe_origin)
 {
     if (!world)
@@ -291,11 +307,7 @@ InputRouteResult UpdateUniverseSystem(const InputFrame *input, InputRouteResult 
 
         // Enqueue world deletes in descending index order so compaction never invalidates a
         // pending index (see ordering-hazard note above).
-        SortWorldIndicesDescending(world_indices, world_count);
-        for (int i = 0; i < world_count; i++)
-        {
-            EnqueueDeleteWorld(world_indices[i]); // reuse the existing world-delete path
-        }
+        EnqueueDeleteWorldsDescending(world_indices, world_count);
 
         // Cell deletes carry a POSITIONAL world_index. If any world is deleted in this same batch,
         // Universe_DeleteWorld compacts the world array and those positional indices can no longer be
