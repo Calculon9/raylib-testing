@@ -22,26 +22,8 @@ static InputRouteResult RouteGeometryEditorInput(const InputFrame *input, InputR
         return prior_result;
     }
 
-    Newtonoid2d *selected_object = UIState_GetSelectedObject();
-    World2d *active_world = Universe_GetSelectedWorld(&G_Universe);
-    if (selected_object)
-    {
-        int owner_world_index = UNIVERSE_ROOT_WORLD_INDEX;
-        Newtonoid2d *resolved_object = Universe_GetEntityByID(&G_Universe,
-                                                              selected_object->id,
-                                                              &owner_world_index);
-        if (resolved_object == selected_object)
-        {
-            active_world = Universe_GetWorld(&G_Universe, owner_world_index);
-        }
-    }
-
-    if (!active_world)
-    {
-        return prior_result;
-    }
-
-    return UpdateGeometryEditor(active_world, input);
+    // With an entity selected the context world is its owning world, which the editor edits within.
+    return UpdateGeometryEditor(UIState_GetContextWorld(), input);
 }
 
 static InputRouteResult RouteUniverseInput(const InputFrame *input, InputRouteResult prior_result)

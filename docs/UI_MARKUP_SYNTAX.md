@@ -313,6 +313,13 @@ you can use are defined by the panel that owns the markup (see its C `Init…` c
 and its resolver functions). Field values in `state_manager.xml` are currently
 driven by the per-frame C refresh rather than declarative `binding=` names.
 
+`rpanel.xml` is a documentation mirror of the right panel that `rpanel_system.c` builds in C. Its
+World Manager readout (`world.*` bindings) always describes the **context world**: the world of the
+selection's primary (the world itself, or the owning world of a selected entity or cell), or the root
+world (shown as `ROOT`) when nothing is selected. There are no world-navigation actions
+(`select-world-prev` / `select-world-next` no longer exist); the selection is the only way to change
+which world is current.
+
 ---
 
 ## A worked example

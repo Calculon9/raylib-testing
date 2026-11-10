@@ -8,8 +8,8 @@
     <!-- NOTE on fidelity vs the C version:                                             -->
     <!--  * The STATE "World Manager" fields are mostly live telemetry refreshed each   -->
     <!--    frame in DrawRPanel (world index, origin, resolution, objects, next id) and -->
-    <!--    two editable fields (gravity, basis u/v) for the selected world. Declared   -->
-    <!--    here with their labels/types; the per-frame refresh + selected-world edit   -->
+    <!--    two editable fields (gravity, basis u/v) for the context world. Declared    -->
+    <!--    here with their labels/types; the per-frame refresh + context-world edit    -->
     <!--    wiring stays in the application (same as lpanel's telemetry).               -->
     <!--  * The loader currently builds every TextField as UI_ELEMENT_TEXTBOX_IO; the C -->
     <!--    O (output-only) vs SAFE_IO distinction is not yet expressible in markup.     -->
@@ -30,8 +30,6 @@
             <TextField id="world_basis_u" label="Basis u" type="vector2" binding="world.basis_u" />
             <TextField id="world_basis_v" label="Basis v" type="vector2" binding="world.basis_v" />
 
-            <Button id="world_prev" type="submit" text="PREV" action="select-world-prev" size="3.22,0.5" width="fixed" height="fixed" />
-            <Button id="world_next" type="submit" text="NEXT" action="select-world-next" size="3.22,0.5" width="fixed" height="fixed" />
         </Container>
     </View>
 

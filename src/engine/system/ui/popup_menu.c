@@ -193,7 +193,7 @@ static void HandlePopupWorldClick(UIElement *button)
         (const CoordinateSpacePreset *)button->interaction_user_data;
     if (preset)
     {
-        CreateNewWorld_Preset(IsCreateWorldAutoSelectEnabled(), *preset);
+        CreateNewWorld_Preset(true, *preset);
         HidePopupMenu();
     }
 }

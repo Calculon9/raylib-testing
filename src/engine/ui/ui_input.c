@@ -415,9 +415,6 @@ void HandleBtnSubmitClick(UIElement *btn)
 
     if (action == BUTTON_ACTION_CREATE_ENTITY)
     {
-        if (!Universe_GetSelectedWorld(&G_Universe))
-            return;
-
         // Enqueue a create-entity command instead of creating immediately
         if (G_UIState.entity_create_params)
         {
@@ -425,9 +422,6 @@ void HandleBtnSubmitClick(UIElement *btn)
         }
     } else if (action == BUTTON_ACTION_DELETE_ENTITY)
     {
-        if (!Universe_GetSelectedWorld(&G_Universe))
-            return;
-
         // Enqueue a delete-entity command instead of deleting immediately
         EntityId selected_object_id = UIState_GetSelectedObjectId();
         if (selected_object_id != INVALID_ENTITY_ID)
@@ -438,14 +432,6 @@ void HandleBtnSubmitClick(UIElement *btn)
     else if (action == BUTTON_ACTION_CREATE_WORLD)
     {
         EnqueueCreateWorld();
-    }
-    else if (action == BUTTON_ACTION_SELECT_WORLD_PREV)
-    {
-        EnqueueSelectWorld(-1);
-    }
-    else if (action == BUTTON_ACTION_SELECT_WORLD_NEXT)
-    {
-        EnqueueSelectWorld(1);
     }
 }
 

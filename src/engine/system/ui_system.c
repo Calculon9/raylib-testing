@@ -483,6 +483,10 @@ void UIState_SetSelection(Newtonoid2d *object, Cell *cell, int cell_index)
     G_UIState.selected_cell = cell;
     G_UIState.selected_cell_index = cell_index;
 
+    // Capture the context world BEFORE the clear below: it is derived from the set's primary, so an
+    // emptied set would always report ROOT.
+    int ref_world_index = UIState_GetContextWorldIndex();
+
     // Mirror a single-selection replace into the central set: clear it, then add the one member
     // this write represents (entity, else cell, else nothing). This makes every existing
     // single-select caller (which funnels through here) transparently drive the set.
@@ -493,10 +497,8 @@ void UIState_SetSelection(Newtonoid2d *object, Cell *cell, int cell_index)
     }
     else if (cell_index >= 0)
     {
-        // A cell-only selection records a CELL ref for the currently selected world context,
+        // A cell-only selection records a CELL ref for the context world captured above,
         // matching the info strip's existing owning-world resolution.
-        int world_index = Universe_GetSelectedIndex(&G_Universe);
-        int ref_world_index = (world_index >= 0) ? world_index : UNIVERSE_ROOT_WORLD_INDEX;
         World2d *ref_world = Universe_GetWorld(&G_Universe, ref_world_index);
         // Convert the caller's dense index to an ABSOLUTE lattice coordinate (grid_origin + column/row),
         // because a dense index goes stale when the world grows but a lattice coordinate does not.
@@ -528,6 +530,44 @@ void UIState_SetSelection(Newtonoid2d *object, Cell *cell, int cell_index)
                                       G_UIState.selected_cell_index,
                                       ui_selection_changed_user_data);
     }
+}
+
+// Derive the context world index from the SelectionSet primary (no stored copy): a world primary is
+// that world, an entity primary is its owning world, a cell primary is the cell's world. An empty
+// set, or a primary that no longer resolves to a live world, yields the root sentinel.
+int UIState_GetContextWorldIndex(void)
+{
+    TargetRef primary = SelectionSet_Primary();
+    int world_index = UNIVERSE_ROOT_WORLD_INDEX;
+
+    switch (primary.kind)
+    {
+        case TARGET_KIND_WORLD:
+            world_index = primary.as.world_index;
+            break;
+        case TARGET_KIND_ENTITY:
+            // Universe_GetEntityByID reports the owning world index (-1 when unresolved).
+            if (!Universe_GetEntityByID(&G_Universe, primary.as.entity, &world_index))
+            {
+                world_index = UNIVERSE_ROOT_WORLD_INDEX;
+            }
+            break;
+        case TARGET_KIND_CELL:
+            world_index = primary.as.cell.world_index;
+            break;
+        case TARGET_KIND_NONE:
+        default:
+            break;
+    }
+
+    // Stale or unresolved indices (including -1) fall back to root.
+    return Universe_GetWorld(&G_Universe, world_index) ? world_index : UNIVERSE_ROOT_WORLD_INDEX;
+}
+
+// Resolve the context world; never NULL because the index always falls back to the root world.
+World2d *UIState_GetContextWorld(void)
+{
+    return Universe_GetWorld(&G_Universe, UIState_GetContextWorldIndex());
 }
 
 // Re-derive the single-valued primary fields (selected_object_id / selected_object) from the

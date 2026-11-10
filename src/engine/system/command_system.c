@@ -94,10 +94,6 @@ int CommandSystem_ResolveString(const char *cmd_string)
         return CMD_DELETE_ENTITY;
     else if (!strcmp(cmd_string, "create-world"))
         return CMD_CREATE_WORLD;
-    else if (!strcmp(cmd_string, "select-world-prev"))
-        return CMD_SELECT_WORLD;
-    else if (!strcmp(cmd_string, "select-world-next"))
-        return CMD_SELECT_WORLD;
     // Debug toggle actions
     else if (!strcmp(cmd_string, "toggle-debug-dashboard"))
         return CMD_TOGGLE_DEBUG_DASHBOARD;
@@ -170,17 +166,6 @@ bool EnqueueDeleteWorld(int world_index)
 
     return EnqueueCommandWithQueueLog(CMD_DELETE_WORLD, &world_index,
                                       sizeof(world_index), "CMD_DELETE_WORLD");
-}
-
-bool EnqueueSelectWorld(int delta)
-{
-    if (!EnqueueCommandWithQueueLog(CMD_SELECT_WORLD, &delta, sizeof(delta), NULL))
-    {
-        return false;
-    }
-
-    LOG_INFO("Enqueued CMD_SELECT_WORLD delta=%d (queue_count=%d)\n", delta, q_count);
-    return true;
 }
 
 bool EnqueueMoveEntity(EntityId entity_id, int source_world_index,
@@ -390,9 +375,6 @@ void ExecuteCommand(CommandType type, const void *data)
             break;
         case CMD_DELETE_ENTITY:
             if (data) cmd.data.delete_entity = *(const EntityId *)data;
-            break;
-        case CMD_SELECT_WORLD:
-            if (data) cmd.data.world_select_delta = *(const int *)data;
             break;
         case CMD_DELETE_WORLD:
             if (data) cmd.data.world_delete_index = *(const int *)data;
@@ -606,7 +588,7 @@ static void ExecuteCommandInternal(Command *c)
     }
     else if (c->type == CMD_CREATE_WORLD)
     {
-        int world_index = CreateNewWorld(IsCreateWorldAutoSelectEnabled());
+        int world_index = CreateNewWorld(true);
         if (world_index >= 0)
         {
             LOG_INFO("Processed CMD_CREATE_WORLD -> world_index=%d\n", world_index);
@@ -623,25 +605,6 @@ static void ExecuteCommandInternal(Command *c)
             LOG_INFO("Processed CMD_DELETE_WORLD -> world_index=%d\n", world_index);
         }
     }
-    else if (c->type == CMD_SELECT_WORLD)
-    {
-        int world_count = GetWorldCount();
-        if (world_count > 0)
-        {
-            int current_index = GetSelectedWorldIndex();
-            int delta = c->data.world_select_delta;
-            int next_index = (current_index + delta) % world_count;
-            if (next_index < 0)
-            {
-                next_index += world_count;
-            }
-
-            if (SelectWorldByIndex(next_index))
-            {
-                LOG_INFO("Processed CMD_SELECT_WORLD -> selected_index=%d\n", next_index);
-            }
-        }
-    }
     else if (c->type == CMD_MOVE_ENTITY)
     {
         World2d *source_world = Universe_GetWorld(&G_Universe, c->data.move_entity.source_world_index);
@@ -651,7 +614,6 @@ static void ExecuteCommandInternal(Command *c)
                                                     c->data.move_entity.destination_coords);
         if (moved_id != INVALID_ENTITY_ID)
         {
-            Universe_SelectWorld(&G_Universe, c->data.move_entity.destination_world_index);
             UIState_SetSelectedObjectById(moved_id);
             Newtonoid2d *selected_object = UIState_GetSelectedObject();
             if (selected_object)

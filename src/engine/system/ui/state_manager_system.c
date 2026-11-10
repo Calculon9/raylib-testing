@@ -859,8 +859,7 @@ static void StateManager_VisitFlagTarget(FlagTally *tally, TargetRef ref, FlagFa
 // Visit every applicable target of a family in the SelectionSet, tallying the bit state; when
 // `apply` is true also writes `value` to each. The only place that enumerates and filters
 // targets for flags. Re-resolves every ref (stale ones are skipped) and does not allocate.
-// World flags fall back to the navigation cursor world when the set holds no world, preserving
-// single-select behaviour (the cursor can differ from the set).
+// World flags fall back to the context world when the set holds no world.
 static FlagTally StateManager_WalkFlag(FlagFamily family, uint32_t bit, bool apply, bool value)
 {
     FlagTally tally = {0};
@@ -880,12 +879,8 @@ static FlagTally StateManager_WalkFlag(FlagFamily family, uint32_t bit, bool app
 
     if (family == FLAG_FAMILY_WORLD && !saw_world)
     {
-        int cursor = Universe_GetSelectedIndex(&G_Universe);
-        if (cursor >= 0)
-        {
-            TargetRef ref = { .kind = TARGET_KIND_WORLD, .as.world_index = cursor };
-            StateManager_VisitFlagTarget(&tally, ref, family, bit, apply, value);
-        }
+        TargetRef ref = { .kind = TARGET_KIND_WORLD, .as.world_index = UIState_GetContextWorldIndex() };
+        StateManager_VisitFlagTarget(&tally, ref, family, bit, apply, value);
     }
     return tally;
 }
@@ -1723,15 +1718,16 @@ static void RefreshAttributeView(const Newtonoid2d *object)
     (void)object; // selection is read directly by the per-family query fns during the refresh walk
 }
 
-// Refresh the WORLD view: world physics material properties and world status flags.
+// Refresh the WORLD view: world physics material properties and world status flags, shown for the
+// context world (never NULL; the root world when nothing resolves).
 static void RefreshWorldView(const World2d *world)
 {
     // World material values belong to the boundary Newtonoid used by container collision response.
     TextboxField world_physics_fields[] = {
         {s_sm_ui.world_restitution_tbox, FLOAT,
-         world ? (void *)&world->grid_space.object.restitution : NULL, 2, "N/A"},
+         (void *)&world->grid_space.object.restitution, 2, "N/A"},
         {s_sm_ui.world_friction_tbox, FLOAT,
-         world ? (void *)&world->grid_space.object.friction : NULL, 2, "N/A"},
+         (void *)&world->grid_space.object.friction, 2, "N/A"},
     };
     RefreshTextboxFields(world_physics_fields, ARRAY_COUNT(world_physics_fields));
 
@@ -2245,7 +2241,7 @@ void UpdateStateManagerSelectedObject(void)
     StateManager_ApplyKindLayout();
 
     Newtonoid2d *object = UIState_GetSelectedObject();
-    World2d *world = Universe_GetSelectedWorld(&G_Universe);
+    World2d *world = UIState_GetContextWorld();
     Cell *cell = UIState_GetSelectedCell();
 
     RefreshPhysView(object);
@@ -2424,6 +2420,16 @@ void DrawStateManagerSystem(void)
             last_set_count = set_count;
             last_primary_kind = (int)primary.kind;
             memcpy(last_kind_counts, kind_counts, sizeof(kind_counts));
+            MarkStateManagerRefreshDirty();
+        }
+
+        // The WORLD view's values come from the context world, which can change with the set's
+        // count and kinds unchanged (world-to-world primary switch), so track its index too.
+        static int last_context_world = -1; // -1 never matches a context index (nested >= 0, root -2)
+        int context_world = UIState_GetContextWorldIndex();
+        if (context_world != last_context_world)
+        {
+            last_context_world = context_world;
             MarkStateManagerRefreshDirty();
         }
 

@@ -8,6 +8,7 @@
 #include "raylib.h"
 #include "system/debug_overlay_system.h"
 #include "system/universe_system.h"
+#include "system/ui_system.h"
 #include "world/world.h"
 #include "world/world_internal.h"
 #include "world/universe.h"
@@ -335,7 +336,7 @@ static void DrawDashboardUniverseSection(int col_x, int *row_y, int row_step,
                       "Universe coords: (%.3f, %.3f)",
                       debug_snapshot.parent_local.x, debug_snapshot.parent_local.y);
     DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
-                      "Selected world: %d   Hovered world: %d",
+                      "Context world: %d   Hovered world: %d",
                       debug_snapshot.selected_index, debug_snapshot.hovered_world_index);
 
     if (debug_snapshot.has_child_local)
@@ -560,7 +561,12 @@ void Diagnostics_UpdateSnapshot(void)
 
     Vector2d parent_local = ResolvePixelToWorldFrame(&G_Universe.root_world, pixel);
 
-    int selected_index = G_Universe.selected_world_index;
+    // Context world as the fallback target; the root sentinel is normalised to -1 (no nested world).
+    int selected_index = UIState_GetContextWorldIndex();
+    if (selected_index < 0)
+    {
+        selected_index = -1;
+    }
     int hovered_world_index = Universe_FindWorldAt(&G_Universe, parent_local);
     int target_world_index = (hovered_world_index >= 0) ? hovered_world_index : selected_index;
 

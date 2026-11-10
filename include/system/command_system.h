@@ -11,7 +11,6 @@ typedef enum
     CMD_CREATE_ENTITY = 1,
     CMD_DELETE_ENTITY = 2,
     CMD_CREATE_WORLD = 3,
-    CMD_SELECT_WORLD = 4,
     CMD_MOVE_ENTITY = 5,
     CMD_DELETE_WORLD = 6,
     CMD_ATTACH_COMPONENT = 7,
@@ -92,7 +91,6 @@ typedef struct
     {
         EntityCreateParams create_entity;
         EntityId delete_entity;
-        int world_select_delta;
         int world_delete_index;
         MoveEntityCommand move_entity;
         AttachComponentCommand attach_component;
@@ -121,7 +119,6 @@ void ExecuteCommand(CommandType type, const void *data);
 bool EnqueueCreateEntity(const EntityCreateParams *params);
 bool EnqueueDeleteEntity(EntityId entity_id);
 bool EnqueueCreateWorld(void);
-bool EnqueueSelectWorld(int delta);
 bool EnqueueDeleteWorld(int world_index);
 bool EnqueueMoveEntity(EntityId entity_id, int source_world_index,
                        int destination_world_index, EntityId destination_parent_id,

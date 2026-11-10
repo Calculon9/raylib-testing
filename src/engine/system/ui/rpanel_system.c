@@ -18,8 +18,7 @@ static ViewHostSystem *rpanel = NULL;
 // Action Codes
 // ============================================================================
 static int btn_action_create_world = BUTTON_ACTION_CREATE_WORLD;
-static int btn_action_select_world_prev = BUTTON_ACTION_SELECT_WORLD_PREV;
-static int btn_action_select_world_next = BUTTON_ACTION_SELECT_WORLD_NEXT;
+
 
 // ============================================================================
 // Visual Style Properties
@@ -89,15 +88,8 @@ static void InitRPanelStateWorldContainer(void)
     {
         rpanel_world_gravity_edit_tbox->data.textbox.data_type = FLOAT;
     }
-
-    CreateUIButtonDefault(world_cont, UI_ELEMENT_BUTTON_SUBMIT, "PREV",
-                          ui_standard_button_size, ui_standard_button_padding, rpanel->palette,
-                          HandleBtnSubmitClick, &btn_action_select_world_prev, NULL);
-
-    CreateUIButtonDefault(world_cont, UI_ELEMENT_BUTTON_SUBMIT, "NEXT",
-                          ui_standard_button_size, ui_standard_button_padding, rpanel->palette,
-                          HandleBtnSubmitClick, &btn_action_select_world_next, NULL);
 }
+
 
 static void InitRPanelStateView(void)
 {
@@ -193,20 +185,21 @@ void DrawRPanel(void)
         WriteTextboxInt(rpanel_stats_entities_tbox, GetNewtonoidCount());
     }
 
-    World2d *selected_world = GetSelectedWorld();
-    int selected_world_idx = GetSelectedWorldIndex();
-    int world_count = GetWorldCount();
-    bool has_selected_world = selected_world && world_count > 0;
+    // The panel shows the context world (derived from the selection). Root is not editable and has no
+    // origin/resolution/gravity/basis, so those fields take the "N/A" path via `selected_world` NULL.
+    World2d *context_world = UIState_GetContextWorld();
+    int selected_world_idx = UIState_GetContextWorldIndex();
+    World2d *selected_world = (selected_world_idx >= 0) ? context_world : NULL;
 
     if (rpanel_world_index_tbox)
     {
-        if (has_selected_world)
+        if (selected_world)
         {
-            UpdateString64(rpanel_world_index_tbox->data.textbox.text.string, "%d/%d", selected_world_idx + 1, world_count);
+            UpdateString64(rpanel_world_index_tbox->data.textbox.text.string, "%d/%d", selected_world_idx + 1, GetWorldCount());
         }
         else
         {
-            WriteTextboxText(rpanel_world_index_tbox, "0/0");
+            WriteTextboxText(rpanel_world_index_tbox, "ROOT");
         }
     }
 
@@ -272,14 +265,6 @@ void DrawRPanel(void)
                                    (float)selected_world->grid_space.space.rows};
             UpdateString64(rpanel_world_resolution_tbox->data.textbox.text.string, "%.0fx%.0f", world_size.x, world_size.y);
         }
-        if (rpanel_world_objects_tbox)
-        {
-            WriteTextboxInt(rpanel_world_objects_tbox, selected_world->objects.count);
-        }
-        if (rpanel_world_next_id_tbox)
-        {
-            WriteTextboxInt(rpanel_world_next_id_tbox, EntityRegistry_GetNextId());
-        }
     }
     else
     {
@@ -292,10 +277,16 @@ void DrawRPanel(void)
         rpanel_basis_world_index = -1;
         if (rpanel_world_resolution_tbox)
             WriteTextboxText(rpanel_world_resolution_tbox, "N/A");
-        if (rpanel_world_objects_tbox)
-            WriteTextboxText(rpanel_world_objects_tbox, "0");
-        if (rpanel_world_next_id_tbox)
-            WriteTextboxText(rpanel_world_next_id_tbox, "0");
+    }
+
+    // Object count and next id apply to every context world, root included.
+    if (rpanel_world_objects_tbox)
+    {
+        WriteTextboxInt(rpanel_world_objects_tbox, context_world->objects.count);
+    }
+    if (rpanel_world_next_id_tbox)
+    {
+        WriteTextboxInt(rpanel_world_next_id_tbox, EntityRegistry_GetNextId());
     }
 
     ViewHostSystem_Draw(rpanel);
