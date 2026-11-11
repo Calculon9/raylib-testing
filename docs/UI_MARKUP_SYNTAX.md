@@ -91,7 +91,7 @@ Rules:
   inference above).
 - A `hug` axis is **uncapped** unless you give it a `size` value, which then caps
   it. (`width="hug"` alone grows to fit content; `width="hug" size="225,0"` grows
-  to fit but never exceeds 4.5.)
+  to fit but never exceeds 225 px.)
 - Supplying a `size` value for a `fill` axis is a mistake — the value is ignored
   and the loader warns.
 
