@@ -9,6 +9,8 @@
 #include "system/utility_system.h"
 #include "system/viewport_system.h"
 #include "ui/ui_constructors.h"
+#include "ui/cfont.h"                            // FONT_LARGE_WITH_COLOUR (COMP header captions)
+#include "ui/ui_input.h"                         // ResetUIInputState (drop focus when a body hides)
 #include "physics/newtonoid.h"
 #include "math/geometry.h"                       // MAX_SHAPE_VERTICES (GEOMETRY-view row-pool size)
 #include "math/coordinate_space.h"
@@ -38,27 +40,51 @@ static ViewSelector *s_sm_selector = NULL;   // The entity tab selector (NULL if
 static int s_sm_entity_tab = 0;              // Entity tab remembered across empty selections.
 static int s_sm_shown_view = SM_SHOWN_UNKNOWN; // View currently shown.
 static bool s_sm_fields_locked = false;      // Cached lock state, so types only change on a flip.
-// Component button binding: associates a button control with an EntityComponentType.
-typedef struct StateManagerComponentButton
-{
-    const char *label;
-    EntityComponentType type;
-    UIElement *button;
-} StateManagerComponentButton;
+static uint32_t s_comp_signature = 0;        // Selection signature the COMP groups were last computed for.
+static bool s_comp_groups_valid = false;     // False until the groups are computed for a selection (first show).
 
-// Attached-component row slot for the COMP view (Phase 1). A fixed positional slot: the
-// name Textbox is relabelled and the type is assigned per refresh to whichever attached
-// component the slot currently represents, so the one shared Remove handler reads the live
-// type from here. name_str caches &name_label->data.textbox.text at register time (the same
-// imperative-relabel pattern the other fixed-slot readouts use) so the refresh writes the label without
-// re-finding the element.
-typedef struct StateManagerComponentRow
+// COMP view geometry (UI pixels). The section inner width is fixed because inline `fill` beside a
+// fixed sibling is not reliable; an action button hugs its caption (caption width + 2 x PAD) and its
+// lead element takes the rest of the row. 263 matches the other readonly rows in scrolling views.
+#define SM_COMP_INNER_W 263.0f
+#define SM_COMP_ACTION_REMOVE_W 78.0f
+#define SM_COMP_ACTION_ADD_W 48.0f
+
+// Which caption/colour an action button currently shows (cached so it is only rewritten on a flip).
+enum
 {
-    UIElement *name_label;       // readonly Textbox showing the component name
-    String64 *name_str;          // cached &name_label->data.textbox.text for imperative relabel
-    UIElement *remove_button;    // simple Button wired to HandleComponentRemoveClick
-    EntityComponentType type;    // component this slot currently represents (assigned per refresh)
-} StateManagerComponentRow;
+    SM_ACTION_UNSET = 0,
+    SM_ACTION_ADD,
+    SM_ACTION_REMOVE,
+};
+
+// A COMP action button together with the lead element to its left (the header's toggle Button or the
+// Available row's name Label). The pair is resized and recoloured as one when its state flips.
+typedef struct StateManagerActionPair
+{
+    UIElement *lead;     // toggle Button (header) or name Label (Available row)
+    UIElement *button;   // ADD / REMOVE action Button
+    int state;           // SM_ACTION_* currently displayed
+} StateManagerActionPair;
+
+// One attachable component type in the COMP view. Every type has an ATTACHED section and an
+// AVAILABLE row in the markup; exactly one of the two is shown (see RefreshComponentsView).
+typedef struct StateManagerComponentSection
+{
+    EntityComponentType type;
+    UIElement *section;             // comp_sec_<type>: the boxed ATTACHED section
+    UIElement *body;                // comp_body_<type>: the TextFields; NULL for types without fields
+    UIElement *note;                // comp_note_<type>: "values: primary only"; NULL without a body
+    UIElement *avail_row;           // comp_avail_<type>: the slim AVAILABLE row
+    StateManagerActionPair header;  // comp_tgl_<type> + comp_btn_<type>
+    StateManagerActionPair avail;   // comp_avail_name_<type> + comp_avail_btn_<type>
+    bool expanded;                  // panel-local and per component TYPE (kept across selections)
+    bool in_attached_group;         // frozen between selection changes
+    bool body_was_shown;            // edge detect so a hiding body can drop input focus
+} StateManagerComponentSection;
+
+// Number of attachable component types listed in the COMP view.
+#define SM_COMP_SECTION_COUNT 4
 
 // Fixed GEOMETRY-view vertex-row slot count. One row per potential surface vector, so a selection
 // with more than this many vertices is capped (rows beyond the pool are not shown); matches the
@@ -68,11 +94,10 @@ typedef struct StateManagerComponentRow
 // UIElement and String64 references owned by the State Manager panel.
 typedef struct StateManagerUI
 {
-    // COMP view (Phase 1): Add-component buttons (PORTAL/ROTOR/GEAR/HEALTH; RELATION/WORLD
-    // excluded) and the fixed attached-row slots (name + Remove). The refresh shows/hides and
-    // relabels these to mirror the selected entity's attached set.
-    StateManagerComponentButton add_buttons[4];
-    StateManagerComponentRow attached_rows[5];
+    // COMP view: one entry per attachable type in fixed order (PORTAL, ROTOR, GEAR, HEALTH), plus
+    // the titled "Available" box that holds the slim rows. The refresh shows/hides these elements.
+    StateManagerComponentSection comp_sections[SM_COMP_SECTION_COUNT];
+    UIElement *comp_avail;
 
     // Header (selection-driven title / sub-line and multi-select tint) and view-switching state.
     PanelHeader header;             // entity_header container + title + sub-line
@@ -97,14 +122,12 @@ typedef struct StateManagerUI
     UIElement *basis_u_tbox;
     UIElement *basis_v_tbox;
 
-    // Gameplay readouts & section
-    UIElement *gameplay_section;
+    // Health/damage readouts (inside the HEALTH body of the COMP view)
     UIElement *health_tbox;
     UIElement *max_health_tbox;
     UIElement *damage_tbox;
 
-    // Components readouts & section
-    UIElement *components_section;
+    // Component readouts (portal fields live in the PORTAL body; the relation line is in the TREE view)
     UIElement *comp_portal_cooldown_tbox;
     String64 *comp_portal_cooldown_str;
     UIElement *comp_portal_target_tbox;   // Portal Dest. field (editable; binding-owned, no String64)
@@ -502,7 +525,7 @@ static PortalComponent *StateManager_SelectedPortal(void)
 }
 
 // DYNAMIC read: the current selection's damage, or BIND_NONE when nothing is selected. The query
-// keys only on selection, NOT on is_projectile - visibility stays in RefreshGameplaySection.
+// keys only on selection; visibility is owned by the HEALTH body of the COMP view.
 static BindingValue StateManager_QueryDamage(int key)
 {
     (void)key;
@@ -692,7 +715,7 @@ static void HandleEntityDeleteClick(UIElement *button)
 // Build a default-initialised component payload for an addable type. Returns false if the
 // type cannot be attached with pure defaults (RELATION/WORLD/NONE). This is the single source
 // of truth for the "attach with defaults" path: both the PHYS-view component toggle and the
-// COMP-view Add buttons call it, so their defaults can never drift apart. ROTOR/GEAR keep the
+// COMP-view ADD buttons call it, so their defaults can never drift apart. ROTOR/GEAR keep the
 // current zero-initialised default to preserve existing behaviour.
 static bool StateManager_BuildDefaultComponent(EntityComponentType type, EntityComponent *out)
 {
@@ -739,9 +762,8 @@ static bool StateManager_BuildDefaultComponent(EntityComponentType type, EntityC
     return true;
 }
 
-// Return the UK-English all-caps display label for an attached component type. RELATION is a
-// literal here because no button spec carries its label (RELATION is never addable): it can
-// only appear in the Attached list when already present on the entity.
+// Return the UK-English all-caps display label for a component type. RELATION is never listed in the
+// COMP view (it is not attachable), but keeps a label for completeness.
 static const char *ComponentTypeName(EntityComponentType type)
 {
     switch (type)
@@ -797,36 +819,44 @@ static void StateManager_ApplyComponentToSelection(EntityComponentType type, boo
     }
 }
 
-// Attach the addable component the clicked Add button represents, with defaults, to every
-// selected entity lacking it (deferred via the existing command queue). One shared handler
-// serves all four Add buttons: the type is read from the button's interaction_user_data spec.
-static void HandleComponentAddClick(UIElement *button)
+// Click on a COMP action button (header REMOVE/ADD or Available ADD). Applies the bulk rule: ADD to
+// the selected entities lacking the component unless every one already has it, in which case REMOVE
+// from all. It reads the live tally (the same one the label is drawn from), so the click always
+// does what the button says. The section arrives through interaction_user_data.
+static void HandleComponentActionClick(UIElement *button)
 {
     if (!button || !button->interaction_user_data)
     {
         return;
     }
 
-    const StateManagerComponentButton *spec = (const StateManagerComponentButton *)button->interaction_user_data;
-    StateManager_ApplyComponentToSelection(spec->type, true);
+    const StateManagerComponentSection *section = (const StateManagerComponentSection *)button->interaction_user_data;
+    FlagTally tally = StateManager_TallyComponent(section->type);
+    if (tally.applicable == 0)
+    {
+        return;
+    }
+    // value = (on != applicable): not on everywhere -> add to those lacking; else remove from all.
+    StateManager_ApplyComponentToSelection(section->type, tally.on != tally.applicable);
 }
 
-// Remove the component the clicked row represents from every selected entity that has it,
-// immediately (no confirmation), via the existing command queue. The row slot is positional, so
-// the type is read from the slot spec assigned during the last refresh.
-static void HandleComponentRemoveClick(UIElement *button)
+// Click on a header's toggle Button: expand or collapse that component type's body. Ignored when the
+// type has no fields or the primary entity lacks the component (nothing to show). Clicks do not
+// bubble, so the action button and the body's TextFields can never reach this handler.
+static void HandleComponentToggleClick(UIElement *button)
 {
     if (!button || !button->interaction_user_data)
     {
         return;
     }
 
-    const StateManagerComponentRow *row = (const StateManagerComponentRow *)button->interaction_user_data;
-    if (row->type == ENTITY_COMPONENT_NONE)
+    StateManagerComponentSection *section = (StateManagerComponentSection *)button->interaction_user_data;
+    Newtonoid2d *primary = StateManager_SelectedObject();
+    if (!section->body || !primary || !EntityRegistry_HasComponent(primary->id, section->type))
     {
         return;
     }
-    StateManager_ApplyComponentToSelection(row->type, false);
+    section->expanded = !section->expanded;
 }
 // ============================================================================
 // Element id-registration + wiring (post-load)
@@ -854,6 +884,89 @@ static UIElement *StateManager_Find(UIElement *root, const char *id)
     return element;
 }
 
+// Write the static "values: primary only" caption into a readonly note Textbox (a Textbox value=
+// attribute would be parsed as a number, so the text is set here). Shared by the PHYS note and the
+// COMP bodies so the string lives in one place. NULL-safe.
+static void StateManager_SetNoteText(UIElement *note)
+{
+    if (note)
+    {
+        snprintf(note->data.textbox.text.string, sizeof(note->data.textbox.text.string),
+                 "values: primary only");
+    }
+}
+
+// Find an element whose id is "<prefix><key>" (for example "comp_sec_" + "portal"), logging a miss.
+static UIElement *StateManager_FindComponentElement(UIElement *root, const char *prefix, const char *key)
+{
+    char id[48];
+    snprintf(id, sizeof(id), "%s%s", prefix, key);
+    return StateManager_Find(root, id);
+}
+
+// Acquire and wire the COMP view. One table row per attachable type, in the markup order PORTAL,
+// ROTOR, GEAR, HEALTH; every id is "comp_<role>_<key>". A type with data fields sets has_fields and
+// gains a comp_body_<key> and comp_note_<key> in the markup; ROTOR and GEAR have none yet, so their
+// body stays NULL and the section shows no arrow (the refresh derives "has fields" from the body).
+static void StateManager_RegisterComponentSections(UIElement *root)
+{
+    static const struct
+    {
+        EntityComponentType type;
+        const char *key;
+        bool has_fields;
+    } s_comp_ids[SM_COMP_SECTION_COUNT] = {
+        {ENTITY_COMPONENT_PORTAL, "portal", true},
+        {ENTITY_COMPONENT_ROTOR, "rotor", false}, // ROTOR fields will go here: set has_fields once the markup has a body
+        {ENTITY_COMPONENT_GEAR, "gear", false},   // GEAR fields will go here: set has_fields once the markup has a body
+        {ENTITY_COMPONENT_HEALTH, "health", true},
+    };
+
+    s_sm_ui.comp_avail = StateManager_Find(root, "comp_avail");
+
+    for (size_t i = 0; i < ARRAY_COUNT(s_comp_ids); i++)
+    {
+        StateManagerComponentSection *section = &s_sm_ui.comp_sections[i];
+        const char *key = s_comp_ids[i].key;
+        section->type = s_comp_ids[i].type;
+        section->section = StateManager_FindComponentElement(root, "comp_sec_", key);
+        section->avail_row = StateManager_FindComponentElement(root, "comp_avail_", key);
+        section->header.lead = StateManager_FindComponentElement(root, "comp_tgl_", key);
+        section->header.button = StateManager_FindComponentElement(root, "comp_btn_", key);
+        section->avail.lead = StateManager_FindComponentElement(root, "comp_avail_name_", key);
+        section->avail.button = StateManager_FindComponentElement(root, "comp_avail_btn_", key);
+        if (s_comp_ids[i].has_fields)
+        {
+            section->body = StateManager_FindComponentElement(root, "comp_body_", key);
+            section->note = StateManager_FindComponentElement(root, "comp_note_", key);
+            StateManager_SetNoteText(section->note);
+        }
+
+        // Every button carries its section so one handler per role serves all four types.
+        UIElement *buttons[] = {section->header.button, section->avail.button};
+        for (size_t b = 0; b < ARRAY_COUNT(buttons); b++)
+        {
+            if (buttons[b])
+            {
+                buttons[b]->on_click = HandleComponentActionClick;
+                buttons[b]->interaction_user_data = (void *)section;
+            }
+        }
+
+        UIElement *toggle = section->header.lead;
+        if (toggle)
+        {
+            toggle->on_click = HandleComponentToggleClick;
+            toggle->interaction_user_data = (void *)section;
+            // Header caption: left-aligned FONT_LARGE flush with the section's inner edge (the
+            // markup has no alignment/font/padding attribute for a Button), as the PHYS header does.
+            SetUIElementTextHorizontalAlignment(toggle, UI_TEXT_ALIGN_LEFT);
+            toggle->data.button.font = FONT_LARGE_WITH_COLOUR(ui_default_palette.text);
+            toggle->padding = ZERO_VECTOR_2D;
+        }
+    }
+}
+
 // Re-acquire every UIElement* the per-frame C refresh and the C click handlers need, from the
 // loaded tree, and wire the C-owned clicks (flags / component toggles / DELETE). Any id that
 // fails to resolve is logged and left NULL; the Refresh* helpers null-guard every pointer.
@@ -862,12 +975,7 @@ static void StateManager_RegisterElements(UIElement *root)
     // --- Header (title / sub-line / tint box), tab row and the multi-select note ---
     PanelShared_HeaderBind(&s_sm_ui.header, root, "entity_header", "sm_header_title", "sm_header_sub");
     s_sm_ui.values_note = StateManager_Find(root, "sm_values_note");
-    if (s_sm_ui.values_note)
-    {
-        // Static caption (a Textbox value= attribute would be parsed as a number, so set it here).
-        snprintf(s_sm_ui.values_note->data.textbox.text.string,
-                 sizeof(s_sm_ui.values_note->data.textbox.text.string), "values: primary only");
-    }
+    StateManager_SetNoteText(s_sm_ui.values_note);
     s_sm_ui.tab_container = StateManager_Find(root, "state_manager_views");
     // --- Physics / geometry / gameplay textboxes (ALL re-acquired in Stage 1) ---
     s_sm_ui.mass_tbox                 = StateManager_Find(root, "sm_mass");
@@ -898,10 +1006,6 @@ static void StateManager_RegisterElements(UIElement *root)
         BindTextboxDynamic(s_sm_ui.damage_tbox, BIND_FLOAT, 2,
                            StateManager_QueryDamage, StateManager_WriteDamage, 0);
     }
-
-    // --- Sections whose visibility the refresh toggles ---
-    s_sm_ui.gameplay_section   = StateManager_Find(root, "gameplay");
-    s_sm_ui.components_section = StateManager_Find(root, "components");
 
     // --- Component property textboxes + their String64 display buffers ---
     // The String64 is the inline data.textbox.text buffer the field draws; the former
@@ -950,48 +1054,8 @@ static void StateManager_RegisterElements(UIElement *root)
         s_sm_ui.comp_relation_active_str = &s_sm_ui.comp_relation_active_tbox->data.textbox.text;
     }
 
-    // --- COMP view: Add-component buttons (PORTAL/ROTOR/GEAR/HEALTH only; RELATION/WORLD
-    //     excluded). Each carries its EntityComponentType in interaction_user_data so the one
-    //     shared HandleComponentAddClick handler serves every button. No query-source Binding:
-    //     the label is the static type name and visibility is driven by the refresh. ---
-    s_sm_ui.add_buttons[0] = (StateManagerComponentButton){"PORTAL", ENTITY_COMPONENT_PORTAL, StateManager_Find(root, "comp_add_portal")};
-    s_sm_ui.add_buttons[1] = (StateManagerComponentButton){"ROTOR",  ENTITY_COMPONENT_ROTOR,  StateManager_Find(root, "comp_add_rotor")};
-    s_sm_ui.add_buttons[2] = (StateManagerComponentButton){"GEAR",   ENTITY_COMPONENT_GEAR,   StateManager_Find(root, "comp_add_gear")};
-    s_sm_ui.add_buttons[3] = (StateManagerComponentButton){"HEALTH", ENTITY_COMPONENT_HEALTH, StateManager_Find(root, "comp_add_health")};
-    for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.add_buttons); i++)
-    {
-        if (s_sm_ui.add_buttons[i].button)
-        {
-            s_sm_ui.add_buttons[i].button->on_click = HandleComponentAddClick;
-            s_sm_ui.add_buttons[i].button->interaction_user_data = (void *)&s_sm_ui.add_buttons[i];
-        }
-    }
-
-    // --- COMP view: attached-row slots (name Textbox + Remove button). Each slot is positional;
-    //     its EntityComponentType is assigned per refresh. The Remove button carries the slot in
-    //     interaction_user_data so the shared HandleComponentRemoveClick reads the live type. The
-    //     name_str caches the Textbox display buffer for imperative relabel (fixed-slot readout pattern). ---
-    static const char *comp_row_name_ids[5]   = {"comp_row0_name", "comp_row1_name", "comp_row2_name",
-                                                  "comp_row3_name", "comp_row4_name"};
-    static const char *comp_row_remove_ids[5] = {"comp_row0_remove", "comp_row1_remove", "comp_row2_remove",
-                                                  "comp_row3_remove", "comp_row4_remove"};
-    for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.attached_rows); i++)
-    {
-        s_sm_ui.attached_rows[i].type = ENTITY_COMPONENT_NONE;
-
-        s_sm_ui.attached_rows[i].name_label = StateManager_Find(root, comp_row_name_ids[i]);
-        if (s_sm_ui.attached_rows[i].name_label)
-        {
-            s_sm_ui.attached_rows[i].name_str = &s_sm_ui.attached_rows[i].name_label->data.textbox.text;
-        }
-
-        s_sm_ui.attached_rows[i].remove_button = StateManager_Find(root, comp_row_remove_ids[i]);
-        if (s_sm_ui.attached_rows[i].remove_button)
-        {
-            s_sm_ui.attached_rows[i].remove_button->on_click = HandleComponentRemoveClick;
-            s_sm_ui.attached_rows[i].remove_button->interaction_user_data = (void *)&s_sm_ui.attached_rows[i];
-        }
-    }
+    // --- COMP view: sections, bodies and Available rows, found through the id family table ---
+    StateManager_RegisterComponentSections(root);
 
     // --- Flag buttons: acquire + wire handler + user_data + query SOURCE per family ---
     PanelShared_WireFlags(root, s_sm_flags.entity_role,         sm_role_ids,   5, FLAG_FAMILY_ROLE);
@@ -1025,61 +1089,23 @@ static void StateManager_RegisterElements(UIElement *root)
 // (The views come from state_manager.xml; the pointers/handlers are re-acquired in
 // StateManager_RegisterElements.)
 
-// Refresh gameplay section visibility and row states.
-static void RefreshGameplaySection(const Newtonoid2d *object)
-{
-    bool is_damageable = object && object->id != INVALID_ENTITY_ID &&
-                         EntityRegistry_GetHealth(object->id) != NULL;
-    bool is_projectile = object && object->id != INVALID_ENTITY_ID &&
-                         (object->roles & ENTITY_ROLE_PROJECTILE) != 0;
-
-    if (s_sm_ui.gameplay_section)
-    {
-        if (is_damageable || is_projectile)
-        {
-            EnableElement(s_sm_ui.gameplay_section);
-            // Toggle Text Field visibility based on a conditional
-            SetParentEnabledState(s_sm_ui.health_tbox,is_damageable);
-            SetParentEnabledState(s_sm_ui.max_health_tbox, is_damageable);
-            SetParentEnabledState(s_sm_ui.damage_tbox, is_projectile);
-        }
-        else
-        {
-            DisableElement(s_sm_ui.gameplay_section);
-        }
-    }
-}
-
-// Update component section visibility based on attached components and populate their values.
+// Populate the portal and relation value fields from the primary entity. Portal field visibility is
+// owned by the PORTAL body of the COMP view; the relation line (TREE view) hides itself when absent.
 static void RefreshComponentsSection(const Newtonoid2d *object)
 {
     bool is_valid = (object != NULL && object->id != INVALID_ENTITY_ID);
 
-    if (s_sm_ui.components_section)
+    if (!is_valid)
     {
-        if (is_valid)
-        {
-            EnableElement(s_sm_ui.components_section);
-        }
-        else
-        {
-            DisableElement(s_sm_ui.components_section);
-            ClearString64(s_sm_ui.comp_portal_cooldown_str);
-            ClearString64(s_sm_ui.comp_portal_entrant_roles_str);
-            ClearString64(s_sm_ui.comp_relation_type_str);
-            ClearString64(s_sm_ui.comp_relation_target_str);
-            ClearString64(s_sm_ui.comp_relation_active_str);
-            return; // No components to populate.
-        }
+        ClearString64(s_sm_ui.comp_portal_cooldown_str);
+        ClearString64(s_sm_ui.comp_portal_entrant_roles_str);
+        ClearString64(s_sm_ui.comp_relation_type_str);
+        ClearString64(s_sm_ui.comp_relation_target_str);
+        ClearString64(s_sm_ui.comp_relation_active_str);
+        return; // No components to populate.
     }
 
     EntityDescription desc = EntityRegistry_Describe(object);
-
-    // Toggle Portal property field row visibility
-    bool has_portal = (desc.components[ENTITY_COMPONENT_PORTAL] != NULL);
-    SetParentEnabledState(s_sm_ui.comp_portal_cooldown_tbox, has_portal);
-    SetParentEnabledState(s_sm_ui.comp_portal_target_tbox, has_portal);
-    SetParentEnabledState(s_sm_ui.comp_portal_entrant_roles_tbox, has_portal);
 
     // Populate portal component fields if attached.
     PortalComponent *portal = (PortalComponent *)desc.components[ENTITY_COMPONENT_PORTAL];
@@ -1172,132 +1198,172 @@ static void RefreshPhysView(Newtonoid2d *object)
     };
     RefreshTextboxFields(geometry_fields, ARRAY_COUNT(geometry_fields));
 
-    // Refresh contextual gameplay and component section visibility.
-    RefreshGameplaySection(object);
+    // Refresh the component value fields (portal, relation).
     RefreshComponentsSection(object);
 }
 
 // (The ATTRI view needs no refresh function: its flag-button ON/OFF labels are driven entirely by
 // the generic refresh walk via each button's query-source Binding.)
 
-// Refresh the COMP view (Phase 1: attach/remove only): rebuild the fixed Attached-row slots and
-// the Add-button visibility to mirror the selected entity's attached component set.
-//  * Attached section: one row per attached component in {PORTAL, ROTOR, GEAR, RELATION, HEALTH}
-//    (WORLD is a world-node tag and is never iterated). Each used slot is relabelled imperatively
-//    (binding-less, like the other fixed-slot readouts) and its type assigned so the shared Remove handler
-//    detaches the right component; unused slots are blanked and disabled.
-//  * Add section: one fixed button per addable type (PORTAL/ROTOR/GEAR/HEALTH); each is enabled
-//    only when the selection is valid and does NOT already have that component.
-// When no plain entity is selected (object == NULL, which also covers a selection with no entity since
-// StateManager_SelectedObject() returns NULL), every slot is disabled: nothing actionable.
-static void RefreshComponentsView(const Newtonoid2d *object)
+// Hash the selected entities' ids (FNV-1a, in selection order) into one signature. It folds in the
+// count, the membership and the primary (the last entity), so the COMP groups are recomputed when
+// any member changes, not just the count or the primary. O(n), no allocation.
+static uint32_t StateManager_SelectionSignature(void)
 {
-    bool is_valid = (object != NULL && object->id != INVALID_ENTITY_ID);
-
-    // Attached section: iterate the ordered attachable type list (WORLD excluded).
-    static const EntityComponentType attached_types[] = {
-        ENTITY_COMPONENT_PORTAL, ENTITY_COMPONENT_ROTOR, ENTITY_COMPONENT_GEAR,
-        ENTITY_COMPONENT_RELATION, ENTITY_COMPONENT_HEALTH};
-
-    size_t row = 0;
-    if (is_valid)
+    uint32_t hash = 2166136261u;
+    int count = SelectionSet_Count();
+    for (int i = 0; i < count; i++)
     {
-        EntityDescription desc = EntityRegistry_Describe(object);
-        bool multi = PanelShared_CountKind(TARGET_KIND_ENTITY) > 1;
-        for (size_t t = 0; t < ARRAY_COUNT(attached_types) && row < ARRAY_COUNT(s_sm_ui.attached_rows); t++)
-        {
-            EntityComponentType type = attached_types[t];
-
-            // Single target: the object's own set. Multi-select: the union over the selected
-            // entities (a row exists when any member has it) with an "<on>/<applicable>" count.
-            FlagTally tally = { .applicable = 1, .on = desc.components[type] ? 1 : 0 };
-            if (multi)
-            {
-                tally = StateManager_TallyComponent(type);
-            }
-            if (tally.on == 0)
-            {
-                continue; // not attached anywhere: no row for this type
-            }
-
-            // Fill this slot: assign the live type (read by the Remove handler), relabel the name,
-            // and show both the name label and the Remove button.
-            s_sm_ui.attached_rows[row].type = type;
-            if (s_sm_ui.attached_rows[row].name_str)
-            {
-                if (tally.applicable > 1)
-                {
-                    UpdateString64(s_sm_ui.attached_rows[row].name_str->string, "%s %d/%d",
-                                   ComponentTypeName(type), tally.on, tally.applicable);
-                }
-                else
-                {
-                    UpdateString64(s_sm_ui.attached_rows[row].name_str->string, "%s", ComponentTypeName(type));
-                }
-            }
-            // Guard each slot pointer: EnableElement/DisableElement dereference without a NULL
-            // check, so a row id that failed to resolve in the id pass (e.g. a renamed markup id)
-            // would otherwise crash here. Mirrors the Add-button guard below.
-            if (s_sm_ui.attached_rows[row].name_label)
-            {
-                EnableElement(s_sm_ui.attached_rows[row].name_label);
-            }
-            if (s_sm_ui.attached_rows[row].remove_button)
-            {
-                EnableElement(s_sm_ui.attached_rows[row].remove_button);
-            }
-            row++;
-        }
-    }
-
-    // Disable the remaining (unused) row slots: clear the stale label and hide name + Remove.
-    for (size_t i = row; i < ARRAY_COUNT(s_sm_ui.attached_rows); i++)
-    {
-        s_sm_ui.attached_rows[i].type = ENTITY_COMPONENT_NONE;
-        // Guard each slot pointer before clearing/hiding: DisableElement dereferences without a
-        // NULL check, so an unresolved row id must not reach it (mirrors the fill path above).
-        if (s_sm_ui.attached_rows[i].name_label)
-        {
-            ClearString64(&s_sm_ui.attached_rows[i].name_label->data.textbox.text);
-            DisableElement(s_sm_ui.attached_rows[i].name_label);
-        }
-        if (s_sm_ui.attached_rows[i].remove_button)
-        {
-            DisableElement(s_sm_ui.attached_rows[i].remove_button);
-        }
-    }
-
-    // Add section: show a button only for an addable type the entity does not already have.
-    for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.add_buttons); i++)
-    {
-        if (!s_sm_ui.add_buttons[i].button)
+        TargetRef ref;
+        if (!SelectionSet_Get(i, &ref))
         {
             continue;
         }
-
-        // Offer Add while any selected entity still lacks the component (single target: not attached).
-        bool offer = false;
-        if (is_valid)
+        Newtonoid2d *o = StateManager_ResolveLiveEntity(ref);
+        if (!o)
         {
-            if (PanelShared_CountKind(TARGET_KIND_ENTITY) > 1)
+            continue;
+        }
+        // Mix the four bytes of the id one at a time.
+        uint32_t id = (uint32_t)o->id;
+        for (int byte = 0; byte < 4; byte++)
+        {
+            hash ^= (id >> (8 * byte)) & 0xFFu;
+            hash *= 16777619u;
+        }
+    }
+    return hash;
+}
+
+// Show an action pair as ADD (amber) or REMOVE (danger): caption, palette colours, and the widths
+// that keep the button right-aligned and hugging its caption. Colours come from the shared palette,
+// never literals. A no-op when the state is unchanged, so nothing is rewritten per frame.
+static void StateManager_SetActionState(StateManagerActionPair *pair, bool remove)
+{
+    int wanted = remove ? SM_ACTION_REMOVE : SM_ACTION_ADD;
+    if (!pair->button || pair->state == wanted)
+    {
+        return;
+    }
+    pair->state = wanted;
+
+    PanelShared_SetButtonText(pair->button, remove ? "REMOVE" : "ADD");
+    UIPalette_GetSurfaceColours(&ui_default_palette,
+                                remove ? UI_PALETTE_SURFACE_DANGER : UI_PALETTE_SURFACE_BUTTON,
+                                &pair->button->colour_border, &pair->button->colour_fill);
+
+    float action_width = remove ? SM_COMP_ACTION_REMOVE_W : SM_COMP_ACTION_ADD_W;
+    pair->button->size.dimensions.x = action_width;
+    if (pair->lead)
+    {
+        pair->lead->size.dimensions.x = SM_COMP_INNER_W - action_width;
+    }
+}
+
+// Show or hide a section's body (and its "values: primary only" note, which only multi-select needs).
+// When a body that was showing disappears, drop input focus and any half-typed edit so a hidden field
+// cannot keep receiving keys.
+static void StateManager_ShowSectionBody(StateManagerComponentSection *section, bool visible, bool show_note)
+{
+    SetEnabledState(section->body, visible);
+    SetEnabledState(section->note, visible && show_note);
+    if (section->body_was_shown && !visible)
+    {
+        ResetUIInputState();
+    }
+    section->body_was_shown = visible;
+}
+
+// Refresh the COMP view: one list of the four attachable components in two groups, each a set of
+// fixed markup elements that are only shown or hidden here.
+//  * Group membership (ATTACHED when any selected entity has the type) is recomputed only when the
+//    selection signature changes, and on first show. A click therefore updates the section in place
+//    instead of hopping groups under the cursor.
+//  * Everything else (caption, count, arrow, action button and body visibility) is read live from the
+//    tally each frame, so the button always tells the truth about the next click.
+// With no entity selected every element is hidden and the groups are marked stale.
+static void RefreshComponentsView(const Newtonoid2d *object)
+{
+    if (!object || object->id == INVALID_ENTITY_ID)
+    {
+        for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.comp_sections); i++)
+        {
+            StateManagerComponentSection *section = &s_sm_ui.comp_sections[i];
+            SetEnabledState(section->section, false);
+            SetEnabledState(section->avail_row, false);
+            if (section->body)
             {
-                FlagTally tally = StateManager_TallyComponent(s_sm_ui.add_buttons[i].type);
-                offer = tally.on < tally.applicable;
-            }
-            else
-            {
-                offer = !EntityRegistry_HasComponent(object->id, s_sm_ui.add_buttons[i].type);
+                StateManager_ShowSectionBody(section, false, false);
             }
         }
-        if (offer)
+        SetEnabledState(s_sm_ui.comp_avail, false);
+        s_comp_groups_valid = false;
+        return;
+    }
+
+    // Recompute the group membership only when the selection changed (or on first show).
+    uint32_t signature = StateManager_SelectionSignature();
+    if (!s_comp_groups_valid || signature != s_comp_signature)
+    {
+        for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.comp_sections); i++)
         {
-            EnableElement(s_sm_ui.add_buttons[i].button);
+            s_sm_ui.comp_sections[i].in_attached_group =
+                StateManager_TallyComponent(s_sm_ui.comp_sections[i].type).on > 0;
+        }
+        s_comp_signature = signature;
+        s_comp_groups_valid = true;
+    }
+
+    bool any_available = false;
+    for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.comp_sections); i++)
+    {
+        StateManagerComponentSection *section = &s_sm_ui.comp_sections[i];
+
+        // Live state: the same tally and predicate the click handler uses (all on -> REMOVE).
+        FlagTally tally = StateManager_TallyComponent(section->type);
+        bool all_on = (PanelShared_TriState(tally.applicable, tally.on) == 1);
+        bool multi = tally.applicable > 1;
+
+        if (!section->in_attached_group)
+        {
+            // AVAILABLE: a slim row (name + ADD). After a click the button flips to REMOVE in place.
+            any_available = true;
+            SetEnabledState(section->section, false);
+            SetEnabledState(section->avail_row, true);
+            if (section->body)
+            {
+                StateManager_ShowSectionBody(section, false, false);
+            }
+            StateManager_SetActionState(&section->avail, all_on);
+            continue;
+        }
+
+        // ATTACHED: header row, plus the body when it has fields, the primary has the component and
+        // the section is expanded. Values shown in the body are the primary's.
+        SetEnabledState(section->section, true);
+        SetEnabledState(section->avail_row, false);
+
+        bool expandable = section->body && EntityRegistry_HasComponent(object->id, section->type);
+        const char *arrow = !expandable ? "  " : (section->expanded ? "v " : "> ");
+        char caption[48];
+        if (multi)
+        {
+            snprintf(caption, sizeof(caption), "%s%s %d/%d", arrow, ComponentTypeName(section->type),
+                     tally.on, tally.applicable);
         }
         else
         {
-            DisableElement(s_sm_ui.add_buttons[i].button);
+            snprintf(caption, sizeof(caption), "%s%s", arrow, ComponentTypeName(section->type));
+        }
+        PanelShared_SetButtonText(section->header.lead, caption);
+        StateManager_SetActionState(&section->header, all_on);
+
+        if (section->body)
+        {
+            StateManager_ShowSectionBody(section, expandable && section->expanded, multi);
         }
     }
+    SetEnabledState(s_sm_ui.comp_avail, any_available);
 }
 
 // Refresh the GEOMETRY view (v1): the selected object's surface-vector count and its per-vertex
@@ -1656,4 +1722,6 @@ void DestroyStateManagerSystem(void)
     s_sm_entity_tab = 0;
     s_sm_shown_view = SM_SHOWN_UNKNOWN;
     s_sm_fields_locked = false;
+    s_comp_signature = 0;
+    s_comp_groups_valid = false;
 }
