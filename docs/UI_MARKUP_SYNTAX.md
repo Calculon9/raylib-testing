@@ -2,7 +2,7 @@
 
 This document describes the XML markup understood by the UI loader
 (`src/engine/system/ui/ui_loader.c`). Component markup lives in
-`src/engine/ui/components/*.xml` (e.g. `lpanel.xml`, `rpanel.xml`,
+`src/engine/ui/components/*.xml` (e.g. `lpanel.xml`, `world_manager.xml`,
 `state_manager.xml`) and is loaded at startup, then wired to application behaviour
 in C.
 
@@ -90,7 +90,7 @@ Rules:
 - `size` only supplies numbers; it never changes the mode by itself (except the
   inference above).
 - A `hug` axis is **uncapped** unless you give it a `size` value, which then caps
-  it. (`width="hug"` alone grows to fit content; `width="hug" size="4.5,0"` grows
+  it. (`width="hug"` alone grows to fit content; `width="hug" size="225,0"` grows
   to fit but never exceeds 4.5.)
 - Supplying a `size` value for a `fill` axis is a mistake — the value is ignored
   and the loader warns.
@@ -336,6 +336,8 @@ frame); an `action` is a **sink** (what to do on interaction). The resolver name
 you can use are defined by the panel that owns the markup (see its C `Init…` code
 and its resolver functions). Field values in `state_manager.xml` are currently
 driven by the per-frame C refresh rather than declarative `binding=` names.
+
+`world_manager.xml` is the right panel (the World Manager), loaded by `world_manager_system.c` exactly like `state_manager.xml`. It resolves `wm.*` bindings (query sources, with a write sink on the editable gravity, restitution, friction, basis and cell-warp fields). The panel shows the world and cell members of the selection; with neither selected it shows the **context world**: the world of the selection's primary (the owning world of a selected entity), or the root world (shown as `ROOT WORLD`) when nothing is selected. There are no world-navigation actions (`select-world-prev` / `select-world-next` no longer exist); the selection is the only way to change which world is shown.
 
 ---
 

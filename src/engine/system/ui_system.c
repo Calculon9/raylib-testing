@@ -13,7 +13,7 @@
 #include "ui/ui_input.h"
 #include "system/ui_system.h"
 #include "system/ui/lpanel_system.h"
-#include "system/ui/rpanel_system.h"
+#include "system/ui/world_manager_system.h"
 #include "system/ui/state_manager_system.h"
 #include "system/view_host_system.h"
 #include "system/ui/utility_panel_system.h"
@@ -522,6 +522,10 @@ void UIState_SetSelection(Newtonoid2d *object, Cell *cell, int cell_index)
     G_UIState.selected_cell = cell;
     G_UIState.selected_cell_index = cell_index;
 
+    // Capture the context world BEFORE the clear below: it is derived from the set's primary, so an
+    // emptied set would always report ROOT.
+    int ref_world_index = UIState_GetContextWorldIndex();
+
     // Mirror a single-selection replace into the central set: clear it, then add the one member
     // this write represents (entity, else cell, else nothing). This makes every existing
     // single-select caller (which funnels through here) transparently drive the set.
@@ -532,10 +536,8 @@ void UIState_SetSelection(Newtonoid2d *object, Cell *cell, int cell_index)
     }
     else if (cell_index >= 0)
     {
-        // A cell-only selection records a CELL ref for the currently selected world context,
+        // A cell-only selection records a CELL ref for the context world captured above,
         // matching the info strip's existing owning-world resolution.
-        int world_index = Universe_GetSelectedIndex(&G_Universe);
-        int ref_world_index = (world_index >= 0) ? world_index : UNIVERSE_ROOT_WORLD_INDEX;
         World2d *ref_world = Universe_GetWorld(&G_Universe, ref_world_index);
         // Convert the caller's dense index to an ABSOLUTE lattice coordinate (grid_origin + column/row),
         // because a dense index goes stale when the world grows but a lattice coordinate does not.
@@ -567,6 +569,44 @@ void UIState_SetSelection(Newtonoid2d *object, Cell *cell, int cell_index)
                                       G_UIState.selected_cell_index,
                                       ui_selection_changed_user_data);
     }
+}
+
+// Derive the context world index from the SelectionSet primary (no stored copy): a world primary is
+// that world, an entity primary is its owning world, a cell primary is the cell's world. An empty
+// set, or a primary that no longer resolves to a live world, yields the root sentinel.
+int UIState_GetContextWorldIndex(void)
+{
+    TargetRef primary = SelectionSet_Primary();
+    int world_index = UNIVERSE_ROOT_WORLD_INDEX;
+
+    switch (primary.kind)
+    {
+        case TARGET_KIND_WORLD:
+            world_index = primary.as.world_index;
+            break;
+        case TARGET_KIND_ENTITY:
+            // Universe_GetEntityByID reports the owning world index (-1 when unresolved).
+            if (!Universe_GetEntityByID(&G_Universe, primary.as.entity, &world_index))
+            {
+                world_index = UNIVERSE_ROOT_WORLD_INDEX;
+            }
+            break;
+        case TARGET_KIND_CELL:
+            world_index = primary.as.cell.world_index;
+            break;
+        case TARGET_KIND_NONE:
+        default:
+            break;
+    }
+
+    // Stale or unresolved indices (including -1) fall back to root.
+    return Universe_GetWorld(&G_Universe, world_index) ? world_index : UNIVERSE_ROOT_WORLD_INDEX;
+}
+
+// Resolve the context world; never NULL because the index always falls back to the root world.
+World2d *UIState_GetContextWorld(void)
+{
+    return Universe_GetWorld(&G_Universe, UIState_GetContextWorldIndex());
 }
 
 // Re-derive the single-valued primary fields (selected_object_id / selected_object) from the
@@ -769,39 +809,38 @@ Cell *UIState_ResolveCellRef(TargetRef ref)
     return Space_GetCellAtLattice(&world->grid_space.space, ref.as.cell.lattice_x, ref.as.cell.lattice_y);
 }
 
+// Report the live dense index of any CELL ref (-1 for a non-cell ref or an unresolved world). The index
+// is re-derived from the lattice coordinate each call because it changes when the world grows on the
+// left/top.
+int UIState_GetCellIndexForRef(TargetRef ref)
+{
+    if (ref.kind != TARGET_KIND_CELL)
+    {
+        return -1;
+    }
+    World2d *world = Universe_GetWorld(&G_Universe, ref.as.cell.world_index);
+    return world ? Space_IndexFromLattice(&world->grid_space.space, ref.as.cell.lattice_x, ref.as.cell.lattice_y) : -1;
+}
 // Report the selected cell's index from the SelectionSet primary, or -1 when the primary is not a
 // cell. Mirrors UIState_GetSelectedCell's single-source-of-truth derivation.
 int UIState_GetSelectedCellIndex(void)
 {
-    TargetRef primary = SelectionSet_Primary();
-    if (primary.kind != TARGET_KIND_CELL)
-    {
-        return -1;
-    }
-    // Live dense index of the lattice coordinate (it changes when the world grows on the left/top).
-    World2d *world = Universe_GetWorld(&G_Universe, primary.as.cell.world_index);
-    return world ? Space_IndexFromLattice(&world->grid_space.space, primary.as.cell.lattice_x, primary.as.cell.lattice_y) : -1;
+    return UIState_GetCellIndexForRef(SelectionSet_Primary());
 }
-
-// Report how many entities the selected cell currently lists in its world's occupancy store (the previous
-// tick's mapping, as before), or 0 when the primary is not a cell or the cell does not resolve.
+// Report how many entities any CELL ref currently lists in its world's occupancy store (the previous
+// tick's mapping), or 0 when the ref is not a cell or does not resolve.
+int UIState_GetCellOccupancyForRef(TargetRef ref)
+{
+    int index = UIState_GetCellIndexForRef(ref);
+    World2d *world = (index >= 0) ? Universe_GetWorld(&G_Universe, ref.as.cell.world_index) : NULL;
+    return world ? CellOccupancy_Count(&world->cell_occupancy, index) : 0;
+}
+// Report how many entities the selected cell currently lists in its world's occupancy store, or 0
+// when the primary is not a cell or the cell does not resolve.
 int UIState_GetSelectedCellOccupancy(void)
 {
-    TargetRef primary = SelectionSet_Primary();
-    if (primary.kind != TARGET_KIND_CELL)
-    {
-        return 0;
-    }
-    World2d *world = Universe_GetWorld(&G_Universe, primary.as.cell.world_index);
-    if (!world)
-    {
-        return 0;
-    }
-    int index = Space_IndexFromLattice(&world->grid_space.space, primary.as.cell.lattice_x, primary.as.cell.lattice_y);
-    return index >= 0 ? CellOccupancy_Count(&world->cell_occupancy, index) : 0;
-}
-
-// Return the currently active tool (TOOL_NONE when none is active).
+    return UIState_GetCellOccupancyForRef(SelectionSet_Primary());
+}// Return the currently active tool (TOOL_NONE when none is active).
 ActiveTool UIState_GetActiveTool(void)
 {
     return g_active_tool;
@@ -923,7 +962,7 @@ void InitUI(void)
     // space-basis getters) are kept only so diagnostics.c still links against the lpanel-space
     // debug-basis target; the lpanel's viewport slot now hosts the Entity Mgmt panel.
     InitUtilityPanel();
-    InitRPanel();
+    InitWorldManagerSystem();
     InitStateManagerSystem();
     InitPopupMenu();
     InitInfoStrip();
@@ -947,7 +986,7 @@ void DestroyUI(void)
 
     // Each panel owns and disposes its root, views, selectors, and cached pointers. The lpanel is
     // retired (never initialised), so it is not destroyed here.
-    DestroyRPanel();
+    DestroyWorldManagerSystem();
     DestroyUtilityPanel();
     DestroyPopupMenu();
     DestroyStateManagerSystem();
@@ -1062,7 +1101,7 @@ InputRouteResult UpdateUISystem(const InputFrame *input)
 void DrawUI()
 {
     // The lpanel is retired (never initialised), so it is not drawn here.
-    DrawRPanel();
+    DrawWorldManagerSystem();
     DrawStateManagerSystem();
     DrawUtilityPanel();
     DrawPopupMenu();

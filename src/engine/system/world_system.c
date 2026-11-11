@@ -223,7 +223,7 @@ static void AppendLogLine(char *buffer, size_t buffer_size, int *offset,
     }
 }
 
-// Convert a screen pixel into the selected world's local coordinates.
+// Convert a screen pixel into the supplied world's local coordinates.
 Vector2d ResolvePixelToWorldFrame(const World2d *active_world, Vector2d pixel_coords)
 {
     if (!active_world)
@@ -477,7 +477,7 @@ static void UpdateWorldSimulation(bool step_requested)
     UIState_ValidateSelectionSet();
 }
 
-// Apply debug keyboard actions that directly manipulate the selected world.
+// Apply debug keyboard actions that directly manipulate the context world.
 static void HandleWorldDebugHotkeys(World2d *active_world, Vector2d click_world_coords)
 {
     if (!active_world)
@@ -983,12 +983,9 @@ InputRouteResult UpdateWorldSystem(const InputFrame *input, InputRouteResult pri
 
     bool cursor_in_game_viewport = ViewportRegion_ContainsPixel(&game_viewport, input->pointer_position);
 
-    // Fall back to the universe's root world so unworlded entities remain selectable.
-    World2d *active_world = Universe_GetSelectedWorld(&G_Universe);
-    if (!active_world)
-    {
-        active_world = &G_Universe.root_world;
-    }
+    // The context world is derived from the selection and is the root world when nothing resolves,
+    // so unworlded entities remain selectable.
+    World2d *active_world = UIState_GetContextWorld();
     Vector2d click_pixel_coords = input->pointer_position;
     Vector2d click_world_coords = ResolvePixelToWorldFrame(active_world, click_pixel_coords);
 
@@ -1048,11 +1045,8 @@ void CreateAddNewtonoid(int vertice_count, float radius, ShapeBuildType build_ty
                         float mass, ColourRgba colour, Vector2d anchor_position,
                         Vector2d velocity, Vector2d acceleration)
 {
-    World2d *active_world = Universe_GetSelectedWorld(&G_Universe);
-    if (!active_world)
-    {
-        return;
-    }
+    // Spawn into the context world (the root world when nothing is selected).
+    World2d *active_world = UIState_GetContextWorld();
 
     Newtonoid2d new_newtonoid = {0};
 
@@ -1104,11 +1098,10 @@ void TogglePause(World2d *world)
     }
 }
 
-// Return the number of live entities in the selected world.
+// Return the number of live entities in the context world.
 int GetNewtonoidCount(void)
 {
-    World2d *active_world = Universe_GetSelectedWorld(&G_Universe);
-    return active_world ? active_world->objects.count : 0;
+    return UIState_GetContextWorld()->objects.count;
 }
 
 // Release the shared job-system resources and entity registry when the gameplay screen unloads.

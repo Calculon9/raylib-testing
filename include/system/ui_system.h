@@ -152,6 +152,8 @@ void UIState_SetSelectedCell(Cell *cell, int cell_index);
 void UIState_ClearSelectedCell(void);
 Cell *UIState_GetSelectedCell(void);
 int UIState_GetSelectedCellIndex(void);
+int UIState_GetCellIndexForRef(TargetRef ref);     // Live dense index of any CELL ref (-1 if not a cell / unresolved).
+int UIState_GetCellOccupancyForRef(TargetRef ref); // Occupancy count of any CELL ref (0 if not a cell / unresolved).
 int UIState_GetSelectedCellOccupancy(void); // Entities listed in the selected cell's occupancy store entry (0 if none).
 
 // Central mixed SelectionSet operations. The set (TargetRef entries owned in G_UIState) is the
@@ -170,6 +172,14 @@ TargetRef SelectionSet_Primary(void);          // Last-added member, or a TARGET
 // selection-changed callback when they actually change. Called after set toggles/pruning so the
 // back-compat getters stay consistent with the set.
 void UIState_SyncPrimaryFieldsFromSet(void);
+
+// Context world: the single "current world", derived on every call from SelectionSet_Primary() (no
+// stored copy). World primary -> that world; entity/cell primary -> its owning world; empty set or
+// stale primary -> root. The index is a nested index (0..world_count-1) or UNIVERSE_ROOT_WORLD_INDEX,
+// never -1; test `index >= 0` to tell a nested world from root.
+int UIState_GetContextWorldIndex(void);
+// The context world itself; never NULL (the root world when the index is UNIVERSE_ROOT_WORLD_INDEX).
+World2d *UIState_GetContextWorld(void);
 
 // Active-tool state for the tool toolbar (radio-exclusive). The toolbar buttons query the active
 // tool for their pressed/unpressed visual, and setting a tool replaces the active tool.

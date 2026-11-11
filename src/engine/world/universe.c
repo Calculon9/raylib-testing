@@ -149,7 +149,6 @@ static void PopulateStarterObjects(World2d *world, int requested_count)
 void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_world_resolution, float default_gravity)
 {
     u->world_count = 0;
-    u->selected_world_index = -1;
 
     for (int i = 0; i < UNIVERSE_MAX_WORLDS; i++)
     {
@@ -182,8 +181,7 @@ void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_wor
 }
 
 // ---------------------------------------------------------------------------
-int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_colour, ColourRgba camera_marker_colour, Vector2d world_center_in_universe,
-                         bool auto_select)
+int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_colour, ColourRgba camera_marker_colour, Vector2d world_center_in_universe)
 {
     if (u->world_count >= UNIVERSE_MAX_WORLDS)
     {
@@ -221,11 +219,6 @@ int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_co
     // Advance the default spawn so the next world is offset by default.
     u->next_spawn = VectorSum_2d(u->next_spawn, u->spawn_step);
 
-    if (auto_select)
-    {
-        u->selected_world_index = new_index;
-    }
-
     // Place marker in world-local space; world placement is applied by world transforms.
     Vector2d cam_local_coords = {0.5f, 0.5f};
     Newtonoid2d cam = CreateNewtonoid2d_Symmetric(24, 0.45f, camera_marker_colour, 1.0f,
@@ -251,17 +244,7 @@ int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_co
 }
 
 // ---------------------------------------------------------------------------
-bool Universe_SelectWorld(Universe *u, int index)
-{
-    if (index < 0 || index >= u->world_count)
-        return false;
-
-    u->selected_world_index = index;
-
-    return true;
-}
-
-// Delete a world, compact the world array, and repair selection and frame references.
+// Delete a world, compact the world array, and repair tunnel bindings.
 bool Universe_DeleteWorld(Universe *u, int index)
 {
     if (!u || index < 0 || index >= u->world_count)
@@ -279,17 +262,6 @@ bool Universe_DeleteWorld(Universe *u, int index)
     }
     MemorySet(&u->worlds[last_world_index], 0, sizeof(u->worlds[last_world_index]));
     u->world_count--;
-
-    if (u->selected_world_index == index)
-    {
-        u->selected_world_index = u->world_count > 0
-                                      ? (index < u->world_count ? index : u->world_count - 1)
-                                      : -1;
-    }
-    else if (u->selected_world_index > index)
-    {
-        u->selected_world_index--;
-    }
 
     // Compaction copies tunnel pointers, so rebind every surviving world to its new array slot.
     for (int world_index = 0; world_index < u->world_count; world_index++)
@@ -666,54 +638,9 @@ void Universe_Draw(Universe *u)
 }
 
 // ---------------------------------------------------------------------------
-bool Universe_ResolveClick(Universe *u, Vector2d universe_click, Vector2d *local_out)
-{
-    if (!u)
-    {
-        return false;
-    }
-
-    // Find which world (if any) contains the click point.
-    int clicked_world = Universe_FindWorldAt(u, universe_click);
-    if (clicked_world >= 0)
-    {
-        // Select the world immediately. Selection should occur regardless of the
-        // local coordinate check, because the world bounds already guarantee the
-        // click is inside the world.
-        if (clicked_world != u->selected_world_index)
-            Universe_SelectWorld(u, clicked_world);
-
-        // Compute local coordinates relative to the world top-left for callers that need it.
-        if (local_out)
-        {
-            World2d *w = &u->worlds[clicked_world];
-            // Frame2d universe_space = CreateFrame2d(IDENTITY_BASIS_2D, ZERO_VECTOR_2D, u->resolution);
-            // Frame2d world_space = w->grid_space.space.frame;
-            Matrix3x3 universe_to_world_mtx = w->tunnel.dest_to_source_mtx; // Transform from universe space to world space
-            *local_out = TransformCoordinates(universe_to_world_mtx, universe_click);
-        }
-        return true;
-    }
-    // No world hit - indicate no selection.
-    return false;
-}
-
-// ---------------------------------------------------------------------------
 int Universe_GetWorldCount(const Universe *u)
 {
     return u->world_count;
-}
-
-int Universe_GetSelectedIndex(const Universe *u)
-{
-    return u->selected_world_index;
-}
-
-World2d *Universe_GetSelectedWorld(Universe *u)
-{
-    if (u->selected_world_index < 0 || u->selected_world_index >= u->world_count)
-        return NULL;
-    return &u->worlds[u->selected_world_index];
 }
 
 World2d *Universe_GetWorld(Universe *u, int index)

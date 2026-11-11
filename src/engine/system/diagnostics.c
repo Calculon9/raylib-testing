@@ -8,12 +8,14 @@
 #include "raylib.h"
 #include "system/debug_overlay_system.h"
 #include "system/universe_system.h"
+#include "system/ui_system.h"
 #include "world/world.h"
 #include "world/world_internal.h"
 #include "world/universe.h"
+#include "entities/entity_registry.h"
 #include "system/viewport_system.h"
 #include "system/ui/lpanel_system.h"
-#include "system/ui/rpanel_system.h"
+#include "system/ui/world_manager_system.h"
 #include "ui/cfont.h"
 #include "ui/text_region.h"
 
@@ -55,7 +57,7 @@ static bool ApplyUniverseSpaceBasis(Basis2d basis)
     return SetUniverseCameraBasis(basis);
 }
 static bool ApplyLPanelSpaceBasis(Basis2d basis) { return SetLPanelSpaceBasis(basis.u, basis.v); }
-static bool ApplyRPanelSpaceBasis(Basis2d basis) { return SetRPanelSpaceBasis(basis.u, basis.v); }
+static bool ApplyRPanelSpaceBasis(Basis2d basis) { return SetWorldManagerSpaceBasis(basis.u, basis.v); }
 
 // Reset callbacks: restore the target's basis to its identity/default.
 static void ResetLPanelViewportBasis(void) { ResetViewportSpaceBasis(VIEWPORT_SPACE_LPANEL); }
@@ -96,9 +98,9 @@ static const DebugBasisTargetOps debug_basis_target_ops[DEBUG_BASIS_TARGET_COUNT
         .name = "LPANEL_SPACE",
     },
     [DEBUG_BASIS_TARGET_RPANEL_SPACE] = {
-        .get_frame_fn = GetRPanelSpaceFrame,
+        .get_frame_fn = GetWorldManagerSpaceFrame,
         .apply_basis_fn = ApplyRPanelSpaceBasis,
-        .reset_fn = ResetRPanelSpaceBasis,
+        .reset_fn = ResetWorldManagerSpaceBasis,
         .name = "RPANEL_SPACE",
     },
 };
@@ -190,6 +192,7 @@ typedef struct UniverseDebugSnapshot
     float camera_zoom;
     float camera_rotation;
     Vector2d camera_focus;
+    uint32_t next_entity_id; // Entity registry readout: the id the next created entity receives.
 } UniverseDebugSnapshot;
 
 // Dashboard enabled-state, owned here; the facade flips/reads it via Diagnostics_Toggle/IsDashboard.
@@ -335,7 +338,7 @@ static void DrawDashboardUniverseSection(int col_x, int *row_y, int row_step,
                       "Universe coords: (%.3f, %.3f)",
                       debug_snapshot.parent_local.x, debug_snapshot.parent_local.y);
     DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
-                      "Selected world: %d   Hovered world: %d",
+                      "Context world: %d   Hovered world: %d",
                       debug_snapshot.selected_index, debug_snapshot.hovered_world_index);
 
     if (debug_snapshot.has_child_local)
@@ -360,6 +363,9 @@ static void DrawDashboardUniverseSection(int col_x, int *row_y, int row_step,
                       "Camera focus(%.2f, %.2f) zoom=%.3f rot=%.3f",
                       debug_snapshot.camera_focus.x, debug_snapshot.camera_focus.y,
                       debug_snapshot.camera_zoom, debug_snapshot.camera_rotation);
+    // Entity registry readout (an entity value, so it lives here rather than in the World Manager).
+    DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
+                      "Entity registry next id: %u", (unsigned)debug_snapshot.next_entity_id);
 }
 
 // Draw the dashboard's Game Viewport + Basis sections from live viewport/basis state.
@@ -560,7 +566,12 @@ void Diagnostics_UpdateSnapshot(void)
 
     Vector2d parent_local = ResolvePixelToWorldFrame(&G_Universe.root_world, pixel);
 
-    int selected_index = G_Universe.selected_world_index;
+    // Context world as the fallback target; the root sentinel is normalised to -1 (no nested world).
+    int selected_index = UIState_GetContextWorldIndex();
+    if (selected_index < 0)
+    {
+        selected_index = -1;
+    }
     int hovered_world_index = Universe_FindWorldAt(&G_Universe, parent_local);
     int target_world_index = (hovered_world_index >= 0) ? hovered_world_index : selected_index;
 
@@ -602,6 +613,7 @@ void Diagnostics_UpdateSnapshot(void)
     debug_snapshot.camera_zoom = G_Universe.camera.zoom;
     debug_snapshot.camera_rotation = G_Universe.camera.rotation;
     debug_snapshot.camera_focus = G_Universe.camera.source_focus_coords;
+    debug_snapshot.next_entity_id = (uint32_t)EntityRegistry_GetNextId();
 }
 
 // Process basis-editor hotkeys; returns true when the active basis target changed this frame.

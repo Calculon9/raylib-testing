@@ -16,7 +16,7 @@
 #include "system/utility_system.h"
 #include <stdlib.h>
 #include "world/world.h"
-#include "system/ui/rpanel_system.h"
+#include "system/ui/world_manager_system.h"
 #include "system/ui/popup_menu.h"
 #include "system/ui/toolbar_system.h"
 #include "world/universe.h"
@@ -418,9 +418,6 @@ void HandleBtnSubmitClick(UIElement *btn)
 
     if (action == BUTTON_ACTION_CREATE_ENTITY)
     {
-        if (!Universe_GetSelectedWorld(&G_Universe))
-            return;
-
         // Enqueue a create-entity command instead of creating immediately
         if (G_UIState.entity_create_params)
         {
@@ -428,9 +425,6 @@ void HandleBtnSubmitClick(UIElement *btn)
         }
     } else if (action == BUTTON_ACTION_DELETE_ENTITY)
     {
-        if (!Universe_GetSelectedWorld(&G_Universe))
-            return;
-
         // Enqueue a delete-entity command instead of deleting immediately
         EntityId selected_object_id = UIState_GetSelectedObjectId();
         if (selected_object_id != INVALID_ENTITY_ID)
@@ -441,14 +435,6 @@ void HandleBtnSubmitClick(UIElement *btn)
     else if (action == BUTTON_ACTION_CREATE_WORLD)
     {
         EnqueueCreateWorld();
-    }
-    else if (action == BUTTON_ACTION_SELECT_WORLD_PREV)
-    {
-        EnqueueSelectWorld(-1);
-    }
-    else if (action == BUTTON_ACTION_SELECT_WORLD_NEXT)
-    {
-        EnqueueSelectWorld(1);
     }
 }
 
@@ -737,7 +723,7 @@ UIElement *ResolveUIRootTarget(Vector2d mouse_coords)
         GetPopupMenuRoot(),
         GetUtilityPanelRoot(),
         GetStateManagerRoot(),
-        GetRPanelRoot(),
+        GetWorldManagerRoot(),
         GetToolbarRoot()};
 
     for (int i = 0; i < (int)ARRAY_COUNT(roots); i++)

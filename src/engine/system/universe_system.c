@@ -27,19 +27,9 @@ UNIVERSE SYSTEM MODULE
 #include "entities/entity_catalogue.h"
 #include "world/tile_catalogue.h" // InitTileCatalogue (data-driven tile palette)
 
-static int create_world_auto_select = 0;
 static bool camera_diagnostic_printed = false;
 ColourRgba camera_marker_colour = {86, 139, 127, 230};
 static CameraController cam_ctrl = {0};
-
-// Refresh panels that mirror the current navigation world. This is a CURSOR concern only: it must
-// NOT touch the SelectionSet (the action source of truth). Moving the World Manager cursor
-// (PREV/NEXT) therefore no longer wipes or rewrites what is selected for actions, and selecting
-// things for actions never moves the cursor.
-static void SyncWorldStateFromSelection(void)
-{
-    MarkStateManagerRefreshDirty();
-}
 
 // Order world indices high-to-low in place. Used before enqueuing world deletes so that
 // Universe_DeleteWorld's array compaction (which shifts every index above the deleted one down by
@@ -61,25 +51,22 @@ static void SortWorldIndicesDescending(int *indices, int count)
     }
 }
 
-static bool Universe_HasRootEntityAt(Vector2d universe_point)
+// Enqueue deletes for the given world indices in descending order (sorts `indices` in place), so the
+// array compaction in Universe_DeleteWorld can never invalidate a still-pending smaller index. Shared by
+// the DELETE key and the World Manager DELETE WORLD button. Returns how many deletes were enqueued.
+int EnqueueDeleteWorldsDescending(int *indices, int count)
 {
-    return ResolveClosestEntityAt(&G_Universe.root_world, universe_point,
-                                  NULL, NULL, NULL, 0, NULL) != NULL;
-}
-
-// Single entry point for "what did this universe click hit": a nested world, a root-owned
-// entity, or nothing. Callers no longer need to combine the two checks themselves.
-static bool Universe_ResolveClickHit(Vector2d click_universe_coords, bool *world_hit_out)
-{
-    bool world_hit = Universe_ResolveClick(&G_Universe, click_universe_coords, NULL);
-    bool root_entity_hit = Universe_HasRootEntityAt(click_universe_coords);
-    if (world_hit_out)
+    SortWorldIndicesDescending(indices, count);
+    int enqueued = 0;
+    for (int i = 0; i < count; i++)
     {
-        *world_hit_out = world_hit;
+        if (EnqueueDeleteWorld(indices[i])) // reuse the existing world-delete path
+        {
+            enqueued++;
+        }
     }
-    return world_hit || root_entity_hit;
+    return enqueued;
 }
-
 static void ApplyWorldDragTransform(World2d *world, Vector2d new_universe_origin)
 {
     if (!world)
@@ -173,46 +160,26 @@ static TargetRef EscalateDragTarget(TargetRef select_ref, Vector2d pointer_unive
 }
 
 // Commit a click selection from the pending press's select_ref. Plain (no modifier) REPLACES the
-// set (clear then add); a NONE ref additionally clears the navigation cursor and refreshes the
-// cursor panels (the empty-space deselect, now on release); a WORLD ref also moves the navigation
-// cursor exactly as the old plain-world click did (via Universe_ResolveClickHit ->
-// Universe_SelectWorld). A modifier TOGGLES the ref into/out of the set (+ WORLD cursor sync). The
-// back-compat primary single-fields are re-synced from the set afterwards.
-static void CommitClickSelection(Vector2d pointer_universe)
+// set (clear then add); a NONE ref only clears (the empty-space deselect, now on release). A
+// modifier TOGGLES the ref into/out of the set. The context world follows the set's primary, so
+// no separate world state is updated here. The back-compat primary single-fields are re-synced
+// from the set afterwards.
+static void CommitClickSelection(void)
 {
     TargetRef select_ref = g_game_press.select_ref;
 
     if (!g_game_press.modified)
     {
         // Plain click: replace the whole action set with the single resolved ref.
-        if (select_ref.kind == TARGET_KIND_NONE)
+        SelectionSet_Clear(); // REPLACE: drop any prior selection (an empty click deselects everything)
+        if (select_ref.kind != TARGET_KIND_NONE)
         {
-            // Empty space: deselect everything and drop the navigation cursor.
-            G_Universe.selected_world_index = -1; // cursor: nothing focused
-            SyncWorldStateFromSelection();        // cursor refresh only
-            SelectionSet_Clear();                 // action set: empty-click deselects everything
-        }
-        else
-        {
-            SelectionSet_Clear(); // REPLACE: drop any prior selection
-            if (select_ref.kind == TARGET_KIND_WORLD)
-            {
-                // Move the navigation cursor to the clicked world (cursor side-effect only), then
-                // add the WORLD ref to the action set. Universe_ResolveClickHit calls
-                // Universe_SelectWorld, matching the old plain-world click cursor behaviour.
-                Universe_ResolveClickHit(pointer_universe, NULL);
-            }
             SelectionSet_Add(select_ref);
         }
     }
     else
     {
-        // Modified click: toggle the ref into/out of the set (ignores NONE). For a WORLD also move
-        // the navigation cursor to it when it was just added, mirroring the plain-world cursor sync.
-        if (select_ref.kind == TARGET_KIND_WORLD && !SelectionSet_Contains(select_ref))
-        {
-            Universe_ResolveClickHit(pointer_universe, NULL);
-        }
+        // Modified click: toggle the ref into/out of the set (ignores NONE).
         SelectionSet_Toggle(select_ref);
     }
 
@@ -278,7 +245,7 @@ void InitUniverseSystem(void)
     int initial_world_columns = (int)fmaxf(1.0f, ceilf(G_Universe.next_resolution.x));
     int initial_world_rows = (int)fmaxf(1.0f, ceilf(G_Universe.next_resolution.y));
     *GetNextWorldObjectCountPtr() = 1; // (initial_world_columns * initial_world_rows) / 3 + 1;
-    CreateNewWorld(false);
+    CreateNewWorld(false); // starter world stays unselected so launch shows the ROOT context
 }
 
 InputRouteResult UpdateUniverseSystem(const InputFrame *input, InputRouteResult prior_result)
@@ -303,9 +270,8 @@ InputRouteResult UpdateUniverseSystem(const InputFrame *input, InputRouteResult 
         camera_diagnostic_printed = true;
     }
 
-    // DELETE acts on the central SelectionSet (the single source of truth for actions), NOT on the
-    // World Manager navigation cursor (selected_world_index). A current-but-unselected world is
-    // kept; a selected-but-not-current world is deleted.
+    // DELETE acts on the central SelectionSet (the single source of truth for actions). Every
+    // selected world is deleted, whichever one is the primary (context) world.
     if (input->delete_pressed && !G_UIState.focused_element && SelectionSet_Count() > 0)
     {
         // World indices must be enqueued high-to-low: Universe_DeleteWorld compacts the array,
@@ -341,11 +307,7 @@ InputRouteResult UpdateUniverseSystem(const InputFrame *input, InputRouteResult 
 
         // Enqueue world deletes in descending index order so compaction never invalidates a
         // pending index (see ordering-hazard note above).
-        SortWorldIndicesDescending(world_indices, world_count);
-        for (int i = 0; i < world_count; i++)
-        {
-            EnqueueDeleteWorld(world_indices[i]); // reuse the existing world-delete path
-        }
+        EnqueueDeleteWorldsDescending(world_indices, world_count);
 
         // Cell deletes carry a POSITIONAL world_index. If any world is deleted in this same batch,
         // Universe_DeleteWorld compacts the world array and those positional indices can no longer be
@@ -462,7 +424,7 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
     if (input->left_pressed && cursor_in_game_viewport)
     {
         // PRESS: resolve the selection ref once and remember the press. Do NOT touch the
-        // SelectionSet or the navigation cursor on this frame.
+        // SelectionSet on this frame.
         g_game_press = (GamePress){
             // Pass the raw pixel alongside the universe point: the universe point drives the
             // "which world" pick, the pixel drives the basis-correct per-world local point.
@@ -559,7 +521,7 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
                                                     INPUT_DRAG_THRESHOLD_PIXELS);
             if (is_click && cursor_in_game_viewport)
             {
-                CommitClickSelection(mouse_universe_coords); // R5: click -> commit selection
+                CommitClickSelection(); // R5: click -> commit selection
             }
             // else R6: press-hold past the click window with no drag -> no-op, set unchanged.
         }
@@ -575,7 +537,7 @@ void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport)
             // by the world stage's entity release handler.
             if (cursor_in_game_viewport)
             {
-                CommitClickSelection(mouse_universe_coords);
+                CommitClickSelection();
             }
         }
         // R1/R3 (a real marquee/move release): no selection change here; the world-stage release
@@ -660,18 +622,24 @@ void DrawUniverse(void)
     WorldRenderer_DrawMarquee();
 }
 
-int CreateNewWorld(bool auto_select)
+// Create a world from the universe's creation params. When `select` is true and creation succeeds,
+// the new world REPLACES the selection (same sequence as a plain click) and so becomes the context
+// world. A failed creation (-1) leaves the selection untouched.
+int CreateNewWorld(bool select)
 {
     int index = Universe_CreateWorld(&G_Universe, COLOUR_GAME_PARCHMENT_RGBA, COLOUR_GAME_OLIVE_RGBA,
-                                     camera_marker_colour, G_Universe.next_spawn, auto_select);
-    if (index >= 0 && auto_select)
+                                     camera_marker_colour, G_Universe.next_spawn);
+    if (index >= 0 && select)
     {
-        SyncWorldStateFromSelection();
+        SelectionSet_Clear();
+        SelectionSet_Add((TargetRef){ .kind = TARGET_KIND_WORLD, .as.world_index = index });
+        UIState_SyncPrimaryFieldsFromSet(); // clears single-entity fields and fires selection-changed
     }
     return index;
 }
 
-int CreateNewWorld_Preset(bool auto_select, CoordinateSpacePreset preset)
+// Create a world using a coordinate-space preset for this call only; see CreateNewWorld for `select`.
+int CreateNewWorld_Preset(bool select, CoordinateSpacePreset preset)
 {
     Vector2d previous_resolution = G_Universe.next_resolution;
     Vector2d previous_basis_u = G_Universe.next_basis_u;
@@ -681,37 +649,16 @@ int CreateNewWorld_Preset(bool auto_select, CoordinateSpacePreset preset)
     G_Universe.next_basis_u = preset.basis.u;
     G_Universe.next_basis_v = preset.basis.v;
 
-    int index = CreateNewWorld(auto_select);
+    int index = CreateNewWorld(select);
 
     G_Universe.next_resolution = previous_resolution;
     G_Universe.next_basis_u = previous_basis_u;
     G_Universe.next_basis_v = previous_basis_v;
 
-    if (index >= 0 && auto_select)
-    {
-        SyncWorldStateFromSelection();
-    }
     return index;
 }
 
-bool SelectWorldByIndex(int index)
-{
-    bool ok = Universe_SelectWorld(&G_Universe, index);
-    if (ok)
-    {
-        SyncWorldStateFromSelection();
-    }
-    return ok;
-}
-
-bool IsCreateWorldAutoSelectEnabled(void)
-{
-    return create_world_auto_select != 0;
-}
-
 int GetWorldCount(void) { return Universe_GetWorldCount(&G_Universe); }
-int GetSelectedWorldIndex(void) { return Universe_GetSelectedIndex(&G_Universe); }
-World2d *GetSelectedWorld(void) { return Universe_GetSelectedWorld(&G_Universe); }
 World2d *GetWorldByIndex(int index) { return Universe_GetWorld(&G_Universe, index); }
 
 Vector2d *GetNextWorldSpawnOriginPtr(void) { return &G_Universe.next_spawn; }

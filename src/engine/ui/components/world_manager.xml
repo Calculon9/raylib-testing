@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+    <!-- Describes the World Manager (right panel); runtime wiring is in world_manager_system.c.   -->
+    <!-- It mirrors the Entity Manager (state_manager.xml) for WORLDS and CELLS. Layout is         -->
+    <!-- selection-driven:                                                                         -->
+    <!--  * header (always): title + sub-line for the shown world / cell; amber in multi-select.   -->
+    <!--  * kind chips: only when the selection holds BOTH worlds and cells (panel-local choice).  -->
+    <!--  * WORLD: tabs PROPS | FLAGS | GRID | NEW (FLAGS hidden for the root world).              -->
+    <!--  * CELL: cell_view only (no tab row).                                                     -->
+    <!-- With no world and no cell selected the panel shows the context world (ROOT when nothing  -->
+    <!-- is selected). View order matters: the four world views come first, in tab order.         -->
+    <!--                                                                                           -->
+    <!--  * Read-only values and the editable gravity / restitution / friction / basis / warp      -->
+    <!--    fields carry binding= (query source, plus a write sink for the editable ones), resolved -->
+    <!--    in world_manager_system.c. The NEW view fields are bound once in C to the next-world    -->
+    <!--    parameters (an XML address binding would be read-only), so they carry no binding=.     -->
+    <!--  * Flag buttons, the chips, DELETE WORLD and NEW WORLD are wired in C by id.               -->
+<ViewHost id="world_manager" layout="stacked" initial-view="props_view">
+    <!-- Fixed header block (outside every View, so it never scrolls and shows on every tab).    -->
+    <!-- Text comes from the wm.header.* query bindings; the amber tint is applied from C.        -->
+    <Container id="world_header" width="fill" height="hug" layout="stack" surface="container" padding="6">
+        <Textbox id="wm_header_title" io="readonly" binding="wm.header.title" surface="transparent" size="295,20" width="fill" height="fixed" />
+        <Textbox id="wm_header_sub" io="readonly" binding="wm.header.sub" surface="transparent" size="295,17" width="fill" height="fixed" />
+    </Container>
+
+    <!-- Kind chips: enabled from C only when the selection holds both worlds and cells. -->
+    <Container id="kind_chips" width="fill" height="hug" layout="inline_wrap" gap="0,0" enabled="false">
+        <Button type="simple" id="wm_kind_world" text="WORLDS" size="140,25" />
+        <Button type="simple" id="wm_kind_cell" text="CELLS" size="140,25" />
+    </Container>
+
+    <!-- World tabs. Option order MUST equal the first four View ids below (option index == view index). -->
+    <!-- The row is hidden from C for a CELL kind; FLAGS is hidden for the root world.                   -->
+    <ViewSelector id="world_manager_views" type="enumerate" layout="inline_wrap" gap="0,0" width="fill" height="hug">
+        <Option text="PROPS" view="props_view" size="70,25" />
+        <Option text="FLAGS" view="flags_view" size="70,25" />
+        <Option text="GRID" view="grid_view" size="70,25" />
+        <Option text="NEW" view="new_view" size="70,25" />
+    </ViewSelector>
+
+    <!-- ================= PROPS view ================= -->
+    <View id="props_view" type="WORLD_MANAGER_PROPS_VIEW" scroll="y" layout="stack">
+        <Container id="wm_world" width="fill" height="hug" layout="stack" surface="container" padding="6">
+            <Label text="World" style="title" />
+            <!-- Shown from C in multi-select: values here are the primary's and read-only. -->
+            <Textbox id="wm_note_props" io="readonly" surface="transparent" size="263,25" width="fixed" height="fixed" enabled="false" />
+            <TextField id="wm_origin" label="Origin" type="vector2" io="readonly" binding="wm.world.origin" />
+            <TextField id="wm_res" label="Res" io="readonly" binding="wm.world.res" />
+            <TextField id="wm_objects" label="Objects" type="integer" io="readonly" binding="wm.world.objects" />
+            <TextField id="wm_gravity" label="Gravity" type="float" io="safe" binding="wm.world.gravity" />
+            <TextField id="wm_restitution" label="Restitution" type="float" io="safe" binding="wm.world.restitution" />
+            <TextField id="wm_friction" label="Friction" type="float" io="safe" binding="wm.world.friction" />
+        </Container>
+        <Button id="wm_delete_world" type="submit" text="DELETE WORLD" surface="danger" size="161,25" width="fill" height="fixed" />
+    </View>
+
+    <!-- ================= FLAGS view ================= -->
+    <View id="flags_view" type="WORLD_MANAGER_FLAGS_VIEW" enabled="false" scroll="y" layout="stack">
+        <Container id="wm_world_flags" width="fill" height="hug" layout="stack" surface="container" padding="6">
+            <Label text="World Flags" style="title" />
+            <Button type="simple" id="wm_world_active" text="ACTIVE" />
+            <Button type="simple" id="wm_world_visible" text="VISIBLE" />
+            <Button type="simple" id="wm_world_selectable" text="SELECTABLE" />
+            <Button type="simple" id="wm_world_physics" text="PHYSICS" />
+            <Button type="simple" id="wm_world_spawns" text="SPAWNS" />
+            <Button type="simple" id="wm_world_locked" text="LOCKED" />
+            <Button type="simple" id="wm_world_drag" text="DRAG" />
+        </Container>
+    </View>
+
+    <!-- ================= GRID view ================= -->
+    <View id="grid_view" type="WORLD_MANAGER_GRID_VIEW" enabled="false" scroll="y" layout="stack">
+        <Container id="wm_grid" width="fill" height="hug" layout="stack" surface="container" padding="6">
+            <Label text="Grid" style="title" />
+            <Textbox id="wm_note_grid" io="readonly" surface="transparent" size="263,25" width="fixed" height="fixed" enabled="false" />
+            <TextField id="wm_basis_u" label="Basis u" type="vector2" io="safe" binding="wm.world.basis_u" />
+            <TextField id="wm_basis_v" label="Basis v" type="vector2" io="safe" binding="wm.world.basis_v" />
+            <TextField id="wm_grid_res" label="Res" io="readonly" binding="wm.world.res" />
+        </Container>
+    </View>
+
+    <!-- ================= NEW view ================= -->
+    <!-- The editable next-world parameters; bound once in C (no binding= here). -->
+    <View id="new_view" type="WORLD_MANAGER_NEW_VIEW" enabled="false" scroll="y" layout="stack">
+        <Container id="wm_new" width="fill" height="hug" layout="stack" surface="container" padding="6">
+            <Label text="New World" style="title" />
+            <TextField id="wm_new_spawn" label="Spawn" type="vector2" io="safe" />
+            <TextField id="wm_new_res" label="Resolution" type="vector2" io="safe" />
+            <TextField id="wm_new_objects" label="Objects" type="integer" io="safe" />
+            <TextField id="wm_new_gravity" label="Gravity" type="float" io="safe" />
+            <TextField id="wm_new_basis_u" label="Basis u" type="vector2" io="safe" />
+            <TextField id="wm_new_basis_v" label="Basis v" type="vector2" io="safe" />
+        </Container>
+        <Button id="wm_new_world" type="submit" text="NEW WORLD" size="161,25" width="fill" height="fixed" />
+    </View>
+
+    <!-- ================= CELL view ================= -->
+    <!-- Reached only by selection (no tab). Warp U / V are editable for a single cell. -->
+    <View id="cell_view" type="WORLD_MANAGER_CELL_VIEW" enabled="false" scroll="y" layout="stack">
+        <Container id="wm_cell" width="fill" height="hug" layout="stack" surface="container" padding="6">
+            <Label text="Cell" style="title" />
+            <Textbox id="wm_note_cell" io="readonly" surface="transparent" size="263,25" width="fixed" height="fixed" enabled="false" />
+            <TextField id="wm_cell_index" label="Index" type="integer" io="readonly" binding="wm.cell.index" />
+            <TextField id="wm_cell_occu" label="Occu" type="integer" io="readonly" binding="wm.cell.occu" />
+            <TextField id="wm_cell_value" label="Value" type="float" io="readonly" binding="wm.cell.value" />
+            <TextField id="wm_cell_fill" label="Fill" type="float" io="readonly" binding="wm.cell.fill" />
+            <TextField id="wm_cell_tile" label="Tile" type="integer" io="readonly" binding="wm.cell.tile" />
+            <TextField id="wm_cell_warp_u" label="Warp U" type="vector2" io="safe" binding="wm.cell.warp_u" />
+            <TextField id="wm_cell_warp_v" label="Warp V" type="vector2" io="safe" binding="wm.cell.warp_v" />
+        </Container>
+        <Container id="wm_cell_flags" width="fill" height="hug" layout="stack" surface="container" padding="6">
+            <Label text="Flags" style="title" />
+            <Button type="simple" id="wm_cell_solid" text="SOLID" />
+            <Button type="simple" id="wm_cell_walkable" text="WALKABLE" />
+            <Button type="simple" id="wm_cell_hazard" text="HAZARD" />
+            <Button type="simple" id="wm_cell_spawn" text="SPAWN" />
+        </Container>
+    </View>
+</ViewHost>

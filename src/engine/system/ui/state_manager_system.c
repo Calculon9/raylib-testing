@@ -1,8 +1,7 @@
 #include "system/ui/state_manager_system.h"
+#include "system/ui/panel_shared.h"            // Flag families, header block, field lock, selection helpers
 #include <string.h>
 #include "system/command_system.h"
-#include "ui/ui_input.h"                         // ResetUIInputState (drop focus when fields lock)
-#include "ui/cfont.h"                            // FONT_LARGE_WITH_COLOUR / FONT_MEDIUM_WITH_COLOUR
 #include "system/ui/ui_loader.h"
 #include "system/view_host_system.h"
 #include "system/systems.h"
@@ -33,17 +32,12 @@ static ViewHostSystem *state_manager_panel = NULL;
 static bool state_manager_refresh_dirty = true;
 
 // Selection-driven layout state (see "Selection-driven layout" below).
+#define SM_SHOWN_UNKNOWN (-2)                // No layout applied yet.
+#define SM_SHOWN_NONE (-1)                   // Layout applied with every view hidden (no entity selected).
 static ViewSelector *s_sm_selector = NULL;   // The entity tab selector (NULL if allocation failed).
-static int s_sm_entity_tab = 0;              // Entity tab remembered across world / cell selections.
-static int s_sm_shown_view = -1;             // View currently shown (-1 until first layout).
+static int s_sm_entity_tab = 0;              // Entity tab remembered across empty selections.
+static int s_sm_shown_view = SM_SHOWN_UNKNOWN; // View currently shown.
 static bool s_sm_fields_locked = false;      // Cached lock state, so types only change on a flip.
-static ColourRgba s_sm_header_default_fill;  // Header box fill captured at load (restored when untinted).
-
-// Chip click payloads: one static TargetKind per chip (index == kind - 1).
-static const TargetKind s_sm_chip_kinds[3] = { TARGET_KIND_ENTITY, TARGET_KIND_WORLD, TARGET_KIND_CELL };
-
-static void HandleKindChipClick(UIElement *chip); // Defined with the layout code; wired at registration.
-
 // Component button binding: associates a button control with an EntityComponentType.
 typedef struct StateManagerComponentButton
 {
@@ -56,7 +50,7 @@ typedef struct StateManagerComponentButton
 // name Textbox is relabelled and the type is assigned per refresh to whichever attached
 // component the slot currently represents, so the one shared Remove handler reads the live
 // type from here. name_str caches &name_label->data.textbox.text at register time (the same
-// imperative-relabel pattern the CELL readouts use) so the refresh writes the label without
+// imperative-relabel pattern the other fixed-slot readouts use) so the refresh writes the label without
 // re-finding the element.
 typedef struct StateManagerComponentRow
 {
@@ -74,27 +68,17 @@ typedef struct StateManagerComponentRow
 // UIElement and String64 references owned by the State Manager panel.
 typedef struct StateManagerUI
 {
-    // Action codes
-    int delete_action;
-
     // COMP view (Phase 1): Add-component buttons (PORTAL/ROTOR/GEAR/HEALTH; RELATION/WORLD
     // excluded) and the fixed attached-row slots (name + Remove). The refresh shows/hides and
     // relabels these to mirror the selected entity's attached set.
     StateManagerComponentButton add_buttons[4];
     StateManagerComponentRow attached_rows[5];
 
-    // Header (selection-driven title / sub-line, tint, kind chips) and view-switching state.
-    UIElement *header_box;          // entity_header container; its fill is tinted in multi-select
-    UIElement *header_title;        // FONT_LARGE title textbox
-    UIElement *header_sub;          // FONT_MEDIUM sub-line textbox
-    UIElement *kind_chips;          // chip row container (multi-select only)
-    UIElement *kind_chip[3];        // ENTITY / WORLD / CELL chips (index == TargetKind - 1)
+    // Header (selection-driven title / sub-line and multi-select tint) and view-switching state.
+    PanelHeader header;             // entity_header container + title + sub-line
     UIElement *values_note;         // "values: primary only" note, shown in multi-select
     UIElement *delete_button;       // sm_delete (label reflects the selection)
-    UIElement *tab_container;       // the ViewSelector's container (hidden for world / cell)
-    UIElement *world_view_container;
-    UIElement *cell_view_container;
-
+    UIElement *tab_container;       // the ViewSelector's container (hidden with no entity)
     // Physics readouts
     UIElement *mass_tbox;
     UIElement *restitution_tbox;
@@ -133,19 +117,6 @@ typedef struct StateManagerUI
     UIElement *comp_relation_active_tbox;
     String64 *comp_relation_active_str;
 
-    // World physics readouts
-    UIElement *world_restitution_tbox;
-    UIElement *world_friction_tbox;
-
-    // Cell readouts
-    String64 *cell_id_str;
-    String64 *cell_occu_str;
-    String64 *cell_value_str;
-    String64 *cell_fill_str;
-    String64 *cell_tile_type_str; // read-only tile_type readout (mirrors the other cell readouts)
-    UIElement *cell_warp_u_tbox; // editable Warp U (warp_basis.u) — dynamic query/write bound
-    UIElement *cell_warp_v_tbox; // editable Warp V (warp_basis.v) — dynamic query/write bound
-
     // GEOMETRY view (v1): vertex-count readout + fixed readonly vertex-row pool.
     UIElement *geo_vertex_count_tbox;
     UIElement *geo_vertex_tbox[STATE_MANAGER_GEOMETRY_ROW_COUNT];
@@ -153,44 +124,18 @@ typedef struct StateManagerUI
 
 static StateManagerUI s_sm_ui = {0};
 
-// Which bitmask on the current selection a flag button targets (object fields, world or cell).
-typedef enum FlagFamily
-{
-    FLAG_FAMILY_ROLE,           // Exclusive entity role
-    FLAG_FAMILY_CAPABILITY,
-    FLAG_FAMILY_CONSTRAINT,
-    FLAG_FAMILY_STATUS,
-    FLAG_FAMILY_COLLISION_MASK,
-    FLAG_FAMILY_WORLD,
-    FLAG_FAMILY_CELL,
-} FlagFamily;
-
-// Flag button binding: associates a button control with its display label and underlying bitflag.
-// `family` is assigned when the button is wired (StateManager_WireFlags).
-typedef struct StateManagerFlagButton
-{
-    const char *label;
-    uint32_t flag;
-    UIElement *button;
-    FlagFamily family;
-} StateManagerFlagButton;
-
-// All flag definitions and their bound controls stay together as module state.
+// All entity flag definitions and their bound controls stay together as module state. (World and
+// cell flags live in the World Manager; the family machinery is shared via panel_shared.)
 typedef struct StateManagerFlags
 {
-    uint32_t role_flags;
-    StateManagerFlagButton entity_role[5];
-    StateManagerFlagButton entity_capability[4];
-    StateManagerFlagButton entity_constraint[2];
-    StateManagerFlagButton entity_status[3];
-    StateManagerFlagButton collision_role_mask[5];
-    StateManagerFlagButton world[7];
-    StateManagerFlagButton cell[4];
+    FlagButton entity_role[5];
+    FlagButton entity_capability[4];
+    FlagButton entity_constraint[2];
+    FlagButton entity_status[3];
+    FlagButton collision_role_mask[5];
 } StateManagerFlags;
 
 static StateManagerFlags s_sm_flags = {
-    .role_flags = ENTITY_ROLE_WALL | ENTITY_ROLE_NEWTONOID |
-                  ENTITY_ROLE_PROJECTILE | ENTITY_ROLE_EFFECT | ENTITY_ROLE_CAMERA,
     .entity_role = {
         {"WALL", ENTITY_ROLE_WALL, NULL},
         {"NEWTONOID", ENTITY_ROLE_NEWTONOID, NULL},
@@ -220,21 +165,6 @@ static StateManagerFlags s_sm_flags = {
         {"EFFECT", ENTITY_ROLE_EFFECT, NULL},
         {"CAMERA", ENTITY_ROLE_CAMERA, NULL},
     },
-    .world = {
-        {"ACTIVE", WORLD_FLAG_ACTIVE, NULL},
-        {"VISIBLE", WORLD_FLAG_VISIBLE, NULL},
-        {"SELECTABLE", WORLD_FLAG_SELECTABLE, NULL},
-        {"PHYSICS", WORLD_FLAG_PHYSICS_ENABLED, NULL},
-        {"SPAWNS", WORLD_FLAG_SPAWNS_ENABLED, NULL},
-        {"LOCKED", WORLD_FLAG_LOCKED, NULL},
-        {"DRAG", WORLD_FLAG_DRAGGABLE, NULL},
-    },
-    .cell = {
-        {"SOLID", CELL_FLAG_SOLID, NULL},
-        {"WALKABLE", CELL_FLAG_WALKABLE, NULL},
-        {"HAZARD", CELL_FLAG_HAZARDOUS, NULL},
-        {"SPAWN", CELL_FLAG_SPAWNABLE, NULL},
-    },
 };
 
 // ============================================================================
@@ -255,42 +185,21 @@ static char state_manager_ancestry_selected_text[96];                           
 static char state_manager_ancestry_relation_text[128];                              // Direct-relation summary.
 
 /**
- * Resolve the EntityId the ancestry walk should root on, from the current PRIMARY selection.
- * Selection is read fresh every call (never cached) so the view always reflects the live set.
- * An entity selection roots on itself; a world selection roots on that world's own EntityId
- * (its chain is itself -> universe root world); a cell / empty selection has no frame-bearing
- * node, so INVALID_ENTITY_ID is returned (callers render the neutral "No selection" state).
- * This is the single source of truth the ancestry shims share, so selection resolution is not
- * duplicated across them.
+ * Resolve the EntityId the ancestry walk should root on, from the primary ENTITY of the current
+ * selection. Selection is read fresh every call (never cached) so the view always reflects the
+ * live set. With no entity selected there is no frame-bearing node, so INVALID_ENTITY_ID is
+ * returned (callers render the neutral "No selection" state). This is the single source of truth
+ * the ancestry shims share, so selection resolution is not duplicated across them.
  */
 static EntityId StateManager_AncestryRootId(void)
 {
-    // Nothing selected: no root node.
-    if (SelectionSet_Count() <= 0)
+    TargetRef ref;
+    if (!PanelShared_PrimaryOfKind(TARGET_KIND_ENTITY, &ref))
     {
         return INVALID_ENTITY_ID;
     }
-
-    TargetRef ref = SelectionSet_Primary();
-    switch (ref.kind)
-    {
-        case TARGET_KIND_ENTITY:
-            // A plain entity roots the walk on itself.
-            return ref.as.entity;
-
-        case TARGET_KIND_WORLD:
-        {
-            // Resolve the world index to the world's own EntityId (its body in the registry).
-            World2d *world = Universe_GetWorld(&G_Universe, ref.as.world_index);
-            return world ? world->grid_space.object.id : INVALID_ENTITY_ID;
-        }
-
-        default:
-            // Cell / none: ancestry is only meaningful for a frame-bearing node.
-            return INVALID_ENTITY_ID;
-    }
+    return ref.as.entity;
 }
-
 /**
  * Query shim for one ancestry line slot (line_key = 0..STATE_MANAGER_ANCESTRY_LINE_COUNT-1).
  * Rooted fresh each frame via StateManager_AncestryRootId, it walks up to the root world into a
@@ -422,8 +331,6 @@ static ViewType StateManager_ResolveViewType(const char *type_string, bool *reso
     static const struct { const char *name; ViewType type; } views[] = {
         SM_VIEW_ENTRY(STATE_MANAGER_PHYSICS_VIEW),
         SM_VIEW_ENTRY(STATE_MANAGER_ATTRIBUTES_VIEW),
-        SM_VIEW_ENTRY(STATE_MANAGER_WORLD_VIEW),
-        SM_VIEW_ENTRY(STATE_MANAGER_CELL_STATE_VIEW),
         SM_VIEW_ENTRY(STATE_MANAGER_ANCESTRY_VIEW),
         SM_VIEW_ENTRY(STATE_MANAGER_COMPONENTS_VIEW),
         SM_VIEW_ENTRY(STATE_MANAGER_GEOMETRY_VIEW),
@@ -573,13 +480,18 @@ static void HandleSelectionChanged(EntityId selected_object_id,
 // DYNAMIC bindings below share two selection helpers; the clear-when-none policy lives here, so
 // the generic binding core never learns what "selected" means.
 
-// The selected object, or NULL when nothing valid is selected.
+// The primary selected entity (the last ENTITY member of the SelectionSet), or NULL when no valid
+// entity is selected. Re-resolved on every call so a stale ref is never dereferenced.
 static Newtonoid2d *StateManager_SelectedObject(void)
 {
-    Newtonoid2d *object = UIState_GetSelectedObject();
+    TargetRef ref;
+    if (!PanelShared_PrimaryOfKind(TARGET_KIND_ENTITY, &ref))
+    {
+        return NULL;
+    }
+    Newtonoid2d *object = PanelShared_ResolveEntityRef(ref);
     return (object && object->id != INVALID_ENTITY_ID) ? object : NULL;
 }
-
 // The selected object's attached portal, or NULL when there is no selection or no portal. The
 // portal can go stale (selection changes, portal detaches), so it is re-resolved every call
 // rather than address-bound.
@@ -661,275 +573,11 @@ static bool StateManager_WritePortalField(int key, BindingValue value)
     return true;
 }
 
-// ============================================================================
-// Flag-button families (shared read/write/query)
-// ============================================================================
-//
-// Each FlagFamily names one bitmask on the current selection (object, world or cell). The generic
-// refresh walk composes "<label>: ON/OFF" through StateManager_QueryFlag, and HandleFlagClick
-// toggles through the same accessors, so adding a family means one enum value and one case in
-// each accessor. Unselected families report "not set" (clear-when-none).
-
-// Resolve an ENTITY ref to its live entity, or NULL for a wrong-kind or stale ref. Re-resolved on
-// every call; pointers are never cached across frames.
-static Newtonoid2d *StateManager_ResolveEntityRef(TargetRef ref)
-{
-    if (ref.kind != TARGET_KIND_ENTITY)
-    {
-        return NULL;
-    }
-    return Universe_GetEntityByID(&G_Universe, ref.as.entity, NULL);
-}
-
-// Read the bitmask a family targets on one target. Returns false when the ref is the wrong kind
-// for the family (entity families need ENTITY, WORLD needs WORLD, CELL needs CELL) or no longer
-// resolves, which is how a mixed selection skips inapplicable members. Guard is `!= NULL` only
-// (no id check), so a non-NULL object with an invalid id still displays its real flags.
-static bool StateManager_ReadFlags(TargetRef ref, FlagFamily family, uint32_t *out)
-{
-    switch (family)
-    {
-    case FLAG_FAMILY_ROLE:
-    case FLAG_FAMILY_CAPABILITY:
-    case FLAG_FAMILY_CONSTRAINT:
-    case FLAG_FAMILY_STATUS:
-    case FLAG_FAMILY_COLLISION_MASK:
-    {
-        Newtonoid2d *o = StateManager_ResolveEntityRef(ref);
-        if (!o) return false;
-        switch (family)
-        {
-        case FLAG_FAMILY_ROLE:           *out = o->roles; return true;
-        case FLAG_FAMILY_CAPABILITY:     *out = o->capabilities; return true;
-        case FLAG_FAMILY_CONSTRAINT:     *out = o->constraints; return true;
-        case FLAG_FAMILY_STATUS:         *out = o->status_flags; return true;
-        default:                         *out = o->collision_role_mask; return true;
-        }
-    }
-    case FLAG_FAMILY_WORLD:
-    {
-        World2d *w = (ref.kind == TARGET_KIND_WORLD) ? Universe_GetWorld(&G_Universe, ref.as.world_index) : NULL;
-        if (!w) return false;
-        *out = w->flags;
-        return true;
-    }
-    case FLAG_FAMILY_CELL:
-    {
-        Cell *c = UIState_ResolveCellRef(ref);
-        if (!c) return false;
-        *out = c->flags;
-        return true;
-    }
-    }
-    return false;
-}
-
-// Store a bitmask into the field a family targets on one target. Returns false when the ref is
-// the wrong kind or stale (same rules as StateManager_ReadFlags).
-static bool StateManager_WriteFlags(TargetRef ref, FlagFamily family, uint32_t value)
-{
-    switch (family)
-    {
-    case FLAG_FAMILY_ROLE:
-    case FLAG_FAMILY_CAPABILITY:
-    case FLAG_FAMILY_CONSTRAINT:
-    case FLAG_FAMILY_STATUS:
-    case FLAG_FAMILY_COLLISION_MASK:
-    {
-        Newtonoid2d *o = StateManager_ResolveEntityRef(ref);
-        if (!o) return false;
-        switch (family)
-        {
-        case FLAG_FAMILY_ROLE:           o->roles = value; return true;
-        case FLAG_FAMILY_CAPABILITY:     o->capabilities = value; return true;
-        case FLAG_FAMILY_CONSTRAINT:     o->constraints = value; return true;
-        case FLAG_FAMILY_STATUS:         o->status_flags = value; return true;
-        default:                         o->collision_role_mask = value; return true;
-        }
-    }
-    case FLAG_FAMILY_WORLD:
-    {
-        World2d *w = (ref.kind == TARGET_KIND_WORLD) ? Universe_GetWorld(&G_Universe, ref.as.world_index) : NULL;
-        if (!w) return false;
-        w->flags = value;
-        return true;
-    }
-    case FLAG_FAMILY_CELL:
-    {
-        Cell *c = UIState_ResolveCellRef(ref);
-        if (!c) return false;
-        c->flags = value;
-        return true;
-    }
-    }
-    return false;
-}
-
-// Tally of a bulk walk: how many targets the action applies to, and how many of those are ON.
-typedef struct FlagTally
-{
-    int applicable;
-    int on;
-} FlagTally;
-
-// Collapse a tally to the toggle state: 0 off (or nothing applicable), 1 all on, otherwise a
-// packed "<on>/<applicable>" count (BIND_TOGGLE_MIXED_PACK) when the applicable targets disagree.
-// Shared by flag and component queries so the display and the click decision always agree.
-static int StateManager_TriState(int applicable, int on)
-{
-    if (applicable == 0 || on == 0)
-    {
-        return 0;
-    }
-    return (on == applicable) ? 1 : BIND_TOGGLE_MIXED_PACK(on, applicable);
-}
-
-// Set `bit` of `family` on one target to `value`. Holds the ROLE exclusivity and SLEEPING
-// (sleep/wake keeps the body's physics state consistent) special cases in one place.
-static void StateManager_ApplyFlagToTarget(TargetRef ref, FlagFamily family, uint32_t bit, bool value)
-{
-    uint32_t flags = 0;
-    if (!StateManager_ReadFlags(ref, family, &flags))
-    {
-        return;
-    }
-
-    // Skip no-ops (avoids resetting the sleep timer of an already-sleeping entity). ROLE always
-    // rewrites so the whole role group is normalised to exactly this role.
-    bool current = (flags & bit) != 0;
-    if (current == value && family != FLAG_FAMILY_ROLE)
-    {
-        return;
-    }
-
-    if (family == FLAG_FAMILY_ROLE)
-    {
-        // Exclusive: clear the whole role group, then set this one.
-        StateManager_WriteFlags(ref, family, value ? ((flags & ~s_sm_flags.role_flags) | bit) : (flags & ~bit));
-    }
-    else if (family == FLAG_FAMILY_STATUS && bit == ENTITY_STATUS_FLAG_SLEEPING)
-    {
-        // A status read succeeded, so the entity resolves.
-        Newtonoid2d *object = StateManager_ResolveEntityRef(ref);
-        if (value)
-        {
-            ApplySleep(object);
-        }
-        else
-        {
-            WakeUp(object);
-        }
-    }
-    else
-    {
-        StateManager_WriteFlags(ref, family, value ? (flags | bit) : (flags & ~bit));
-    }
-}
-
-// Tally (and optionally apply to) one target. Inapplicable targets are not counted.
-static void StateManager_VisitFlagTarget(FlagTally *tally, TargetRef ref, FlagFamily family,
-                                         uint32_t bit, bool apply, bool value)
-{
-    uint32_t flags = 0;
-    if (!StateManager_ReadFlags(ref, family, &flags))
-    {
-        return;
-    }
-    tally->applicable++;
-    if (flags & bit)
-    {
-        tally->on++;
-    }
-    if (apply)
-    {
-        StateManager_ApplyFlagToTarget(ref, family, bit, value);
-    }
-}
-
-// Visit every applicable target of a family in the SelectionSet, tallying the bit state; when
-// `apply` is true also writes `value` to each. The only place that enumerates and filters
-// targets for flags. Re-resolves every ref (stale ones are skipped) and does not allocate.
-// World flags fall back to the navigation cursor world when the set holds no world, preserving
-// single-select behaviour (the cursor can differ from the set).
-static FlagTally StateManager_WalkFlag(FlagFamily family, uint32_t bit, bool apply, bool value)
-{
-    FlagTally tally = {0};
-    bool saw_world = false;
-
-    int count = SelectionSet_Count();
-    for (int i = 0; i < count; i++)
-    {
-        TargetRef ref;
-        if (!SelectionSet_Get(i, &ref))
-        {
-            continue;
-        }
-        saw_world = saw_world || (ref.kind == TARGET_KIND_WORLD);
-        StateManager_VisitFlagTarget(&tally, ref, family, bit, apply, value);
-    }
-
-    if (family == FLAG_FAMILY_WORLD && !saw_world)
-    {
-        int cursor = Universe_GetSelectedIndex(&G_Universe);
-        if (cursor >= 0)
-        {
-            TargetRef ref = { .kind = TARGET_KIND_WORLD, .as.world_index = cursor };
-            StateManager_VisitFlagTarget(&tally, ref, family, bit, apply, value);
-        }
-    }
-    return tally;
-}
-
-// Pack a family and flag bit into the int key a flag button's query binding carries. Flag bits are
-// all below 1 << 16, so the family lives in the upper half.
-#define STATE_MANAGER_FLAG_KEY(family, flag) (((int)(family) << 16) | (int)(flag))
-
-// Is-set query shared by every flag family; returns BIND_INT 0 off, 1 on, BIND_TOGGLE_MIXED when
-// the selected targets disagree. Key from STATE_MANAGER_FLAG_KEY.
-static BindingValue StateManager_QueryFlag(int key)
-{
-    FlagTally t = StateManager_WalkFlag((FlagFamily)(key >> 16), (uint32_t)(key & 0xFFFF), false, false);
-    return (BindingValue){ .type = BIND_INT, .as.i = StateManager_TriState(t.applicable, t.on) };
-}
-// DYNAMIC read for one axis of the selected cell's warp basis (key 0 = U, 1 = V). Returns the
-// identity component ((1,0) for U, (0,1) for V) when no cell is selected, so an inert/neutral value
-// is displayed rather than stale data. The selection can go stale, so it is re-resolved every call.
-static BindingValue StateManager_QueryCellWarp(int key)
-{
-    Cell *c = UIState_GetSelectedCell();
-    Vector2d v = (key == 0) ? (Vector2d){1.0f, 0.0f} : (Vector2d){0.0f, 1.0f};
-    if (c)
-    {
-        v = (key == 0) ? c->warp_basis.u : c->warp_basis.v;
-    }
-    return (BindingValue){ .type = BIND_VECTOR2D, .as.v = v };
-}
-
-// DYNAMIC write: store a committed VECTOR2D into the selected cell's warp basis U (key 0) or V
-// (key 1). Rejects (false, caller reverts) when there is no selection or the value is the wrong type.
-static bool StateManager_WriteCellWarp(int key, BindingValue value)
-{
-    Cell *c = UIState_GetSelectedCell();
-    if (!c || value.type != BIND_VECTOR2D)
-    {
-        return false;
-    }
-    if (key == 0)
-    {
-        c->warp_basis.u = value.as.v;
-    }
-    else
-    {
-        c->warp_basis.v = value.as.v;
-    }
-    return true;
-}
-
 // Resolve an ENTITY ref to a live entity with a valid id (the stricter guard the component
 // handlers use), or NULL.
 static Newtonoid2d *StateManager_ResolveLiveEntity(TargetRef ref)
 {
-    Newtonoid2d *o = StateManager_ResolveEntityRef(ref);
+    Newtonoid2d *o = PanelShared_ResolveEntityRef(ref);
     return (o && o->id != INVALID_ENTITY_ID) ? o : NULL;
 }
 
@@ -971,26 +619,26 @@ enum
     HEADER_KEY_SUB = 1,
 };
 
-// Query for the Entity Manager header (key HEADER_KEY_TITLE or HEADER_KEY_SUB). The selection
-// decides the text: nothing, several (bulk edit), or the primary entity / world / cell. Always
-// returns BIND_STRING (an empty string, never BIND_NONE) so stale text is cleared. Stale or
-// unresolvable refs print "-" rather than being dereferenced.
+// Query for the Entity Manager header (key HEADER_KEY_TITLE or HEADER_KEY_SUB). The entity members
+// of the selection decide the text: none, several (bulk edit) or the single entity. Always returns
+// BIND_STRING (never BIND_NONE) so stale text is cleared. Stale or unresolvable refs print "-"
+// rather than being dereferenced.
 static BindingValue StateManager_QueryHeader(int key)
 {
-    char *out = (key == HEADER_KEY_SUB) ? state_manager_header_sub_text : state_manager_header_title_text;
-    size_t out_bytes = (key == HEADER_KEY_SUB) ? sizeof(state_manager_header_sub_text)
-                                               : sizeof(state_manager_header_title_text);
     bool want_sub = (key == HEADER_KEY_SUB);
+    char *out = want_sub ? state_manager_header_sub_text : state_manager_header_title_text;
+    size_t out_bytes = want_sub ? sizeof(state_manager_header_sub_text)
+                                : sizeof(state_manager_header_title_text);
     out[0] = '\0';
 
-    int count = SelectionSet_Count();
-    TargetRef ref = SelectionSet_Primary();
+    int entity_count = PanelShared_CountKind(TARGET_KIND_ENTITY);
+    TargetRef ref = { .kind = TARGET_KIND_NONE };
 
-    if (count <= 0 || ref.kind == TARGET_KIND_NONE)
+    if (entity_count <= 0 || !PanelShared_PrimaryOfKind(TARGET_KIND_ENTITY, &ref))
     {
-        snprintf(out, out_bytes, "%s", want_sub ? "click to select" : "NOTHING SELECTED");
+        snprintf(out, out_bytes, "%s", want_sub ? "click an entity" : "NO ENTITY SELECTED");
     }
-    else if (count > 1)
+    else if (entity_count > 1)
     {
         if (want_sub)
         {
@@ -998,75 +646,27 @@ static BindingValue StateManager_QueryHeader(int key)
         }
         else
         {
-            snprintf(out, out_bytes, "EDITING %d SELECTED", count);
+            snprintf(out, out_bytes, "EDITING %d SELECTED", entity_count);
         }
     }
-    else if (ref.kind == TARGET_KIND_ENTITY)
+    else if (!want_sub)
     {
-        if (!want_sub)
+        snprintf(out, out_bytes, "ENTITY #%d", (int)ref.as.entity);
+    }
+    else
+    {
+        // World index comes from the universe lookup, as RefreshPhysView does.
+        int world_index = -1;
+        Newtonoid2d *o = Universe_GetEntityByID(&G_Universe, ref.as.entity, &world_index);
+        if (o)
         {
-            snprintf(out, out_bytes, "ENTITY #%d", (int)ref.as.entity);
+            snprintf(out, out_bytes, "slot %u  gen %u  world %d",
+                     (unsigned)EntityId_GetSlotIndex(ref.as.entity),
+                     (unsigned)EntityId_GetGeneration(ref.as.entity), world_index);
         }
         else
         {
-            // World index comes from the universe lookup, as RefreshPhysView does.
-            int world_index = -1;
-            Newtonoid2d *o = Universe_GetEntityByID(&G_Universe, ref.as.entity, &world_index);
-            if (o)
-            {
-                snprintf(out, out_bytes, "slot %u  gen %u  world %d",
-                         (unsigned)EntityId_GetSlotIndex(ref.as.entity),
-                         (unsigned)EntityId_GetGeneration(ref.as.entity), world_index);
-            }
-            else
-            {
-                snprintf(out, out_bytes, "-");
-            }
-        }
-    }
-    else if (ref.kind == TARGET_KIND_WORLD)
-    {
-        if (!want_sub)
-        {
-            if (ref.as.world_index == UNIVERSE_ROOT_WORLD_INDEX)
-            {
-                snprintf(out, out_bytes, "ROOT WORLD");
-            }
-            else
-            {
-                snprintf(out, out_bytes, "WORLD #%d", ref.as.world_index);
-            }
-        }
-        else
-        {
-            World2d *w = Universe_GetWorld(&G_Universe, ref.as.world_index);
-            if (w)
-            {
-                snprintf(out, out_bytes, "flags 0x%04X", (unsigned)w->flags);
-            }
-            else
-            {
-                snprintf(out, out_bytes, "-");
-            }
-        }
-    }
-    else // TARGET_KIND_CELL
-    {
-        if (!want_sub)
-        {
-            snprintf(out, out_bytes, "CELL (%d,%d)", ref.as.cell.lattice_x, ref.as.cell.lattice_y);
-        }
-        else
-        {
-            Cell *c = UIState_ResolveCellRef(ref);
-            if (c)
-            {
-                snprintf(out, out_bytes, "world %d  tile %d", ref.as.cell.world_index, (int)c->tile_type);
-            }
-            else
-            {
-                snprintf(out, out_bytes, "world %d  tile -", ref.as.cell.world_index);
-            }
+            snprintf(out, out_bytes, "-");
         }
     }
 
@@ -1074,30 +674,20 @@ static BindingValue StateManager_QueryHeader(int key)
 }
 
 // ============================================================================
-// Flag Interaction
+// DELETE
 // ============================================================================
 
-// Click a flag across the whole selection. If the flag is ON for every applicable target it is
-// cleared on all; otherwise it is set on all (never a per-object XOR). ROLE is exclusive, so a
-// click always makes every applicable entity exactly that role.
-static void HandleFlagClick(UIElement *button)
+// Delete the primary ENTITY of the selection through the deferred command queue. The shared submit
+// handler reads the single-select primary, which is empty when the set's primary is a world or
+// cell, so the Entity Manager resolves its own primary entity here.
+static void HandleEntityDeleteClick(UIElement *button)
 {
-    const StateManagerFlagButton *spec = (const StateManagerFlagButton *)button->interaction_user_data;
-    if (!spec)
+    (void)button;
+    TargetRef ref;
+    if (PanelShared_PrimaryOfKind(TARGET_KIND_ENTITY, &ref))
     {
-        return;
+        EnqueueDeleteEntity(ref.as.entity);
     }
-
-    FlagTally tally = StateManager_WalkFlag(spec->family, spec->flag, false, false);
-    if (tally.applicable == 0)
-    {
-        return;
-    }
-
-    bool value = (spec->family == FLAG_FAMILY_ROLE) ? true : (tally.on != tally.applicable);
-    StateManager_WalkFlag(spec->family, spec->flag, true, value);
-
-    MarkStateManagerRefreshDirty();
 }
 // Build a default-initialised component payload for an addable type. Returns false if the
 // type cannot be attached with pure defaults (RELATION/WORLD/NONE). This is the single source
@@ -1252,12 +842,6 @@ static const char *sm_con_ids[2]   = {"sm_con_position_locked", "sm_con_no_conta
 static const char *sm_status_ids[3] = {"sm_status_alive", "sm_status_sleeping", "sm_status_clocked"};
 static const char *sm_coll_ids[5]  = {"sm_coll_wall", "sm_coll_newtonoid", "sm_coll_projectile",
                                       "sm_coll_effect", "sm_coll_camera"};
-static const char *sm_world_ids[7] = {"sm_world_active", "sm_world_visible", "sm_world_selectable",
-                                      "sm_world_physics", "sm_world_spawns", "sm_world_locked",
-                                      "sm_world_drag"};
-static const char *sm_cell_ids[4]  = {"sm_cell_solid", "sm_cell_walkable", "sm_cell_hazard",
-                                      "sm_cell_spawn"};
-
 // Look up an element by id in the loaded tree, logging (and tolerating) a miss. The Refresh*
 // helpers null-guard every pointer, so a missing id degrades to an inert field, not a crash.
 static UIElement *StateManager_Find(UIElement *root, const char *id)
@@ -1270,48 +854,13 @@ static UIElement *StateManager_Find(UIElement *root, const char *id)
     return element;
 }
 
-// Wire a family of flag buttons acquired from the loaded tree: store the element into each
-// buttons[i].button, attach the C click handler + user_data, and re-attach the query SOURCE
-// Binding (keyed on the flag bit) so the generic refresh walk composes "<label>: ON/OFF".
-// Reproduces CreateFlagButtons' wiring verbatim, now on id-acquired buttons.
-static void StateManager_WireFlags(UIElement *root, StateManagerFlagButton *buttons,
-                                   const char **ids, size_t count,
-                                   FlagFamily family)
-{
-    for (size_t i = 0; i < count; i++)
-    {
-        buttons[i].family = family;
-        buttons[i].button = StateManager_Find(root, ids[i]);
-        if (buttons[i].button)
-        {
-            buttons[i].button->on_click  = HandleFlagClick;
-            buttons[i].button->interaction_user_data = (void *)&buttons[i];
-
-            // Query SOURCE restores the "<label>: ON/OFF" display (sink stays NONE; the handler
-            // owns the write path).
-            Binding b = {
-                .source = { .kind = BIND_SRC_QUERY, .value_type = BIND_INT,
-                            .query = StateManager_QueryFlag,
-                            .query_key = STATE_MANAGER_FLAG_KEY(family, buttons[i].flag) },
-            };
-            buttons[i].button->data.button.binding = Binding_Create(b);
-        }
-    }
-}
-
 // Re-acquire every UIElement* the per-frame C refresh and the C click handlers need, from the
 // loaded tree, and wire the C-owned clicks (flags / component toggles / DELETE). Any id that
 // fails to resolve is logged and left NULL; the Refresh* helpers null-guard every pointer.
 static void StateManager_RegisterElements(UIElement *root)
 {
-    // --- Header (title / sub-line / tint box), kind chips, tab row, per-kind views, note ---
-    s_sm_ui.header_box   = StateManager_Find(root, "entity_header");
-    s_sm_ui.header_title = StateManager_Find(root, "sm_header_title");
-    s_sm_ui.header_sub   = StateManager_Find(root, "sm_header_sub");
-    if (s_sm_ui.header_box)
-    {
-        s_sm_header_default_fill = s_sm_ui.header_box->colour_fill; // restored when untinted
-    }
+    // --- Header (title / sub-line / tint box), tab row and the multi-select note ---
+    PanelShared_HeaderBind(&s_sm_ui.header, root, "entity_header", "sm_header_title", "sm_header_sub");
     s_sm_ui.values_note = StateManager_Find(root, "sm_values_note");
     if (s_sm_ui.values_note)
     {
@@ -1319,24 +868,7 @@ static void StateManager_RegisterElements(UIElement *root)
         snprintf(s_sm_ui.values_note->data.textbox.text.string,
                  sizeof(s_sm_ui.values_note->data.textbox.text.string), "values: primary only");
     }
-    if (s_sm_ui.header_title)
-    {
-        // Titles use FONT_LARGE; the tint pass re-applies it with the right ink colour.
-        s_sm_ui.header_title->data.textbox.font = FONT_LARGE_WITH_COLOUR(ui_default_palette.text);
-    }
-    s_sm_ui.kind_chips = StateManager_Find(root, "kind_chips");
-    static const char *chip_ids[3] = {"sm_kind_entity", "sm_kind_world", "sm_kind_cell"};
-    for (int i = 0; i < 3; i++)
-    {
-        s_sm_ui.kind_chip[i] = StateManager_Find(root, chip_ids[i]);
-        if (s_sm_ui.kind_chip[i])
-        {
-            s_sm_ui.kind_chip[i]->on_click = HandleKindChipClick;
-            s_sm_ui.kind_chip[i]->interaction_user_data = (void *)&s_sm_chip_kinds[i];
-        }
-    }
     s_sm_ui.tab_container = StateManager_Find(root, "state_manager_views");
-
     // --- Physics / geometry / gameplay textboxes (ALL re-acquired in Stage 1) ---
     s_sm_ui.mass_tbox                 = StateManager_Find(root, "sm_mass");
     s_sm_ui.restitution_tbox          = StateManager_Find(root, "sm_restitution");
@@ -1418,53 +950,6 @@ static void StateManager_RegisterElements(UIElement *root)
         s_sm_ui.comp_relation_active_str = &s_sm_ui.comp_relation_active_tbox->data.textbox.text;
     }
 
-    // --- WORLD physics textboxes ---
-    s_sm_ui.world_restitution_tbox = StateManager_Find(root, "sm_world_restitution");
-    s_sm_ui.world_friction_tbox    = StateManager_Find(root, "sm_world_friction");
-
-    // --- CELL string readouts (acquire the owning textbox, then its inline display String64) ---
-    UIElement *cell_index_tbox = StateManager_Find(root, "sm_cell_index");
-    if (cell_index_tbox)
-    {
-        s_sm_ui.cell_id_str = &cell_index_tbox->data.textbox.text;
-    }
-    UIElement *cell_occu_tbox = StateManager_Find(root, "sm_cell_occu");
-    if (cell_occu_tbox)
-    {
-        s_sm_ui.cell_occu_str = &cell_occu_tbox->data.textbox.text;
-    }
-    UIElement *cell_value_tbox = StateManager_Find(root, "sm_cell_value");
-    if (cell_value_tbox)
-    {
-        s_sm_ui.cell_value_str = &cell_value_tbox->data.textbox.text;
-    }
-    UIElement *cell_fill_tbox = StateManager_Find(root, "sm_cell_fill");
-    if (cell_fill_tbox)
-    {
-        s_sm_ui.cell_fill_str = &cell_fill_tbox->data.textbox.text;
-    }
-    UIElement *cell_tile_type_tbox = StateManager_Find(root, "sm_cell_tile_type");
-    if (cell_tile_type_tbox)
-    {
-        s_sm_ui.cell_tile_type_str = &cell_tile_type_tbox->data.textbox.text;
-    }
-
-    // --- Editable cell warp basis (DYNAMIC query/write, like the portal fields; NOT a readonly
-    // readout, so there is no String64 and no RefreshCellView entry — the generic per-frame
-    // binding walk refreshes these). Precision 2 matches the sibling vector2 editable fields. ---
-    s_sm_ui.cell_warp_u_tbox = StateManager_Find(root, "sm_cell_warp_u");
-    if (s_sm_ui.cell_warp_u_tbox)
-    {
-        BindTextboxDynamic(s_sm_ui.cell_warp_u_tbox, BIND_VECTOR2D, 2,
-                           StateManager_QueryCellWarp, StateManager_WriteCellWarp, 0);
-    }
-    s_sm_ui.cell_warp_v_tbox = StateManager_Find(root, "sm_cell_warp_v");
-    if (s_sm_ui.cell_warp_v_tbox)
-    {
-        BindTextboxDynamic(s_sm_ui.cell_warp_v_tbox, BIND_VECTOR2D, 2,
-                           StateManager_QueryCellWarp, StateManager_WriteCellWarp, 1);
-    }
-
     // --- COMP view: Add-component buttons (PORTAL/ROTOR/GEAR/HEALTH only; RELATION/WORLD
     //     excluded). Each carries its EntityComponentType in interaction_user_data so the one
     //     shared HandleComponentAddClick handler serves every button. No query-source Binding:
@@ -1485,7 +970,7 @@ static void StateManager_RegisterElements(UIElement *root)
     // --- COMP view: attached-row slots (name Textbox + Remove button). Each slot is positional;
     //     its EntityComponentType is assigned per refresh. The Remove button carries the slot in
     //     interaction_user_data so the shared HandleComponentRemoveClick reads the live type. The
-    //     name_str caches the Textbox display buffer for imperative relabel (CELL-readout pattern). ---
+    //     name_str caches the Textbox display buffer for imperative relabel (fixed-slot readout pattern). ---
     static const char *comp_row_name_ids[5]   = {"comp_row0_name", "comp_row1_name", "comp_row2_name",
                                                   "comp_row3_name", "comp_row4_name"};
     static const char *comp_row_remove_ids[5] = {"comp_row0_remove", "comp_row1_remove", "comp_row2_remove",
@@ -1509,22 +994,17 @@ static void StateManager_RegisterElements(UIElement *root)
     }
 
     // --- Flag buttons: acquire + wire handler + user_data + query SOURCE per family ---
-    StateManager_WireFlags(root, s_sm_flags.entity_role,         sm_role_ids,   5, FLAG_FAMILY_ROLE);
-    StateManager_WireFlags(root, s_sm_flags.entity_capability,   sm_cap_ids,    4, FLAG_FAMILY_CAPABILITY);
-    StateManager_WireFlags(root, s_sm_flags.entity_constraint,   sm_con_ids,    2, FLAG_FAMILY_CONSTRAINT);
-    StateManager_WireFlags(root, s_sm_flags.entity_status,       sm_status_ids, 3, FLAG_FAMILY_STATUS);
-    StateManager_WireFlags(root, s_sm_flags.collision_role_mask, sm_coll_ids,   5, FLAG_FAMILY_COLLISION_MASK);
-    StateManager_WireFlags(root, s_sm_flags.world,               sm_world_ids,  7, FLAG_FAMILY_WORLD);
-    StateManager_WireFlags(root, s_sm_flags.cell,                sm_cell_ids,   4, FLAG_FAMILY_CELL);
+    PanelShared_WireFlags(root, s_sm_flags.entity_role,         sm_role_ids,   5, FLAG_FAMILY_ROLE);
+    PanelShared_WireFlags(root, s_sm_flags.entity_capability,   sm_cap_ids,    4, FLAG_FAMILY_CAPABILITY);
+    PanelShared_WireFlags(root, s_sm_flags.entity_constraint,   sm_con_ids,    2, FLAG_FAMILY_CONSTRAINT);
+    PanelShared_WireFlags(root, s_sm_flags.entity_status,       sm_status_ids, 3, FLAG_FAMILY_STATUS);
+    PanelShared_WireFlags(root, s_sm_flags.collision_role_mask, sm_coll_ids,   5, FLAG_FAMILY_COLLISION_MASK);
 
-    // --- DELETE: C-wired (deferred, world-guarded delete); no action= in the XML ---
-    s_sm_ui.delete_action = BUTTON_ACTION_DELETE_ENTITY;
-    UIElement *del = StateManager_Find(root, "sm_delete");
-    s_sm_ui.delete_button = del;
-    if (del)
+    // --- DELETE: C-wired (deferred command-queue delete of the primary entity); no action= in the XML ---
+    s_sm_ui.delete_button = StateManager_Find(root, "sm_delete");
+    if (s_sm_ui.delete_button)
     {
-        del->on_click  = HandleBtnSubmitClick;
-        del->interaction_user_data = &s_sm_ui.delete_action;
+        s_sm_ui.delete_button->on_click = HandleEntityDeleteClick;
     }
 
     // --- GEOMETRY view: vertex-count readout + fixed vertex-row pool. The row ids are a dense
@@ -1700,77 +1180,16 @@ static void RefreshPhysView(Newtonoid2d *object)
 // (The ATTRI view needs no refresh function: its flag-button ON/OFF labels are driven entirely by
 // the generic refresh walk via each button's query-source Binding.)
 
-// Refresh the WORLD view: world physics material properties and world status flags.
-static void RefreshWorldView(const World2d *world)
-{
-    // World material values belong to the boundary Newtonoid used by container collision response.
-    TextboxField world_physics_fields[] = {
-        {s_sm_ui.world_restitution_tbox, FLOAT,
-         world ? (void *)&world->grid_space.object.restitution : NULL, 2, "N/A"},
-        {s_sm_ui.world_friction_tbox, FLOAT,
-         world ? (void *)&world->grid_space.object.friction : NULL, 2, "N/A"},
-    };
-    RefreshTextboxFields(world_physics_fields, ARRAY_COUNT(world_physics_fields));
-
-    // World flag ON/OFF labels are driven by the generic refresh walk via each button's
-    // query-source Binding.
-}
-
-// Refresh the CELL view: grid cell state string readouts and cell behaviour flags.
-static void RefreshCellView(const Cell *selected_cell, int selected_cell_occupancy)
-{
-    if (selected_cell)
-    {
-        int index = UIState_GetSelectedCellIndex();
-        int occupancy = selected_cell_occupancy;
-        float value = selected_cell->value;
-        float fill = 0.0f;
-
-        if (s_sm_ui.cell_id_str)
-        {
-            UpdateString64(s_sm_ui.cell_id_str->string, "%d", index);
-        }
-        if (s_sm_ui.cell_occu_str)
-        {
-            UpdateString64(s_sm_ui.cell_occu_str->string, "%d", occupancy);
-        }
-        if (s_sm_ui.cell_value_str)
-        {
-            UpdateString64(s_sm_ui.cell_value_str->string, "%0.1f", value);
-        }
-        if (s_sm_ui.cell_fill_str)
-        {
-            UpdateString64(s_sm_ui.cell_fill_str->string, "%0.1f", fill);
-        }
-        // Read-only tile_type readout: show the selected cell's authored tile type directly.
-        if (s_sm_ui.cell_tile_type_str)
-        {
-            UpdateString64(s_sm_ui.cell_tile_type_str->string, "%d", selected_cell->tile_type);
-        }
-    }
-    else
-    {
-        ClearString64(s_sm_ui.cell_id_str);
-        ClearString64(s_sm_ui.cell_occu_str);
-        ClearString64(s_sm_ui.cell_value_str);
-        ClearString64(s_sm_ui.cell_fill_str);
-        ClearString64(s_sm_ui.cell_tile_type_str);
-    }
-
-    // Cell flag ON/OFF labels are driven by the generic refresh walk via each button's
-    // query-source Binding.
-}
-
 // Refresh the COMP view (Phase 1: attach/remove only): rebuild the fixed Attached-row slots and
 // the Add-button visibility to mirror the selected entity's attached component set.
 //  * Attached section: one row per attached component in {PORTAL, ROTOR, GEAR, RELATION, HEALTH}
 //    (WORLD is a world-node tag and is never iterated). Each used slot is relabelled imperatively
-//    (binding-less, like the CELL readouts) and its type assigned so the shared Remove handler
+//    (binding-less, like the other fixed-slot readouts) and its type assigned so the shared Remove handler
 //    detaches the right component; unused slots are blanked and disabled.
 //  * Add section: one fixed button per addable type (PORTAL/ROTOR/GEAR/HEALTH); each is enabled
 //    only when the selection is valid and does NOT already have that component.
-// When no plain entity is selected (object == NULL, which also covers a world/cell primary since
-// UIState_GetSelectedObject() returns NULL for those), every slot is disabled: nothing actionable.
+// When no plain entity is selected (object == NULL, which also covers a selection with no entity since
+// StateManager_SelectedObject() returns NULL), every slot is disabled: nothing actionable.
 static void RefreshComponentsView(const Newtonoid2d *object)
 {
     bool is_valid = (object != NULL && object->id != INVALID_ENTITY_ID);
@@ -1784,7 +1203,7 @@ static void RefreshComponentsView(const Newtonoid2d *object)
     if (is_valid)
     {
         EntityDescription desc = EntityRegistry_Describe(object);
-        bool multi = SelectionSet_Count() > 1;
+        bool multi = PanelShared_CountKind(TARGET_KIND_ENTITY) > 1;
         for (size_t t = 0; t < ARRAY_COUNT(attached_types) && row < ARRAY_COUNT(s_sm_ui.attached_rows); t++)
         {
             EntityComponentType type = attached_types[t];
@@ -1860,7 +1279,7 @@ static void RefreshComponentsView(const Newtonoid2d *object)
         bool offer = false;
         if (is_valid)
         {
-            if (SelectionSet_Count() > 1)
+            if (PanelShared_CountKind(TARGET_KIND_ENTITY) > 1)
             {
                 FlagTally tally = StateManager_TallyComponent(s_sm_ui.add_buttons[i].type);
                 offer = tally.on < tally.applicable;
@@ -1941,15 +1360,13 @@ static void RefreshGeometryView(const Newtonoid2d *object)
 }
 
 // ============================================================================
-// Selection-driven layout (header tint, kind chips, per-kind views, field lock)
+// Selection-driven layout (header tint, tab row, per-entity views, field lock)
 // ============================================================================
-// The primary selection's kind decides which views exist: ENTITY gets the five-tab row, WORLD and
-// CELL get one tab-less view. Chips (multi-select only) promote the last member of a kind to
-// primary, so "active kind" is always "kind of primary" and views, field readouts and the legacy
-// UIState_GetSelected* mirrors agree by construction.
+// The panel shows the ENTITY members of the SelectionSet only (worlds and cells are edited in the
+// World Manager). One entity gets the five-tab row; several get a bulk-edit layout with the
+// single-entity tabs hidden; none gets an empty view area. The panel never modifies the set.
 
-// View indices in markup order. 0..4 are the entity tabs (option index == view index, which the
-// selector relies on); WORLD and CELL are reached only by selection.
+// View indices in markup order; option index == view index, which the selector relies on.
 enum
 {
     SM_VIEW_PHYS = 0,
@@ -1957,8 +1374,6 @@ enum
     SM_VIEW_COMP,
     SM_VIEW_SHAPE,
     SM_VIEW_TREE,
-    SM_VIEW_WORLD,
-    SM_VIEW_CELL,
 };
 
 // Selector callback. Runs for user tab clicks (and the layout's own SelectView, which restores the
@@ -1973,265 +1388,99 @@ static void StateManager_OnViewSelected(View *view)
     }
 }
 
-// Click a kind chip: make the last member of that kind the primary (remove then re-add moves it to
-// the end of the set), then re-derive the single-valued primary fields and refresh the panel.
-static void HandleKindChipClick(UIElement *chip)
-{
-    if (!chip || !chip->interaction_user_data)
-    {
-        return;
-    }
-
-    TargetKind kind = *(const TargetKind *)chip->interaction_user_data;
-    if (SelectionSet_Primary().kind == kind)
-    {
-        return; // Already the edited kind.
-    }
-
-    TargetRef last = { .kind = TARGET_KIND_NONE };
-    int count = SelectionSet_Count();
-    for (int i = 0; i < count; i++)
-    {
-        TargetRef ref;
-        if (SelectionSet_Get(i, &ref) && ref.kind == kind)
-        {
-            last = ref;
-        }
-    }
-    if (last.kind == TARGET_KIND_NONE)
-    {
-        return;
-    }
-
-    SelectionSet_Remove(last);
-    SelectionSet_Add(last);
-    UIState_SyncPrimaryFieldsFromSet();
-    MarkStateManagerRefreshDirty();
-}
-
-// Show exactly one of the panel's views by index (used for the WORLD / CELL views, which have no
-// tab). Mirrors the host's own single-view activation.
-static void StateManager_ShowOnlyView(int view_index)
-{
-    for (int i = 0; i < state_manager_panel->views.count; i++)
-    {
-        View *view = *((View **)LArray_Get(&state_manager_panel->views, i));
-        if (!view || !view->container)
-        {
-            continue;
-        }
-        SetEnabledState(view->container, i == view_index);
-        if (i == view_index)
-        {
-            ViewHostSystem_HandleViewSelected(view);
-        }
-    }
-}
-
-// Tint (or restore) the header box with existing palette colours: amber button_fill when
-// several targets are selected, otherwise the default section fill. Only the fill swaps; the
-// ink is the dark text colour in both states (dark reads on both amber and the section fill)
-// and the coral section border is kept.
-static void StateManager_SetHeaderTint(bool tinted)
-{
-    if (!s_sm_ui.header_box)
-    {
-        return;
-    }
-
-    ColourRgba ink = ui_default_palette.text;
-    s_sm_ui.header_box->colour_fill = tinted ? ui_default_palette.button_fill : s_sm_header_default_fill;
-    if (s_sm_ui.header_title)
-    {
-        s_sm_ui.header_title->data.textbox.font = FONT_LARGE_WITH_COLOUR(ink);
-    }
-    if (s_sm_ui.header_sub)
-    {
-        s_sm_ui.header_sub->data.textbox.font = FONT_MEDIUM_WITH_COLOUR(ink);
-    }
-}
-
-// Lock (read-only) or unlock the single-valued editable fields. Value edits are not bulk-editable
-// yet, so in multi-select they show the primary's values and ignore input. IsEditableTextbox is
-// the single choke point for input, and it keys on the element type, so swapping SAFE_IO <-> O
-// is enough. Only acts when the state flips.
-static void StateManager_SetFieldsLocked(bool locked)
-{
-    if (locked == s_sm_fields_locked)
-    {
-        return;
-    }
-    s_sm_fields_locked = locked;
-
-    UIElement *fields[] = {
-        s_sm_ui.mass_tbox, s_sm_ui.restitution_tbox, s_sm_ui.friction_tbox, s_sm_ui.pos_c_tbox,
-        s_sm_ui.vel_tbox, s_sm_ui.accel_tbox, s_sm_ui.moment_tbox, s_sm_ui.angular_velocity_tbox,
-        s_sm_ui.rotation_tbox, s_sm_ui.basis_u_tbox, s_sm_ui.basis_v_tbox,
-        s_sm_ui.health_tbox, s_sm_ui.max_health_tbox, s_sm_ui.damage_tbox,
-        s_sm_ui.comp_portal_cooldown_tbox, s_sm_ui.comp_portal_target_tbox,
-        s_sm_ui.world_restitution_tbox, s_sm_ui.world_friction_tbox,
-        s_sm_ui.cell_warp_u_tbox, s_sm_ui.cell_warp_v_tbox,
-    };
-    for (size_t i = 0; i < ARRAY_COUNT(fields); i++)
-    {
-        if (fields[i])
-        {
-            fields[i]->type = locked ? UI_ELEMENT_TEXTBOX_O : UI_ELEMENT_TEXTBOX_SAFE_IO;
-        }
-    }
-
-    // Drop focus and any pending edit so a half-typed value cannot commit into a locked field.
-    if (locked)
-    {
-        ResetUIInputState();
-    }
-}
-
-// Set a button's authored and drawn text together (the chips and DELETE carry no binding).
-static void StateManager_SetButtonText(UIElement *button, const char *text)
-{
-    if (!button)
-    {
-        return;
-    }
-    snprintf(button->data.button.text.string, sizeof(button->data.button.text.string), "%s", text);
-    snprintf(button->data.button.display_text.string, sizeof(button->data.button.display_text.string), "%s", text);
-}
-
-// Apply everything the selection decides: header tint, kind chips, tab row and shown view, the
+// Apply everything the entity selection decides: header tint, tab row and shown view, the
 // multi-select field lock and note, and the DELETE label. Called at the top of every refresh.
-static void StateManager_ApplyKindLayout(void)
+static void StateManager_ApplyLayout(void)
 {
     if (!state_manager_panel || !s_sm_selector || s_sm_selector->count <= SM_VIEW_TREE)
     {
         return;
     }
 
-    int count = SelectionSet_Count();
-    TargetRef primary = SelectionSet_Primary();
-    TargetKind kind = (count > 0) ? primary.kind : TARGET_KIND_NONE;
-    bool multi = count > 1;
+    int entity_count = PanelShared_CountKind(TARGET_KIND_ENTITY);
+    bool has_entity = entity_count > 0;
+    bool multi = entity_count > 1;
 
-    // Tally the members per kind (one pass, no allocation).
-    int kind_count[4] = {0};
-    for (int i = 0; i < count; i++)
-    {
-        TargetRef ref;
-        if (SelectionSet_Get(i, &ref) && ref.kind >= TARGET_KIND_ENTITY && ref.kind <= TARGET_KIND_CELL)
-        {
-            kind_count[ref.kind]++;
-        }
-    }
+    // Header tint: amber while several entities are being edited together.
+    PanelShared_HeaderSetTint(&s_sm_ui.header, multi);
 
-    // Header tint.
-    StateManager_SetHeaderTint(multi);
-
-    // Kind chips: the row is shown only in multi-select; a chip only when its kind is present.
-    if (s_sm_ui.kind_chips)
-    {
-        SetEnabledState(s_sm_ui.kind_chips, multi);
-    }
-    static const char *chip_names[3] = { "ENTITIES", "WORLDS", "CELLS" };
-    for (int i = 0; i < 3; i++)
-    {
-        UIElement *chip = s_sm_ui.kind_chip[i];
-        if (!chip)
-        {
-            continue;
-        }
-        char label[32];
-        snprintf(label, sizeof(label), "%s %d", chip_names[i], kind_count[s_sm_chip_kinds[i]]);
-        StateManager_SetButtonText(chip, label);
-        SetEnabledState(chip, kind_count[s_sm_chip_kinds[i]] > 0);
-
-        // Chips share the tab/toggle two-state colours: active = amber + dark ink,
-        // inactive = toggle_off_fill + light ink.
-        bool active = (s_sm_chip_kinds[i] == kind);
-        UIPalette_GetToggleColours(&ui_default_palette, active,
-                                   &chip->colour_fill, &chip->data.button.font.colour);
-    }
-
-    // Tab row: only entity selections (including nothing selected) have tabs. In multi-select the
-    // SHAPE and TREE tabs are hidden (single-entity views).
-    bool single_view_kind = (kind == TARGET_KIND_WORLD || kind == TARGET_KIND_CELL);
+    // Tab row: hidden when no entity is selected. In multi-select the SHAPE and TREE tabs are hidden
+    // (single-entity views).
     if (s_sm_ui.tab_container)
     {
-        SetEnabledState(s_sm_ui.tab_container, !single_view_kind);
+        SetEnabledState(s_sm_ui.tab_container, has_entity);
     }
     SetEnabledState(s_sm_selector->buttons[SM_VIEW_SHAPE], !multi);
     SetEnabledState(s_sm_selector->buttons[SM_VIEW_TREE], !multi);
 
-    // Shown view.
-    int desired = s_sm_entity_tab;
-    if (kind == TARGET_KIND_WORLD)
+    // Shown view: the remembered tab, clamped to the bulk-capable tabs in multi-select, or none at all.
+    int desired = SM_SHOWN_NONE;
+    if (has_entity)
     {
-        desired = SM_VIEW_WORLD;
-    }
-    else if (kind == TARGET_KIND_CELL)
-    {
-        desired = SM_VIEW_CELL;
-    }
-    else if (multi && desired > SM_VIEW_COMP)
-    {
-        desired = SM_VIEW_PHYS;
+        desired = s_sm_entity_tab;
+        if (multi && desired > SM_VIEW_COMP)
+        {
+            desired = SM_VIEW_PHYS;
+        }
     }
     if (desired != s_sm_shown_view)
     {
-        if (desired <= SM_VIEW_TREE)
+        if (desired == SM_SHOWN_NONE)
+        {
+            PanelShared_ShowOnlyView(state_manager_panel, -1);
+        }
+        else
         {
             // SelectView fires the callback, which would overwrite the remembered tab; keep it.
             int remembered_tab = s_sm_entity_tab;
             ViewHostSystem_SelectView(s_sm_selector, (size_t)desired);
             s_sm_entity_tab = remembered_tab;
         }
-        else
-        {
-            StateManager_ShowOnlyView(desired);
-        }
         s_sm_shown_view = desired;
     }
 
     // Value fields are read-only in multi-select; the PHYS note says so.
-    StateManager_SetFieldsLocked(multi);
+    UIElement *fields[] = {
+        s_sm_ui.mass_tbox, s_sm_ui.restitution_tbox, s_sm_ui.friction_tbox, s_sm_ui.pos_c_tbox,
+        s_sm_ui.vel_tbox, s_sm_ui.accel_tbox, s_sm_ui.moment_tbox, s_sm_ui.angular_velocity_tbox,
+        s_sm_ui.rotation_tbox, s_sm_ui.basis_u_tbox, s_sm_ui.basis_v_tbox,
+        s_sm_ui.health_tbox, s_sm_ui.max_health_tbox, s_sm_ui.damage_tbox,
+        s_sm_ui.comp_portal_cooldown_tbox, s_sm_ui.comp_portal_target_tbox,
+    };
+    PanelShared_SetFieldsLocked(fields, ARRAY_COUNT(fields), &s_sm_fields_locked, multi);
     if (s_sm_ui.values_note)
     {
         SetEnabledState(s_sm_ui.values_note, multi);
     }
 
-    // DELETE acts on the primary entity only (HandleBtnSubmitClick), so the multi-select label says
-    // so; a non-entity primary has nothing to delete here, so the button is hidden.
+    // DELETE acts on the primary entity only, so the multi-select label says so.
     if (s_sm_ui.delete_button)
     {
-        if (multi && kind == TARGET_KIND_ENTITY)
+        TargetRef primary;
+        if (multi && PanelShared_PrimaryOfKind(TARGET_KIND_ENTITY, &primary))
         {
             char label[32];
             snprintf(label, sizeof(label), "DELETE PRIMARY #%d", (int)primary.as.entity);
-            StateManager_SetButtonText(s_sm_ui.delete_button, label);
+            PanelShared_SetButtonText(s_sm_ui.delete_button, label);
         }
         else
         {
-            StateManager_SetButtonText(s_sm_ui.delete_button, "DELETE");
+            PanelShared_SetButtonText(s_sm_ui.delete_button, "DELETE");
         }
-        SetEnabledState(s_sm_ui.delete_button, !(multi && kind != TARGET_KIND_ENTITY));
     }
 }
 
-// Push the selected object, world, cell, and capability state into the UI views.
+// Push the primary selected entity and its capability state into the UI views.
 void UpdateStateManagerSelectedObject(void)
 {
-    StateManager_ApplyKindLayout();
+    StateManager_ApplyLayout();
 
-    Newtonoid2d *object = UIState_GetSelectedObject();
-    World2d *world = Universe_GetSelectedWorld(&G_Universe);
-    Cell *cell = UIState_GetSelectedCell();
+    Newtonoid2d *object = StateManager_SelectedObject();
 
     RefreshPhysView(object);
-    RefreshWorldView(world);
-    RefreshCellView(cell, UIState_GetSelectedCellOccupancy());
     RefreshComponentsView(object);
     RefreshGeometryView(object);
 }
-
 // ============================================================================
 // Module Lifecycle
 // ============================================================================
@@ -2296,7 +1545,7 @@ void InitStateManagerSystem(void)
         UILoader_BuildSelectorFromMarkup(state_manager_panel, StateManager_OnViewSelected);
     s_sm_selector = view_selector;
     s_sm_entity_tab = 0;
-    s_sm_shown_view = -1;
+    s_sm_shown_view = SM_SHOWN_UNKNOWN;
 
     // 6) Honour initial-view="phys_view" (fall back to the first view).
     if (view_selector)
@@ -2347,59 +1596,19 @@ void DrawStateManagerSystem(void)
 {
     if (state_manager_panel)
     {
-        Newtonoid2d *object = UIState_GetSelectedObject();
+        Newtonoid2d *object = StateManager_SelectedObject();
 
-        // The CELL readouts are push-refreshed by RefreshCellView, but cell selection now flows
-        // through the central SelectionSet (CommitClickSelection -> SelectionSet_Add), which does
-        // NOT go through UIState_SetSelection, so the selection-changed callback never fires for a
-        // cell-to-cell change and the readouts would stay stale. Detect a change in the selected
-        // cell here by its canonical identity (owning world index + cell index; both -1 when no
-        // cell is selected) and mark dirty so the readouts refresh. Using the (world,cell) pair
-        // rather than cell index alone avoids missing a change between same-index cells in
-        // different worlds. The warp fields are unaffected either way (per-frame dynamic queries).
-        static int last_cell_world = -2;  // -2: never evaluated; -1: no cell selected.
-        static int last_cell_lx = -2;
-        static int last_cell_ly = -2;
-        static int last_cell_index = -2;
-        TargetRef primary = SelectionSet_Primary();
-        int current_cell_world = (primary.kind == TARGET_KIND_CELL) ? primary.as.cell.world_index : -1;
-        int current_cell_lx = (primary.kind == TARGET_KIND_CELL) ? primary.as.cell.lattice_x : -1;
-        int current_cell_ly = (primary.kind == TARGET_KIND_CELL) ? primary.as.cell.lattice_y : -1;
-        // The cell is now identified by (world, lattice x/y); the LIVE dense index is also tracked because
-        // it is shown in the panel and is renumbered when the world grows on the left/top.
-        int current_cell_index = (primary.kind == TARGET_KIND_CELL) ? UIState_GetSelectedCellIndex() : -1;
-        if (current_cell_world != last_cell_world || current_cell_lx != last_cell_lx ||
-            current_cell_ly != last_cell_ly || current_cell_index != last_cell_index)
+        // The layout (tabs, field lock, DELETE label) is a function of how many entities are selected
+        // and which one is primary. SelectionSet_Add does not fire the selection callback, so detect
+        // those changes here and mark dirty.
+        static int last_entity_count = -1;
+        static EntityId last_primary_entity = INVALID_ENTITY_ID;
+        int entity_count = PanelShared_CountKind(TARGET_KIND_ENTITY);
+        EntityId primary_entity = object ? object->id : INVALID_ENTITY_ID;
+        if (entity_count != last_entity_count || primary_entity != last_primary_entity)
         {
-            last_cell_world = current_cell_world;
-            last_cell_lx = current_cell_lx;
-            last_cell_ly = current_cell_ly;
-            last_cell_index = current_cell_index;
-            MarkStateManagerRefreshDirty();
-        }
-
-        // The layout (tabs, chips, field lock, DELETE label) is a function of the set's size, its
-        // per-kind counts and the primary's kind. SelectionSet_Add does not fire the selection
-        // callback, so detect those changes here and mark dirty (same approach as the cell case).
-        static int last_set_count = -1;
-        static int last_primary_kind = -1;
-        static int last_kind_counts[4] = {-1, -1, -1, -1};
-        int set_count = SelectionSet_Count();
-        int kind_counts[4] = {0};
-        for (int i = 0; i < set_count; i++)
-        {
-            TargetRef member;
-            if (SelectionSet_Get(i, &member) && member.kind >= TARGET_KIND_ENTITY && member.kind <= TARGET_KIND_CELL)
-            {
-                kind_counts[member.kind]++;
-            }
-        }
-        if (set_count != last_set_count || (int)primary.kind != last_primary_kind ||
-            memcmp(kind_counts, last_kind_counts, sizeof(kind_counts)) != 0)
-        {
-            last_set_count = set_count;
-            last_primary_kind = (int)primary.kind;
-            memcpy(last_kind_counts, kind_counts, sizeof(kind_counts));
+            last_entity_count = entity_count;
+            last_primary_entity = primary_entity;
             MarkStateManagerRefreshDirty();
         }
 
@@ -2419,7 +1628,7 @@ UIElement *GetStateManagerRoot(void)
 }
 
 // Reset all button element references across a flag array.
-static void ResetFlagButtons(StateManagerFlagButton *buttons, size_t count)
+static void ResetFlagButtons(FlagButton *buttons, size_t count)
 {
     for (size_t i = 0; i < count; i++)
     {
@@ -2442,11 +1651,9 @@ void DestroyStateManagerSystem(void)
     ResetFlagButtons(s_sm_flags.entity_constraint, ARRAY_COUNT(s_sm_flags.entity_constraint));
     ResetFlagButtons(s_sm_flags.entity_status, ARRAY_COUNT(s_sm_flags.entity_status));
     ResetFlagButtons(s_sm_flags.collision_role_mask, ARRAY_COUNT(s_sm_flags.collision_role_mask));
-    ResetFlagButtons(s_sm_flags.world, ARRAY_COUNT(s_sm_flags.world));
-    ResetFlagButtons(s_sm_flags.cell, ARRAY_COUNT(s_sm_flags.cell));
     memset(&s_sm_ui, 0, sizeof(s_sm_ui));
     s_sm_selector = NULL; // Freed by ViewHostSystem_Destroy with the panel.
     s_sm_entity_tab = 0;
-    s_sm_shown_view = -1;
+    s_sm_shown_view = SM_SHOWN_UNKNOWN;
     s_sm_fields_locked = false;
 }

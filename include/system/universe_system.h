@@ -22,14 +22,13 @@ InputRouteResult UpdateUniverseSystem(const InputFrame *input, InputRouteResult 
 void UpdateUniverseInput(const InputFrame *input, bool cursor_in_game_viewport);
 void DrawUniverse(void);
 
-int CreateNewWorld(bool auto_select);
-int CreateNewWorld_Preset(bool auto_select, CoordinateSpacePreset preset);
-bool SelectWorldByIndex(int index);
-bool IsCreateWorldAutoSelectEnabled(void);
+// Create a world; when `select` is true the new world replaces the selection (becoming the context world).
+int CreateNewWorld(bool select);
+int CreateNewWorld_Preset(bool select, CoordinateSpacePreset preset);
 
+// Enqueue deletes for world indices in descending order (sorts `indices` in place); returns the number enqueued.
+int EnqueueDeleteWorldsDescending(int *indices, int count);
 int GetWorldCount(void);
-int GetSelectedWorldIndex(void);
-World2d *GetSelectedWorld(void);
 World2d *GetWorldByIndex(int index);
 
 Vector2d *GetNextWorldSpawnOriginPtr(void);

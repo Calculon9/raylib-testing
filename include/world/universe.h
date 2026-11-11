@@ -39,7 +39,6 @@ typedef struct Universe
     // World container
     World2d worlds[UNIVERSE_MAX_WORLDS];
     int world_count;
-    int selected_world_index;
     World2d root_world; // Spans the whole universe; holds objects not owned by any nested world.
 
     // Universe-space camera (operates in world-local units)
@@ -72,11 +71,7 @@ void Universe_Init(Universe *u, Vector2d default_spawn, Vector2d default_new_wor
 
 // Create a new world using the universe creation params; returns its index or -1 on failure.
 int Universe_CreateWorld(Universe *u, ColourRgba fill_colour, ColourRgba line_colour,
-                         ColourRgba camera_marker_colour, Vector2d world_center_in_universe,
-                         bool auto_select);
-
-// Select a world by index.
-bool Universe_SelectWorld(Universe *u, int index);
+                         ColourRgba camera_marker_colour, Vector2d world_center_in_universe);
 
 // Delete a world by index and return whether the deletion succeeded.
 bool Universe_DeleteWorld(Universe *u, int index);
@@ -115,10 +110,6 @@ bool Universe_SetWorldBasis(Universe *u, int index, Vector2d basis_u, Vector2d b
 // Draw all worlds at their universe positions.
 void Universe_Draw(Universe *u);
 
-// Check whether a universe-space click lands in a world and auto-select it when needed.
-// Returns true when any world was hit. local_out receives local coords in that world.
-bool Universe_ResolveClick(Universe *u,Vector2d universe_click, Vector2d *local_out);
-
 // Find the world index at a universe-space point, or -1 if none.
 int Universe_FindWorldAt(const Universe *u, Vector2d universe_point);
 
@@ -138,8 +129,6 @@ Camera2d *Universe_GetCamera(Universe *u);
 
 // --- Accessors ---
 int Universe_GetWorldCount(const Universe *u);
-int Universe_GetSelectedIndex(const Universe *u);
-World2d *Universe_GetSelectedWorld(Universe *u);
 // Resolves nested world indices (0..world_count-1) and UNIVERSE_ROOT_WORLD_INDEX.
 World2d *Universe_GetWorld(Universe *u, int index);
 
