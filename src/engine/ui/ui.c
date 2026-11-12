@@ -795,35 +795,71 @@ static void DistributeChildrenStacked(UIElement *parent, Vector2d content_area_l
     }
 }
 
+// Width a non-FILL inline child advances the cursor by (percent / hug / fixed).
+static float ResolveInlineChildWidth(const UIElement *child, float content_width)
+{
+    switch (child->size.width_mode)
+    {
+    case AXIS_PERCENT:
+        return content_width * child->size.dimensions.x;
+    case AXIS_HUG:
+        return child->measured_content_size.x;
+    case AXIS_FIXED:
+    case AXIS_FILL:
+    default:
+        return child->size.dimensions.x;
+    }
+}
+
+// Lay children out left to right. Children with width_mode AXIS_FILL share the row width left
+// over after the non-FILL children and the gaps (equal shares), so a "fill" caption beside a
+// fixed action button leaves the button flush right. The share is cached on the child for
+// ResolveElementBox; with no FILL child nothing changes from the plain cursor advance.
 static void DistributeChildrenInline(UIElement *parent, Vector2d content_area_local, Vector2d gap_step_fixed)
 {
-    float cursor_x = 0.0f;
+    // PASS 1: total the fixed-extent children, count the FILL children and the enabled children.
+    int child_count = 0;
+    int fill_count = 0;
+    float non_fill_width = 0.0f;
+    ForEachEnabledChild(parent, child)
+    {
+        child_count++;
+        if (child->size.width_mode == AXIS_FILL)
+        {
+            fill_count++;
+        }
+        else
+        {
+            non_fill_width += ResolveInlineChildWidth(child, content_area_local.x);
+        }
+    }
 
+    float fill_width = 0.0f;
+    if (fill_count > 0)
+    {
+        float gaps = gap_step_fixed.x * (float)(child_count - 1);
+        fill_width = fmaxf(0.0f, content_area_local.x - non_fill_width - gaps) / (float)fill_count;
+    }
+
+    // PASS 2: place each child at the running cursor.
+    float cursor_x = 0.0f;
     ForEachEnabledChild(parent, child)
     {
         ApplyFlowCursor(child, (Vector2d){cursor_x, 0.0f}, content_area_local);
 
-        // Width axis only. AXIS_FILL advances by the literal dimensions.x, like AXIS_FIXED (the
-        // old SIZE_FILL result); no live inline-distributed element reaches the FILL case today.
         float child_width;
-        switch (child->size.width_mode)
+        if (child->size.width_mode == AXIS_FILL)
         {
-        case AXIS_PERCENT:
-            child_width = content_area_local.x * child->size.dimensions.x;
-            break;
-        case AXIS_HUG:
-            child_width = child->measured_content_size.x;
-            break;
-        case AXIS_FILL:
-        case AXIS_FIXED:
-        default:
-            child_width = child->size.dimensions.x;
-            break;
+            child->cached_inline_fill_width = fill_width;
+            child_width = fill_width;
+        }
+        else
+        {
+            child_width = ResolveInlineChildWidth(child, content_area_local.x);
         }
         cursor_x += child_width + gap_step_fixed.x;
     }
 }
-
 // Shared wrapping flow. Children fill "lines" along the main axis (x for inline wrap, y for
 // stacked wrap) and start a new line, offset along the cross axis, once the next child would
 // overflow the content area. `stacked` selects the main axis; all the arithmetic below is written
@@ -948,6 +984,7 @@ UIElement *CreateUIElement(UIElementType type, Size size, Offset parent_offset, 
     e->padding = padding;
     e->measured_content_size = ZERO_VECTOR_2D;
     e->cached_stacked_fill_height = 0.0f;
+    e->cached_inline_fill_width = 0.0f;
     e->resolved_offset = parent_offset;
     e->authored_offset = parent_offset;
     e->type = type;
@@ -1355,6 +1392,35 @@ void ScrollUIElementY(UIElement *element, float delta)
     element->scroll_offset.y = fminf(max_scroll, fmaxf(0.0f, element->scroll_offset.y + delta));
 }
 
+// Re-clamp the scroll offset of every enabled scrollable element below (and including) root
+// to its measured content bounds. Views are skipped because View_UpdateScrollBounds owns them.
+// Run after layout each frame so an offset cannot stay stranded past the end when content shrinks.
+void UI_ClampScrollOffsets(UIElement *root)
+{
+    if (!root || !root->is_enabled)
+    {
+        return;
+    }
+
+    if (root->type != UI_ELEMENT_VIEW)
+    {
+        if (root->is_scrollable_x)
+        {
+            float max_scroll = fmaxf(0.0f, root->measured_content_size.x - root->local_box.dimensions.x);
+            root->scroll_offset.x = fminf(max_scroll, fmaxf(0.0f, root->scroll_offset.x));
+        }
+        if (root->is_scrollable_y)
+        {
+            float max_scroll = fmaxf(0.0f, root->measured_content_size.y - root->local_box.dimensions.y);
+            root->scroll_offset.y = fminf(max_scroll, fmaxf(0.0f, root->scroll_offset.y));
+        }
+    }
+
+    ForEachEnabledChild(root, child)
+    {
+        UI_ClampScrollOffsets(child);
+    }
+}
 void SetUIElementTextHorizontalAlignment(UIElement *element, UITextHorizontalAlignment alignment)
 {
     if (!element)
@@ -1635,8 +1701,16 @@ UIBox ResolveElementBox(UIElement *element, UIBox parent_box)
         // Resolve each axis independently. A single FILL axis uses the "remaining" extent
         // (old SIZE_HUG_* path), NOT the stacked-fill override. PERCENT/HUG/FIXED go via
         // ResolveAxisExtent against the content area.
+        // A FILL width inside an inline parent takes the share the parent's distribution cached
+        // (0 means none was cached, so the plain remaining extent applies).
+        float fill_width = remaining_w;
+        if (element->parent && element->parent->child_spacing.flow == FLOW_INLINE &&
+            element->cached_inline_fill_width > 0.0f)
+        {
+            fill_width = element->cached_inline_fill_width;
+        }
         box.dimensions.x = (element->size.width_mode == AXIS_FILL)
-                               ? remaining_w
+                               ? fill_width
                                : ResolveAxisExtent(element->size.width_mode,
                                                    element->size.dimensions.x,
                                                    content_area_w,

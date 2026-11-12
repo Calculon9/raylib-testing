@@ -29,7 +29,8 @@ typedef enum
 	UI_PALETTE_SURFACE_INPUT,
 	UI_PALETTE_SURFACE_BUTTON,
 	UI_PALETTE_SURFACE_PANEL,  // Dark panel background (ViewHost / View), no border.
-	UI_PALETTE_SURFACE_DANGER  // Destructive button: button border with the coral danger fill.
+	UI_PALETTE_SURFACE_DANGER,  // Destructive button: button border with the coral danger fill.
+	UI_PALETTE_SURFACE_SUBSECTION // Card inside a container: input border with the darker subsection fill.
 } UIPaletteSurface;
 
 typedef struct UIPalette
@@ -52,7 +53,9 @@ typedef struct UIPalette
 	ColourRgba toggle_off_fill; // Fill for a source-bearing toggle button in its OFF state (same hue, dimmed).
 	ColourRgba button_danger_fill; // Fill for destructive buttons such as DELETE (dark ink on top).
 	ColourRgba text;
-	ColourRgba label_text;
+	ColourRgba label_text;       // Field labels on container_fill (dark, AA contrast).
+	ColourRgba title_text;       // Section titles and header title lines.
+	ColourRgba subsection_fill;  // Fill for cards inside a container (light ink on top).
 	ColourRgba text_on_dark;
 	ColourRgba error;
 	ColourRgba warning;

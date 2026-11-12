@@ -9,7 +9,6 @@
 #include "system/utility_system.h"
 #include "system/viewport_system.h"
 #include "ui/ui_constructors.h"
-#include "ui/cfont.h"                            // FONT_LARGE_WITH_COLOUR (COMP header captions)
 #include "ui/ui_input.h"                         // ResetUIInputState (drop focus when a body hides)
 #include "physics/newtonoid.h"
 #include "math/geometry.h"                       // MAX_SHAPE_VERTICES (GEOMETRY-view row-pool size)
@@ -40,13 +39,10 @@ static ViewSelector *s_sm_selector = NULL;   // The entity tab selector (NULL if
 static int s_sm_entity_tab = 0;              // Entity tab remembered across empty selections.
 static int s_sm_shown_view = SM_SHOWN_UNKNOWN; // View currently shown.
 static bool s_sm_fields_locked = false;      // Cached lock state, so types only change on a flip.
-static uint32_t s_comp_signature = 0;        // Selection signature the COMP groups were last computed for.
-static bool s_comp_groups_valid = false;     // False until the groups are computed for a selection (first show).
 
-// COMP view geometry (UI pixels). The section inner width is fixed because inline `fill` beside a
-// fixed sibling is not reliable; an action button hugs its caption (caption width + 2 x PAD) and its
-// lead element takes the rest of the row. 263 matches the other readonly rows in scrolling views.
-#define SM_COMP_INNER_W 263.0f
+// COMP action button widths (UI pixels). Buttons cannot hug their caption, so each width is derived
+// from the caption (text width + 2 x PAD) and written on a state flip; the header's toggle simply
+// fills the rest of the inline row, so no panel width appears here.
 #define SM_COMP_ACTION_REMOVE_W 78.0f
 #define SM_COMP_ACTION_ADD_W 48.0f
 
@@ -58,28 +54,27 @@ enum
     SM_ACTION_REMOVE,
 };
 
-// A COMP action button together with the lead element to its left (the header's toggle Button or the
-// Available row's name Label). The pair is resized and recoloured as one when its state flips.
+// A COMP header's action button together with the toggle Button to its left. The action button is
+// resized and recoloured when its state flips.
 typedef struct StateManagerActionPair
 {
-    UIElement *lead;     // toggle Button (header) or name Label (Available row)
+    UIElement *lead;     // toggle Button (expand / collapse caption)
     UIElement *button;   // ADD / REMOVE action Button
     int state;           // SM_ACTION_* currently displayed
 } StateManagerActionPair;
 
-// One attachable component type in the COMP view. Every type has an ATTACHED section and an
-// AVAILABLE row in the markup; exactly one of the two is shown (see RefreshComponentsView).
+// One attachable component type in the COMP view. Every type has an ATTACHED card and an
+// AVAILABLE card in the markup; exactly one of the two is shown (see RefreshComponentsView).
 typedef struct StateManagerComponentSection
 {
     EntityComponentType type;
-    UIElement *section;             // comp_sec_<type>: the boxed ATTACHED section
+    UIElement *section;             // comp_sec_<type>: the ATTACHED card
     UIElement *body;                // comp_body_<type>: the TextFields; NULL for types without fields
     UIElement *note;                // comp_note_<type>: "values: primary only"; NULL without a body
-    UIElement *avail_row;           // comp_avail_<type>: the slim AVAILABLE row
+    UIElement *avail_row;           // comp_avail_<type>: the AVAILABLE card
     StateManagerActionPair header;  // comp_tgl_<type> + comp_btn_<type>
-    StateManagerActionPair avail;   // comp_avail_name_<type> + comp_avail_btn_<type>
+    UIElement *avail_button;        // comp_avail_btn_<type>: the Available card's ADD button
     bool expanded;                  // panel-local and per component TYPE (kept across selections)
-    bool in_attached_group;         // frozen between selection changes
     bool body_was_shown;            // edge detect so a hiding body can drop input focus
 } StateManagerComponentSection;
 
@@ -95,9 +90,10 @@ typedef struct StateManagerComponentSection
 typedef struct StateManagerUI
 {
     // COMP view: one entry per attachable type in fixed order (PORTAL, ROTOR, GEAR, HEALTH), plus
-    // the titled "Available" box that holds the slim rows. The refresh shows/hides these elements.
+    // the empty-state lines of the two halves. The refresh shows/hides these elements.
     StateManagerComponentSection comp_sections[SM_COMP_SECTION_COUNT];
-    UIElement *comp_avail;
+    UIElement *comp_attached_empty; // "none attached" line in the Attached half
+    UIElement *comp_avail_empty;    // "all attached" line in the Available half
 
     // Header (selection-driven title / sub-line and multi-select tint) and view-switching state.
     PanelHeader header;             // entity_header container + title + sub-line
@@ -922,7 +918,8 @@ static void StateManager_RegisterComponentSections(UIElement *root)
         {ENTITY_COMPONENT_HEALTH, "health", true},
     };
 
-    s_sm_ui.comp_avail = StateManager_Find(root, "comp_avail");
+    s_sm_ui.comp_attached_empty = StateManager_Find(root, "comp_attached_empty");
+    s_sm_ui.comp_avail_empty = StateManager_Find(root, "comp_avail_empty");
 
     for (size_t i = 0; i < ARRAY_COUNT(s_comp_ids); i++)
     {
@@ -933,8 +930,7 @@ static void StateManager_RegisterComponentSections(UIElement *root)
         section->avail_row = StateManager_FindComponentElement(root, "comp_avail_", key);
         section->header.lead = StateManager_FindComponentElement(root, "comp_tgl_", key);
         section->header.button = StateManager_FindComponentElement(root, "comp_btn_", key);
-        section->avail.lead = StateManager_FindComponentElement(root, "comp_avail_name_", key);
-        section->avail.button = StateManager_FindComponentElement(root, "comp_avail_btn_", key);
+        section->avail_button = StateManager_FindComponentElement(root, "comp_avail_btn_", key);
         if (s_comp_ids[i].has_fields)
         {
             section->body = StateManager_FindComponentElement(root, "comp_body_", key);
@@ -943,7 +939,7 @@ static void StateManager_RegisterComponentSections(UIElement *root)
         }
 
         // Every button carries its section so one handler per role serves all four types.
-        UIElement *buttons[] = {section->header.button, section->avail.button};
+        UIElement *buttons[] = {section->header.button, section->avail_button};
         for (size_t b = 0; b < ARRAY_COUNT(buttons); b++)
         {
             if (buttons[b])
@@ -958,10 +954,9 @@ static void StateManager_RegisterComponentSections(UIElement *root)
         {
             toggle->on_click = HandleComponentToggleClick;
             toggle->interaction_user_data = (void *)section;
-            // Header caption: left-aligned FONT_LARGE flush with the section's inner edge (the
-            // markup has no alignment/font/padding attribute for a Button), as the PHYS header does.
+            // Header caption: left-aligned and flush with the card's inner edge (the markup has no
+            // alignment or padding attribute for a Button).
             SetUIElementTextHorizontalAlignment(toggle, UI_TEXT_ALIGN_LEFT);
-            toggle->data.button.font = FONT_LARGE_WITH_COLOUR(ui_default_palette.text);
             toggle->padding = ZERO_VECTOR_2D;
         }
     }
@@ -1205,38 +1200,8 @@ static void RefreshPhysView(Newtonoid2d *object)
 // (The ATTRI view needs no refresh function: its flag-button ON/OFF labels are driven entirely by
 // the generic refresh walk via each button's query-source Binding.)
 
-// Hash the selected entities' ids (FNV-1a, in selection order) into one signature. It folds in the
-// count, the membership and the primary (the last entity), so the COMP groups are recomputed when
-// any member changes, not just the count or the primary. O(n), no allocation.
-static uint32_t StateManager_SelectionSignature(void)
-{
-    uint32_t hash = 2166136261u;
-    int count = SelectionSet_Count();
-    for (int i = 0; i < count; i++)
-    {
-        TargetRef ref;
-        if (!SelectionSet_Get(i, &ref))
-        {
-            continue;
-        }
-        Newtonoid2d *o = StateManager_ResolveLiveEntity(ref);
-        if (!o)
-        {
-            continue;
-        }
-        // Mix the four bytes of the id one at a time.
-        uint32_t id = (uint32_t)o->id;
-        for (int byte = 0; byte < 4; byte++)
-        {
-            hash ^= (id >> (8 * byte)) & 0xFFu;
-            hash *= 16777619u;
-        }
-    }
-    return hash;
-}
-
-// Show an action pair as ADD (amber) or REMOVE (danger): caption, palette colours, and the widths
-// that keep the button right-aligned and hugging its caption. Colours come from the shared palette,
+// Show a header action pair as ADD (amber) or REMOVE (danger): caption, palette colours and the
+// caption-derived button width (the toggle to its left fills the rest of the row). Colours come from the shared palette,
 // never literals. A no-op when the state is unchanged, so nothing is rewritten per frame.
 static void StateManager_SetActionState(StateManagerActionPair *pair, bool remove)
 {
@@ -1254,10 +1219,6 @@ static void StateManager_SetActionState(StateManagerActionPair *pair, bool remov
 
     float action_width = remove ? SM_COMP_ACTION_REMOVE_W : SM_COMP_ACTION_ADD_W;
     pair->button->size.dimensions.x = action_width;
-    if (pair->lead)
-    {
-        pair->lead->size.dimensions.x = SM_COMP_INNER_W - action_width;
-    }
 }
 
 // Show or hide a section's body (and its "values: primary only" note, which only multi-select needs).
@@ -1274,14 +1235,13 @@ static void StateManager_ShowSectionBody(StateManagerComponentSection *section, 
     section->body_was_shown = visible;
 }
 
-// Refresh the COMP view: one list of the four attachable components in two groups, each a set of
-// fixed markup elements that are only shown or hidden here.
-//  * Group membership (ATTACHED when any selected entity has the type) is recomputed only when the
-//    selection signature changes, and on first show. A click therefore updates the section in place
-//    instead of hopping groups under the cursor.
-//  * Everything else (caption, count, arrow, action button and body visibility) is read live from the
-//    tally each frame, so the button always tells the truth about the next click.
-// With no entity selected every element is hidden and the groups are marked stale.
+// Refresh the COMP view: the four attachable components in two fixed halves (Attached, Available).
+// Every type has a card in both halves in the markup; this only enables one of the two.
+//  * Membership is read live from the tally each frame (ATTACHED when any selected entity has the
+//    type), so ADD / REMOVE moves the card between halves at once, in the same fixed slot.
+//  * The attached card's caption, count, arrow, action button and body visibility come from the same
+//    tally, so the button always tells the truth about the next click.
+// With no entity selected every card and both empty-state lines are hidden.
 static void RefreshComponentsView(const Newtonoid2d *object)
 {
     if (!object || object->id == INVALID_ENTITY_ID)
@@ -1296,53 +1256,38 @@ static void RefreshComponentsView(const Newtonoid2d *object)
                 StateManager_ShowSectionBody(section, false, false);
             }
         }
-        SetEnabledState(s_sm_ui.comp_avail, false);
-        s_comp_groups_valid = false;
+        SetEnabledState(s_sm_ui.comp_attached_empty, false);
+        SetEnabledState(s_sm_ui.comp_avail_empty, false);
         return;
     }
 
-    // Recompute the group membership only when the selection changed (or on first show).
-    uint32_t signature = StateManager_SelectionSignature();
-    if (!s_comp_groups_valid || signature != s_comp_signature)
-    {
-        for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.comp_sections); i++)
-        {
-            s_sm_ui.comp_sections[i].in_attached_group =
-                StateManager_TallyComponent(s_sm_ui.comp_sections[i].type).on > 0;
-        }
-        s_comp_signature = signature;
-        s_comp_groups_valid = true;
-    }
-
-    bool any_available = false;
+    int attached_count = 0;
     for (size_t i = 0; i < ARRAY_COUNT(s_sm_ui.comp_sections); i++)
     {
         StateManagerComponentSection *section = &s_sm_ui.comp_sections[i];
 
         // Live state: the same tally and predicate the click handler uses (all on -> REMOVE).
         FlagTally tally = StateManager_TallyComponent(section->type);
+        bool attached = tally.on > 0;
         bool all_on = (PanelShared_TriState(tally.applicable, tally.on) == 1);
         bool multi = tally.applicable > 1;
 
-        if (!section->in_attached_group)
+        // Exactly one of the two cards is shown for each type.
+        SetEnabledState(section->section, attached);
+        SetEnabledState(section->avail_row, !attached);
+
+        if (!attached)
         {
-            // AVAILABLE: a slim row (name + ADD). After a click the button flips to REMOVE in place.
-            any_available = true;
-            SetEnabledState(section->section, false);
-            SetEnabledState(section->avail_row, true);
             if (section->body)
             {
                 StateManager_ShowSectionBody(section, false, false);
             }
-            StateManager_SetActionState(&section->avail, all_on);
             continue;
         }
+        attached_count++;
 
         // ATTACHED: header row, plus the body when it has fields, the primary has the component and
-        // the section is expanded. Values shown in the body are the primary's.
-        SetEnabledState(section->section, true);
-        SetEnabledState(section->avail_row, false);
-
+        // the card is expanded. Values shown in the body are the primary's.
         bool expandable = section->body && EntityRegistry_HasComponent(object->id, section->type);
         const char *arrow = !expandable ? "  " : (section->expanded ? "v " : "> ");
         char caption[48];
@@ -1363,9 +1308,11 @@ static void RefreshComponentsView(const Newtonoid2d *object)
             StateManager_ShowSectionBody(section, expandable && section->expanded, multi);
         }
     }
-    SetEnabledState(s_sm_ui.comp_avail, any_available);
-}
 
+    // Empty-state lines for a half with no cards.
+    SetEnabledState(s_sm_ui.comp_attached_empty, attached_count == 0);
+    SetEnabledState(s_sm_ui.comp_avail_empty, attached_count == SM_COMP_SECTION_COUNT);
+}
 // Refresh the GEOMETRY view (v1): the selected object's surface-vector count and its per-vertex
 // LOCAL vectors. Reads surface.surface_vectors directly (the same LArray the in-world drag editor
 // edits). Each used slot shows one readonly vector2 row; slots beyond the vertex count (or when
@@ -1722,6 +1669,4 @@ void DestroyStateManagerSystem(void)
     s_sm_entity_tab = 0;
     s_sm_shown_view = SM_SHOWN_UNKNOWN;
     s_sm_fields_locked = false;
-    s_comp_signature = 0;
-    s_comp_groups_valid = false;
 }

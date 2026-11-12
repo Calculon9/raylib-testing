@@ -7,6 +7,24 @@
 #include "ui/ui_constructors.h"
 #include "system/viewport_system.h"
 
+// Draw a vertical scrollbar (track plus thumb) flush with the right edge of `box`. Sizes are in
+// screen pixels: `width` is the bar width, `inset` the gap kept from the right and top edges (and
+// the bottom edge, in addition to `reserve`), and `reserve` extra bottom room for a horizontal bar.
+// The thumb length is the visible fraction of the content and its position follows scroll/max_scroll.
+static void DrawScrollbarY(UIBox box, float visible_h, float content_h, float scroll, float max_scroll,
+                           float width, float inset, float reserve, float min_thumb,
+                           Color track_colour, Color thumb_colour)
+{
+    float track_height = fmaxf(0.0f, box.dimensions.y - (2.0f * inset) - reserve);
+    float thumb_height = fmaxf(min_thumb, track_height * (visible_h / content_h));
+    thumb_height = fminf(track_height, thumb_height);
+    float travel = fmaxf(0.0f, track_height - thumb_height);
+    float thumb_offset = travel * (scroll / max_scroll);
+    float x = box.coords.x + box.dimensions.x - width - inset;
+    DrawRectangleRec((Rectangle){x, box.coords.y + inset, width, track_height}, track_colour);
+    DrawRectangleRec((Rectangle){x, box.coords.y + inset + thumb_offset, width, thumb_height}, thumb_colour);
+}
+
 // Draw a compact scrollbar over a scrollable view after its clipped content.
 static void DrawViewScrollbar(const View *view, const UIPalette *palette)
 {
@@ -44,14 +62,8 @@ static void DrawViewScrollbar(const View *view, const UIPalette *palette)
     if (show_y)
     {
         float reserve = show_x ? (scrollbar_width + inset) : 0.0f;
-        float track_height = fmaxf(0.0f, box.dimensions.y - (2.0f * inset) - reserve);
-        float thumb_height = fmaxf(min_thumb, track_height * (visible_h / view->content_height));
-        thumb_height = fminf(track_height, thumb_height);
-        float travel = fmaxf(0.0f, track_height - thumb_height);
-        float thumb_offset = travel * (view->scroll_y / view->max_scroll_y);
-        float x = box.coords.x + box.dimensions.x - scrollbar_width - inset;
-        DrawRectangleRec((Rectangle){x, box.coords.y + inset, scrollbar_width, track_height}, track_colour);
-        DrawRectangleRec((Rectangle){x, box.coords.y + inset + thumb_offset, scrollbar_width, thumb_height}, thumb_colour);
+        DrawScrollbarY(box, visible_h, view->content_height, view->scroll_y, view->max_scroll_y,
+                       scrollbar_width, inset, reserve, min_thumb, track_colour, thumb_colour);
     }
 
     // Horizontal scrollbar (bottom edge). Mirrors the vertical logic across axes, and
@@ -67,6 +79,33 @@ static void DrawViewScrollbar(const View *view, const UIPalette *palette)
         float y = box.coords.y + box.dimensions.y - scrollbar_width - inset;
         DrawRectangleRec((Rectangle){box.coords.x + inset, y, track_width, scrollbar_width}, track_colour);
         DrawRectangleRec((Rectangle){box.coords.x + inset + thumb_offset, y, thumb_width, scrollbar_width}, thumb_colour);
+    }
+}
+
+// Draw a vertical scrollbar for every enabled, y-scrolling non-View element whose content overflows,
+// recursing through the tree. Bars are 4 UI pixels wide and flush with the element's right edge
+// (authored lists reserve that gutter with right padding).
+static void DrawContainerScrollbars(const UIElement *e, const UIPalette *palette)
+{
+    if (!e || !e->is_enabled)
+    {
+        return;
+    }
+
+    const float content_h = e->measured_content_size.y;
+    const float visible_h = e->local_box.dimensions.y;
+    if (e->type != UI_ELEMENT_VIEW && e->is_scrollable_y && content_h > visible_h)
+    {
+        const float px = (float)GetViewportUIPixelScale();
+        Color track_colour = ToRaylibColor(palette ? palette->container_border : ui_default_palette.container_border);
+        Color thumb_colour = ToRaylibColor(palette ? palette->button_fill : ui_default_palette.button_fill);
+        DrawScrollbarY(e->screen_box, visible_h, content_h, e->scroll_offset.y, content_h - visible_h,
+                       4.0f * px, 0.0f, 0.0f, 12.0f * px, track_colour, thumb_colour);
+    }
+
+    for (const UIElement *child = e->first_child; child; child = child->next_sibling)
+    {
+        DrawContainerScrollbars(child, palette);
     }
 }
 
@@ -776,6 +815,9 @@ void ViewHostSystem_Draw(ViewHostSystem *panel)
         }
     }
 
+    // Re-clamp scrolling containers (Views are handled above) to the freshly measured content.
+    UI_ClampScrollOffsets(panel->root);
+
     // Apply panel-space basis transformation
     Frame2d panel_basis_frame = panel->space.frame;
     panel_basis_frame.origin_in_parent = ZERO_VECTOR_2D;
@@ -794,6 +836,7 @@ void ViewHostSystem_Draw(ViewHostSystem *panel)
             DrawViewScrollbar(view, panel->palette);
         }
     }
+    DrawContainerScrollbars(panel->root, panel->palette);
 }
 
 Frame2d *ViewHostSystem_GetSpaceFrame(ViewHostSystem *panel)

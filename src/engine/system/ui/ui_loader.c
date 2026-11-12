@@ -843,6 +843,14 @@ static UIBuildResult BuildContainer(mxml_node_t *node, UIElement *parent,
                                 ui_standard_container_padding,
                                 UI_PALETTE_SURFACE_TRANSPARENT, common->layout);
 
+    // scroll="x|y|both|none": any container may scroll its content (the renderer clips to its
+    // box and UI_ClampScrollOffsets keeps the offset in range). Absent means no scrolling.
+    if (container)
+    {
+        UILoader_ParseScroll(ctx, mxmlElementGetAttr(node, "scroll"),
+                             &container->is_scrollable_x, &container->is_scrollable_y);
+    }
+
     // Single-element builder: control == outer (offset consumed at construct time).
     return (UIBuildResult){ .element = container };
 }
@@ -1263,7 +1271,7 @@ static OffsetMode UILoader_ParseOffsetMode(const char *mode_str)
 }
 
 // Silent lookup of a surface role name (transparent, container, field_row, input, button, panel,
-// danger).
+// danger, subsection).
 // Returns true and writes *out when recognised. Shared by surface= and border=.
 static bool UILoader_LookupSurface(const char *name, UIPaletteSurface *out)
 {
@@ -1271,7 +1279,7 @@ static bool UILoader_LookupSurface(const char *name, UIPaletteSurface *out)
         {"transparent", UI_PALETTE_SURFACE_TRANSPARENT}, {"container", UI_PALETTE_SURFACE_CONTAINER},
         {"field_row", UI_PALETTE_SURFACE_FIELD_ROW},     {"input", UI_PALETTE_SURFACE_INPUT},
         {"button", UI_PALETTE_SURFACE_BUTTON},           {"panel", UI_PALETTE_SURFACE_PANEL},
-        {"danger", UI_PALETTE_SURFACE_DANGER},
+        {"danger", UI_PALETTE_SURFACE_DANGER},           {"subsection", UI_PALETTE_SURFACE_SUBSECTION},
     };
     for (size_t i = 0; i < sizeof(roles) / sizeof(roles[0]); i++)
     {
@@ -1583,6 +1591,52 @@ void UILoader_ExtractCommonAttrs(mxml_node_t *node, UILoaderContext *ctx, char *
 // Tree Parsing
 // ============================================================================
 
+// Helper: apply the ink= attribute ("light" = palette text_on_dark, "dark" = palette text) to the
+// font colour of a Label, Button or Textbox. For a <TextField> row only the label child is
+// recoloured (the input keeps dark ink on its cream cell). Elements without a font ignore it;
+// an unrecognised value warns and leaves the colours unchanged.
+static void UILoader_ApplyInk(UILoaderContext *ctx, UIElement *outer, const UIPalette *palette,
+                              const char *ink_str)
+{
+    if (!ink_str || !outer || !palette)
+        return;
+
+    ColourRgba ink;
+    if (!strcmp(ink_str, "light"))
+        ink = palette->text_on_dark;
+    else if (!strcmp(ink_str, "dark"))
+        ink = palette->text;
+    else
+    {
+        LOADER_WARNING(ctx, "Unrecognised ink value; leaving text colour unchanged");
+        return;
+    }
+
+    // A TextField row recolours its label child only.
+    UIElement *target = (outer->type == UI_ELEMENT_TEXTFIELD) ? outer->first_child : outer;
+    if (!target)
+        return;
+
+    switch (target->type)
+    {
+    case UI_ELEMENT_LABEL:
+        target->data.label.font.colour = ink;
+        break;
+    case UI_ELEMENT_BUTTON_SIMPLE:
+    case UI_ELEMENT_BUTTON_ENUMERATE:
+    case UI_ELEMENT_BUTTON_SUBMIT:
+        target->data.button.font.colour = ink;
+        break;
+    case UI_ELEMENT_TEXTBOX_O:
+    case UI_ELEMENT_TEXTBOX_IO:
+    case UI_ELEMENT_TEXTBOX_SAFE_IO:
+        target->data.textbox.font.colour = ink;
+        break;
+    default:
+        break; // Containers and Views have no font.
+    }
+}
+
 /**
  * Recursively parse an XML element and its children, building the UIElement tree.
  */
@@ -1672,6 +1726,9 @@ static UIElement *UILoader_ParseElementNode(mxml_node_t *node, UIElement *parent
                                     &outer->colour_border, &outer->colour_fill);
         outer->border_weight = UIPalette_GetSurfaceBorderWeight(ctx->palette, surface_role);
     }
+    // ink: optional text colour role for the element's caption (light/dark), applied here so any
+    // element can opt in without per-panel colour code.
+    UILoader_ApplyInk(ctx, outer, ctx->palette, mxmlElementGetAttr(node, "ink"));
     // border: optional border-colour override, applied after surface= so it can strip or recolour
     // just the border of a surface-filled element. Same generic choke point, so ANY element can
     // opt in; an absent or unrecognised value leaves the border untouched.

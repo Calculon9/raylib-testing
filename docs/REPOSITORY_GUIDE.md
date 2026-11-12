@@ -202,7 +202,14 @@ The editor style is set once in the shared layer (`ui_system.c` palette and cons
   (`container_fill`, 1 px `container_border`, `ui_section_padding` = 6 px).
   Untitled containers are transparent layout boxes. Text-field rows and their labels are
   transparent; inputs use the `input` surface; buttons the `button` surface; destructive
-  buttons the `danger` surface (`button_danger_fill`, set in every palette).
+  buttons the `danger` surface (`button_danger_fill`, set in every palette). Cards inside a
+  container (COMP view) use the `subsection` surface (`subsection_fill` plus the `input` border) with
+  `ink="light"` text (`text_on_dark`).
+- **Text colours.** `title_text` (black in every palette) colours section titles (`Label style="title"`,
+  titled sections) and the Entity / World Manager header lines; `label_text` colours `<TextField>`
+  labels and is a dark ink tuned for AA contrast on `container_fill`.
+- **Scrolling containers.** `scroll="x|y|both"` on a `<Container>` clips and scrolls its content;
+  `UI_ClampScrollOffsets` re-clamps the offset each frame and a y scrollbar is drawn on overflow.
 - **Two-state colours.** Tabs, kind chips and bound text toggles all use
   `UIPalette_GetToggleColours`: active = `toggle_on_fill` + dark `text`, inactive =
   `toggle_off_fill` + `text_on_dark`.

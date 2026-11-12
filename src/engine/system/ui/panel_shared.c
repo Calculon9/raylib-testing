@@ -301,13 +301,13 @@ void PanelShared_HeaderBind(PanelHeader *header, UIElement *root, const char *bo
     if (header->title)
     {
         // Titles use FONT_LARGE; the tint pass re-applies it with the right ink colour.
-        header->title->data.textbox.font = FONT_LARGE_WITH_COLOUR(ui_default_palette.text);
+        header->title->data.textbox.font = FONT_LARGE_WITH_COLOUR(ui_default_palette.title_text);
     }
 }
 
 // Tint (or restore) the header box with existing palette colours: amber button_fill when several
 // targets are selected, otherwise the default section fill. Only the fill swaps; the ink is the
-// dark text colour in both states (dark reads on both amber and the section fill) and the coral
+// title_text colour in both states (dark reads on both amber and the section fill) and the coral
 // section border is kept.
 void PanelShared_HeaderSetTint(PanelHeader *header, bool tinted)
 {
@@ -316,7 +316,7 @@ void PanelShared_HeaderSetTint(PanelHeader *header, bool tinted)
         return;
     }
 
-    ColourRgba ink = ui_default_palette.text;
+    ColourRgba ink = ui_default_palette.title_text;
     header->box->colour_fill = tinted ? ui_default_palette.button_fill : header->default_fill;
     if (header->title)
     {

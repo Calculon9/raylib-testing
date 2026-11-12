@@ -475,10 +475,11 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel, UICl
 
     if (IsTextbox(e) || IsBtn(e) || e->type == UI_ELEMENT_LABEL)
     {
-        // Draw text only if element intersects the visible clip
+        // Draw text only if element intersects the visible clip; partly visible text is clipped
+        // to it so a scrolled-out row cannot spill over neighbouring content
         if (UIClipRect_IntersectsBox(current_clip, e->screen_box))
         {
-            DrawTextArea(e);
+            DrawTextAreaClipped(e, current_clip);
         }
     }
 

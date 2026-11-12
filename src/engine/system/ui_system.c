@@ -163,7 +163,10 @@ static void InitUIPalettes(void)
     // Danger fill: the palette's terracotta container border.
     ui_classic_palette.button_danger_fill = MakeColour(194, 105, 83, 255);
     ui_classic_palette.text = MakeColour(32, 42, 37, 255);
-    ui_classic_palette.label_text = MakeColour(255, 255, 255, 255);
+    // Field labels: near-black tuned for container_fill (WCAG AA); card ink uses text_on_dark.
+    ui_classic_palette.label_text = MakeColour(6, 12, 8, 255);
+    ui_classic_palette.title_text = MakeColour(0, 0, 0, 255);
+    ui_classic_palette.subsection_fill = MakeColour(78, 100, 86, 255);
     ui_classic_palette.text_on_dark = MakeColour(245, 241, 230, 255);
     ui_classic_palette.error = MakeColour(230, 41, 55, 255);
     ui_classic_palette.warning = MakeColour(255, 255, 176, 255);
@@ -187,7 +190,10 @@ static void InitUIPalettes(void)
     // Danger fill: the palette's rust container border.
     ui_earth_palette.button_danger_fill = MakeColour(191, 78, 36, 255);
     ui_earth_palette.text = MakeColour(38, 101, 115, 255);
-    ui_earth_palette.label_text = MakeColour(166, 109, 60, 255);
+    // Black is the only ink that passes on the olive container.
+    ui_earth_palette.label_text = MakeColour(0, 0, 0, 255);
+    ui_earth_palette.title_text = MakeColour(0, 0, 0, 255);
+    ui_earth_palette.subsection_fill = MakeColour(90, 89, 36, 255);
     ui_earth_palette.text_on_dark = MakeColour(242, 211, 172, 255);
     ui_earth_palette.error = MakeColour(230, 41, 55, 255);
     ui_earth_palette.warning = MakeColour(255, 255, 176, 255);
@@ -212,7 +218,10 @@ static void InitUIPalettes(void)
     ui_harbor_palette.button_danger_fill = MakeColour(218, 117, 96, 255);
     // Contrast bump: near-black dark-teal ink (hue preserved) reads crisply on the sage container fill.
     ui_harbor_palette.text = MakeColour(18, 30, 34, 255);
-    ui_harbor_palette.label_text = MakeColour(220, 158, 70, 255);
+    ui_harbor_palette.label_text = MakeColour(28, 14, 2, 255);
+    ui_harbor_palette.title_text = MakeColour(0, 0, 0, 255);
+    // Darker than container_fill, light ink (text_on_dark) reaches 4.84:1 on it.
+    ui_harbor_palette.subsection_fill = MakeColour(58, 102, 94, 255);
     ui_harbor_palette.text_on_dark = MakeColour(239, 221, 184, 255);
     ui_harbor_palette.error = MakeColour(230, 41, 55, 255);
     ui_harbor_palette.warning = MakeColour(255, 255, 176, 255);
@@ -236,7 +245,9 @@ static void InitUIPalettes(void)
     // Danger fill: a dedicated terracotta, because meadow's container border is the button amber.
     ui_meadow_palette.button_danger_fill = MakeColour(196, 92, 70, 255);
     ui_meadow_palette.text = MakeColour(32, 42, 37, 255);
-    ui_meadow_palette.label_text = MakeColour(38, 101, 115, 255);
+    ui_meadow_palette.label_text = MakeColour(0, 18, 26, 255);
+    ui_meadow_palette.title_text = MakeColour(0, 0, 0, 255);
+    ui_meadow_palette.subsection_fill = MakeColour(78, 100, 86, 255);
     ui_meadow_palette.text_on_dark = MakeColour(245, 241, 230, 255);
     ui_meadow_palette.error = MakeColour(230, 41, 55, 255);
     ui_meadow_palette.warning = MakeColour(255, 255, 176, 255);
@@ -256,7 +267,8 @@ uint8_t UIPalette_GetSurfaceBorderWeight(const UIPalette *palette, UIPaletteSurf
     {
         case UI_PALETTE_SURFACE_CONTAINER: return palette->container_border_weight;
         case UI_PALETTE_SURFACE_FIELD_ROW: return palette->field_row_border_weight;
-        case UI_PALETTE_SURFACE_INPUT:     return palette->input_border_weight;
+        case UI_PALETTE_SURFACE_INPUT:
+        case UI_PALETTE_SURFACE_SUBSECTION: return palette->input_border_weight; // cards share the input border
         case UI_PALETTE_SURFACE_BUTTON:
         case UI_PALETTE_SURFACE_DANGER:    return palette->button_border_weight; // danger shares the button border
         case UI_PALETTE_SURFACE_PANEL:
@@ -288,6 +300,11 @@ void UIPalette_GetSurfaceColours(const UIPalette *palette, UIPaletteSurface surf
         case UI_PALETTE_SURFACE_INPUT:
             border = palette->input_border;
             fill = palette->input_fill;
+            break;
+        case UI_PALETTE_SURFACE_SUBSECTION:
+            // Card inside a container: dark input border with the darker subsection fill.
+            border = palette->input_border;
+            fill = palette->subsection_fill;
             break;
         case UI_PALETTE_SURFACE_BUTTON:
             border = palette->button_border;

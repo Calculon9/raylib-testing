@@ -28,8 +28,8 @@
     <!--    its rows/toggles fill the section inner width (a section with no width/height    -->
     <!--    collapses or clips).                                                             -->
     <!--                                                                                     -->
-    <!--  * COMP section visibility (attached / available, expanded bodies) stays in the       -->
-    <!--    application (the C refresh toggles it); markup only declares the containers.       -->
+    <!--  * COMP card visibility (attached / available, expanded bodies) stays in the           -->
+    <!--    application (the C refresh toggles it); markup only declares the cards.            -->
 <ViewHost id="state_manager" layout="stacked" initial-view="phys_view">
     <!-- Fixed header block (outside every View, so it never scrolls and shows on every tab).   -->
     <!-- The selection decides the text (sm.header.title / sm.header.sub query bindings). The   -->
@@ -117,78 +117,93 @@
         </Container>
     </View>
 
-    <!-- ================= COMP view: one list of attachable components ================= -->
-    <!-- Every attachable type (PORTAL, ROTOR, GEAR, HEALTH) appears in exactly one of two groups,  -->
-    <!-- both authored here as fixed elements in that order; C only shows/hides them:               -->
-    <!--  * ATTACHED: a boxed comp_sec_<type> with a header row (comp_tgl_<type> toggle Button +     -->
-    <!--    comp_btn_<type> REMOVE/ADD action Button) and, for types with data, a comp_body_<type>.  -->
-    <!--  * AVAILABLE: one titled box comp_avail with a slim comp_avail_<type> row per type          -->
-    <!--    (comp_avail_name_<type> Label + comp_avail_btn_<type> action Button).                    -->
-    <!-- The header is two sibling leaf Buttons (clicks do not bubble, so the toggle can never fire -->
-    <!-- from the action button or from a TextField in the body). Widths are fixed and rewritten    -->
-    <!-- from C when an action flips (REMOVE 78 / ADD 48, lead = 263 - action); 263 is the section  -->
-    <!-- inner width. Captions, colours, expansion and group membership are all driven from C.      -->
-    <!-- The comp_note_<type> Textbox carries no text here; C writes 'values: primary only' once.   -->
-    <View id="components_view" type="STATE_MANAGER_COMPONENTS_VIEW" scroll="y" layout="stack">
-        <Container id="comp_sec_portal" width="fill" height="hug" layout="stack" surface="container" padding="6">
-            <Container id="comp_hdr_portal" width="fill" height="hug" layout="inline" gap="0,0" padding="0">
-                <Button type="simple" id="comp_tgl_portal" text="> PORTAL" surface="transparent" size="185,25" />
-                <Button type="simple" id="comp_btn_portal" text="REMOVE" surface="danger" size="78,25" />
+    <!-- ================= COMP view: Attached / Available halves ================= -->
+    <!-- Two fixed, equal halves (two width+height fill siblings share the View height). Each half is a  -->
+    <!-- titled box holding a transparent list that scrolls in y on its own (scroll="y" on a Container;  -->
+    <!-- the 4 px side padding is the scrollbar gutter). Every attachable type (PORTAL, ROTOR, GEAR,    -->
+    <!-- HEALTH) has a card in BOTH lists, in that fixed order; C only enables one of the two:          -->
+    <!--  * ATTACHED card comp_sec_<type>: a header row (comp_tgl_<type> toggle Button that fills the   -->
+    <!--    row + comp_btn_<type> REMOVE/ADD action Button, right-aligned) and, for types with data, a   -->
+    <!--    comp_body_<type> indented 14 px holding the TextFields and the comp_note_<type> Textbox.     -->
+    <!--  * AVAILABLE card comp_avail_<type>: the name Label (fills) and the comp_avail_btn_<type> ADD.  -->
+    <!-- Cards use the subsection surface with ink="light" text. The toggle and the action button are   -->
+    <!-- sibling leaf Buttons (clicks do not bubble). The action width is rewritten from C when it      -->
+    <!-- flips (REMOVE 78 / ADD 48). comp_note_<type> carries no text here; C writes 'values: primary   -->
+    <!-- only' once. comp_attached_empty / comp_avail_empty are the empty-state lines.                  -->
+    <View id="components_view" type="STATE_MANAGER_COMPONENTS_VIEW" layout="stack">
+        <Container id="comp_attached" width="fill" height="fill" layout="stack" surface="container" padding="6">
+            <Label text="Attached" style="title" />
+            <Container id="comp_attached_list" width="fill" height="fill" layout="stack" gap="0,4" padding="4,0" scroll="y">
+                <Label id="comp_attached_empty" text="none attached" enabled="false" />
+
+            <Container id="comp_sec_portal" width="fill" height="hug" layout="stack" surface="subsection" padding="4">
+                <Container id="comp_hdr_portal" width="fill" height="hug" layout="inline" gap="0,0" padding="0">
+                    <Button type="simple" id="comp_tgl_portal" text="> PORTAL" surface="transparent" ink="light" width="fill" />
+                    <Button type="simple" id="comp_btn_portal" text="REMOVE" surface="danger" size="78,25" />
+                </Container>
+                <Container id="comp_body_portal" width="fill" height="hug" layout="stack" padding="0" offset="14,0" enabled="false">
+                    <TextField id="sm_portal_cooldown" label="Cooldown" type="integer" io="safe" ink="light" />
+                    <TextField id="sm_portal_target_id" label="Dest." type="integer" io="safe" ink="light" />
+                    <TextField id="sm_portal_roles" label="Roles" type="integer" io="readonly" ink="light" />
+                    <Textbox id="comp_note_portal" io="readonly" surface="transparent" ink="light" enabled="false" />
+                </Container>
             </Container>
-            <Container id="comp_body_portal" width="fill" height="hug" layout="stack" padding="0" enabled="false">
-                <TextField id="sm_portal_cooldown" label="Cooldown" type="integer" io="safe" />
-                <TextField id="sm_portal_target_id" label="Dest." type="integer" io="safe" />
-                <TextField id="sm_portal_roles" label="Roles" type="integer" io="readonly" />
-                <Textbox id="comp_note_portal" io="readonly" surface="transparent" size="263,25" width="fixed" height="fixed" enabled="false" />
-            </Container>
-        </Container>
-        <Container id="comp_sec_rotor" width="fill" height="hug" layout="stack" surface="container" padding="6">
-            <Container id="comp_hdr_rotor" width="fill" height="hug" layout="inline" gap="0,0" padding="0">
-                <Button type="simple" id="comp_tgl_rotor" text="  ROTOR" surface="transparent" size="185,25" />
-                <Button type="simple" id="comp_btn_rotor" text="REMOVE" surface="danger" size="78,25" />
-            </Container>
+
             <!-- ROTOR data fields go here: add a <Container id="comp_body_rotor" ... enabled="false"> -->
             <!-- holding the TextFields plus a comp_note_rotor Textbox (copy comp_body_portal), then   -->
             <!-- set has_fields on the ROTOR row of s_comp_ids in state_manager_system.c.              -->
-        </Container>
-        <Container id="comp_sec_gear" width="fill" height="hug" layout="stack" surface="container" padding="6">
-            <Container id="comp_hdr_gear" width="fill" height="hug" layout="inline" gap="0,0" padding="0">
-                <Button type="simple" id="comp_tgl_gear" text="  GEAR" surface="transparent" size="185,25" />
-                <Button type="simple" id="comp_btn_gear" text="REMOVE" surface="danger" size="78,25" />
+            <Container id="comp_sec_rotor" width="fill" height="hug" layout="stack" surface="subsection" padding="4">
+                <Container id="comp_hdr_rotor" width="fill" height="hug" layout="inline" gap="0,0" padding="0">
+                    <Button type="simple" id="comp_tgl_rotor" text="  ROTOR" surface="transparent" ink="light" width="fill" />
+                    <Button type="simple" id="comp_btn_rotor" text="REMOVE" surface="danger" size="78,25" />
+                </Container>
             </Container>
+
             <!-- GEAR data fields go here: same shape as the ROTOR placeholder above (comp_body_gear, -->
             <!-- comp_note_gear, then has_fields on the GEAR row of s_comp_ids).                       -->
-        </Container>
-        <Container id="comp_sec_health" width="fill" height="hug" layout="stack" surface="container" padding="6">
-            <Container id="comp_hdr_health" width="fill" height="hug" layout="inline" gap="0,0" padding="0">
-                <Button type="simple" id="comp_tgl_health" text="> HEALTH" surface="transparent" size="185,25" />
-                <Button type="simple" id="comp_btn_health" text="REMOVE" surface="danger" size="78,25" />
+            <Container id="comp_sec_gear" width="fill" height="hug" layout="stack" surface="subsection" padding="4">
+                <Container id="comp_hdr_gear" width="fill" height="hug" layout="inline" gap="0,0" padding="0">
+                    <Button type="simple" id="comp_tgl_gear" text="  GEAR" surface="transparent" ink="light" width="fill" />
+                    <Button type="simple" id="comp_btn_gear" text="REMOVE" surface="danger" size="78,25" />
+                </Container>
             </Container>
-            <Container id="comp_body_health" width="fill" height="hug" layout="stack" padding="0" enabled="false">
-                <TextField id="sm_health" label="Health" type="float" io="safe" />
-                <TextField id="sm_max_health" label="MaxHealth" type="float" io="safe" />
-                <TextField id="sm_damage" label="Damage" type="float" io="safe" />
-                <Textbox id="comp_note_health" io="readonly" surface="transparent" size="263,25" width="fixed" height="fixed" enabled="false" />
+
+            <Container id="comp_sec_health" width="fill" height="hug" layout="stack" surface="subsection" padding="4">
+                <Container id="comp_hdr_health" width="fill" height="hug" layout="inline" gap="0,0" padding="0">
+                    <Button type="simple" id="comp_tgl_health" text="> HEALTH" surface="transparent" ink="light" width="fill" />
+                    <Button type="simple" id="comp_btn_health" text="REMOVE" surface="danger" size="78,25" />
+                </Container>
+                <Container id="comp_body_health" width="fill" height="hug" layout="stack" padding="0" offset="14,0" enabled="false">
+                    <TextField id="sm_health" label="Health" type="float" io="safe" ink="light" />
+                    <TextField id="sm_max_health" label="MaxHealth" type="float" io="safe" ink="light" />
+                    <TextField id="sm_damage" label="Damage" type="float" io="safe" ink="light" />
+                    <Textbox id="comp_note_health" io="readonly" surface="transparent" ink="light" enabled="false" />
+                </Container>
+            </Container>
             </Container>
         </Container>
 
-        <Container id="comp_avail" width="fill" height="hug" layout="stack" surface="container" padding="6">
+        <Container id="comp_avail" width="fill" height="fill" layout="stack" surface="container" padding="6">
             <Label text="Available" style="title" />
-            <Container id="comp_avail_portal" width="fill" height="hug" layout="inline" gap="0,0" padding="0">
-                <Label id="comp_avail_name_portal" text="PORTAL" size="215,25" />
+            <Container id="comp_avail_list" width="fill" height="fill" layout="stack" gap="0,4" padding="4,0" scroll="y">
+                <Label id="comp_avail_empty" text="all attached" enabled="false" />
+
+            <Container id="comp_avail_portal" width="fill" height="hug" layout="inline" gap="0,0" padding="4" surface="subsection">
+                <Label id="comp_avail_name_portal" text="PORTAL" ink="light" width="fill" />
                 <Button type="simple" id="comp_avail_btn_portal" text="ADD" size="48,25" />
             </Container>
-            <Container id="comp_avail_rotor" width="fill" height="hug" layout="inline" gap="0,0" padding="0">
-                <Label id="comp_avail_name_rotor" text="ROTOR" size="215,25" />
+            <Container id="comp_avail_rotor" width="fill" height="hug" layout="inline" gap="0,0" padding="4" surface="subsection">
+                <Label id="comp_avail_name_rotor" text="ROTOR" ink="light" width="fill" />
                 <Button type="simple" id="comp_avail_btn_rotor" text="ADD" size="48,25" />
             </Container>
-            <Container id="comp_avail_gear" width="fill" height="hug" layout="inline" gap="0,0" padding="0">
-                <Label id="comp_avail_name_gear" text="GEAR" size="215,25" />
+            <Container id="comp_avail_gear" width="fill" height="hug" layout="inline" gap="0,0" padding="4" surface="subsection">
+                <Label id="comp_avail_name_gear" text="GEAR" ink="light" width="fill" />
                 <Button type="simple" id="comp_avail_btn_gear" text="ADD" size="48,25" />
             </Container>
-            <Container id="comp_avail_health" width="fill" height="hug" layout="inline" gap="0,0" padding="0">
-                <Label id="comp_avail_name_health" text="HEALTH" size="215,25" />
+            <Container id="comp_avail_health" width="fill" height="hug" layout="inline" gap="0,0" padding="4" surface="subsection">
+                <Label id="comp_avail_name_health" text="HEALTH" ink="light" width="fill" />
                 <Button type="simple" id="comp_avail_btn_health" text="ADD" size="48,25" />
+            </Container>
             </Container>
         </Container>
     </View>

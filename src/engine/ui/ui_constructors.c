@@ -47,7 +47,7 @@ UIElement *CreateUILabelTitleDefault(UIElement *parent, const char *text,
     }
 
     return CreateUILabel(parent, text, size, padding,
-                         FONT_LARGE_WITH_COLOUR(palette->text),
+                         FONT_LARGE_WITH_COLOUR(palette->title_text),
                          COLOURLESS_RGBA, COLOURLESS_RGBA);
 }
 

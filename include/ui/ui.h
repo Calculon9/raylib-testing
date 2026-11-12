@@ -220,6 +220,7 @@ typedef struct UIElement
     UIBox screen_box;
     Vector2d measured_content_size;
     float cached_stacked_fill_height; // Set once per layout pass by the stacked parent; read by this element's own box resolution.
+    float cached_inline_fill_width;   // Set once per layout pass by an inline parent for a width-FILL child; 0 when none.
     bool is_focused, is_dirty, is_draggable, is_enabled; // For interactive elements like TextBoxes and Buttons
     bool is_scrollable_x; // Bypasses horizontal size clamping when scrolling
     bool is_scrollable_y; // Bypasses vertical size clamping when scrolling
@@ -358,6 +359,8 @@ void UIElement_RefreshBinding(UIElement *e);
 void ScrollUIElementX(UIElement *element, float delta);
 // Scroll a vertically scrollable element by local coordinate units.
 void ScrollUIElementY(UIElement *element, float delta);
+// Clamp the scroll offsets of all scrollable non-View elements under root to their content bounds.
+void UI_ClampScrollOffsets(UIElement *root);
 // UIElement *CreateTextField(float width, float height, Vector2d origin_coords, Vector2d parent_offset, Vector2d label_tbox_offset, Vector2d label_tbox_padding, char max_label_chars, char max_text_box_chars);
 #endif
 
