@@ -56,11 +56,11 @@
             <!-- Entity submenu: child of its item, fixed +x fan-out, starts disabled. -->
             <Container id="popup_entity_submenu" surface="container" enabled="false" overflow="true"
                        offset="175,0" offset-mode="fixed" width="hug" height="hug" layout="stack">
-                <Label  text="Shapes" size="188,25" width="fixed" height="fixed" />
+                <Label  text="Shapes" style="title" size="188,25" width="fixed" height="fixed" />
                 <Button type="simple" id="popup_btn_triangle" text="triangle" size="188,25" width="fixed" height="fixed" />
                 <Button type="simple" id="popup_btn_square"   text="square"   size="188,25" width="fixed" height="fixed" />
                 <Button type="simple" id="popup_btn_circle"   text="circle"   size="188,25" width="fixed" height="fixed" />
-                <Label  text="Functional" size="188,25" width="fixed" height="fixed" />
+                <Label  text="Functional" style="title" size="188,25" width="fixed" height="fixed" />
                 <Button type="simple" id="popup_btn_rotor"  text="rotor"  size="188,25" width="fixed" height="fixed" />
                 <Button type="simple" id="popup_btn_gear"   text="gear"   size="188,25" width="fixed" height="fixed" />
                 <Button type="simple" id="popup_btn_portal" text="portal" size="188,25" width="fixed" height="fixed" />
@@ -72,7 +72,7 @@
             <!-- World submenu: child of its item, fixed +x fan-out, starts disabled. -->
             <Container id="popup_world_submenu" surface="container" enabled="false" overflow="true"
                        offset="175,0" offset-mode="fixed" width="hug" height="hug" layout="stack">
-                <Label  text="Small" size="188,25" width="fixed" height="fixed" />
+                <Label  text="Small" style="title" size="188,25" width="fixed" height="fixed" />
                 <Button type="simple" id="popup_btn_regular"     text="regular"      size="188,25" width="fixed" height="fixed" />
                 <Button type="simple" id="popup_btn_sheared_y"   text="sheared-y"    size="188,25" width="fixed" height="fixed" />
                 <Button type="simple" id="popup_btn_sheared_x"   text="sheared-x"    size="188,25" width="fixed" height="fixed" />

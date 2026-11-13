@@ -54,8 +54,10 @@ static void DrawViewScrollbar(const View *view, const UIPalette *palette)
     const float visible_w = view->container->local_box.dimensions.x;
     const float visible_h = view->container->local_box.dimensions.y;
 
-    Color track_colour = ToRaylibColor(palette ? palette->container_border : ui_default_palette.container_border);
-    Color thumb_colour = ToRaylibColor(palette ? palette->button_fill : ui_default_palette.button_fill);
+    // Dark subsection track with a light thumb: the thumb reads against the track on every palette.
+    const UIPalette *colours = palette ? palette : UIPalette_GetActive();
+    Color track_colour = ToRaylibColor(colours->subsection_fill);
+    Color thumb_colour = ToRaylibColor(colours->text_on_dark);
 
     // Vertical scrollbar (right edge). Leave room at the bottom for the horizontal bar
     // when both are shown so the two tracks do not overlap in the corner.
@@ -97,8 +99,9 @@ static void DrawContainerScrollbars(const UIElement *e, const UIPalette *palette
     if (e->type != UI_ELEMENT_VIEW && e->is_scrollable_y && content_h > visible_h)
     {
         const float px = (float)GetViewportUIPixelScale();
-        Color track_colour = ToRaylibColor(palette ? palette->container_border : ui_default_palette.container_border);
-        Color thumb_colour = ToRaylibColor(palette ? palette->button_fill : ui_default_palette.button_fill);
+        const UIPalette *colours = palette ? palette : UIPalette_GetActive();
+        Color track_colour = ToRaylibColor(colours->subsection_fill);
+        Color thumb_colour = ToRaylibColor(colours->text_on_dark);
         DrawScrollbarY(e->screen_box, visible_h, content_h, e->scroll_offset.y, content_h - visible_h,
                        4.0f * px, 0.0f, 0.0f, 12.0f * px, track_colour, thumb_colour);
     }
@@ -132,7 +135,7 @@ ViewHostSystem *ViewHostSystem_Create(ViewportRegion *viewport, float scale, Vec
     panel->viewport = viewport;
     panel->space_to_viewport_scale = scale;
     panel->default_padding = padding;
-    panel->palette = palette ? palette : &ui_default_palette;
+    panel->palette = palette ? palette : UIPalette_GetActive();
     panel->root_child_spacing = root_child_spacing;
     panel->basis_override_enabled = false;
     panel->basis_override_u = ZERO_VECTOR_2D;
@@ -288,7 +291,7 @@ View *View_Create(UIElement *parent, const UIPalette *palette, ViewType type)
 
     if (!palette)
     {
-        palette = &ui_default_palette;
+        palette = UIPalette_GetActive();
     }
 
     // Create container UIElement
@@ -777,18 +780,19 @@ bool ViewHostSystem_SelectView(ViewSelector *selector, size_t view_index)
 // Recursively pull every element's display from its binding source (data -> UI).
 // Rides the per-frame draw traversal that already happens, so the added cost is one binding
 // NULL-check per element plus a format only for the few elements that carry a query source.
-static void ViewHostSystem_RefreshBindings(UIElement *element)
+// `palette` is the owning host's palette, used for the toggle fills and inks.
+static void ViewHostSystem_RefreshBindings(UIElement *element, const UIPalette *palette)
 {
     if (!element)
     {
         return;
     }
 
-    UIElement_RefreshBinding(element);
+    UIElement_RefreshBinding(element, palette);
 
     ForEachChild(element, child)
     {
-        ViewHostSystem_RefreshBindings(child);
+        ViewHostSystem_RefreshBindings(child, palette);
     }
 }
 
@@ -800,7 +804,7 @@ void ViewHostSystem_Draw(ViewHostSystem *panel)
     }
 
     // Pull bound widgets up to date from their data sources before laying out / drawing.
-    ViewHostSystem_RefreshBindings(panel->root);
+    ViewHostSystem_RefreshBindings(panel->root, panel->palette);
 
     // Update UI layout to reflect any interactive changes
     UpdateUISpace(panel->root, panel->seed_box);
@@ -927,7 +931,7 @@ ViewSelector *ViewHostSystem_CreateStandardViewSelector(ViewHostSystem *panel,
 
 /**
  * Apply standard styling to a view container.
- * Gives it the boxed section look (container fill, 1 px container border, 6 px section
+ * Gives it the boxed section look (container surface colours and border weight, 6 px section
  * padding so rows do not touch the border) and enables dragging.
  */
 void ViewHostSystem_StyleViewContainer(UIElement *container, const UIPalette *palette)
@@ -937,8 +941,9 @@ void ViewHostSystem_StyleViewContainer(UIElement *container, const UIPalette *pa
         return;
     }
 
-    container->colour_border = palette->container_border;
-    container->colour_fill = palette->container_fill;
+    UIPalette_GetSurfaceColours(palette, UI_PALETTE_SURFACE_CONTAINER,
+                                &container->colour_border, &container->colour_fill);
+    container->border_weight = UIPalette_GetSurfaceBorderWeight(palette, UI_PALETTE_SURFACE_CONTAINER);
     container->padding = ui_section_padding;
     container->is_draggable = true;
 }

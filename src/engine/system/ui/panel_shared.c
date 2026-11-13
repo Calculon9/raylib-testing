@@ -282,10 +282,12 @@ void PanelShared_WireFlags(UIElement *root, FlagButton *buttons, const char **id
 // ============================================================================
 
 // Bind a header block to its markup ids. The title switches to FONT_LARGE and the box fill is
-// captured so an untinted header can be restored. Missing ids are logged and left NULL.
-void PanelShared_HeaderBind(PanelHeader *header, UIElement *root, const char *box_id,
-                            const char *title_id, const char *sub_id)
+// captured so an untinted header can be restored. The owning host's palette is stored for the tint
+// pass. Missing ids are logged and left NULL.
+void PanelShared_HeaderBind(PanelHeader *header, UIElement *root, const UIPalette *palette,
+                            const char *box_id, const char *title_id, const char *sub_id)
 {
+    header->palette = palette ? palette : UIPalette_GetActive();
     header->box = UILoader_FindById(root, box_id);
     header->title = UILoader_FindById(root, title_id);
     header->sub = UILoader_FindById(root, sub_id);
@@ -301,7 +303,7 @@ void PanelShared_HeaderBind(PanelHeader *header, UIElement *root, const char *bo
     if (header->title)
     {
         // Titles use FONT_LARGE; the tint pass re-applies it with the right ink colour.
-        header->title->data.textbox.font = FONT_LARGE_WITH_COLOUR(ui_default_palette.title_text);
+        header->title->data.textbox.font = FONT_LARGE_WITH_COLOUR(header->palette->title_text);
     }
 }
 
@@ -316,8 +318,8 @@ void PanelShared_HeaderSetTint(PanelHeader *header, bool tinted)
         return;
     }
 
-    ColourRgba ink = ui_default_palette.title_text;
-    header->box->colour_fill = tinted ? ui_default_palette.button_fill : header->default_fill;
+    ColourRgba ink = header->palette->title_text;
+    header->box->colour_fill = tinted ? header->palette->button_fill : header->default_fill;
     if (header->title)
     {
         header->title->data.textbox.font = FONT_LARGE_WITH_COLOUR(ink);

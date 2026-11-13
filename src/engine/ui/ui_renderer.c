@@ -100,8 +100,8 @@ static int CountTextRows(const char *text, float available_width, int glyph_adva
 }
 
 // Faint outline drawn by the UI-borders debug overlay (F3) around elements that carry no
-// visible border of their own, so the overlay still shows every element's bounds.
-static const ColourRgba UI_DEBUG_BORDER_COLOUR = {{255, 255, 255, 80}};
+// visible border of their own, so the overlay still shows every element's bounds. Its colour is
+// the active palette's debug_outline role.
 // Horizontal text inset inside a bordered textbox: the border weight + a 4 px gap (5 px for the
 // default 1 px border). The glyph's own 2 px blank column then places the first ink 7 px from the
 // box edge, as in the mock.
@@ -116,7 +116,7 @@ static ColourRgba ResolveDrawnBorderColour(const UIElement *e)
     ColourRgba colour_border = e->colour_border;
     if (colour_border.a == 0 && IsDebugEnabled(DEBUG_UI_BORDERS))
     {
-        colour_border = UI_DEBUG_BORDER_COLOUR;
+        colour_border = UIPalette_GetActive()->debug_outline;
     }
     return colour_border;
 }
@@ -401,9 +401,6 @@ void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
 
 void DrawTextBoxText(UIElement *e)
 {
-
-    // Draw the Text
-    // DrawTextCustom(e->data.textbox.text.string, e->cached_box.coords, 2, FONT_DEFAULT, FONT_DEFAULT.colour);
 }
 
 // NEED TO CREATE BOX FOR ENTIRE SCREEN AND PASS THAT AS THE PARENT BOX FOR THE ROOT ELEMENT, SO THAT THE ROOT ELEMENT AND ALL OTHER ELEMENTS CAN CALCULATE THEIR POSITIONS AND DIMENSIONS BASED ON THAT, RATHER THAN HAVING THE ROOT ELEMENT CALCULATE ITS POSITION AND DIMENSIONS BASED ON A ZERO VECTOR, WHICH IS NOT FLEXIBLE IF WE WANT TO CHANGE THE PANEL OR ROOT ELEMENT PROPERTIES LATER

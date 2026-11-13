@@ -6,9 +6,10 @@ One home and one visual language for the toolbar's procedural glyphs. The reloca
 glyph plus nine toggle glyphs, each attached to a button's UIElement.on_draw hook by id in
 InitToolbar. Every glyph is centred in e->screen_box, sized off the box HEIGHT (the toolbar tiles
 are wide and short, so height is the limiting axis), monochrome, and composed from the same raylib
-primitives the Nudge glyph has always used. All ten buttons share one flat surface=input base; the
-ON/OFF state of each toggle is shown the Nudge way, through the GLYPH INK (bright button_fill when
-ON, normal text ink when OFF via UIIcon_StateInk), not an amber box-fill swap.
+primitives the Nudge glyph has always used. Every glyph is a bound toggle like any other: the
+shared binding refresh gives the button the toggle_on tile (ON) or the flat input tile (OFF) and
+sets the button's font colour to the matching dark `text` ink, so a glyph just draws in that ink
+(UIIcon_Ink) and never decides its own colour from state.
 *
 **********************************************************************************************/
 #include "system/ui/ui_icons.h"
@@ -17,11 +18,10 @@ ON, normal text ink when OFF via UIIcon_StateInk), not an amber box-fill swap.
 
 #include "raylib.h"                 // DrawLineEx / DrawRectangleLinesEx / DrawCircleV, Vector2 / Color
 #include "system/draw_primitives.h" // ToRaylibColor (ColourRgba -> raylib Color)
-#include "system/ui_system.h"       // ui_default_palette, UIState_IsToolActive, TOOL_NUDGE
+#include "system/ui_system.h"       // UIState_GetActiveTileType (cell-paint swatch)
 #include "world/world.h"            // TilePalette_TypeCount / TilePalette_ColourForType (active-type tint)
 #include "common/common.h"          // PI (float)
 #include "ui/ui.h"                  // UIElement / UIBox
-#include "ui/binding.h"             // Binding_ReadSource / BindingValue / BIND_SRC_NONE (toggle truth)
 
 // ============================================================================
 // Shared glyph helpers (file-local)
@@ -67,36 +67,12 @@ static bool UIIcon_Fit(const UIElement *e, UIIconFit *out)
     return true;
 }
 
-// Resolve the ink a toggle glyph draws in, mirroring the Nudge button EXACTLY: the glyph sits on a
-// flat surface=input box (no amber fill swap), so ON/OFF is conveyed by the ink alone - bright
-// button_fill when the toggle is ON, normal text ink when OFF. The toggle's live on/off truth is
-// read from its OWN binding source (the same IsDebugEnabled query the per-frame refresh uses), so
-// the ink can never drift from the binding and no suffix->id map is duplicated. A button with no
-// readable source, or a non-int / zero read, falls back to the normal text ink - the same fallback
-// the Nudge glyph uses when inactive. The element carries no palette handle, so ui_default_palette
-// is read directly, matching the toolbar's existing fallback. The Nudge glyph does NOT use this
-// helper: it owns its own ink path (button_fill/text, keyed on UIState_IsToolActive) in-line.
-static Color UIIcon_StateInk(const UIElement *e)
+// Resolve the ink a glyph draws in: the button's own font colour. The per-frame binding refresh
+// (UIElement_RefreshBinding) sets it from the owning host's palette, so it is the dark `text` ink
+// on both the ON (toggle_on) tile and the OFF (input) tile, and the glyph never reads state itself.
+static Color UIIcon_Ink(const UIElement *e)
 {
-    bool on = false; // OFF unless the toggle's own binding reports a non-zero (ON) value.
-    // Button-type check is inlined (not IsBtn, which takes a non-const pointer) so this helper can
-    // keep its const UIElement * signature; it mirrors IsBtn's three button-type cases exactly.
-    bool is_button = e && (e->type == UI_ELEMENT_BUTTON_SIMPLE ||
-                           e->type == UI_ELEMENT_BUTTON_ENUMERATE ||
-                           e->type == UI_ELEMENT_BUTTON_SUBMIT);
-    if (is_button)
-    {
-        const Binding *binding = e->data.button.binding;
-        if (binding && binding->source.kind != BIND_SRC_NONE)
-        {
-            BindingValue value = Binding_ReadSource(&binding->source);
-            on = (value.type != BIND_NONE && value.as.i != 0);
-        }
-    }
-
-    // Identical inks to the Nudge button: bright amber ON, normal near-black ink OFF.
-    return on ? ToRaylibColor(ui_default_palette.button_fill)
-              : ToRaylibColor(ui_default_palette.text);
+    return ToRaylibColor(e->data.button.font.colour);
 }
 
 // ============================================================================
@@ -107,8 +83,7 @@ static Color UIIcon_StateInk(const UIElement *e)
 // of motion dots trailing behind it. Monochrome, composed from raylib primitives and centred in
 // e->screen_box with padding. Attached via UIElement.on_draw so the renderer calls it on top of
 // the (flat) button box; no label is drawn because the button's text is empty. The ink follows
-// the active-tool state directly (bright button_fill when active, normal text ink otherwise)
-// because the Nudge button has no binding= and thus no toggle fill to read.
+// the button's font colour (dark text ink on both the ON and OFF tiles; see UIIcon_Ink).
 void UIIcon_DrawNudge(UIElement *e)
 {
     if (!e)
@@ -134,11 +109,8 @@ void UIIcon_DrawNudge(UIElement *e)
     float glyph_x = box_x + (box_w - glyph_w) * 0.5f;    // Left edge of the glyph extent.
     float glyph_y = box_y + (box_h - glyph_size) * 0.5f; // Top edge of the glyph box.
 
-    // Active-tool feedback is the ICON's look (no text toggle on this button): draw in the bright
-    // button fill when Nudge is the active tool, otherwise the normal text ink.
-    bool active = UIState_IsToolActive(TOOL_NUDGE);
-    Color ink = active ? ToRaylibColor(ui_default_palette.button_fill)
-                       : ToRaylibColor(ui_default_palette.text);
+    // Ink follows the button's bound toggle state through its font colour (see UIIcon_Ink).
+    Color ink = UIIcon_Ink(e);
     float stroke = fmaxf(1.5f, glyph_size * 0.12f);
 
     // Vertical centre line of the whole composition.
@@ -186,8 +158,7 @@ void UIIcon_DrawNudge(UIElement *e)
 // Draw the Cell Paint pictogram: a small 2x2 grid of cells with one cell filled, reading as
 // "paint a cell". Monochrome, centred in e->screen_box, composed from raylib primitives with no
 // heap allocation. This one glyph now carries BOTH cues for the consolidated cell-paint button:
-// the FRAME/divider ink follows the active-tool state (bright button_fill when TOOL_CELL_PAINT is
-// active, normal text ink otherwise, unchanged behaviour of this glyph), and the inner swatch is
+// the FRAME/divider ink is the button's font colour (see UIIcon_Ink), and the inner swatch is
 // filled with the ACTIVE TILE TYPE's palette colour (merged in from the retired DrawTileCycle),
 // so the colour the wheel selects is always visible. Attached via UIElement.on_draw.
 void UIIcon_DrawCellPaint(UIElement *e)
@@ -198,14 +169,12 @@ void UIIcon_DrawCellPaint(UIElement *e)
         return;
     }
 
-    // Outline/divider ink = active-tool state (unchanged behaviour of this glyph).
-    bool active = UIState_IsToolActive(TOOL_CELL_PAINT);
-    Color ink = active ? ToRaylibColor(ui_default_palette.button_fill)
-                       : ToRaylibColor(ui_default_palette.text);
+    // Outline/divider ink follows the bound toggle state through the button's font colour.
+    Color ink = UIIcon_Ink(e);
 
     // Inner swatch = current paint tile colour (merged in from the retired DrawTileCycle).
-    // tile_type 0 has no palette colour of its own, so fall back to the panel text ink.
-    ColourRgba swatch = TilePalette_ColourForType(UIState_GetActiveTileType(), ui_default_palette.text);
+    // tile_type 0 has no palette colour of its own, so fall back to the button ink.
+    ColourRgba swatch = TilePalette_ColourForType(UIState_GetActiveTileType(), e->data.button.font.colour);
     Color swatch_ink = ToRaylibColor(swatch);
 
     // 2x2 grid geometry centred on the fit.
@@ -214,7 +183,7 @@ void UIIcon_DrawCellPaint(UIElement *e)
     float span = f.half * 2.0f;
     float half_span = span * 0.5f;
 
-    // Outer frame in the tool-active ink.
+    // Outer frame in the button ink.
     Rectangle frame = { left, top, span, span };
     DrawRectangleLinesEx(frame, f.stroke, ink);
 
@@ -235,9 +204,8 @@ void UIIcon_DrawCellPaint(UIElement *e)
 
 // Draw the Spawn TOOL pictogram: a small square shape outline with a crosshair centred over it,
 // reading as "place a thing here". Monochrome, centred in e->screen_box, composed from raylib
-// primitives with no heap allocation. Like the other tool glyphs the ink follows the active-tool
-// state directly (bright button_fill when TOOL_SPAWN is active, normal text ink otherwise) because
-// this button has no binding= to read. Attached via UIElement.on_draw.
+// primitives with no heap allocation. Like the other tool glyphs the ink is the button's font
+// colour (see UIIcon_Ink). Attached via UIElement.on_draw.
 void UIIcon_DrawToolSpawn(UIElement *e)
 {
     UIIconFit f;
@@ -246,10 +214,8 @@ void UIIcon_DrawToolSpawn(UIElement *e)
         return;
     }
 
-    // Active-tool feedback is the icon's ink (no text toggle on this button).
-    bool active = UIState_IsToolActive(TOOL_SPAWN);
-    Color ink = active ? ToRaylibColor(ui_default_palette.button_fill)
-                       : ToRaylibColor(ui_default_palette.text);
+    // Ink follows the button's bound toggle state through its font colour (see UIIcon_Ink).
+    Color ink = UIIcon_Ink(e);
 
     // A small square shape outline sitting inside the glyph box (the "thing" being placed).
     float shape_half = f.half * 0.6f;
@@ -268,10 +234,8 @@ void UIIcon_DrawToolSpawn(UIElement *e)
 
 // Draw the geometry-edit pictogram: a small triangle outline with a filled dot at each vertex,
 // reading as "vertex handles you can drag". Monochrome, centred in e->screen_box, composed from
-// raylib primitives with no heap allocation. Like the other tool glyphs the ink follows the state
-// flag directly (bright button_fill when geometry edit is active, normal text ink otherwise)
-// because this button has no binding= to read; it therefore does NOT use UIIcon_StateInk.
-// Attached via UIElement.on_draw.
+// raylib primitives with no heap allocation. Like the other tool glyphs the ink is the button's
+// font colour (see UIIcon_Ink). Attached via UIElement.on_draw.
 void UIIcon_DrawGeometryEdit(UIElement *e)
 {
     UIIconFit f;
@@ -280,10 +244,8 @@ void UIIcon_DrawGeometryEdit(UIElement *e)
         return;
     }
 
-    // Geometry-edit-active feedback is the icon's ink (no text toggle, no binding= on this button).
-    bool active = UIState_IsGeometryEditActive();
-    Color ink = active ? ToRaylibColor(ui_default_palette.button_fill)
-                       : ToRaylibColor(ui_default_palette.text);
+    // Ink follows the button's bound toggle state through its font colour (see UIIcon_Ink).
+    Color ink = UIIcon_Ink(e);
 
     // Three vertices of an upright triangle centred on the fit (first vertex at the top).
     const int sides = 3;
@@ -311,7 +273,7 @@ void UIIcon_DrawGeometryEdit(UIElement *e)
 }
 
 // ============================================================================
-// Toggle glyphs (ink from UIIcon_StateInk: bright button_fill ON / normal text ink OFF)
+// Toggle glyphs (ink from UIIcon_Ink: the button font colour set by the binding refresh)
 // ============================================================================
 
 // Dashboard (debug.dashboard): a gauge dial. A thin ring (circle outline, approximated by a
@@ -325,7 +287,7 @@ void UIIcon_DrawDashboard(UIElement *e)
     {
         return;
     }
-    Color ink = UIIcon_StateInk(e);
+    Color ink = UIIcon_Ink(e);
     
     // Dial rim: a ring drawn as a closed line loop of N points around the centre (a single-ink
     // outline, respecting the stroke width without a filled disc).
@@ -355,7 +317,7 @@ void UIIcon_DrawViewportGrid(UIElement *e)
     {
         return;
     }
-    Color ink = UIIcon_StateInk(e);
+    Color ink = UIIcon_Ink(e);
 
     // Screen frame.
     Rectangle frame = { f.cx - f.half, f.cy - f.half, f.half * 2.0f, f.half * 2.0f };
@@ -401,7 +363,7 @@ static void UIIcon_DrawGrid3x3(const UIIconFit *f, Color ink, float frame_stroke
 //   FULL   - bright 3x3 grid with a BOLD outer frame (grid lines + border);
 //   BORDER - bright BOLD frame only (border only);
 //   OFF    - the plain 3x3 grid in the normal ink (nothing drawn in the world).
-// Brightness still comes from UIIcon_StateInk (the binding reports "enabled" for FULL and BORDER).
+// The ON tile still comes from the binding (it reports "enabled" for FULL and BORDER).
 void UIIcon_DrawWorldGrid(UIElement *e)
 {
     UIIconFit f;
@@ -409,7 +371,7 @@ void UIIcon_DrawWorldGrid(UIElement *e)
     {
         return;
     }
-    Color ink = UIIcon_StateInk(e);
+    Color ink = UIIcon_Ink(e);
     float bold = f.stroke * 2.0f;
 
     switch (world_grid_mode)
@@ -438,7 +400,7 @@ void UIIcon_DrawWorldGridLabels(UIElement *e)
     {
         return;
     }
-    Color ink = UIIcon_StateInk(e);
+    Color ink = UIIcon_Ink(e);
     UIIcon_DrawGrid3x3(&f, ink, f.stroke);
 
     // Tick dots at the four interior intersections (the 1/3 and 2/3 crossings).
@@ -465,7 +427,7 @@ void UIIcon_DrawUniverseGridLabels(UIElement *e)
     {
         return;
     }
-    Color ink = UIIcon_StateInk(e);
+    Color ink = UIIcon_Ink(e);
 
     // Coarse single cell + centred cross.
     Rectangle frame = { f.cx - f.half, f.cy - f.half, f.half * 2.0f, f.half * 2.0f };
@@ -491,7 +453,7 @@ void UIIcon_DrawUIBorders(UIElement *e)
     {
         return;
     }
-    Color ink = UIIcon_StateInk(e);
+    Color ink = UIIcon_Ink(e);
 
     // Outer frame at a thick stroke.
     Rectangle outer = { f.cx - f.half, f.cy - f.half, f.half * 2.0f, f.half * 2.0f };
@@ -513,7 +475,7 @@ void UIIcon_DrawObjectAxes(UIElement *e)
     {
         return;
     }
-    Color ink = UIIcon_StateInk(e);
+    Color ink = UIIcon_Ink(e);
 
     // Common origin at the lower-left of the glyph box.
     Vector2 origin = { f.cx - f.half, f.cy + f.half };
@@ -543,7 +505,7 @@ void UIIcon_DrawObjectHull(UIElement *e)
     {
         return;
     }
-    Color ink = UIIcon_StateInk(e);
+    Color ink = UIIcon_Ink(e);
 
     const int sides = 6;             // Hexagon.
     float radius = f.half * 0.95f;
@@ -570,7 +532,7 @@ void UIIcon_DrawObjectAABB(UIElement *e)
     {
         return;
     }
-    Color ink = UIIcon_StateInk(e);
+    Color ink = UIIcon_Ink(e);
 
     Rectangle box = { f.cx - f.half, f.cy - f.half, f.half * 2.0f, f.half * 2.0f };
     DrawRectangleLinesEx(box, f.stroke, ink);
@@ -581,7 +543,7 @@ void UIIcon_DrawObjectAABB(UIElement *e)
 
 // Collision markers (gizmo.collisions): a filled contact dot at the centre with eight short radial
 // ticks around it, reading as an impact burst. The ticks (no outline rect) separate it from the
-// Object AABB glyph's rect-plus-dot. Ink follows the toggle's own binding via UIIcon_StateInk.
+// Object AABB glyph's rect-plus-dot. Ink comes from UIIcon_Ink.
 void UIIcon_DrawCollisions(UIElement *e)
 {
     UIIconFit f;
@@ -589,7 +551,7 @@ void UIIcon_DrawCollisions(UIElement *e)
     {
         return;
     }
-    Color ink = UIIcon_StateInk(e);
+    Color ink = UIIcon_Ink(e);
 
     // Central contact point.
     float dot = fmaxf(1.5f, f.half * 0.25f);

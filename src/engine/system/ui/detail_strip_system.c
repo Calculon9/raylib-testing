@@ -161,7 +161,9 @@ static void DetailStrip_ComposeToolContext(char *out, size_t cap)
         case TOOL_CELL_PAINT:
         {
             int type = UIState_GetActiveTileType();
-            ColourRgba c = TilePalette_ColourForType(type, (ColourRgba){ 0, 0, 0, 255 });
+            // The fallback only feeds the "RGB r,g,b" hint text (never a drawn colour), so it is the
+            // neutral COLOURLESS_RGBA rather than a palette role.
+            ColourRgba c = TilePalette_ColourForType(type, COLOURLESS_RGBA);
             UIHint_AppendSegment(out, cap, "Paint: %s (%d)", TilePalette_NameForType(type), type);
             UIHint_AppendSegment(out, cap, "RGB %d,%d,%d", (int)c.r, (int)c.g, (int)c.b);
             break;
@@ -281,7 +283,7 @@ void InitDetailStrip(void)
     //    / state_manager_system.c (they all load from src/engine/ui/components/).
     UIElement *root = UILoader_LoadFromFileWithResolvers(
         UI_COMPONENTS_DIR "/detail_strip.xml",
-        &ui_default_palette,
+        UIPalette_GetActive(),
         DetailStrip_ResolveBinding,
         DetailStrip_ResolveCommand,
         NULL,
@@ -299,7 +301,7 @@ void InitDetailStrip(void)
     //    container under it. Mounting against detail_strip_viewport keeps the strip in its own
     //    reserved screen region so it never overlaps the world render area.
     detail_strip = ViewHostSystem_Create(&detail_strip_viewport, 1.0f, ZERO_VECTOR_2D,
-                                         &ui_default_palette, ui_standard_stack_spacing);
+                                         UIPalette_GetActive(), ui_standard_stack_spacing);
     if (!detail_strip)
     {
         DisposeUIElement(root);

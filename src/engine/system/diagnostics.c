@@ -9,6 +9,7 @@
 #include "system/debug_overlay_system.h"
 #include "system/universe_system.h"
 #include "system/ui_system.h"
+#include "system/draw_primitives.h"
 #include "world/world.h"
 #include "world/world_internal.h"
 #include "world/universe.h"
@@ -212,7 +213,8 @@ static const char *GetOnOffLabel(int enabled)
 // Draw a single dashboard text line at (x, y) in the given colour.
 static void DrawDashboardLine(const char *text, int x, int y, ColourRgba color)
 {
-    DrawTextCustom(text, (Vector2d){(float)x, (float)y}, FONT_BASIC.scale, FONT_BASIC, color);
+    Bitmap_Font font = FONT_BASIC_WITH_COLOUR(color);
+    DrawTextCustom(text, (Vector2d){(float)x, (float)y}, font.scale, font, color);
 }
 
 // Formats and draws a single dashboard row, advancing the row pointer.
@@ -460,13 +462,16 @@ static void DrawDebugDashboard(void)
     int row_y_left = panel_y + 18;
     int row_y_right = panel_y + 18;
     int row_step = 24;
-    ColourRgba title_color = (ColourRgba){255, 244, 200, 240};
-    ColourRgba body_color = (ColourRgba){232, 240, 250, 200};
-    ColourRgba accent_color = (ColourRgba){170, 220, 255, 230};
+    // The dashboard is global and draws outside any view host, so it uses the active palette:
+    // light ink over the dark translucent overlay, with the warning role for section headings.
+    const UIPalette *palette = UIPalette_GetActive();
+    ColourRgba title_color = palette->text_on_dark;
+    ColourRgba body_color = palette->text_on_dark;
+    ColourRgba accent_color = palette->warning;
     DashboardBasisData basis = ResolveDashboardBasisData();
 
-    DrawRectangle(panel_x, panel_y, panel_w, panel_h, (Color){8, 12, 18, 90});
-    DrawRectangleLines(panel_x, panel_y, panel_w, panel_h, (Color){210, 228, 245, 180});
+    DrawRectangle(panel_x, panel_y, panel_w, panel_h, ToRaylibColor(palette->overlay_fill));
+    DrawRectangleLines(panel_x, panel_y, panel_w, panel_h, ToRaylibColor(palette->text_on_dark));
 
     DrawDashboardLine("DEBUG DASHBOARD", col1_x, row_y_left, title_color);
     row_y_left += row_step * 2;

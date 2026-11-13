@@ -12,7 +12,6 @@
 //----------------------------------------------------------------------------------
 
 // DEFAULT 8x8 FONT
-// Bitmap_Font default_font = FONT_BASIC;
 //
 uint8_t font8x8_bitmap_basic_6x7[128][8] = {
     // Space (32)

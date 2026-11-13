@@ -669,7 +669,7 @@ static void WorldManager_BindNewField(UIElement *root, const char *id, DataType 
 static void WorldManager_RegisterElements(UIElement *root)
 {
     // --- Header (title / sub-line / tint box) and chips ---
-    PanelShared_HeaderBind(&s_wm_ui.header, root, "world_header", "wm_header_title", "wm_header_sub");
+    PanelShared_HeaderBind(&s_wm_ui.header, root, s_wm_panel->palette, "world_header", "wm_header_title", "wm_header_sub");
     s_wm_ui.kind_chips = WorldManager_Find(root, "kind_chips");
     static const char *chip_ids[2] = {"wm_kind_world", "wm_kind_cell"};
     for (int i = 0; i < 2; i++)
@@ -789,7 +789,7 @@ static void WorldManager_ApplyLayout(const WMTargets *targets, int deletable)
         PanelShared_SetButtonText(chip, label);
 
         // Chips share the tab / toggle two-state colours: active = amber + dark ink, inactive = dimmed.
-        UIPalette_GetToggleColours(&ui_default_palette, s_wm_chip_kinds[i] == targets->kind,
+        UIPalette_GetToggleColours(s_wm_panel->palette, s_wm_chip_kinds[i] == targets->kind,
                                    &chip->colour_fill, &chip->data.button.font.colour);
     }
 
@@ -865,7 +865,7 @@ void InitWorldManagerSystem(void)
     // 1) Load the authoritative markup with the world-manager resolvers (mirrors InitStateManagerSystem).
     UIElement *root = UILoader_LoadFromFileWithResolvers(
         UI_COMPONENTS_DIR "/world_manager.xml",
-        &ui_default_palette,
+        UIPalette_GetActive(),
         WorldManager_ResolveBinding,
         WorldManager_ResolveCommand,
         WorldManager_ResolveViewType,
@@ -884,7 +884,7 @@ void InitWorldManagerSystem(void)
     // 3) Build the host against the right-panel viewport, then build the real root and re-parent the
     //    XML container under it. UpdateUISpace (step 7) lays the panel out over the valid viewport.
     s_wm_panel = ViewHostSystem_Create(&rpanel_viewport, 1.0f, (Vector2d){5.0f, 5.0f},
-                                       &ui_default_palette, ui_standard_stack_spacing);
+                                       UIPalette_GetActive(), ui_standard_stack_spacing);
     if (!s_wm_panel)
     {
         DisposeUIElement(root);

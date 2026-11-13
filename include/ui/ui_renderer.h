@@ -14,7 +14,6 @@ UI SYSTEM MODULE
 // Macros and Defines
 //----------------------------------------------------------------------------------
 
-#define FONT_DEFAULT FONT_BASIC
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition

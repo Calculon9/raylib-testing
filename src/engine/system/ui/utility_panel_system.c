@@ -24,6 +24,10 @@ static void InitUtilityStatsView(void)
     // Customise the standard view container size for the utility statistics layout.
     stats_container->size = utility_view_size;
 
+    // Boxed section title, matching the other panels' titled containers (first child, above the rows).
+    CreateUILabelTitleDefault(stats_container, "Performance", ui_title_size,
+                              ui_standard_field_padding, utility_panel->palette);
+
     const UIFieldSpec stats_specs[] = {
         {"Mem", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &G_UIState.stats_mem_str},
         {"Fps", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, NULL, &G_UIState.stats_fps_str},
@@ -38,7 +42,7 @@ static void InitUtilityStatsView(void)
 void InitUtilityPanel(void)
 {
     utility_panel = ViewHostSystem_Create(&utility_panel_viewport, 1.0f, (Vector2d){5.0f, 5.0f},
-        &ui_default_palette, ui_standard_stack_spacing);
+        UIPalette_GetActive(), ui_standard_stack_spacing);
     if (!utility_panel)
     {
         return;

@@ -29,7 +29,7 @@ UIElement *CreateUILabelDefault(UIElement *parent, const char *text, Size size,
 {
     if (!palette)
     {
-        palette = &ui_default_palette;
+        palette = UIPalette_GetActive();
     }
 
     return CreateUILabel(parent, text, size, padding,
@@ -43,7 +43,7 @@ UIElement *CreateUILabelTitleDefault(UIElement *parent, const char *text,
 {
     if (!palette)
     {
-        palette = &ui_default_palette;
+        palette = UIPalette_GetActive();
     }
 
     return CreateUILabel(parent, text, size, padding,
@@ -160,7 +160,7 @@ UIElement *CreateUILabeledFieldDefault(UIElement *parent, const char *label_text
 {
     if (!palette)
     {
-        palette = &ui_default_palette;
+        palette = UIPalette_GetActive();
     }
 
     // The row and its label cell are TRANSPARENT: borders are drawn whenever their alpha is
@@ -220,7 +220,7 @@ UIElement *CreateUIButtonDefault(UIElement *parent, UIElementType type, const ch
 {
     if (!palette)
     {
-        palette = &ui_default_palette;
+        palette = UIPalette_GetActive();
     }
 
     ColourRgba border;
@@ -247,7 +247,7 @@ UIElement *CreateUIHoverItemDefault(UIElement *parent, const char *text, Size si
 {
     if (!palette)
     {
-        palette = &ui_default_palette;
+        palette = UIPalette_GetActive();
     }
 
     ColourRgba border;
@@ -281,7 +281,7 @@ UIElement *CreateUIContainer(UIElement *parent, Size size, Offset offset,
 {
     if (!palette)
     {
-        palette = &ui_default_palette;
+        palette = UIPalette_GetActive();
     }
 
     ColourRgba border;
@@ -301,59 +301,6 @@ UIElement *CreateUIContainer(UIElement *parent, Size size, Offset offset,
     cont->is_enabled = is_enabled;
 
     return cont;
-}
-
-UIElement *CreateViewSection(UIElement *parent, const char *title,
-                            Size section_size, Offset section_offset,
-                            const Layout *child_spacing,
-                            const UIPalette *palette)
-{
-    // Unified section constructor that accepts explicit offset and spacing.
-    // Allows declarative layout control from XML.
-    if (!child_spacing)
-    {
-        // Default to stacked layout if no spacing provided
-        child_spacing = &ui_standard_stack_spacing;
-    }
-    
-    // Boxed section: container fill + 1 px container border (kept, no dark-edge override)
-    // with the 6 px section padding.
-    UIElement *section = CreateUIContainer(
-        parent, section_size, section_offset,
-        ui_section_padding, palette,
-        UI_PALETTE_SURFACE_CONTAINER, *child_spacing, true, true);
-    
-    if (!section)
-    {
-        return NULL;
-    }
-
-    // Section heading uses the larger title font (FONT_LARGE) for visual hierarchy over controls.
-    // Title width HUGS its measured text (ui_title_size) so long titles are never clipped.
-    CreateUILabelTitleDefault(section, title, ui_title_size,
-                              ui_standard_field_padding, palette);
-    return section;
-}
-
-UIElement *CreateViewSection_Stack(UIElement *parent, const char *title,
-                             Size section_size, const UIPalette *palette)
-{
-    // Build a reusable wrapped section for panel views.
-    UIElement *section = CreateUIContainer(
-        parent, section_size,
-        (Offset){ZERO_VECTOR_2D, OFFSET_PERCENT}, ui_section_padding,  // 6 px section padding
-        palette, UI_PALETTE_SURFACE_CONTAINER,                          // keeps the container border
-        ui_standard_stack_spacing, true, true);
-    if (!section)
-    {
-        return NULL;
-    }
-
-    // Section heading uses the larger title font (FONT_LARGE) for visual hierarchy over controls.
-    // Title width HUGS its measured text (ui_title_size) so long titles are never clipped.
-    CreateUILabelTitleDefault(section, title, ui_title_size,
-                              ui_standard_field_padding, palette);
-    return section;
 }
 
 void InitUIFields(UIElement *parent, const UIFieldSpec *specs, size_t count,

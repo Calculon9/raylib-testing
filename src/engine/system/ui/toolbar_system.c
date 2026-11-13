@@ -101,6 +101,14 @@ static BindingValue Toolbar_QueryToolActive(int tool_key)
                            .as.i = UIState_IsToolActive((ActiveTool)tool_key) ? 1 : 0 };
 }
 
+// Report whether the independent geometry editor is on, as a canonical 0/1 BIND_INT. The key is
+// unused (the flag is a single global) but the signature must match BindingQueryFn.
+static BindingValue Toolbar_QueryGeometryEdit(int unused_key)
+{
+    (void)unused_key;
+    return (BindingValue){ .type = BIND_INT, .as.i = UIState_IsGeometryEditActive() ? 1 : 0 };
+}
+
 // ============================================================================
 // Debug-toggle display machinery (rehomed from the retired lpanel STATE view)
 // ============================================================================
@@ -276,8 +284,16 @@ static void Toolbar_HintOverlayToggle(const UIElement *e, char *out, size_t cap)
 // UI loader resolvers (application-specific)
 // ============================================================================
 
-// Resolve a toolbar button's binding= name to a live query source. "tool.nudge" maps to the Nudge
-// tool's active-state query (radio-exclusive, unchanged). The gizmo.* / view.* / debug.* toggle
+// Authored binding names of the radio-exclusive tools, each mapped to its ActiveTool value.
+static const struct { const char *name; ActiveTool tool; } toolbar_tool_bindings[] = {
+    { "tool.nudge",      TOOL_NUDGE },
+    { "tool.cell-paint", TOOL_CELL_PAINT },
+    { "tool.spawn",      TOOL_SPAWN },
+};
+
+// Resolve a toolbar button's binding= name to a live query source. The tool.* names map to the
+// tool's active-state query (radio-exclusive) and "tool.geometry-edit" to the independent geometry
+// editor flag, so every toolbar button takes the shared toggle fill. The gizmo.* / view.* / debug.* toggle
 // namespaces (rehomed from the lpanel STATE view) strip their prefix, resolve the suffix to a
 // DebugOverlayId and return a query over Toolbar_QueryDebugEnabled; an unknown overlay name is
 // unresolved. Anything else is unresolved.
@@ -290,13 +306,27 @@ static UIBinding Toolbar_ResolveBinding(const char *binding_string, UILoaderCont
         return (UIBinding){ .kind = UI_BIND_SRC_NONE };
     }
 
-    // Nudge tool: radio-exclusive active-state source (kept unchanged).
-    if (!strcmp(binding_string, "tool.nudge"))
+    // Tools: radio-exclusive active-state sources.
+    for (size_t i = 0; i < sizeof(toolbar_tool_bindings) / sizeof(toolbar_tool_bindings[0]); i++)
+    {
+        if (!strcmp(binding_string, toolbar_tool_bindings[i].name))
+        {
+            return (UIBinding){
+                .kind = UI_BIND_SRC_QUERY,
+                .query = Toolbar_QueryToolActive,
+                .query_key = (int)toolbar_tool_bindings[i].tool,
+                .value_type = BIND_INT,
+            };
+        }
+    }
+
+    // Geometry editor: independent flag (not part of the radio tool set).
+    if (!strcmp(binding_string, "tool.geometry-edit"))
     {
         return (UIBinding){
             .kind = UI_BIND_SRC_QUERY,
-            .query = Toolbar_QueryToolActive,
-            .query_key = (int)TOOL_NUDGE,
+            .query = Toolbar_QueryGeometryEdit,
+            .query_key = 0,
             .value_type = BIND_INT,
         };
     }
@@ -353,7 +383,7 @@ void InitToolbar(void)
     //    the toolbar is a single Container root, not a multi-view ViewHost).
     UIElement *root = UILoader_LoadFromFileWithResolvers(
         UI_COMPONENTS_DIR "/toolbar.xml",
-        &ui_default_palette,
+        UIPalette_GetActive(),
         Toolbar_ResolveBinding,
         Toolbar_ResolveCommand,
         NULL,
@@ -370,7 +400,7 @@ void InitToolbar(void)
     //    InitViewportLayout), build its real root, and re-parent the XML container under it
     //    (NEVER toolbar->root = root - that is the dangling-root bug).
     toolbar = ViewHostSystem_Create(&toolbar_viewport, 1.0f, ZERO_VECTOR_2D,
-                                    &ui_default_palette, ui_standard_stack_spacing);
+                                    UIPalette_GetActive(), ui_standard_stack_spacing);
     if (!toolbar)
     {
         DisposeUIElement(root);
@@ -390,8 +420,8 @@ void InitToolbar(void)
         nudge_btn->on_draw = UIIcon_DrawNudge;
     }
 
-    // Cell paint tool glyph, wired exactly like the Nudge button. The button has no binding=, so
-    // its active-state feedback comes from the on_draw glyph reading the active tool. The on_scroll
+    // Cell paint tool glyph, wired exactly like the Nudge button. Its binding= supplies the shared
+    // toggle fill and ink that the glyph draws with. The on_scroll
     // hook consolidates the retired tile-type cycle button onto this one: CLICK toggles the tool
     // (unchanged action="tool-cell-paint" -> CMD_TOOL_CELL_PAINT), WHEEL cycles the active tile
     // type. Click and wheel are independent base fields, so neither disturbs the other.
@@ -402,8 +432,8 @@ void InitToolbar(void)
         cell_paint_btn->on_scroll = Toolbar_ScrollCycleTileType; // wheel cycles tile type
     }
 
-    // Spawn TOOL button: no binding=, so its active-state feedback comes from the on_draw glyph
-    // reading the active tool. action="tool-spawn" resolves to CMD_TOOL_SPAWN on click. The
+    // Spawn TOOL button: its binding= supplies the shared toggle fill and ink that the glyph draws
+    // with. action="tool-spawn" resolves to CMD_TOOL_SPAWN on click. The
     // on_scroll hook consolidates the retired prefab cycle button onto this one: WHEEL cycles the
     // active spawn prefab (independent of the click toggle).
     UIElement *spawn_btn = UILoader_FindById(root, "tool_spawn");
@@ -413,8 +443,8 @@ void InitToolbar(void)
         spawn_btn->on_scroll = Toolbar_ScrollCyclePrefab;        // wheel cycles prefab
     }
 
-    // Toggle glyphs: look each up by id and attach its on_draw. The toggles keep their binding=,
-    // so each glyph tints itself from e->colour_fill (the refresh sets it to toggle_on_fill/off).
+    // Toggle glyphs: look each up by id and attach its on_draw. Each button's binding= makes the
+    // per-frame refresh set its fill (toggle_on_fill or the flat input fill) and glyph ink.
     UIElement *b;
     if ((b = UILoader_FindById(root, "toggle_dashboard")))            b->on_draw = UIIcon_DrawDashboard;
     if ((b = UILoader_FindById(root, "toggle_viewport_grid")))        b->on_draw = UIIcon_DrawViewportGrid;
@@ -427,9 +457,8 @@ void InitToolbar(void)
     if ((b = UILoader_FindById(root, "toggle_object_aabb")))          b->on_draw = UIIcon_DrawObjectAABB;
     if ((b = UILoader_FindById(root, "toggle_collisions")))           b->on_draw = UIIcon_DrawCollisions;
 
-    // Independent geometry-edit toggle: no binding=, so (like the tool buttons) its glyph owns its
-    // ink path, reading UIState_IsGeometryEditActive. action="toggle-geometry-edit" resolves to
-    // CMD_TOGGLE_GEOMETRY_EDIT on click.
+    // Independent geometry-edit toggle: bound to the geometry-edit flag like the others.
+    // action="toggle-geometry-edit" resolves to CMD_TOGGLE_GEOMETRY_EDIT on click.
     if ((b = UILoader_FindById(root, "toggle_geometry_edit")))        b->on_draw = UIIcon_DrawGeometryEdit;
 
     // 2c) Hover-hint callbacks for the detail strip. The static wording is the hint= attribute in

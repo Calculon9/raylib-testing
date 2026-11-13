@@ -353,8 +353,10 @@ void ToggleElementEnabled(UIElement *element);
 // authored `text` base intact. Pure pull: reads current truth, so it is safe to call every
 // frame and never goes stale. A textbox carrying a readable binding source refreshes via this
 // pull too (skipped while focused so in-progress typing is never overwritten); textboxes without
-// a binding stay on the RefreshTextboxFields path.
-void UIElement_RefreshBinding(UIElement *e);
+// a binding stay on the RefreshTextboxFields path. `palette` is the owning view host's palette,
+// used for toggle fills and inks (NULL falls back to the active palette).
+typedef struct UIPalette UIPalette; // Full definition in system/ui_system.h (repeating a typedef is valid C11).
+void UIElement_RefreshBinding(UIElement *e, const UIPalette *palette);
 // Scroll a horizontally scrollable element by local coordinate units.
 void ScrollUIElementX(UIElement *element, float delta);
 // Scroll a vertically scrollable element by local coordinate units.

@@ -57,6 +57,7 @@ typedef struct PanelHeader
     UIElement *title;            // FONT_LARGE title textbox
     UIElement *sub;              // FONT_MEDIUM sub-line textbox
     ColourRgba default_fill;     // box fill captured at bind time (restored when untinted)
+    const UIPalette *palette;    // owning host's palette (tint and ink colours)
 } PanelHeader;
 
 // Resolve an ENTITY ref to its live entity, or NULL for a wrong-kind or stale ref.
@@ -84,8 +85,9 @@ void PanelShared_WireFlags(UIElement *root, FlagButton *buttons, const char **id
 void PanelShared_HandleFlagClick(UIElement *button);
 
 // Bind a header block to its three markup ids (FONT_LARGE title) and capture the default fill.
-void PanelShared_HeaderBind(PanelHeader *header, UIElement *root, const char *box_id,
-                            const char *title_id, const char *sub_id);
+// `palette` is the owning host's palette (NULL uses the active palette).
+void PanelShared_HeaderBind(PanelHeader *header, UIElement *root, const UIPalette *palette,
+                            const char *box_id, const char *title_id, const char *sub_id);
 
 // Tint the header amber (several targets) or restore the default fill; ink is the dark text colour.
 void PanelShared_HeaderSetTint(PanelHeader *header, bool tinted);

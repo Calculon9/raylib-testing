@@ -101,7 +101,6 @@ typedef union
 } ColourRgba;
 
 // Some Basic Colors
-#define COLOUR_UI_INK_RGBA (ColourRgba){ 32, 42, 37, 255 }
 #define COLOUR_UI_SAGE_RGBA (ColourRgba){ 111, 137, 119, 255 }
 #define COLOUR_UI_PAPER_RGBA (ColourRgba){ 245, 241, 230, 255 }
 #define COLOUR_UI_GOLD_RGBA (ColourRgba){ 230, 194, 119, 255 }
@@ -114,7 +113,6 @@ typedef union
 #define COLOUR_UI_HARBOR_NAVY_RGBA (ColourRgba){ 28, 58, 67, 255 }
 #define COLOUR_UI_HARBOR_SEAFOAM_RGBA (ColourRgba){ 86, 139, 127, 255 }
 #define COLOUR_UI_HARBOR_SAND_RGBA (ColourRgba){ 239, 221, 184, 255 }
-#define COLOUR_UI_HARBOR_AMBER_RGBA (ColourRgba){ 220, 158, 70, 255 }
 #define COLOUR_UI_HARBOR_CORAL_RGBA (ColourRgba){ 218, 117, 96, 255 }
 #define COLOUR_GAME_INK_RGBA        (ColourRgba){ 24, 30, 35, 255 }
 #define COLOUR_GAME_PARCHMENT_RGBA  (ColourRgba){ 232, 224, 198, 255 }
@@ -165,7 +163,6 @@ typedef union
 
 // UI Teracotta
 #define COLOURLESS_RGBA (ColourRgba){ 0, 0, 0, 0 }  
-#define COLOUR_UI_INK_RGBA (ColourRgba){ 32, 42, 37, 255 }
 #define COLOUR_UI_SAGE_RGBA (ColourRgba){ 111, 137, 119, 255 }
 #define COLOUR_UI_PAPER_RGBA (ColourRgba){ 245, 241, 230, 255 }
 #define COLOUR_UI_GOLD_RGBA (ColourRgba){ 230, 194, 119, 255 }

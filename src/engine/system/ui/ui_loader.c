@@ -742,7 +742,7 @@ static UIBuildResult BuildTextbox(mxml_node_t *node, UIElement *parent, const UI
                                   UILoaderContext *ctx, UICommonAttrs *common)
 {
     if (!palette)
-        palette = &ui_default_palette;
+        palette = UIPalette_GetActive();
 
     // Map type= and io= via the shared helpers (identical mapping to BuildTextField).
     DataType data_type = UILoader_ParseFieldDataType(mxmlElementGetAttr(node, "type"));
@@ -1821,7 +1821,7 @@ UIElement *UILoader_LoadFromFile(const char *filepath, const UIPalette *palette)
     
     UILoaderContext ctx = {
         .root = root_elem,
-        .palette = palette ? palette : &ui_default_palette,
+        .palette = palette ? palette : UIPalette_GetActive(),
         .source_file = filepath,
         .resolve_binding = NULL,  // Application to provide resolver
         .resolve_command = NULL,   // Application to provide resolver
@@ -1870,7 +1870,7 @@ UIElement *UILoader_LoadFromString(const char *xml_string, const UIPalette *pale
     
     UILoaderContext ctx = {
         .root = root_elem,
-        .palette = palette ? palette : &ui_default_palette,
+        .palette = palette ? palette : UIPalette_GetActive(),
         .source_file = "<string>",
         .resolve_binding = NULL,  // Application to provide resolver
         .resolve_command = NULL,   // Application to provide resolver
@@ -1925,7 +1925,7 @@ UIElement *UILoader_LoadFromFileWithResolvers(const char *filepath, const UIPale
     
     UILoaderContext ctx = {
         .root = root_elem,
-        .palette = palette ? palette : &ui_default_palette,
+        .palette = palette ? palette : UIPalette_GetActive(),
         .source_file = filepath,
         .resolve_binding = resolve_binding,
         .resolve_command = resolve_command,
@@ -1977,7 +1977,7 @@ UIElement *UILoader_LoadFromStringWithResolvers(const char *xml_string, const UI
     
     UILoaderContext ctx = {
         .root = root_elem,
-        .palette = palette ? palette : &ui_default_palette,
+        .palette = palette ? palette : UIPalette_GetActive(),
         .source_file = "<string>",
         .resolve_binding = resolve_binding,
         .resolve_command = resolve_command,

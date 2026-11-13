@@ -378,7 +378,7 @@ void InitPopupMenu(void)
     // 1) Load the authoritative markup with the popup resolvers (mirrors state_manager).
     UIElement *root = UILoader_LoadFromFileWithResolvers(
         UI_COMPONENTS_DIR "/popup.xml",
-        &ui_default_palette,
+        UIPalette_GetActive(),
         Popup_ResolveBinding,
         Popup_ResolveCommand,
         Popup_ResolveViewType,
@@ -396,7 +396,7 @@ void InitPopupMenu(void)
 
     // 3) Build the host against the game viewport, build the real root, re-parent the XML tree.
     popup_menu = ViewHostSystem_Create(&game_viewport, 1.0f, ZERO_VECTOR_2D,
-                                       &ui_default_palette, popup_menu_root_spacing);
+                                       UIPalette_GetActive(), popup_menu_root_spacing);
     if (!popup_menu)
     {
         DisposeUIElement(root);

@@ -181,7 +181,7 @@ void InitLPanel()
     // application-specific binding / command / view-type resolvers.
     UIElement *root = UILoader_LoadFromFileWithResolvers(
         UI_COMPONENTS_DIR "/lpanel.xml",
-        &ui_default_palette,
+        UIPalette_GetActive(),
         LPanel_ResolveBinding,
         LPanel_ResolveCommand,
         LPanel_ResolveViewType,
@@ -209,7 +209,7 @@ void InitLPanel()
     // seed box) and re-parent the XML <ViewHost> container under it. The XML tree
     // drives everything inside the single real root.
     lpanel = ViewHostSystem_Create(&lpanel_viewport, 1.0f, (Vector2d){5.0f, 5.0f},
-                                   &ui_default_palette, ui_standard_stack_spacing);
+                                   UIPalette_GetActive(), ui_standard_stack_spacing);
     if (!lpanel)
     {
         DisposeUIElement(root);

@@ -69,14 +69,6 @@ UIElement *CreateUIContainer(UIElement *parent, Size size, Offset offset,
                              UIPaletteSurface surface, Layout child_spacing,
                              bool is_draggable, bool is_enabled);
 
-UIElement *CreateViewSection(UIElement *parent, const char *title,
-                            Size section_size, Offset section_offset,
-                            const Layout *child_spacing,
-                            const UIPalette *palette);
-
-UIElement *CreateViewSection_Stack(UIElement *parent, const char *title,
-                                   Size section_size, const UIPalette *palette);
-
 void InitUIFields(UIElement *parent, const UIFieldSpec *specs, size_t count,
                   Vector2d row_padding, const UIPalette *palette);
 

@@ -968,7 +968,7 @@ static void StateManager_RegisterComponentSections(UIElement *root)
 static void StateManager_RegisterElements(UIElement *root)
 {
     // --- Header (title / sub-line / tint box), tab row and the multi-select note ---
-    PanelShared_HeaderBind(&s_sm_ui.header, root, "entity_header", "sm_header_title", "sm_header_sub");
+    PanelShared_HeaderBind(&s_sm_ui.header, root, state_manager_panel->palette, "entity_header", "sm_header_title", "sm_header_sub");
     s_sm_ui.values_note = StateManager_Find(root, "sm_values_note");
     StateManager_SetNoteText(s_sm_ui.values_note);
     s_sm_ui.tab_container = StateManager_Find(root, "state_manager_views");
@@ -1213,7 +1213,7 @@ static void StateManager_SetActionState(StateManagerActionPair *pair, bool remov
     pair->state = wanted;
 
     PanelShared_SetButtonText(pair->button, remove ? "REMOVE" : "ADD");
-    UIPalette_GetSurfaceColours(&ui_default_palette,
+    UIPalette_GetSurfaceColours(state_manager_panel->palette,
                                 remove ? UI_PALETTE_SURFACE_DANGER : UI_PALETTE_SURFACE_BUTTON,
                                 &pair->button->colour_border, &pair->button->colour_fill);
 
@@ -1503,7 +1503,7 @@ void InitStateManagerSystem(void)
     // 1) Load the authoritative markup with the state-manager resolvers (mirrors InitLPanel).
     UIElement *root = UILoader_LoadFromFileWithResolvers(
         UI_COMPONENTS_DIR "/state_manager.xml",
-        &ui_default_palette,
+        UIPalette_GetActive(),
         StateManager_ResolveBinding,
         StateManager_ResolveCommand,
         StateManager_ResolveViewType,
@@ -1526,7 +1526,7 @@ void InitStateManagerSystem(void)
     //    (step 10) re-lays-out the panel over the valid viewport space afterwards.
     state_manager_panel = ViewHostSystem_Create(&lpanel_viewport, 1.0f,
                                                 (Vector2d){5.0f, 5.0f},
-                                                &ui_default_palette, ui_standard_stack_spacing);
+                                                UIPalette_GetActive(), ui_standard_stack_spacing);
     if (!state_manager_panel)
     {
         DisposeUIElement(root);

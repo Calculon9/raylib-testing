@@ -59,6 +59,8 @@ typedef struct UIPalette
 	ColourRgba text_on_dark;
 	ColourRgba error;
 	ColourRgba warning;
+	ColourRgba overlay_fill;     // Translucent dark backing for the diagnostics dashboard.
+	ColourRgba debug_outline;    // Outline drawn around every element by the UI-borders debug overlay.
 } UIPalette;
 
 // Active tool for the vertical tool toolbar. Tools are radio-exclusive: at most one is active at
@@ -129,6 +131,18 @@ extern UIPalette ui_classic_palette;
 extern UIPalette ui_earth_palette;
 extern UIPalette ui_harbor_palette;
 extern UIPalette ui_meadow_palette;
+
+// The palette every UI element is built from. Returns a stable pointer to the live storage
+// (ui_default_palette), so the pointer stays valid across UIPalette_SetActive calls. UI code
+// outside ui_system.c must obtain its palette through this (or its host's palette), never by
+// reading ui_default_palette directly.
+const UIPalette *UIPalette_GetActive(void);
+// Switches the live UI to `src` (copied by value, so any palette, e.g. &ui_earth_palette, can be
+// passed) and rebuilds the UI so every element picks up the new colours. NULL is ignored. Before
+// InitUI has run the palette is only stored. Element colours are copied at construction, so the
+// rebuild resets transient UI state. Call from update/input code (as the debug overlay hotkeys call
+// ResetUI), never from inside a UI event handler or during the UI draw traversal.
+void UIPalette_SetActive(const UIPalette *src);
 
 // Border thickness (screen pixels) for a surface role from the palette; 0 for borderless roles.
 uint8_t UIPalette_GetSurfaceBorderWeight(const UIPalette *palette, UIPaletteSurface surface);

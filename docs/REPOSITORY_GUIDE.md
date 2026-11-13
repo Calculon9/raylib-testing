@@ -198,7 +198,7 @@ The editor style is set once in the shared layer (`ui_system.c` palette and cons
 `ui_constructors.c`, `ui_loader.c`, `view_host_system.c`, `ui_renderer.c`):
 
 - **Surfaces.** `ViewHost`/`View` use `UI_PALETTE_SURFACE_PANEL` (dark `panel_background`,
-  no border). Titled containers and `CreateViewSection*` are boxed sections
+  no border). Titled containers are boxed sections
   (`container_fill`, 1 px `container_border`, `ui_section_padding` = 6 px).
   Untitled containers are transparent layout boxes. Text-field rows and their labels are
   transparent; inputs use the `input` surface; buttons the `button` surface; destructive

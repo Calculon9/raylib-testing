@@ -8,7 +8,7 @@
 #include "math/cvectors.h"
 #include "common/common.h"
 #include "ui/ui.h"
-#include "system/ui_system.h" // UIPalette toggle fills + ui_default_palette for toggle-button fill
+#include "system/ui_system.h" // UIPalette toggle fills / surface colours + UIPalette_GetActive
 #include "raylib.h"
 
 // Stacked-layout statistics for a FLOW_STACKED parent. Declared up here (rather than
@@ -1534,13 +1534,16 @@ void DisposeUIElement(UIElement *e)
 // never goes stale no matter what changed the underlying state. Does nothing for elements with
 // no binding or a source-less (command-only / sink-only) binding, so it is cheap to call on
 // every element every frame.
-// EXCEPTION: a bound button that also carries an on_draw glyph (the toolbar's icon toggles) keeps
-// its authored flat surface=input fill and conveys ON/OFF through the glyph ink instead, mirroring
-// the Nudge button; for those the amber box-fill swap is deliberately skipped (see below).
-void UIElement_RefreshBinding(UIElement *e)
+// `palette` is the owning view host's palette (NULL falls back to the active palette); it supplies
+// the toggle fills and inks. Text toggles and icon toggles (an on_draw glyph, the toolbar buttons)
+// share the ON colours; an OFF icon toggle returns to its flat input tile with the text ink.
+void UIElement_RefreshBinding(UIElement *e, const UIPalette *palette)
 {
     if (!e)
         return;
+
+    if (!palette)
+        palette = UIPalette_GetActive();
 
     if (IsBtn(e))
     {
@@ -1557,9 +1560,7 @@ void UIElement_RefreshBinding(UIElement *e)
         // Toggle presentation: the drawn label is just the authored base name; the ON/OFF state
         // is carried by the element fill instead of a ": ON/OFF" suffix. The authored base lives
         // in `text` (left intact); the drawn result goes to `display_text`. Fill is read from the
-        // active palette's toggle-on/off fields (bright amber ON, dimmed amber OFF). The element
-        // carries no palette handle, so ui_default_palette is read directly - matching the
-        // toolbar's existing palette fallback.
+        // owning host's palette toggle-on/off fields (bright amber ON, dimmed amber OFF).
         bool on = (value.as.i != 0);
         safe_strncpy(e->data.button.display_text.string, e->data.button.text.string,
                      sizeof(e->data.button.display_text.string));
@@ -1571,24 +1572,22 @@ void UIElement_RefreshBinding(UIElement *e)
             snprintf(e->data.button.display_text.string, sizeof(e->data.button.display_text.string),
                      "%s: %d/%d", e->data.button.text.string,
                      BIND_TOGGLE_ON(value.as.i), BIND_TOGGLE_TOTAL(value.as.i));
-            if (e->on_draw == NULL)
-            {
-                // MIXED uses the inactive pair (OFF fill + light ink).
-                UIPalette_GetToggleColours(&ui_default_palette, false,
-                                           &e->colour_fill, &e->data.button.font.colour);
-            }
+            // MIXED uses the inactive pair (OFF fill + light ink).
+            UIPalette_GetToggleColours(palette, false,
+                                       &e->colour_fill, &e->data.button.font.colour);
             return;
         }
-        // Icon toggles (an on_draw glyph present) keep their authored flat surface=input fill and
-        // show ON/OFF via the glyph ink (UIIcon_StateInk), exactly like the Nudge button - so the
-        // amber box-fill and caption-ink swap is skipped for them, leaving the shared flat base
-        // intact. Text toggles use the shared two-state pair (ON amber + dark ink, OFF dimmed
-        // fill + light ink) so the caption always contrasts with its fill.
-        if (e->on_draw == NULL)
+        if (e->on_draw != NULL && !on)
         {
-            UIPalette_GetToggleColours(&ui_default_palette, on,
-                                       &e->colour_fill, &e->data.button.font.colour);
+            // OFF icon toggle: the flat input tile with the dark text ink. The fill is written on
+            // the live element every frame, so it must be restored here after an ON frame.
+            UIPalette_GetSurfaceColours(palette, UI_PALETTE_SURFACE_INPUT, NULL, &e->colour_fill);
+            e->data.button.font.colour = palette->text;
+            return;
         }
+        // Text toggles and ON icon toggles share the two-state pair (ON amber + dark ink, OFF
+        // dimmed fill + light ink) so the caption or glyph always contrasts with its fill.
+        UIPalette_GetToggleColours(palette, on, &e->colour_fill, &e->data.button.font.colour);
         return;
     }
 

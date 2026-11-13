@@ -1,45 +1,26 @@
 <?xml version="1.0" encoding="UTF-8"?>
-    <!-- Far-left toolbar band hosting a tool plus labelled on/off toggles. Runtime construction -->
-    <!-- is in toolbar_system.c. The first group is the radio-exclusive Nudge TOOL button (binding= -->
-    <!-- reports whether that tool is active; action= sets it radio-exclusively). A thin separator -->
-    <!-- then splits it from the second group: the nine INDEPENDENT visual toggles rehomed from the -->
-    <!-- retired lpanel STATE view. Each toggle carries binding= (its debug.*/view.*/gizmo.* display -->
-    <!-- source over IsDebugEnabled) and action= (toggle-* resolved by the shared command system). -->
-    <!-- Like the Nudge button, every toggle uses surface="input" for one shared flat base, and -->
-    <!-- conveys ON/OFF through its GLYPH INK (bright when on, normal when off) rather than an amber -->
-    <!-- box-fill swap. Elements are stacked vertically. -->
+    <!-- Far-left toolbar band hosting three radio tool buttons plus labelled on/off toggles. -->
+    <!-- Runtime construction is in toolbar_system.c. Every button carries binding= (a live query -->
+    <!-- source: tool.* reports whether that tool is active, tool.geometry-edit the geometry editor -->
+    <!-- flag, and debug.*/view.*/gizmo.* the debug overlays over IsDebugEnabled) and action= (the -->
+    <!-- command run on click, resolved by the shared command system). The per-frame binding refresh -->
+    <!-- gives each button the shared toggle look: ON = amber toggle_on tile, OFF = flat surface= -->
+    <!-- input tile, with the dark text ink for the glyph on both. text is empty, so the refresh -->
+    <!-- writes no caption. A thin separator splits the tools from the debug toggles. Elements are -->
+    <!-- stacked vertically. -->
 <Container id="toolbar" layout="stacked" width="hug" height="fill">
-    <!-- Icon-only tool button. NO binding= here on purpose: a binding= display source makes the -->
-    <!-- per-frame refresh walk WRITE the button's text (e.g. ": ON"/": OFF"), which a text="" -->
-    <!-- cannot suppress. Instead the active-tool state drives the ICON appearance inside the -->
-    <!-- on_draw hook (Toolbar_DrawNudgeIcon reads UIState_IsToolActive), so the toggle feedback -->
-    <!-- is the glyph's look, not text. action="tool-nudge" still sets the active tool on click. -->
-    <!-- surface="input" gives the flat info-strip tint (vs the bright BUTTON surface). -->
-    <Button id="tool_nudge" type="simple" surface="input" action="tool-nudge" hint="Nudge tool: click an entity to push it" size="34,23" />
-
-    <!-- Cell paint TOOL button, cloned from Nudge above. Same rationale: NO binding= (a display -->
-    <!-- source would make the refresh write button text that text="" cannot suppress); the active- -->
-    <!-- tool feedback is driven by the on_draw icon (UIIcon_DrawCellPaint reads -->
-    <!-- UIState_IsToolActive(TOOL_CELL_PAINT)). action="tool-cell-paint" sets the tool radio- -->
-    <!-- exclusively, so paint and nudge are mutually exclusive. -->
-    <!-- CLICK toggles the tool (action="tool-cell-paint" -> CMD_TOOL_CELL_PAINT); MOUSE WHEEL while -->
-    <!-- hovering cycles the active tile type (on_scroll = Toolbar_ScrollCycleTileType, wired by id -->
-    <!-- in InitToolbar). The glyph (UIIcon_DrawCellPaint) shows BOTH the tool-active state (frame -->
-    <!-- ink) and the active tile colour (inner swatch), so the retired separate cycle button is -->
-    <!-- fully consolidated here. -->
-    <Button id="tool_cell_paint" type="simple" surface="input" action="tool-cell-paint" hint="Cell paint tool | Wheel: cycle tile" size="34,23" />
-
-    <!-- Spawn TOOL button (radio, click-to-place). NO binding= here (a display source would make -->
-    <!-- the per-frame refresh WRITE the button text that text="" cannot suppress); the active-tool -->
-    <!-- feedback is driven by the on_draw glyph (UIIcon_DrawToolSpawn reads -->
-    <!-- UIState_IsToolActive(TOOL_SPAWN)). action="tool-spawn" sets the tool radio-exclusively, so -->
-    <!-- spawn, nudge and cell-paint are mutually exclusive. surface="input" and size match the -->
-    <!-- sibling tool buttons. CLICK toggles the tool; MOUSE WHEEL while hovering cycles the active -->
-    <!-- spawn prefab (on_scroll = Toolbar_ScrollCyclePrefab, wired by id in InitToolbar), so the -->
-    <!-- retired separate prefab cycle button is consolidated onto this one. The prefab identity is -->
-    <!-- read out in the always-present detail/info strips (the spawn glyph stays generic). -->
-    <Button id="tool_spawn" type="simple" surface="input" action="tool-spawn" hint="Spawn tool | Wheel: cycle prefab" size="34,23" />
-
+    <!-- Icon-only tool buttons (nudge, cell paint, spawn); action= sets the active tool -->
+    <!-- radio-exclusively. surface="input" is the OFF tile; the bound refresh swaps it for the -->
+    <!-- toggle_on tile while the tool is active. -->
+    <Button id="tool_nudge" type="simple" surface="input" binding="tool.nudge" action="tool-nudge" hint="Nudge tool: click an entity to push it" size="34,23" />
+    <!-- CLICK toggles the tool; MOUSE WHEEL while hovering cycles the active tile type (on_scroll = -->
+    <!-- Toolbar_ScrollCycleTileType, wired by id in InitToolbar). The glyph shows the active tile -->
+    <!-- colour as its inner swatch. -->
+    <Button id="tool_cell_paint" type="simple" surface="input" binding="tool.cell-paint" action="tool-cell-paint" hint="Cell paint tool | Wheel: cycle tile" size="34,23" />
+    <!-- CLICK toggles the tool; MOUSE WHEEL while hovering cycles the active spawn prefab (on_scroll -->
+    <!-- = Toolbar_ScrollCyclePrefab, wired by id in InitToolbar). The prefab identity is read out in -->
+    <!-- the always-present detail/info strips (the spawn glyph stays generic). -->
+    <Button id="tool_spawn" type="simple" surface="input" binding="tool.spawn" action="tool-spawn" hint="Spawn tool | Wheel: cycle prefab" size="34,23" />
     <!-- Thin empty separator so the tool and the toggle group read as two distinct bands. -->
     <Label id="toolbar_separator" size="50,13" width="fixed" height="fixed" />
 
@@ -55,13 +36,10 @@
     <Button id="toggle_object_aabb" type="simple" surface="input" binding="gizmo.object-aabb" action="toggle-object-aabb" hint="Object AABB gizmo" size="34,23" />
     <!-- Collision-marker toggle: gates CREATION of the short-lived effect entity spawned at each -->
     <!-- contact point (default ON). Same binding=/action= shape as the toggles above; the glyph -->
-    <!-- ink (UIIcon_DrawCollisions) shows ON/OFF. -->
+    <!-- (UIIcon_DrawCollisions) takes the shared toggle look. -->
     <Button id="toggle_collisions" type="simple" surface="input" binding="gizmo.collisions" action="toggle-collisions" hint="Collision markers" size="34,23" />
 
-    <!-- Independent geometry-edit toggle. Unlike the nine debug toggles above it carries NO       -->
-    <!-- binding= (a display source would make the per-frame refresh WRITE button text that text="" -->
-    <!-- cannot suppress); its ON/OFF feedback is the on_draw glyph's INK (UIIcon_DrawGeometryEdit  -->
-    <!-- reads UIState_IsGeometryEditActive), exactly like the tool buttons. action="toggle-geometry- -->
-    <!-- edit" -> CMD_TOGGLE_GEOMETRY_EDIT flips the flag independently (no tool change, no overlay). -->
-    <Button id="toggle_geometry_edit" type="simple" surface="input" action="toggle-geometry-edit" hint="Geometry edit: drag vertex handles" size="34,23" />
+    <!-- Independent geometry-edit toggle, bound to its flag (not part of the radio tool set). -->
+    <!-- action="toggle-geometry-edit" -> CMD_TOGGLE_GEOMETRY_EDIT flips the flag independently. -->
+    <Button id="toggle_geometry_edit" type="simple" surface="input" binding="tool.geometry-edit" action="toggle-geometry-edit" hint="Geometry edit: drag vertex handles" size="34,23" />
 </Container>

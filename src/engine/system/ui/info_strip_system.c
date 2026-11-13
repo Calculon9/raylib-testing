@@ -351,7 +351,7 @@ void InitInfoStrip(void)
     //    the strip is a single Container root, not a multi-view ViewHost).
     UIElement *root = UILoader_LoadFromFileWithResolvers(
         UI_COMPONENTS_DIR "/info_strip.xml",
-        &ui_default_palette,
+        UIPalette_GetActive(),
         InfoStrip_ResolveBinding,
         InfoStrip_ResolveCommand,
         NULL,
@@ -370,7 +370,7 @@ void InitInfoStrip(void)
     //    Mounting against info_strip_viewport (not game_viewport) keeps the strip in its own
     //    reserved screen region so it never overlaps the world render area.
     info_strip = ViewHostSystem_Create(&info_strip_viewport, 1.0f, ZERO_VECTOR_2D,
-                                       &ui_default_palette, ui_standard_stack_spacing);
+                                       UIPalette_GetActive(), ui_standard_stack_spacing);
     if (!info_strip)
     {
         DisposeUIElement(root);

@@ -159,10 +159,10 @@ static void InitUIPalettes(void)
     ui_classic_palette.button_fill = MakeColour(230, 194, 119, 255);
     // Toggle fills: ON reuses the amber button fill; OFF is the same hue dimmed towards the panel.
     ui_classic_palette.toggle_on_fill = MakeColour(230, 194, 119, 255);
-    ui_classic_palette.toggle_off_fill = MakeColour(156, 132, 81, 255);
+    ui_classic_palette.toggle_off_fill = MakeColour(122, 100, 55, 255);
     // Danger fill: the palette's terracotta container border.
     ui_classic_palette.button_danger_fill = MakeColour(194, 105, 83, 255);
-    ui_classic_palette.text = MakeColour(32, 42, 37, 255);
+    ui_classic_palette.text = MakeColour(10, 16, 12, 255);
     // Field labels: near-black tuned for container_fill (WCAG AA); card ink uses text_on_dark.
     ui_classic_palette.label_text = MakeColour(6, 12, 8, 255);
     ui_classic_palette.title_text = MakeColour(0, 0, 0, 255);
@@ -170,6 +170,10 @@ static void InitUIPalettes(void)
     ui_classic_palette.text_on_dark = MakeColour(245, 241, 230, 255);
     ui_classic_palette.error = MakeColour(230, 41, 55, 255);
     ui_classic_palette.warning = MakeColour(255, 255, 176, 255);
+    // Translucent dark backing for the diagnostics dashboard.
+    ui_classic_palette.overlay_fill = MakeColour(8, 12, 18, 215);
+    // Outline drawn around every element while the UI-borders debug overlay is on.
+    ui_classic_palette.debug_outline = MakeColour(255, 255, 255, 80);
 
     ui_earth_palette.panel_background = MakeColour(38, 101, 115, 255);
     ui_earth_palette.container_border = MakeColour(191, 78, 36, 255);
@@ -188,8 +192,8 @@ static void InitUIPalettes(void)
     ui_earth_palette.toggle_on_fill = MakeColour(166, 109, 60, 255);
     ui_earth_palette.toggle_off_fill = MakeColour(112, 74, 41, 255);
     // Danger fill: the palette's rust container border.
-    ui_earth_palette.button_danger_fill = MakeColour(191, 78, 36, 255);
-    ui_earth_palette.text = MakeColour(38, 101, 115, 255);
+    ui_earth_palette.button_danger_fill = MakeColour(214, 96, 52, 255);
+    ui_earth_palette.text = MakeColour(0, 0, 0, 255);
     // Black is the only ink that passes on the olive container.
     ui_earth_palette.label_text = MakeColour(0, 0, 0, 255);
     ui_earth_palette.title_text = MakeColour(0, 0, 0, 255);
@@ -197,6 +201,10 @@ static void InitUIPalettes(void)
     ui_earth_palette.text_on_dark = MakeColour(242, 211, 172, 255);
     ui_earth_palette.error = MakeColour(230, 41, 55, 255);
     ui_earth_palette.warning = MakeColour(255, 255, 176, 255);
+    // Translucent dark backing for the diagnostics dashboard.
+    ui_earth_palette.overlay_fill = MakeColour(8, 12, 18, 215);
+    // Outline drawn around every element while the UI-borders debug overlay is on.
+    ui_earth_palette.debug_outline = MakeColour(255, 255, 255, 80);
 
     ui_harbor_palette.panel_background = MakeColour(28, 58, 67, 255);
     ui_harbor_palette.container_border = MakeColour(218, 117, 96, 255);
@@ -213,11 +221,11 @@ static void InitUIPalettes(void)
     ui_harbor_palette.button_fill = MakeColour(220, 158, 70, 255);
     // Toggle fills: ON reuses the amber button fill; OFF is the same amber hue dimmed towards the panel.
     ui_harbor_palette.toggle_on_fill = MakeColour(220, 158, 70, 255);
-    ui_harbor_palette.toggle_off_fill = MakeColour(150, 108, 48, 255);
+    ui_harbor_palette.toggle_off_fill = MakeColour(124, 87, 33, 255);
     // Danger fill: the mock's coral (equal to the container border).
     ui_harbor_palette.button_danger_fill = MakeColour(218, 117, 96, 255);
     // Contrast bump: near-black dark-teal ink (hue preserved) reads crisply on the sage container fill.
-    ui_harbor_palette.text = MakeColour(18, 30, 34, 255);
+    ui_harbor_palette.text = MakeColour(10, 20, 24, 255);
     ui_harbor_palette.label_text = MakeColour(28, 14, 2, 255);
     ui_harbor_palette.title_text = MakeColour(0, 0, 0, 255);
     // Darker than container_fill, light ink (text_on_dark) reaches 4.84:1 on it.
@@ -225,6 +233,10 @@ static void InitUIPalettes(void)
     ui_harbor_palette.text_on_dark = MakeColour(239, 221, 184, 255);
     ui_harbor_palette.error = MakeColour(230, 41, 55, 255);
     ui_harbor_palette.warning = MakeColour(255, 255, 176, 255);
+    // Translucent dark backing for the diagnostics dashboard.
+    ui_harbor_palette.overlay_fill = MakeColour(8, 12, 18, 215);
+    // Outline drawn around every element while the UI-borders debug overlay is on.
+    ui_harbor_palette.debug_outline = MakeColour(255, 255, 255, 80);
 
     ui_meadow_palette.panel_background = MakeColour(121, 120, 49, 255);
     ui_meadow_palette.container_border = MakeColour(230, 194, 119, 255);
@@ -241,16 +253,20 @@ static void InitUIPalettes(void)
     ui_meadow_palette.button_fill = MakeColour(230, 194, 119, 255);
     // Toggle fills: ON reuses the amber button fill; OFF is the same hue dimmed towards the panel.
     ui_meadow_palette.toggle_on_fill = MakeColour(230, 194, 119, 255);
-    ui_meadow_palette.toggle_off_fill = MakeColour(156, 132, 81, 255);
+    ui_meadow_palette.toggle_off_fill = MakeColour(122, 100, 55, 255);
     // Danger fill: a dedicated terracotta, because meadow's container border is the button amber.
     ui_meadow_palette.button_danger_fill = MakeColour(196, 92, 70, 255);
-    ui_meadow_palette.text = MakeColour(32, 42, 37, 255);
+    ui_meadow_palette.text = MakeColour(10, 16, 12, 255);
     ui_meadow_palette.label_text = MakeColour(0, 18, 26, 255);
     ui_meadow_palette.title_text = MakeColour(0, 0, 0, 255);
     ui_meadow_palette.subsection_fill = MakeColour(78, 100, 86, 255);
     ui_meadow_palette.text_on_dark = MakeColour(245, 241, 230, 255);
     ui_meadow_palette.error = MakeColour(230, 41, 55, 255);
     ui_meadow_palette.warning = MakeColour(255, 255, 176, 255);
+    // Translucent dark backing for the diagnostics dashboard.
+    ui_meadow_palette.overlay_fill = MakeColour(8, 12, 18, 215);
+    // Outline drawn around every element while the UI-borders debug overlay is on.
+    ui_meadow_palette.debug_outline = MakeColour(255, 255, 255, 80);
 
     ui_default_palette = ui_harbor_palette;
     ui_palettes_initialized = true;
@@ -352,6 +368,35 @@ void UIPalette_GetToggleColours(const UIPalette *palette, bool active,
     if (out_ink)
     {
         *out_ink = active ? palette->text : palette->text_on_dark;
+    }
+}
+
+// Returns the live palette storage. InitUIPalettes is idempotent, so a call made before InitUI
+// still yields the harbour default rather than a zeroed palette.
+const UIPalette *UIPalette_GetActive(void)
+{
+    InitUIPalettes();
+    return &ui_default_palette;
+}
+
+// Copies `src` into the live palette storage (the address never changes, so every palette pointer
+// already handed out stays valid) and rebuilds the UI, because element colours are copied by value
+// at construction. A UI that does not exist yet only stores the palette.
+void UIPalette_SetActive(const UIPalette *src)
+{
+    if (!src || src == &ui_default_palette)
+    {
+        return;
+    }
+
+    // Ensure the one-off init has run first so it cannot overwrite the palette copied below.
+    InitUIPalettes();
+    ui_default_palette = *src;
+
+    // The element pool exists only between the first UI allocation and DestroyUI.
+    if (GetUIElementPool() != NULL)
+    {
+        ResetUI();
     }
 }
 
