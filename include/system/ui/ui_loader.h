@@ -22,7 +22,7 @@
 #define UI_LOADER_H
 
 #include "ui/ui.h"
-#include "system/ui_system.h"
+#include "system/ui_palette.h"
 #include "system/view_host_system.h"
 #include <mxml.h>
 

@@ -11,7 +11,7 @@ VIEWPORT SYSTEM MODULE
 
 typedef enum ViewportSpaceId
 {
-	VIEWPORT_SPACE_LPANEL = 0,
+	VIEWPORT_SPACE_STATE_MANAGER = 0,
 	VIEWPORT_SPACE_GAME,
 	VIEWPORT_SPACE_RPANEL,
 	VIEWPORT_SPACE_ENTITY_PANEL,
@@ -41,7 +41,7 @@ typedef struct ViewportRegion
 
 // Viewport regions for left panel, game region, and right panel.
 extern ViewportRegion game_viewport;
-extern ViewportRegion lpanel_viewport;
+extern ViewportRegion state_manager_viewport;
 extern ViewportRegion rpanel_viewport;
 extern ViewportRegion entity_panel_viewport;
 extern ViewportRegion utility_panel_viewport;

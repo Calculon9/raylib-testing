@@ -107,13 +107,6 @@ static int CountTextRows(const char *text, const char *text_end, float available
     return row_count;
 }
 
-// Horizontal text inset inside a bordered textbox: the border weight + a 4 px gap (5 px for the
-// default 1 px border). The glyph's own 2 px blank column then places the first ink 7 px from the
-// box edge, as in the mock.
-#define UI_TEXTBOX_TEXT_GAP_PX 4.0f
-// Glyphs in the "..." appended to read-only text that does not fit its box.
-#define UI_ELLIPSIS_CHAR_COUNT 3
-
 // Text inset (screen pixels) from a bordered textbox's edge: the border weight plus the text gap,
 // at the current UI pixel scale. Shared by the text run, the unit suffix and the vector prefix.
 static float TextInsetPx(const UIElement *e)
@@ -265,11 +258,6 @@ static void DrawElementBoxClipped(const UIElement *e, UIBox box, UIClipRect clip
         }
     }
 }
-
-// Horizontal gap (UI px) between a stacked vector box's "x" / "y" prefix and its value.
-#define UI_VECTOR_PREFIX_ADVANCE_PX 16.0f
-// Gap (UI px) kept between a field's value text and its right-aligned unit suffix.
-#define UI_FIELD_UNIT_GAP_PX 4.0f
 
 // Rewrite the exponent of a "%e" string in place as the compact form: "1.23e+05" -> "1.23e5",
 // "1.2e-07" -> "1.2e-7" (sign kept only when negative, leading zeros dropped).

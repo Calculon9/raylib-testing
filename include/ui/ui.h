@@ -11,6 +11,7 @@ WORLD MODULE
 #include "ui/cfont.h"
 #include "system/systems.h"
 #include "ui/binding.h"
+#include "ui/ui_metrics.h" // Every UI pixel constant (title bar, grid, textbox, scrollbar, named sizes).
 
 #define MAX_TEXTBOX_CHARS (int)sizeof(String64)
 #define MAX_LABEL_CHARS (int)sizeof(String64)
@@ -161,17 +162,6 @@ typedef struct
     bool stacked_vector;  // Draw a vector value as two stacked x / y component boxes (unfocused). Needs stacked_field.
     char unit[8];         // Optional unit suffix drawn inside the box, right-aligned and muted (empty = none).
 } TextBoxData;
-
-// Section-title (accent bar) geometry in UI pixels: a 4x16 bar at the label's left edge, with the
-// title text starting 10 px right of the bar's left edge. Shared by measuring and drawing so every
-// title inherits the same spacing.
-#define UI_TITLE_BAR_WIDTH_PX 4.0f
-#define UI_TITLE_BAR_HEIGHT_PX 16.0f
-#define UI_TITLE_TEXT_INDENT_PX 10.0f
-
-// Grid chips (Container columns=): a Button whose text run is wider than its cell minus this
-// margin (UI pixels, the text's side breathing room) spans the whole row instead.
-#define UI_GRID_CHIP_TEXT_MARGIN_PX 6.0f
 
 // Placeholder shown in a field that has no value to display (for example nothing is selected). A
 // single ASCII hyphen-minus, never "0" (zero is real data). A stacked vector field shows it in both

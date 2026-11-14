@@ -11,6 +11,7 @@
 #include "editor/geometry_editor.h"
 #include "camera/camera.h"
 #include "system/draw_primitives.h"
+#include "system/ui_palette.h" // UIPalette_GetWorldColours (world colour roles)
 #include "system/debug_overlay_system.h"
 #include "system/systems.h"
 #include "world/world.h"
@@ -781,6 +782,15 @@ static void DrawGridBorder(const GridQueryContext *grid_query, Matrix3x3 mtx, Co
     }
 }
 
+// The single resolve point for a cell's fill colour. Today it is the tile palette's colour for the
+// cell's tile_type, falling back to the grid's default fill (the palette's world_cell_fill, stored on
+// the grid at creation). A per-cell colour or tile added later overrides the default here, and
+// nowhere else, so the fill pass needs no change.
+static ColourRgba CellFillColour(int tile_type, ColourRgba default_fill)
+{
+    return TilePalette_ColourForType(tile_type, default_fill);
+}
+
 // Draw a grid space. Each PRESENT cell resolves its tile_type through the data-driven tile palette
 // (tile_catalogue.c): if the tile_type carries a texture, the cell draws one textured quad into its
 // world cell via DrawTextureInWorld; otherwise it falls back to the FILL colour from
@@ -888,7 +898,7 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
             // tile_type 0 resolves to the grid's own colour_fill, so existing worlds are unchanged.
             int run_length = GridFillRunLength(GridCellFillQuery, &grid_query, i, j, col_max + 1,
                                                tile_type);
-            Color fill = ToRaylibColor(TilePalette_ColourForType(tile_type, colour_fill));
+            Color fill = ToRaylibColor(CellFillColour(tile_type, colour_fill));
 
             // The run's four local corners, transformed to pixels through the world basis/placement.
             Vector2d cp0 = TransformCoordinates(world_to_pixel_mtx, (Vector2d){(float)j + gox, (float)i + goy});
@@ -971,7 +981,8 @@ void DrawGridSpace(GridSpace2d *grid_space, Matrix3x3 world_to_pixel_mtx)
         return;
     }
 
-    Color text_colour = ToRaylibColor(COLOUR_GAME_PARCHMENT_RGBA);
+    // Debug label ink: the palette's default cell fill (light ink, as the parchment was before).
+    Color text_colour = ToRaylibColor(UIPalette_GetWorldColours(NULL).cell_fill);
 
     if (!world_grid_debug_labels_enabled)
     {

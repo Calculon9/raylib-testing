@@ -7,18 +7,7 @@ UI CONSTRUCTORS MODULE
 #define UI_CONSTRUCTORS_H
 
 #include "ui/ui.h"
-#include "system/ui_system.h"
-
-typedef struct UIFieldSpec
-{
-    const char *label;
-    UIElementType type;
-    Size size;
-    DataType data_type;
-    UIElement **target;
-    String64 **text_target;
-    void *data_bind;
-} UIFieldSpec;
+#include "system/ui_palette.h"
 
 UIElement *CreateUILabel(UIElement *parent, const char *text, Size size,
                          Vector2d padding, Bitmap_Font font,
@@ -69,7 +58,6 @@ UIElement *CreateUIContainer(UIElement *parent, Size size, Offset offset,
                              UIPaletteSurface surface, Layout child_spacing,
                              bool is_draggable, bool is_enabled);
 
-void InitUIFields(UIElement *parent, const UIFieldSpec *specs, size_t count,
-                  Vector2d row_padding, const UIPalette *palette);
+
 
 #endif

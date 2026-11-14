@@ -141,9 +141,4 @@ void ViewHostSystem_ResetSpaceBasis(ViewHostSystem *panel);
 // View selector button click handler; wires button clicks to view selection.
 void HandleViewHostSelectorClick(UIElement *button);
 
-// Finalise panel initialisation: select first view and update UI space.
-// Common routine that reduces boilerplate across the markup-driven panels.
-void ViewHostSystem_FinaliseInit(ViewHostSystem *panel, ViewSelector **selector_out);
-// Apply the standard sheet styling to a view container (SHEET fill, no border, 6 px padding, draggable).
-void ViewHostSystem_StyleViewSheet(UIElement *container, const UIPalette *palette);
 #endif // VIEW_HOST_SYSTEM_H

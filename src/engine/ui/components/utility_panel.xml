@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+    <!-- Describes the Performance panel (bottom band); runtime wiring is in utility_panel_system.c. -->
+    <!-- A single sheet View holds one CARD with a title and three read-only stacked fields. Each     -->
+    <!-- field's text comes from a utility.* query binding (a BIND_STRING shim in C) that refreshes   -->
+    <!-- every 20 frames, so the panel has no C-built elements and no String64 pointers.               -->
+<!-- padding="0" keeps the sheet's historic 5 px inset (the C-built panel had no 1 px host padding). -->
+<ViewHost id="utility_panel" layout="stack" initial-view="utility_view" padding="0">
+    <View id="utility_view" style="sheet">
+        <Container id="utility_card" style="card">
+            <Label text="Performance" style="title" />
+            <TextField id="util_mem" label="Mem" io="readonly" binding="utility.mem" />
+            <TextField id="util_fps" label="Fps" io="readonly" binding="utility.fps" />
+            <TextField id="util_ftime" label="Ftime" io="readonly" binding="utility.ftime" />
+        </Container>
+    </View>
+</ViewHost>

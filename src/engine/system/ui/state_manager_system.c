@@ -49,11 +49,10 @@ static int s_sm_entity_tab = 0;              // Entity tab remembered across emp
 static int s_sm_shown_view = SM_SHOWN_UNKNOWN; // View currently shown.
 static bool s_sm_fields_locked = false;      // Cached lock state, so types only change on a flip.
 
-// COMP action button widths (UI pixels). Buttons cannot hug their caption, so each width is derived
-// from the caption (text width + 2 x PAD) and written on a state flip; the header's toggle simply
-// fills the rest of the inline row, so no panel width appears here.
-#define SM_COMP_ACTION_REMOVE_W 78.0f
-#define SM_COMP_ACTION_ADD_W 48.0f
+// COMP action button widths: Buttons cannot hug their caption, so the REMOVE / ADD widths are the
+// shared UI_ACTION_*_WIDTH_PX constants (markup uses size="action-remove" / "action-add" for the
+// same values) and are written on a state flip; the header's toggle simply fills the rest of the
+// inline row, so no panel width appears here.
 
 // Which caption/colour an action button currently shows (cached so it is only rewritten on a flip).
 enum
@@ -984,7 +983,7 @@ static void StateManager_RegisterElements(UIElement *root)
 
     // --- Component property textboxes + their String64 display buffers ---
     // The String64 is the inline data.textbox.text buffer the field draws; the former
-    // UIFieldSpec out-param captured exactly that address.
+    // field-spec out-param captured exactly that address.
     // Portal cooldown is EDITABLE (io="safe" in the markup): bind it dynamically with a
     // query SOURCE + write SINK, exactly like the damage field, so commits write back to the
     // selected object's portal->cooldown_frames. The target is reached via the selection ->
@@ -1185,7 +1184,7 @@ static void StateManager_SetActionState(StateManagerActionPair *pair, bool remov
     UIElement_ApplyRoleColours(pair->button, state_manager_panel->palette,
                                remove ? UI_ROLE_DANGER : UI_ROLE_ACTIVE);
 
-    float action_width = remove ? SM_COMP_ACTION_REMOVE_W : SM_COMP_ACTION_ADD_W;
+    float action_width = remove ? UI_ACTION_REMOVE_WIDTH_PX : UI_ACTION_ADD_WIDTH_PX;
     pair->button->size.dimensions.x = action_width;
 }
 
@@ -1490,7 +1489,7 @@ void UpdateStateManagerSelectedObject(void)
 // ============================================================================
 
 // Build the Entity Mgmt panel: load state_manager.xml, build its host on the former left-panel
-// viewport slot (&lpanel_viewport) through the shared panel builder, re-acquire every element by id
+// viewport slot (&state_manager_viewport) through the shared panel builder, re-acquire every element by id
 // and wire the C-owned behaviour, then lay the panel out over the valid viewport space.
 void InitStateManagerSystem(void)
 {
@@ -1500,7 +1499,7 @@ void InitStateManagerSystem(void)
 
     const PanelMarkupDesc desc = {
         .file = UI_COMPONENTS_DIR "/state_manager.xml",
-        .viewport = &lpanel_viewport,
+        .viewport = &state_manager_viewport,
         .host_padding = {5.0f, 5.0f},
         .resolve_binding = StateManager_ResolveBinding,
         .resolve_command = StateManager_ResolveCommand,

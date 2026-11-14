@@ -54,17 +54,31 @@ land between screen pixels.
 | `id` | any string | empty | Stable identifier so C code can re-acquire the element after load (`UILoader_FindById`). For a `<TextField>` the id addresses the inner textbox (see TextField notes). |
 | `width` | `fixed` \| `percent` \| `fill` \| `hug` | element-specific | Per-axis size mode for the horizontal axis (see "Sizing"). |
 | `height` | `fixed` \| `percent` \| `fill` \| `hug` | element-specific | Per-axis size mode for the vertical axis. |
-| `size` | `"w,h"` or `"v"` | element default | The numbers the size modes use. A single `"v"` applies to both axes. Meaning depends on each axis's mode (see "Sizing"). |
+| `size` | `"w,h"`, `"v"` or a keyword | element default | The numbers the size modes use. A single `"v"` applies to both axes. A named keyword supplies a shared size: `icon` (34 x 25), `action-remove` (78 x 25), `action-add` (48 x 25), `header-title` (height 20), `header-sub` (height 17), `popup` (width 188); the values live in `include/ui/ui_metrics.h`. Meaning depends on each axis's mode (see "Sizing"). |
 | `offset` | `"x,y"` or `"v"` | `0,0` | Position offset added on top of the element's layout position (see "Offset"). |
 | `offset-mode` | `fixed` \| `percent` | `fixed` | `fixed` = UI pixels; `percent` = fraction of the parent content area. |
 | `enabled` | `true` \| `false` | `true` | A disabled element is not laid out, drawn, or interacted with. |
-| `layout` | `stack` \| `stacked` \| `stack_wrap` \| `inline_wrap` | `stack` | How this element arranges its **children** (container-like elements only; leaf elements ignore it). See "Layout". |
+| `layout` | `stack` (`stacked` is a silent alias) \| `stack_wrap` \| `inline_wrap` | `stack` | How this element arranges its **children** (container-like elements only; leaf elements ignore it). See "Layout". |
 | `gap` | `"x y"` or `"v"` | layout preset gap | Inter-child spacing (UI pixels) that overrides the gap baked into the `layout=` preset. See "Layout". |
 | `padding` | `"h,v"` or `"v"` | container's constructor default | Inner inset (UI pixels) between a container's own box edge and its children's content rectangle. A single `"v"` insets all four sides equally; `"h,v"` insets left+right by `h` and top+bottom by `v`. **Containers only** — see "Padding" below. |
-| `ink` | `light` \| `dark` | element default | Text colour override for a Label, Button or Textbox caption: `light` = the INACTIVE role text (cream), `dark` = the ACTIVE role ink. Rarely needed: a `button`, `danger`, `inactive` or `card` surface already brings its paired text colour, and everything inside a `card` inherits the card text (filled Textboxes keep their own ink). On a `<TextField>` it recolours the row's label only (the input keeps dark ink on its cream cell). Ignored on elements without text; any other value warns. | Static description shown in the **detail strip** while the pointer is over this element (or any descendant without its own hint). Live values (state, active selection) are appended in C through the element's `on_hint` callback. The detail strip textbox holds 63 characters, so keep hints short; longer text is truncated with `...`. |
-| `surface` | `transparent` \| `container` \| `field_row` \| `input` \| `button` \| `panel` \| `danger` \| `inactive` \| `card` \| `subsection` | constructor default | Theme-safe fill/border override: resolves the named surface role from the active palette and replaces the element's constructor-chosen `colour_fill`/`colour_border`. `card` = the CARD role (dark teal with cream text; labels, titles and transparent notes inside inherit the cream); `inactive` = the INACTIVE role (dark teal tile for OFF controls); `subsection` is a **deprecated** alias of `card`; `panel` = dark `panel_background`, no border; `danger` = coral `button_danger_fill` with the 1 px button border (destructive buttons such as DELETE); `button` = ACTIVE (amber + ink) and `danger` = DANGER (coral + ink) likewise set the element's text. See "Colour roles" in REPOSITORY_GUIDE.md. An absent or unrecognised value leaves the constructor colours unchanged. Borders are drawn whenever the border colour is not transparent (see "Borders"). |
-| `border` | `none` \| `transparent` \| `container` \| `field_row` \| `input` \| `button` \| `panel` \| `danger` \| `inactive` \| `card` \| `subsection` | surface/constructor default | Border-colour override only: `none` removes the border, any other value uses that surface role's palette border colour. Applied **after** `surface`, so `surface="container" border="none"` is a filled box with no outline. An absent or unrecognised value leaves the border unchanged. Works on every element. |
+| `hint` | text | none | Static description shown in the **detail strip** while the pointer is over this element (or any descendant without its own hint). Live values (state, active selection) are appended in C through the element's `on_hint` callback. The detail strip textbox holds 63 characters, so keep hints short; longer text is truncated with `...`. |
+| `surface` | `transparent` \| `container` \| `input` \| `button` \| `panel` \| `danger` \| `inactive` \| `card` | constructor default | Theme-safe fill/border override: resolves the named surface role from the active palette and replaces the element's constructor-chosen `colour_fill`/`colour_border`. `card` = the CARD role (dark teal with cream text; labels, titles and transparent notes inside inherit the cream); `inactive` = the INACTIVE role (dark teal tile for OFF controls); `panel` = dark `panel_background`, no border; `danger` = coral `button_danger_fill` with the 1 px button border (destructive buttons such as DELETE); `button` = ACTIVE (amber + ink) and `danger` = DANGER (coral + ink) likewise set the element's text. Text colour always comes from the surface role: there is no per-element ink override. See "Colour roles" in REPOSITORY_GUIDE.md. An absent or unrecognised value leaves the constructor colours unchanged. Borders are drawn whenever the border colour is not transparent (see "Borders"). |
+| `border` | `none` \| `transparent` \| `container` \| `input` \| `button` \| `panel` \| `danger` \| `inactive` \| `card` | surface/constructor default | Border-colour override only: `none` removes the border, any other value uses that surface role's palette border colour. Applied **after** `surface`, so `surface="container" border="none"` is a filled box with no outline. An absent or unrecognised value leaves the border unchanged. Works on every element. |
 | `border-weight` | whole number `0`–`16` | surface role weight (1) | Border line thickness in **UI pixels** (drawn at the UI pixel scale like everything else). `0` hides the line. Applied last, so it wins over the `surface` role's weight. A non-integer or out-of-range value is ignored with a warning. Works on every element. |
+| `style` | `sheet` \| `card` \| `section` \| `chip-grid` (Container / View); `title` (Label) | none | A named attribute preset (see "Style presets"). On a `<Label>`, `title` makes a section heading. |
+
+### Style presets
+
+`style=` on a `<View>` or `<Container>` names a bundle of attributes. A preset only supplies attributes the element did not author, so any authored attribute overrides it (`<Container style="card" padding="0">`).
+
+| Preset | Element | Expands to |
+| --- | --- | --- |
+| `sheet` | `<View>` | `surface="container" border="none" padding="6" layout="stack"` |
+| `card` | `<Container>` | `width="fill" height="hug" layout="stack" surface="card" padding="6"` |
+| `section` | `<Container>` | `width="fill" height="hug" layout="stack" surface="transparent" padding="0"` |
+| `chip-grid` | `<Container>` | `layout="inline_wrap" columns="2" gap="5,3" surface="transparent" padding="0"` |
+
+An unknown preset, or one used on the wrong element, warns and is ignored.
 
 Legacy offset spelling (still accepted): `x="…"`, `y="…"`, `offset-type="…"`. The
 unified `offset`/`offset-mode` form is preferred and wins if both are present.
@@ -101,6 +115,7 @@ Examples:
 ```xml
 <Button text="OK" size="150,25" />                    <!-- fixed 150 x 25 px (size=>fixed inferred) -->
 <Button size="icon" />                                <!-- the shared icon button size (ui_standard_icon_button_size, 34 x 25 px) -->
+<Textbox size="header-title" width="fill" height="fixed" />  <!-- named size keyword: 20 px high, width fills (no dead width value) -->
 <Option text="PHYS" view="phys_view" width="hug" />   <!-- tab: text width + ui_standard_tab_padding each side; buttons with text hug their text -->
 <Container layout="inline" width="fill"><Textbox width="fill" /><Textbox width="fill" /></Container> <!-- inline fill siblings share the row equally -->
 <Container width="hug" height="fill" />            <!-- width hugs its children, height fills the view -->
@@ -233,7 +248,7 @@ Default size: standard control.
 | Attribute | Values | Meaning |
 | --- | --- | --- |
 | `text` | string | The label text. |
-| `style` | `title` | Optional. `title` makes a section heading: a 4x16 px amber accent bar (palette `button_fill`) at the left edge, then the title in the large font and dark ink (`title_text`) starting 10 px right of the bar's left edge (`UI_TITLE_*` in `ui.h`). The width hugs the measured text (including the indent) with zero padding. An authored `size`/`width`/`height` overrides the title size. |
+| `style` | `title` | Optional. `title` makes a section heading: a 4x16 px amber accent bar (palette `button_fill`) at the left edge, then the title in the large font and dark ink (`text`) starting 10 px right of the bar's left edge (`UI_TITLE_*` in `ui_metrics.h`). The width hugs the measured text (including the indent) with zero padding. An authored `size`/`width`/`height` overrides the title size. |
 
 A `<Label>` is a text leaf and, having no `layout=`, keeps `child_spacing` at
 `SPACING_NONE`. It is still a tree node, so the generic layout and draw passes will
@@ -275,10 +290,10 @@ sugar for a label + input laid out side by side. Roughly equivalent to:
 | `io` | `readonly` \| `safe` \| `raw` (default) | Input editability. |
 | `binding` | resolver name | Value source (and optional write sink). |
 | `value` | string | Optional initial value. Parsed per `type` and seeded into the bound target (when the binding has a writable address) and shown in the field. |
-| `field-layout` | `inline` (default) \| `stacked` | `stacked` is the stacked field layout (see below). |
+| `field-layout` | `stack` (default; `stacked` is a silent alias) \| `inline` | Every field is stacked unless it opts out with `inline` (label beside the input, column sized by the longest-label pass; used by the State Manager Relation row). |
 | `unit` | string (max 7 chars) | Optional suffix (for example `rad`) drawn inside the field, right-aligned, in the muted palette colour (`muted_text`). |
 
-Stacked field layout (`field-layout="stacked"`): the label column is fixed at
+Stacked field layout (the default): the label column is fixed at
 `ui_standard_textfield_label_width` (118 px) and skipped by the longest-label pass, so every stacked
 field in a view shares one column. A `type="vector2"` field is two control rows plus the stack gap
 tall (25 + 3 + 25 px): the label sits level with the first row and the field draws its **x** box on
@@ -369,12 +384,14 @@ driven by the per-frame C refresh rather than declarative `binding=` names.
 
 `world_manager.xml` is the right panel (the World Manager), loaded by `world_manager_system.c` exactly like `state_manager.xml`. It resolves `wm.*` bindings (query sources, with a write sink on the editable gravity, restitution, friction, basis and cell-warp fields). The panel shows the world and cell members of the selection; with neither selected it shows the **context world**: the world of the selection's primary (the owning world of a selected entity), or the root world (shown as `ROOT WORLD`) when nothing is selected. There are no world-navigation actions (`select-world-prev` / `select-world-next` no longer exist); the selection is the only way to change which world is shown.
 
+`utility_panel.xml` is the Performance panel (bottom band), loaded by `utility_panel_system.c` through `PanelShared_BuildFromMarkup` like the two managers. Its three read-only fields bind `utility.mem`, `utility.fps` and `utility.ftime`, BIND_STRING query shims that reformat their text every 20 frames.
+
 ---
 
 ## A worked example
 
 ```xml
-<ViewHost id="demo_panel" layout="stacked" initial-view="main_view">
+<ViewHost id="demo_panel" layout="stack" initial-view="main_view">
     <ViewSelector id="demo_views" type="enumerate">
         <Option text="MAIN" view="main_view" />
         <Option text="INFO" view="info_view" />

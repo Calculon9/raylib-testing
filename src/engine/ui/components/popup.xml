@@ -36,8 +36,8 @@
 <!-- no stack cursor added. The labels stay one 25 px row, so create_view's stack        -->
 <!-- advances by exactly one row per item whether or not a submenu is open. The submenus -->
 <!-- keep overflow="true" so their hug box is not clamped to the item's small content box.-->
-<ViewHost id="popup_menu" layout="stacked" initial-view="create_view"
-          size="188,0" width="fixed" height="hug">
+<ViewHost id="popup_menu" layout="stack" initial-view="create_view"
+          size="popup" width="fixed" height="hug">
     <ViewSelector id="popup_views" type="enumerate" layout="inline_wrap" gap="0,0" width="fill" height="hug">
         <Option text="CREATE" view="create_view" width="hug" />
         <Option text="RECENT" view="recent_view" width="hug" />
@@ -46,7 +46,7 @@
     <!-- HOSTING its own hover-toggled submenu as a CHILD (anchoring the submenu to its      -->
     <!-- item's row keeps it beside that row instead of being displaced by the stack cursor). -->
     <View id="create_view" type="POPUP_MENU_CREATE_VIEW"
-          width="fill" height="hug" layout="stack" surface="container" border="none" padding="6">
+          width="fill" height="hug" style="sheet">
         <!-- ENTITY item HOSTS the entity submenu; keep the label leaf-styled (no layout=). -->
         <Label id="popup_item_entity" text="ENTITY" width="fill" height="fixed">
             <!-- Entity submenu: child of its item, flush right of the row, starts disabled. It is a -->
@@ -80,7 +80,7 @@
     </View>
     <!-- RECENT view: starts disabled; static placeholder (no C refresh today). -->
     <View id="recent_view" type="POPUP_MENU_RECENT_VIEW" enabled="false"
-          width="fill" height="hug" layout="stack" surface="container" border="none" padding="6">
+          width="fill" height="hug" style="sheet">
         <Container id="recent_list" surface="transparent" padding="0" width="fill" height="hug" layout="stack">
             <Label text="No recent actions" width="fill" height="fixed" />
         </Container>

@@ -1,112 +1,143 @@
+/**********************************************************************************************
+*
+UTILITY PANEL SYSTEM MODULE (implementation)
+*
+Loads utility_panel.xml (the Performance card) and mounts it on the utility viewport through the
+shared panel builder. The three read-only fields (Mem / Fps / Ftime) are bound to BIND_STRING query
+shims, so the panel owns no C-built elements; each shim reformats its value every
+UTILITY_STATS_REFRESH_FRAMES frames and returns the cached text in between.
+*
+**********************************************************************************************/
 #include "system/ui/utility_panel_system.h"
 
+#include <stdio.h>
+#include <string.h>
+
+#include "system/ui/panel_shared.h"
+#include "system/ui/ui_loader.h"
 #include "system/view_host_system.h"
 #include "system/systems.h"
 #include "system/ui_system.h"
 #include "system/viewport_system.h"
-#include "ui/ui_constructors.h"
+
+// The telemetry text is reformatted once per this many frames, to avoid per-frame formatting churn.
+#define UTILITY_STATS_REFRESH_FRAMES 20
 
 static ViewHostSystem *utility_panel = NULL;
-// The sheet fills the whole utility panel viewport (the card inside hugs its content).
-static Size utility_view_size = {{1.0f, 1.0f}, AXIS_PERCENT, AXIS_PERCENT};
-// The card spans the sheet's inner width and hugs its title and rows (a 0 hug dimension means uncapped).
-static Size utility_card_size = {{1.0f, 0.0f}, AXIS_FILL, AXIS_HUG};
-// Build the telemetry sheet: a CARD-role section (standard 6 px padding, cream title and labels,
-// the standard 118 px label column) holding the Mem / Fps / Ftime read-only rows. This mirrors what
-// the markup loader does for a surface="card" container with field-layout="stacked" TextFields.
-static void InitUtilityStatsView(void)
+
+// Panel-owned backing buffers for the BIND_STRING results (the pointer must outlive the refresh
+// call, exactly like the info strip's label buffers). An empty buffer means "not formatted yet".
+static char utility_mem_text[32];
+static char utility_fps_text[32];
+static char utility_ftime_text[32];
+
+// True on frames where the telemetry text should be reformatted: every UTILITY_STATS_REFRESH_FRAMES
+// frames, or whenever the buffer has never been filled (so a fresh panel never shows a blank value).
+static bool Utility_ShouldRefresh(const char *buffer)
 {
-    View *view = ViewHostSystem_CreateView(utility_panel, 0);
-    UIElement *stats_container = view ? view->container : NULL;
-    if (!stats_container)
-    {
-        return;
-    }
-    const UIPalette *palette = utility_panel->palette;
-    // Apply the standard sheet styling (SHEET fill, no border, 6 px padding), as the markup panels get
-    ViewHostSystem_StyleViewSheet(stats_container, palette);
-    // Customise the standard view container size for the utility statistics layout.
-    stats_container->size = utility_view_size;
-    // CARD section: the same surface role, padding and stacking the loader gives a card container.
-    UIElement *card = CreateUIContainer(stats_container, utility_card_size,
-                                        (Offset){ZERO_VECTOR_2D, OFFSET_FIXED}, ui_section_padding,
-                                        palette, UI_PALETTE_SURFACE_CARD, ui_standard_stack_spacing,
-                                        true, true);
-    if (!card)
-    {
-        return;
-    }
-    // Section title, matching the other panels' titles (upper-cased by the title constructor), with
-    // the card's cream text colour like a markup title inside a card.
-    ColourRgba card_text = palette->title_text;
-    const UISurfaceStyle card_style = UIPalette_GetSurfaceStyle(palette, UI_PALETTE_SURFACE_CARD);
-    if (card_style.has_text)
-    {
-        card_text = card_style.text;
-    }
-    UIElement *title = CreateUILabelTitleDefault(card, "Performance", ui_title_size,
-                                                 ui_standard_field_padding, palette);
-    if (title)
-    {
-        title->data.label.font.colour = card_text;
-    }
-    UIElement *stats_boxes[3] = {NULL, NULL, NULL};
-    const UIFieldSpec stats_specs[] = {
-        {"Mem", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, &stats_boxes[0], &G_UIState.stats_mem_str},
-        {"Fps", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, &stats_boxes[1], &G_UIState.stats_fps_str},
-        {"Ftime", UI_ELEMENT_TEXTBOX_O, ui_standard_control_size, FLOAT, &stats_boxes[2], &G_UIState.stats_ftime_str},
-    };
-    InitUIFields(card, stats_specs,
-                 ARRAY_COUNT(stats_specs),
-                 ui_standard_field_padding, palette);
-    // Same as field-layout="stacked": flag each input so the per-section longest-label pass leaves the
-    // fixed label column (ui_standard_textfield_label_width) alone, and give the labels the card text.
-    for (size_t i = 0; i < ARRAY_COUNT(stats_boxes); i++)
-    {
-        UIElement *input = stats_boxes[i];
-        if (!input)
-        {
-            continue;
-        }
-        input->data.textbox.stacked_field = true;
-        UIElement *label = input->parent ? input->parent->first_child : NULL;
-        if (label && label->type == UI_ELEMENT_LABEL)
-        {
-            label->data.label.font.colour = card_text;
-        }
-    }
-    // Descendants inside a card resolve INACTIVE roles as the sheet colours (the loader stamps this for markup cards).
-    UIElement_MarkDescendantsInCard(card);
+    return buffer[0] == '\0' || frame_counter.total_frames % UTILITY_STATS_REFRESH_FRAMES == 0;
 }
+
+// Memory in KiB currently allocated through the engine allocator ("%.1f").
+static BindingValue Utility_QueryMem(int key)
+{
+    (void)key;
+    if (Utility_ShouldRefresh(utility_mem_text))
+    {
+        snprintf(utility_mem_text, sizeof(utility_mem_text), "%.1f", (double)(GetCurrentMemoryAllocated() / 1024.0f));
+    }
+    return (BindingValue){ .type = BIND_STRING, .as.s = utility_mem_text };
+}
+
+// Frames per second ("%.1f").
+static BindingValue Utility_QueryFps(int key)
+{
+    (void)key;
+    if (Utility_ShouldRefresh(utility_fps_text))
+    {
+        snprintf(utility_fps_text, sizeof(utility_fps_text), "%.1f", (double)frame_counter.fps);
+    }
+    return (BindingValue){ .type = BIND_STRING, .as.s = utility_fps_text };
+}
+
+// Frame time in milliseconds ("%.2f").
+static BindingValue Utility_QueryFtime(int key)
+{
+    (void)key;
+    if (Utility_ShouldRefresh(utility_ftime_text))
+    {
+        snprintf(utility_ftime_text, sizeof(utility_ftime_text), "%.2f", (double)(frame_counter.delta_time * 1000));
+    }
+    return (BindingValue){ .type = BIND_STRING, .as.s = utility_ftime_text };
+}
+
+// Resolve the panel's binding names ("utility.mem", "utility.fps", "utility.ftime") to the query
+// shims above; anything else is unresolved.
+static UIBinding Utility_ResolveBinding(const char *binding_string, UILoaderContext *ctx)
+{
+    (void)ctx;
+    static const struct { const char *name; BindingQueryFn query; } sources[] = {
+        {"utility.mem", Utility_QueryMem},
+        {"utility.fps", Utility_QueryFps},
+        {"utility.ftime", Utility_QueryFtime},
+    };
+    if (binding_string)
+    {
+        for (size_t i = 0; i < ARRAY_COUNT(sources); i++)
+        {
+            if (!strcmp(binding_string, sources[i].name))
+            {
+                return (UIBinding){
+                    .kind = UI_BIND_SRC_QUERY,
+                    .query = sources[i].query,
+                    .query_key = 0,
+                    .value_type = BIND_STRING,
+                };
+            }
+        }
+    }
+    return (UIBinding){ .kind = UI_BIND_SRC_NONE };
+}
+
+// The panel has no command buttons; every action name resolves to none.
+static int Utility_ResolveCommand(const char *cmd_string, UILoaderContext *ctx)
+{
+    (void)cmd_string;
+    (void)ctx;
+    return 0;
+}
+
+// Build the Performance panel: load utility_panel.xml and mount it on the utility viewport through
+// the shared panel builder (no tab selector), then lay it out over the valid viewport space.
 void InitUtilityPanel(void)
 {
-    utility_panel = ViewHostSystem_Create(&utility_panel_viewport, 1.0f, (Vector2d){5.0f, 5.0f},
-        UIPalette_GetActive(), ui_standard_stack_spacing);
+    const PanelMarkupDesc desc = {
+        .file = UI_COMPONENTS_DIR "/utility_panel.xml",
+        .viewport = &utility_panel_viewport,
+        .host_padding = {5.0f, 5.0f},
+        .resolve_binding = Utility_ResolveBinding,
+        .resolve_command = Utility_ResolveCommand,
+    };
+    ViewSelector *selector = NULL; // The markup declares no tabs, so the builder leaves this NULL.
+    UIElement *root = NULL;
+    utility_panel = PanelShared_BuildFromMarkup(&desc, &selector, &root);
     if (!utility_panel)
     {
         return;
     }
-
-    // Utility now contains telemetry only; debug controls live in the toolbar and debug overlay hotkeys.
-    ViewHostSystem_InitViews(utility_panel, 1);
-    ViewHostSystem_InitRoot(utility_panel);
-    InitUtilityStatsView();
-
-    // Finalise: update layout (no view selector for utility panel)
-    ViewHostSystem_FinaliseInit(utility_panel, NULL);
+    UpdateUISpace(utility_panel->root, utility_panel->seed_box);
 }
 
-// Destroy the utility panel and clear its cached UI references.
+// Destroy the utility panel and clear its cached text.
 void DestroyUtilityPanel(void)
 {
     ViewHostSystem *panel = utility_panel;
     utility_panel = NULL;
     ViewHostSystem_Destroy(panel);
 
-    G_UIState.stats_polygs_str = NULL;
-    G_UIState.stats_fps_str = NULL;
-    G_UIState.stats_ftime_str = NULL;
-    G_UIState.stats_mem_str = NULL;
+    utility_mem_text[0] = '\0';
+    utility_fps_text[0] = '\0';
+    utility_ftime_text[0] = '\0';
 }
 
 void DrawUtilityPanel(void)

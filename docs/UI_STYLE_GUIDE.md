@@ -26,7 +26,7 @@ Every region (toolbar, info and detail strips, popup, State Manager, World Manag
 
 ## 2. Colour roles (Harbor values)
 
-`UIColourRole` in `include/system/ui_system.h`. Resolve with `UIPalette_GetRoleColours(palette, role)`,
+`UIColourRole` in `include/system/ui_palette.h` (implemented in `src/engine/system/ui_palette.c`). Resolve with `UIPalette_GetRoleColours(palette, role)`,
 which returns `{ fill, text, border }`.
 
 | Role | Fill | Text | Border | Use | Markup |
@@ -36,9 +36,27 @@ which returns `{ fill, text, border }`.
 | `UI_ROLE_INPUT` | cream #EFDDB8 | ink | #1C3A43 | Editable text fields | `<TextField io="safe">`, `<Textbox>` |
 | `UI_ROLE_READONLY_INPUT` | dimmed cream #CFC5A8 | ink | #6E8F86 | Every read-only field, everywhere | `io="readonly"` (automatic) |
 | `UI_ROLE_INACTIVE` | dark teal #3A665E | cream | #1C3A43 | Inactive tab, OFF toggle or chip, scrollbar track. Inside a card it resolves to the sheet fill with ink text | `surface="inactive"` |
-| `UI_ROLE_CARD` | dark teal #3A665E (`card_fill`) | cream #EFDDB8 (`text_on_dark`) | #1C3A43 | A group of fields on the sheet | `surface="card"` (`subsection` is a deprecated alias) |
+| `UI_ROLE_CARD` | dark teal #3A665E (`inactive_fill`, shared with INACTIVE; a distinct role so it can diverge) | cream #EFDDB8 (`text_on_dark`) | #1C3A43 | A group of fields on the sheet | `surface="card"` (or `style="card"`) |
 | `UI_ROLE_ACTIVE` | amber #DC9E46 | ink | none | Active tab, ON toggle or chip, primary action | `surface="button"` |
 | `UI_ROLE_DANGER` | coral #DA7560 | ink | none | Delete / remove | `surface="danger"` |
+
+**World colours.** The game world has its own palette entries, resolved together by
+`UIPalette_GetWorldColours(palette)` (a `UIWorldColours` group, not UI control roles):
+
+| Entry | Harbor | Use |
+| --- | --- | --- |
+| `world_background` | recessed #12262C (panel_background x 0.65) | The world viewport clear (the root world's empty space) |
+| `world_cell_fill` | parchment #E8E0C6 (the colour cells have always had) | Default cell fill |
+| `world_cell_line` | olive #606C38 at alpha 150 | Cell grid lines and the world border |
+| `world_grid_line` | #677A48 at alpha 150 | Universe grid lines over `world_background` |
+| `world_axis_x`, `world_axis_y` | #DC7864, #588E83 at alpha 220 | Universe axes |
+
+Rules: the world viewport is `world_background`, never `panel_background` (the UI chrome). Only the viewport
+rectangle uses it; the band below the viewport stays `panel_background`. The default cell fill is its own entry,
+not `input_fill`. It is only a default: a per-cell colour or tile, when added, overrides it at the single
+resolve point `CellFillColour` in `world_renderer.c`. The grid line and axis values are the old line colours
+pre-compensated for the darker background, so the blended lines look as they did on the panel colour.
+Other palettes use the same rule: background = panel_background x 0.65.
 
 Panel background: `panel_background` #1C3A43, behind `ViewHost` and `View` (`surface="panel"`).
 `muted_text` (#7C5721) is not a role. Use it only for the x/y prefixes and `unit=` suffixes drawn on cream.
@@ -50,12 +68,12 @@ Two-state controls (tabs, chips, toggles, tool buttons) take ACTIVE when on and 
 
 | Element | Font | Colour |
 | --- | --- | --- |
-| Section title (`style="title"`) | FONT_LARGE, one 16 px row (`ui_title_size`) | `title_text` ink, starts 10 px from the bar's left edge |
+| Section title (`style="title"`) | FONT_LARGE, one 16 px row (`ui_title_size`) | `text` ink, starts 10 px from the bar's left edge |
 | Everything else | FONT_MEDIUM | paired role text |
-| Field label | FONT_MEDIUM | `label_text` (ink), or card text inside a card |
+| Field label | FONT_MEDIUM | `text` (ink), or card text inside a card |
 
 The title's accent bar is a 4x16 px amber bar at the left (`UI_TITLE_BAR_WIDTH_PX`, `UI_TITLE_BAR_HEIGHT_PX`,
-`UI_TITLE_TEXT_INDENT_PX` in `include/ui/ui.h`).
+`UI_TITLE_TEXT_INDENT_PX` in `include/ui/ui_metrics.h`, the one home for UI pixel constants).
 Section titles are UPPER CASE. The folding happens once, in `CreateUILabelTitleDefault`, so write titles in any case in markup (`<Label text="Physics" style="title" />`) and every title, including C-built ones, renders upper case.
 
 Labels are short and match the code name. Abbreviate consistently: `Accel.`, `Ang. vel.`, `Res`,
@@ -74,6 +92,13 @@ Labels are short and match the code name. Abbreviate consistently: `Accel.`, `An
 | `ui_title_size` | 16 px high | Section title row |
 | `ui_standard_icon_button_size` | 34 x 25 px | Icon-only tool and toggle buttons; markup writes `size="icon"` |
 | `ui_strip_host_padding` | 5 px horizontal | Root inset of the single-row info and detail strips |
+| `UI_HEADER_TITLE_HEIGHT_PX` / `UI_HEADER_SUB_HEIGHT_PX` | 20 / 17 px high | Panel header title and sub lines; markup writes `size="header-title"` / `size="header-sub"` |
+| `UI_ACTION_REMOVE_WIDTH_PX` / `UI_ACTION_ADD_WIDTH_PX` | 78 / 48 x 25 px | COMP REMOVE / ADD buttons; markup writes `size="action-remove"` / `size="action-add"` (C writes the same constants on a flip) |
+| `UI_POPUP_WIDTH_PX` | 188 px wide | Popup menu host; markup writes `size="popup"` |
+| `UI_SCROLLBAR_*` / `UI_LIST_SCROLLBAR_*` | 6 / 4 / 20 px; 4 / 12 px | View scrollbar width, inset and minimum thumb; list scrollbar width and minimum thumb |
+
+Every `UI_*_PX` pixel constant (titles, grid chips, wrap tolerance, textbox text gap, vector prefix, unit gap, ellipsis, header rule, border-weight limit, named sizes, scrollbars) lives in `include/ui/ui_metrics.h`; the `Size` / `Layout` / padding globals above live in `ui_system.c`.
+
 
 All authored lengths are UI pixels. Do not write a pixel literal in markup or C when a constant above
 fits. Omit `size=` and let the element default (`ui_standard_control_size`) and `width="fill"` apply.
@@ -92,7 +117,7 @@ sections.
 
 **Text field.** `<TextField label="..." type=... io=... binding=... />`. 118 px label column, input fills
 the rest. Editable = INPUT, `io="readonly"` = READONLY_INPUT automatically.
-- Vector (`type="vector2"`): `field-layout="stacked"`, giving x over y with muted prefixes.
+- Vector (`type="vector2"`): the default stacked field layout gives x over y with muted prefixes.
 - Unit: `unit="rad"` draws a muted suffix inside the field.
 - Numbers use fit-to-field formatting (drops decimals, then compact scientific) at draw time.
 - Non-numeric read-only text wider than its one-row box is drawn cut short with "..." at draw time (the stored text is unchanged). Editable fields and numeric fields are not affected.
@@ -111,10 +136,11 @@ styles, and the x/y prefixes and units stay `muted_text`.
   groups, COMP components). Keep chip grids and action buttons (DELETE) on the sheet under a title, never
   inside a card (FLAGS is all sheet).
 - **Mixed sections.** A section that mixes fields and chips goes in a card. An OFF chip inside a card resolves
-  to the sheet fill with ink text (`UIPalette_GetRoleColoursInContext`, applied by `UIElement_ApplyRoleColours`),
+  to the sheet fill with ink text (the `in_card` flag stamped at load, applied by `UIElement_ApplyRoleColours`),
   so it stays visible on the teal. ON chips stay ACTIVE amber. Views never set these colours.
-- **Deprecated.** `surface="subsection"` still loads as an alias of `card`. Use `card`, or `inactive` for a
-  dark teal control tile.
+- **Presets.** Write `<View style="sheet">` for a panel sheet, `<Container style="card">` for a card,
+  `style="section"` for a transparent titled group on the sheet and `style="chip-grid"` for a two-column chip
+  grid. An authored attribute overrides the preset's value (see UI_MARKUP_SYNTAX.md, "Style presets").
 
 **Actions.** Primary action `surface="button"` (ACTIVE). Delete / remove `surface="danger"` (DANGER). A
 button inside a card that is not itself a card control needs an explicit `surface=` so it does not
@@ -170,14 +196,14 @@ role.
   for chip grids.
 - Heading: `<Label text="Physics" style="title" />`.
 - Field: `<TextField label="Ang. vel." type="float" io="readonly" binding="..." />`; vector:
-  add `field-layout="stacked"`; unit: add `unit="rad"`.
+  every field is stacked by default (`field-layout="inline"` opts a row out); unit: add `unit="rad"`.
 - Chips: `<Container layout="inline_wrap" columns="2" gap="5,3">` with `<Button type="simple" binding=... />`.
-- Card or action colour: `surface="card"`, `"inactive"`, `"button"` or `"danger"`. Do not use `ink=`.
+- Card or action colour: `surface="card"`, `"inactive"`, `"button"` or `"danger"`. Text colour always comes from the surface role; there is no per-element ink override.
 
 **C**
 - Role colours: `UIPalette_GetRoleColours(palette, UI_ROLE_xxx)` returns fill, text and border together.
 - Two-state controls: `UIElement_ApplyRoleColours(element, palette, active ? UI_ROLE_ACTIVE : UI_ROLE_INACTIVE)`.
-- Surface text: `UIPalette_GetSurfaceText(palette, surface, &text)`.
+- Surface style (fill, border, weight and paired text): `UIPalette_GetSurfaceStyle(palette, surface)`.
 - Setting a whole element to a role: `UIElement_ApplyRoleColours(element, palette, role)` (fill, border and role text; the only way a panel recolours a live element).
 - Headers: `PanelShared_HeaderBind`.
 - New palettes must define every role. Never read palette fields in a panel to build a pair by hand.

@@ -7,6 +7,7 @@
 #include "system/command_system.h"
 #include "system/view_host_system.h"
 #include "ui/ui_constructors.h"
+#include "system/ui_system.h" // Shared size / padding / layout constants
 #include "system/utility_system.h"
 #include "memory/cmemory.h"
 #include <string.h>
@@ -653,12 +654,12 @@ static void UILoader_ApplyFieldValue(mxml_node_t *node, UIElement *textbox,
  *             size (optional "w,h"), width/height (optional per-axis mode
  *             "fixed|percent|fill|hug"), offset (optional "x,y"),
  *             offset-mode (optional "fixed"/"percent"), enabled (optional),
- *             field-layout (optional: "inline" (default) / "stacked"), unit (optional suffix text).
+ *             field-layout (optional: "stack" (default; "stacked" is an alias) / "inline"), unit (optional suffix text).
  * size/width/height and offset/offset-mode default to ui_standard_control_size and a zero
  * fixed offset when absent, so attribute-less markup is unchanged.
  *
- * field-layout="stacked" is the stacked field layout: the label column is fixed at
- * ui_standard_textfield_label_width (the per-section longest-label pass skips the row) and a
+ * field-layout="stack" (the default) is the stacked field layout: the label column is fixed at
+ * ui_standard_textfield_label_width (the per-section longest-label pass skips the row; field-layout="inline" opts out) and a
  * type="vector2" field becomes two rows tall (control row + stack gap + control row): the label stays
  * on the first row and the control draws its x and y component boxes one above the other. The
  * control remains ONE textbox (one buffer, binding and hit area), so bindings and editing are
@@ -694,7 +695,7 @@ static UIBuildResult BuildTextField(mxml_node_t *node, UIElement *parent, const 
     // Size comes from the common pass (seeded with ui_standard_control_size) and is passed as
     // the ROW size. CreateUILabeledFieldDefault builds the UI_ELEMENT_TEXTFIELD row with a
     // label child and a textbox child and returns the TEXTBOX child (its public return is
-    // relied upon by InitUIFields, so it is left unchanged). The row is the OUTER element the
+    // kept as the textbox, so it is left unchanged). The row is the OUTER element the
     // <TextField> tag represents; the textbox is the inner CONTROL.
     UIElement *textbox = CreateUILabeledFieldDefault(parent, label, field_type,
                                       common->size,
@@ -714,8 +715,15 @@ static UIBuildResult BuildTextField(mxml_node_t *node, UIElement *parent, const 
     UILoader_AttachTextboxBinding(textbox, &b, data_type, have_source, have_sink);
 
     // field-layout= (stacked field layout) and unit= (inside-field suffix); see the header comment.
+    // Stacked is the default; field-layout="inline" opts a row back into the label-beside-input form.
+    // "stack" is the canonical spelling and "stacked" a silent alias (the same pair as layout=).
     const char *field_layout = mxmlElementGetAttr(node, "field-layout");
-    if (field_layout && !strcmp(field_layout, "stacked"))
+    const bool inline_field = field_layout && !strcmp(field_layout, "inline");
+    if (field_layout && !inline_field && strcmp(field_layout, "stack") != 0 && strcmp(field_layout, "stacked") != 0)
+    {
+        LOADER_WARNING(ctx, "Unrecognised field-layout value; using stack");
+    }
+    if (!inline_field)
     {
         textbox->data.textbox.stacked_field = true;
         if (data_type == VECTOR2D)
@@ -733,10 +741,7 @@ static UIBuildResult BuildTextField(mxml_node_t *node, UIElement *parent, const 
             }
         }
     }
-    else if (field_layout && strcmp(field_layout, "inline") != 0)
-    {
-        LOADER_WARNING(ctx, "Unrecognised field-layout value; using inline");
-    }
+
     const char *unit_attr = mxmlElementGetAttr(node, "unit");
     if (unit_attr)
     {
@@ -1193,7 +1198,7 @@ static const UIElementBuilderRegistry *UILoader_FindBuilder(const char *tag_name
 // ============================================================================
 
 // Helper: Parse layout attribute and return corresponding Layout constant
-// Supported values: "stack" / "stacked" (alias), "stack_wrap", "inline", "inline_wrap", "view_stack"; anything else is "stack".
+// Supported values: "stack" (canonical) / "stacked" (silent alias), "stack_wrap", "inline", "inline_wrap", "view_stack"; anything else is "stack".
 static const Layout *UILoader_ParseLayout(const char *layout_str)
 {
     if (!layout_str)
@@ -1320,19 +1325,16 @@ static OffsetMode UILoader_ParseOffsetMode(const char *mode_str)
     return OFFSET_FIXED;  // Default
 }
 
-// Silent lookup of a surface role name (transparent, container, field_row, input, button, panel,
-// danger, inactive, card, and the deprecated alias subsection = card).
+// Silent lookup of a surface role name (transparent, container, input, button, panel, danger,
+// inactive, card).
 // Returns true and writes *out when recognised. Shared by surface= and border=.
 static bool UILoader_LookupSurface(const char *name, UIPaletteSurface *out)
 {
     static const struct { const char *name; UIPaletteSurface role; } roles[] = {
         {"transparent", UI_PALETTE_SURFACE_TRANSPARENT}, {"container", UI_PALETTE_SURFACE_CONTAINER},
-        {"field_row", UI_PALETTE_SURFACE_FIELD_ROW},     {"input", UI_PALETTE_SURFACE_INPUT},
-        {"button", UI_PALETTE_SURFACE_BUTTON},           {"panel", UI_PALETTE_SURFACE_PANEL},
-        {"danger", UI_PALETTE_SURFACE_DANGER},           {"inactive", UI_PALETTE_SURFACE_INACTIVE},
-        {"card", UI_PALETTE_SURFACE_CARD},
-        // Deprecated alias of "card" (it used to mean the dark teal group); kept so old markup loads.
-        {"subsection", UI_PALETTE_SURFACE_CARD},
+        {"input", UI_PALETTE_SURFACE_INPUT},             {"button", UI_PALETTE_SURFACE_BUTTON},
+        {"panel", UI_PALETTE_SURFACE_PANEL},             {"danger", UI_PALETTE_SURFACE_DANGER},
+        {"inactive", UI_PALETTE_SURFACE_INACTIVE},       {"card", UI_PALETTE_SURFACE_CARD},
     };
     for (size_t i = 0; i < sizeof(roles) / sizeof(roles[0]); i++)
     {
@@ -1391,7 +1393,6 @@ static bool UILoader_ParseBorder(UILoaderContext *ctx, const UIPalette *palette,
 // Helper: Parse a border-weight= attribute: a whole number of screen pixels in 0..UI_MAX_BORDER_WEIGHT.
 // Returns true and writes *out when valid; returns false (leaving *out untouched) when absent, or
 // when malformed/out of range (which also warns), so the element keeps its surface weight.
-#define UI_MAX_BORDER_WEIGHT 16
 static bool UILoader_ParseBorderWeight(UILoaderContext *ctx, const char *weight_str, int *out)
 {
     if (!weight_str)
@@ -1434,6 +1435,37 @@ static Vector2d UILoader_ParseSizeValues(const char *size_str)
     }
     
     return result;
+}
+
+// Named sizes usable as size="<keyword>" in markup. Each supplies a dimension pair from one shared
+// constant, so markup never repeats the pixel literals. A keyword fixes both axes like a numeric
+// size= does; an axis it leaves at 0 is normally overridden by width=/height= (fill/hug).
+static const struct
+{
+    const char *name;
+    Vector2d dimensions;
+} s_size_keywords[] = {
+    {"icon", {UI_ICON_BUTTON_WIDTH_PX, UI_CONTROL_HEIGHT_PX}},         // toolbar tile (= ui_standard_icon_button_size)
+    {"action-remove", {UI_ACTION_REMOVE_WIDTH_PX, UI_CONTROL_HEIGHT_PX}}, // COMP REMOVE button
+    {"action-add", {UI_ACTION_ADD_WIDTH_PX, UI_CONTROL_HEIGHT_PX}},       // COMP ADD button
+    {"header-title", {0.0f, UI_HEADER_TITLE_HEIGHT_PX}},               // header title line (width fills)
+    {"header-sub", {0.0f, UI_HEADER_SUB_HEIGHT_PX}},                   // header sub line (width fills)
+    {"popup", {UI_POPUP_WIDTH_PX, 0.0f}},                              // popup host (height hugs)
+};
+
+// Look up a size keyword. Returns true and writes *out when `name` is a known keyword; false when it
+// is not (the caller then parses it as numbers).
+static bool UILoader_LookupSizeKeyword(const char *name, Vector2d *out)
+{
+    for (size_t i = 0; i < sizeof(s_size_keywords) / sizeof(s_size_keywords[0]); i++)
+    {
+        if (!strcmp(name, s_size_keywords[i].name))
+        {
+            *out = s_size_keywords[i].dimensions;
+            return true;
+        }
+    }
+    return false;
 }
 
 // ----------------------------------------------------------------------------
@@ -1506,11 +1538,12 @@ void UILoader_ExtractCommonAttrs(mxml_node_t *node, UILoaderContext *ctx, char *
         const char *width_attr = mxmlElementGetAttr(node, "width");
         const char *height_attr = mxmlElementGetAttr(node, "height");
 
-        // A provided size= supplies BOTH axes (ParseSizeValues mirrors a lone value to both).
-        // size="icon" is the named keyword for the shared icon button size (34 x 25), so markup
-        // never repeats the pixel literals (ui_standard_icon_button_size).
-        Vector2d dims = (size_attr && strcmp(size_attr, "icon") == 0) ? ui_standard_icon_button_size.dimensions
-                        : size_attr ? UILoader_ParseSizeValues(size_attr) : (Vector2d){0.0f, 0.0f};
+        // A provided size= supplies BOTH axes (ParseSizeValues mirrors a lone value to both). A
+        // named keyword (see UILoader_LookupSizeKeyword) supplies a shared size, so markup never
+        // repeats pixel literals that live in ui_metrics.h or ui_system.c.
+        Vector2d dims = {0.0f, 0.0f};
+        if (size_attr && !UILoader_LookupSizeKeyword(size_attr, &dims))
+            dims = UILoader_ParseSizeValues(size_attr);
         bool has_size = (size_attr != NULL);
 
         bool wset = false, hset = false;
@@ -1549,9 +1582,10 @@ void UILoader_ExtractCommonAttrs(mxml_node_t *node, UILoaderContext *ctx, char *
 
         // Warn when size= supplies a value for an axis whose RESOLVED mode is FILL (dead
         // value). LOADER_WARNING takes a fixed string (no varargs), so no value interpolation.
-        if (has_size && size_out->width_mode == AXIS_FILL)
+        // A zero value (e.g. a named size that only fixes one axis) has nothing to ignore.
+        if (has_size && size_out->width_mode == AXIS_FILL && dims.x != 0.0f)
             LOADER_WARNING(ctx, "size= width value ignored: width mode is fill");
-        if (has_size && size_out->height_mode == AXIS_FILL)
+        if (has_size && size_out->height_mode == AXIS_FILL && dims.y != 0.0f)
             LOADER_WARNING(ctx, "size= height value ignored: height mode is fill");
 
         // Warn when a PERCENT fraction falls outside 0..1.
@@ -1647,35 +1681,9 @@ void UILoader_ExtractCommonAttrs(mxml_node_t *node, UILoaderContext *ctx, char *
 // Tree Parsing
 // ============================================================================
 
-static void UILoader_ApplyTextColour(UIElement *outer, ColourRgba ink);
-
-// Helper: apply the ink= attribute ("light" = the INACTIVE role text, "dark" = the ACTIVE role ink) to the
-// font colour of a Label, Button or Textbox. For a <TextField> row only the label child is
-// recoloured (the input keeps dark ink on its cream cell). Elements without a font ignore it;
-// an unrecognised value warns and leaves the colours unchanged.
-static void UILoader_ApplyInk(UILoaderContext *ctx, UIElement *outer, const UIPalette *palette,
-                              const char *ink_str)
-{
-    if (!ink_str || !outer || !palette)
-        return;
-
-    ColourRgba ink;
-    if (!strcmp(ink_str, "light"))
-        ink = UIPalette_GetRoleColours(palette, UI_ROLE_INACTIVE).text; // text of the inactive role
-    else if (!strcmp(ink_str, "dark"))
-        ink = UIPalette_GetRoleColours(palette, UI_ROLE_ACTIVE).text;   // ink of the active role
-    else
-    {
-        LOADER_WARNING(ctx, "Unrecognised ink value; leaving text colour unchanged");
-        return;
-    }
-
-    UILoader_ApplyTextColour(outer, ink);
-}
-
 // Helper: write `ink` to the font colour of a Label, Button or Textbox. For a <TextField> row only
 // the label child is recoloured (the input keeps its role text on its input fill). Containers and
-// Views have no font and are ignored. Shared by ink=, surface text roles and inherited card text.
+// Views have no font and are ignored. Shared by surface text roles and inherited card text.
 static void UILoader_ApplyTextColour(UIElement *outer, ColourRgba ink)
 {
     // A TextField row recolours its label child only.
@@ -1703,6 +1711,61 @@ static void UILoader_ApplyTextColour(UIElement *outer, ColourRgba ink)
     }
 }
 
+// Style presets for <Container> and <View> (style="..."): a named bundle of attributes that
+// the markup would otherwise repeat on every sheet, card, section or chip grid. A preset only
+// SUPPLIES attributes the element did not author, so any authored attribute overrides it. Applying
+// one is plain attribute defaulting on the mxml node, so every later parser reads the result
+// exactly as if it had been written out and there is no second code path.
+typedef struct StylePreset
+{
+    const char *name;
+    const char *tag;               // The element the preset is for ("View" or "Container").
+    const char *attrs[8][2];       // name/value pairs, terminated by a NULL name.
+} StylePreset;
+
+static const StylePreset s_style_presets[] = {
+    // A panel sheet: container fill, no border, 6 px padding, stacked children.
+    {"sheet", "View", {{"surface", "container"}, {"border", "none"}, {"padding", "6"}, {"layout", "stack"}, {NULL, NULL}}},
+    // A grouped-field card: full width, hugs its rows, card role, 6 px padding.
+    {"card", "Container", {{"width", "fill"}, {"height", "hug"}, {"layout", "stack"}, {"surface", "card"}, {"padding", "6"}, {NULL, NULL}}},
+    // A transparent section on the sheet (title plus chips or buttons): full width, hugs, no padding.
+    {"section", "Container", {{"width", "fill"}, {"height", "hug"}, {"layout", "stack"}, {"surface", "transparent"}, {"padding", "0"}, {NULL, NULL}}},
+    // A two-column chip grid: inline wrap, 5,3 gap, transparent, no padding.
+    {"chip-grid", "Container", {{"layout", "inline_wrap"}, {"columns", "2"}, {"gap", "5,3"}, {"surface", "transparent"}, {"padding", "0"}, {NULL, NULL}}},
+};
+
+// Expand a style= preset on a <Container> or <View> node by setting each of its attributes the
+// element did not author. An unknown name, or a preset used on the wrong tag, warns and is ignored.
+static void UILoader_ApplyStylePreset(mxml_node_t *node, const char *tag, UILoaderContext *ctx)
+{
+    const char *style = mxmlElementGetAttr(node, "style");
+    if (!style || (strcmp(tag, "Container") != 0 && strcmp(tag, "View") != 0))
+    {
+        return; // Label style= is handled by BuildLabel.
+    }
+
+    for (size_t i = 0; i < sizeof(s_style_presets) / sizeof(s_style_presets[0]); i++)
+    {
+        const StylePreset *preset = &s_style_presets[i];
+        if (strcmp(style, preset->name) != 0)
+        {
+            continue;
+        }
+        if (strcmp(tag, preset->tag) != 0)
+        {
+            break; // Right name, wrong tag: fall through to the warning.
+        }
+        for (size_t a = 0; preset->attrs[a][0] != NULL; a++)
+        {
+            if (!mxmlElementGetAttr(node, preset->attrs[a][0]))
+            {
+                mxmlElementSetAttr(node, preset->attrs[a][0], preset->attrs[a][1]);
+            }
+        }
+        return;
+    }
+    LOADER_WARNING(ctx, "Unrecognised style preset for this element; ignored");
+}
 /**
  * Recursively parse an XML element and its children, building the UIElement tree.
  */
@@ -1723,6 +1786,9 @@ static UIElement *UILoader_ParseElementNode(mxml_node_t *node, UIElement *parent
         LOADER_WARNING(ctx, "Unknown XML element type");
         return NULL;
     }
+
+    // Expand any style= preset into attributes first, so everything below reads them normally.
+    UILoader_ApplyStylePreset(node, tag, ctx);
 
     // --- COMMON PRE-EXTRACT (once, for every element) ------------------------
     // Seed the per-type size default from the registry, the universal zero fixed offset
@@ -1786,7 +1852,7 @@ static UIElement *UILoader_ParseElementNode(mxml_node_t *node, UIElement *parent
     // leaves the element's constructor-chosen colours untouched; a recognised value resolves the
     // role from the active palette and overrides colour_fill/colour_border.
     // Text roles: captions and field labels inside a role surface (a card) inherit that role's text
-    // colour first; the element's own surface text and ink= then override it. The inherited state is
+    // colour first; the element's own surface text then overrides it. The inherited state is
     // restored after the children are parsed so it never leaks to siblings.
     const bool saved_has_inherited_text = ctx->has_inherited_text;
     const ColourRgba saved_inherited_text = ctx->inherited_text;
@@ -1816,7 +1882,7 @@ static UIElement *UILoader_ParseElementNode(mxml_node_t *node, UIElement *parent
         outer->colour_fill = surface_style.fill;
         outer->border_weight = surface_style.border_weight;
         // A surface that is a control role also brings its paired text colour (button = ink on
-        // amber, danger = ink on coral, card = cream on teal), so views need no ink=.
+        // amber, danger = ink on coral, card = cream on teal), so markup never picks a text colour.
         if (surface_style.has_text)
         {
             const ColourRgba surface_text = surface_style.text;
@@ -1836,9 +1902,6 @@ static UIElement *UILoader_ParseElementNode(mxml_node_t *node, UIElement *parent
             }
         }
     }
-    // ink: optional text colour role for the element's caption (light/dark), applied here so any
-    // element can opt in without per-panel colour code.
-    UILoader_ApplyInk(ctx, outer, ctx->palette, mxmlElementGetAttr(node, "ink"));
     // border: optional border-colour override, applied after surface= so it can strip or recolour
     // just the border of a surface-filled element. Same generic choke point, so ANY element can
     // opt in; an absent or unrecognised value leaves the border untouched.

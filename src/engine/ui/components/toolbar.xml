@@ -11,7 +11,7 @@
     <!-- separates the groups, so there is no divider element and no pixel literal. -->
 <Container id="toolbar" layout="view_stack" width="hug" height="fill">
     <!-- Tool group: three radio buttons; action= sets the active tool radio-exclusively. -->
-    <Container id="toolbar_tools" layout="stacked" width="hug" height="hug" padding="0">
+    <Container id="toolbar_tools" layout="stack" width="hug" height="hug" padding="0">
         <Button id="tool_nudge" type="simple" surface="inactive" binding="tool.nudge" action="tool-nudge" hint="Nudge tool: click an entity to push it" size="icon" />
         <!-- CLICK toggles the tool; MOUSE WHEEL while hovering cycles the active tile type (on_scroll = -->
         <!-- Toolbar_ScrollCycleTileType, wired by id in InitToolbar). The glyph shows the active tile -->
@@ -23,7 +23,7 @@
         <Button id="tool_spawn" type="simple" surface="inactive" binding="tool.spawn" action="tool-spawn" hint="Spawn tool | Wheel: cycle prefab" size="icon" />
     </Container>
     <!-- Toggle group: independent visual toggles . -->
-    <Container id="toolbar_toggles" layout="stacked" width="hug" height="hug" padding="0">
+    <Container id="toolbar_toggles" layout="stack" width="hug" height="hug" padding="0">
         <Button id="toggle_dashboard" type="simple" surface="inactive" binding="debug.dashboard" action="toggle-debug-dashboard" hint="Debug dashboard" size="icon" />
         <Button id="toggle_viewport_grid" type="simple" surface="inactive" binding="view.viewport-grid" action="toggle-viewport-grid" hint="Viewport grid" size="icon" />
         <Button id="toggle_world_grid" type="simple" surface="inactive" binding="view.world-grid" action="toggle-world-grid" hint="World grid | Click: cycle" size="icon" />

@@ -499,7 +499,7 @@ void PanelShared_SetNoteText(UIElement *note)
 // Views, create the host over the viewport, build and re-parent the real root, register the Views,
 // build the tab selector from the <Option> metadata and show the initial view (the markup's
 // initial-view, else the first). When the selector cannot be built, the first view is shown by
-// hand (never ViewHostSystem_FinaliseInit, which forces index 0). Failure paths dispose the loaded
+// hand (index 0 is shown, never a remembered tab). Failure paths dispose the loaded
 // tree and the extracted view array, so nothing leaks.
 ViewHostSystem *PanelShared_BuildFromMarkup(const PanelMarkupDesc *desc, ViewSelector **out_selector,
                                             UIElement **out_root)

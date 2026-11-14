@@ -25,7 +25,7 @@
 // Identifies a single basis-edit target: the viewport/space whose basis frame is read or mutated.
 typedef enum DebugBasisTargetId
 {
-    DEBUG_BASIS_TARGET_LPANEL_VIEWPORT = 0,
+    DEBUG_BASIS_TARGET_STATE_MANAGER_VIEWPORT = 0,
     DEBUG_BASIS_TARGET_GAME_VIEWPORT,
     DEBUG_BASIS_TARGET_RPANEL_VIEWPORT,
     DEBUG_BASIS_TARGET_UNIVERSE_SPACE,
@@ -44,13 +44,13 @@ typedef struct DebugBasisTargetOps
 } DebugBasisTargetOps;
 
 // Frame getters: return a pointer to the live basis frame for each target.
-static Frame2d *GetLPanelViewportFrame(void) { return &lpanel_viewport.frame; }
+static Frame2d *GetStateManagerViewportFrame(void) { return &state_manager_viewport.frame; }
 static Frame2d *GetGameViewportFrame(void) { return &game_viewport.frame; }
 static Frame2d *GetRPanelViewportFrame(void) { return &rpanel_viewport.frame; }
 static Frame2d *GetUniverseSpaceFrame(void) { return &G_Universe.camera.frame; }
 
 // Basis-apply callbacks: push an edited basis back into the owning subsystem.
-static bool ApplyLPanelViewportBasis(Basis2d basis) { return SetViewportSpaceBasis(VIEWPORT_SPACE_LPANEL, basis.u, basis.v); }
+static bool ApplyStateManagerViewportBasis(Basis2d basis) { return SetViewportSpaceBasis(VIEWPORT_SPACE_STATE_MANAGER, basis.u, basis.v); }
 static bool ApplyGameViewportBasis(Basis2d basis) { return SetViewportSpaceBasis(VIEWPORT_SPACE_GAME, basis.u, basis.v); }
 static bool ApplyRPanelViewportBasis(Basis2d basis) { return SetViewportSpaceBasis(VIEWPORT_SPACE_RPANEL, basis.u, basis.v); }
 static bool ApplyUniverseSpaceBasis(Basis2d basis)
@@ -61,18 +61,18 @@ static bool ApplyStateManagerSpaceBasis(Basis2d basis) { return SetStateManagerS
 static bool ApplyRPanelSpaceBasis(Basis2d basis) { return SetWorldManagerSpaceBasis(basis.u, basis.v); }
 
 // Reset callbacks: restore the target's basis to its identity/default.
-static void ResetLPanelViewportBasis(void) { ResetViewportSpaceBasis(VIEWPORT_SPACE_LPANEL); }
+static void ResetStateManagerViewportBasis(void) { ResetViewportSpaceBasis(VIEWPORT_SPACE_STATE_MANAGER); }
 static void ResetGameViewportBasis(void) { ResetViewportSpaceBasis(VIEWPORT_SPACE_GAME); }
 static void ResetRPanelViewportBasis(void) { ResetViewportSpaceBasis(VIEWPORT_SPACE_RPANEL); }
 static void ResetUniverseSpaceBasis(void) { SetUniverseCameraBasis(IDENTITY_BASIS_2D); }
 
 // The shared basis-target registry: single source of truth for both diagnostics halves.
 static const DebugBasisTargetOps debug_basis_target_ops[DEBUG_BASIS_TARGET_COUNT] = {
-    [DEBUG_BASIS_TARGET_LPANEL_VIEWPORT] = {
-        .get_frame_fn = GetLPanelViewportFrame,
-        .apply_basis_fn = ApplyLPanelViewportBasis,
-        .reset_fn = ResetLPanelViewportBasis,
-        .name = "LPANEL_VIEWPORT",
+    [DEBUG_BASIS_TARGET_STATE_MANAGER_VIEWPORT] = {
+        .get_frame_fn = GetStateManagerViewportFrame,
+        .apply_basis_fn = ApplyStateManagerViewportBasis,
+        .reset_fn = ResetStateManagerViewportBasis,
+        .name = "STATE_MANAGER_VIEWPORT",
     },
     [DEBUG_BASIS_TARGET_GAME_VIEWPORT] = {
         .get_frame_fn = GetGameViewportFrame,
@@ -109,7 +109,7 @@ static const DebugBasisTargetOps debug_basis_target_ops[DEBUG_BASIS_TARGET_COUNT
 // Return the ops entry for a target id, or NULL when the id is out of range.
 static const DebugBasisTargetOps *GetDebugBasisTargetOps(DebugBasisTargetId target_id)
 {
-    if (target_id < DEBUG_BASIS_TARGET_LPANEL_VIEWPORT || target_id >= DEBUG_BASIS_TARGET_COUNT)
+    if (target_id < DEBUG_BASIS_TARGET_STATE_MANAGER_VIEWPORT || target_id >= DEBUG_BASIS_TARGET_COUNT)
     {
         return NULL;
     }
@@ -201,7 +201,7 @@ static bool dashboard_overlay_enabled = false;
 // Basis-editor state, owned here and observed by the facade only through the universe-space predicate.
 static bool basis_editor_enabled = false;
 static bool basis_editor_editing_u = true;
-static DebugBasisTargetId basis_editor_target = DEBUG_BASIS_TARGET_LPANEL_VIEWPORT;
+static DebugBasisTargetId basis_editor_target = DEBUG_BASIS_TARGET_STATE_MANAGER_VIEWPORT;
 static UniverseDebugSnapshot debug_snapshot = {0};
 
 // Return "ON"/"OFF" for a boolean enabled flag.
@@ -238,8 +238,8 @@ static void DrawDashboardRowf(int x, int *row_y, int row_step, ColourRgba color,
 // Cached basis vectors for each space, resolved once per dashboard frame.
 typedef struct DashboardBasisData
 {
-    Vector2d lpanel_viewport_basis_u;
-    Vector2d lpanel_viewport_basis_v;
+    Vector2d state_manager_viewport_basis_u;
+    Vector2d state_manager_viewport_basis_v;
     Vector2d game_viewport_basis_u;
     Vector2d game_viewport_basis_v;
     Vector2d rpanel_viewport_basis_u;
@@ -255,14 +255,14 @@ static DashboardBasisData ResolveDashboardBasisData(void)
 {
     DashboardBasisData data = {0};
 
-    Frame2d *lpanel_viewport_frame = GetDebugBasisTargetFrame(DEBUG_BASIS_TARGET_LPANEL_VIEWPORT);
+    Frame2d *state_manager_viewport_frame = GetDebugBasisTargetFrame(DEBUG_BASIS_TARGET_STATE_MANAGER_VIEWPORT);
     Frame2d *game_viewport_frame = GetDebugBasisTargetFrame(DEBUG_BASIS_TARGET_GAME_VIEWPORT);
     Frame2d *rpanel_viewport_frame = GetDebugBasisTargetFrame(DEBUG_BASIS_TARGET_RPANEL_VIEWPORT);
     Frame2d *state_manager_space_frame = GetDebugBasisTargetFrame(DEBUG_BASIS_TARGET_STATE_MANAGER_SPACE);
     Frame2d *rpanel_space_frame = GetDebugBasisTargetFrame(DEBUG_BASIS_TARGET_RPANEL_SPACE);
 
-    data.lpanel_viewport_basis_u = lpanel_viewport_frame ? lpanel_viewport_frame->basis.u : ZERO_VECTOR_2D;
-    data.lpanel_viewport_basis_v = lpanel_viewport_frame ? lpanel_viewport_frame->basis.v : ZERO_VECTOR_2D;
+    data.state_manager_viewport_basis_u = state_manager_viewport_frame ? state_manager_viewport_frame->basis.u : ZERO_VECTOR_2D;
+    data.state_manager_viewport_basis_v = state_manager_viewport_frame ? state_manager_viewport_frame->basis.v : ZERO_VECTOR_2D;
     data.game_viewport_basis_u = game_viewport_frame ? game_viewport_frame->basis.u : ZERO_VECTOR_2D;
     data.game_viewport_basis_v = game_viewport_frame ? game_viewport_frame->basis.v : ZERO_VECTOR_2D;
     data.rpanel_viewport_basis_u = rpanel_viewport_frame ? rpanel_viewport_frame->basis.u : ZERO_VECTOR_2D;
@@ -418,9 +418,9 @@ static void DrawDashboardViewportBasisSection(int col_x, int *row_y, int row_ste
     DrawDashboardLine("Viewport Spaces", col_x, *row_y, accent_color);
     *row_y += row_step;
     DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
-                      "LPANEL_VIEWPORT U(%.2f, %.2f) V(%.2f, %.2f)",
-                      basis->lpanel_viewport_basis_u.x, basis->lpanel_viewport_basis_u.y,
-                      basis->lpanel_viewport_basis_v.x, basis->lpanel_viewport_basis_v.y);
+                      "STATE_MANAGER_VIEWPORT U(%.2f, %.2f) V(%.2f, %.2f)",
+                      basis->state_manager_viewport_basis_u.x, basis->state_manager_viewport_basis_u.y,
+                      basis->state_manager_viewport_basis_v.x, basis->state_manager_viewport_basis_v.y);
     DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
                       "GAME_VIEWPORT   U(%.2f, %.2f) V(%.2f, %.2f)",
                       basis->game_viewport_basis_u.x, basis->game_viewport_basis_u.y,

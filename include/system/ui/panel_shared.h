@@ -52,8 +52,7 @@ typedef struct FlagTally
 // all below 1 << 16, so the family lives in the upper half.
 #define PANEL_FLAG_KEY(family, flag) (((int)(family) << 16) | (int)(flag))
 
-// Thickness (UI pixels) of the coral rule along the bottom of every header block.
-#define PANEL_HEADER_RULE_PX 2.0f
+// PANEL_HEADER_RULE_PX (the coral rule under every header block) lives in ui/ui_metrics.h.
 
 // Header block: a tinted container with a large title and a medium sub-line.
 typedef struct PanelHeader

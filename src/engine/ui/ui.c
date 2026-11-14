@@ -225,8 +225,8 @@ static Vector2d MeasureWrapContent(UIElement *element, float content_width, floa
         float child_cross = stacked ? child_size.x : child_size.y;
 
         // Close the current line when this child would overflow a non-empty line.
-        // (0.01 px tolerance: equal grid columns sum to the limit up to float rounding.)
-        if (line_main > 0.0f && line_main + main_gap + child_main > main_limit + 0.01f)
+        // (UI_WRAP_EPSILON_PX tolerance: equal grid columns sum to the limit up to float rounding.)
+        if (line_main > 0.0f && line_main + main_gap + child_main > main_limit + UI_WRAP_EPSILON_PX)
         {
             measured_main = fmaxf(measured_main, line_main);
             measured_cross += line_cross + (closed_lines > 0 ? cross_gap : 0.0f);
@@ -316,6 +316,8 @@ static Vector2d MeasureLeafLabelContent(const UIElement *element)
     return (Vector2d){measured_x, element->padding.y * 2.0f};
 }
 
+// NOTE: stacked is now the default field layout, so this pass only serves the rows that opt out with
+// field-layout="inline" (today the single State Manager Relation row). It is kept, not removed, for that case.
 // Give every text-field row directly under `parent` one shared label column, sized to the
 // longest label among those rows (the "longest label" rule of style v2), so no label is
 // truncated and every input starts at the same x within a section.
@@ -940,8 +942,8 @@ static void DistributeChildrenWrap(UIElement *parent, Vector2d content_area_loca
         float child_cross = stacked ? child_size.x : child_size.y;
 
         // Wrap to a new line when this child would overflow a non-empty line.
-        // (0.01 px tolerance: equal grid columns sum to the limit up to float rounding.)
-        if (main_cursor > 0.0f && main_cursor + main_gap + child_main > main_limit + 0.01f)
+        // (UI_WRAP_EPSILON_PX tolerance: equal grid columns sum to the limit up to float rounding.)
+        if (main_cursor > 0.0f && main_cursor + main_gap + child_main > main_limit + UI_WRAP_EPSILON_PX)
         {
             main_cursor = 0.0f;
             cross_cursor += line_cross + cross_gap;

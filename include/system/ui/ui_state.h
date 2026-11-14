@@ -52,12 +52,6 @@ typedef struct
     // never carried across frames. Read-only for consumers such as the detail strip's hover hints.
     UIElement *hovered_element;
 
-    // STATS UI
-    String64 *stats_polygs_str;
-    String64 *stats_fps_str;
-    String64 *stats_ftime_str;
-    String64 *stats_mem_str;
-
     // ENTITY CREATION UI
     String64 *create_id_str;
     String64 *create_edges_str;

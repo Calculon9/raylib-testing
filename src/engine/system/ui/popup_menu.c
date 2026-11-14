@@ -331,7 +331,7 @@ static void Popup_RegisterElements(UIElement *root)
         if (floating_sheets[i])
         {
             floating_sheets[i]->colour_border = floating_edge;
-            floating_sheets[i]->border_weight = 1;
+            floating_sheets[i]->border_weight = UI_POPUP_EDGE_WEIGHT_PX;
         }
     }
 

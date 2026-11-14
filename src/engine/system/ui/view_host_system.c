@@ -7,22 +7,39 @@
 #include "ui/ui_constructors.h"
 #include "system/viewport_system.h"
 
-// Draw a vertical scrollbar (track plus thumb) flush with the right edge of `box`. Sizes are in
-// screen pixels: `width` is the bar width, `inset` the gap kept from the right and top edges (and
-// the bottom edge, in addition to `reserve`), and `reserve` extra bottom room for a horizontal bar.
-// The thumb length is the visible fraction of the content and its position follows scroll/max_scroll.
-static void DrawScrollbarY(UIBox box, float visible_h, float content_h, float scroll, float max_scroll,
-                           float width, float inset, float reserve, float min_thumb,
-                           Color track_colour, Color thumb_colour)
+// Draw one scrollbar (track plus thumb) flush with an edge of `box`: the right edge for a vertical
+// bar, the bottom edge for a horizontal one. Sizes are in screen pixels: `width` is the bar's
+// thickness, `inset` the gap kept from the box edges (along the track at both ends, plus `reserve`
+// extra room at the far end for the other axis's bar). The thumb length is the visible fraction of
+// the content and its position follows scroll/max_scroll. Both axes share this one routine.
+static void DrawScrollbarAxis(UIBox box, bool vertical, float visible, float content, float scroll,
+                              float max_scroll, float width, float inset, float reserve,
+                              float min_thumb, Color track_colour, Color thumb_colour)
 {
-    float track_height = fmaxf(0.0f, box.dimensions.y - (2.0f * inset) - reserve);
-    float thumb_height = fmaxf(min_thumb, track_height * (visible_h / content_h));
-    thumb_height = fminf(track_height, thumb_height);
-    float travel = fmaxf(0.0f, track_height - thumb_height);
+    // Pick the along-track extent and the track's start/cross positions for the axis.
+    float extent = vertical ? box.dimensions.y : box.dimensions.x;
+    float track_length = fmaxf(0.0f, extent - (2.0f * inset) - reserve);
+    float thumb_length = fmaxf(min_thumb, track_length * (visible / content));
+    thumb_length = fminf(track_length, thumb_length);
+    float travel = fmaxf(0.0f, track_length - thumb_length);
     float thumb_offset = travel * (scroll / max_scroll);
-    float x = box.coords.x + box.dimensions.x - width - inset;
-    DrawRectangleRec((Rectangle){x, box.coords.y + inset, width, track_height}, track_colour);
-    DrawRectangleRec((Rectangle){x, box.coords.y + inset + thumb_offset, width, thumb_height}, thumb_colour);
+
+    Rectangle track;
+    Rectangle thumb;
+    if (vertical)
+    {
+        float x = box.coords.x + box.dimensions.x - width - inset;
+        track = (Rectangle){x, box.coords.y + inset, width, track_length};
+        thumb = (Rectangle){x, box.coords.y + inset + thumb_offset, width, thumb_length};
+    }
+    else
+    {
+        float y = box.coords.y + box.dimensions.y - width - inset;
+        track = (Rectangle){box.coords.x + inset, y, track_length, width};
+        thumb = (Rectangle){box.coords.x + inset + thumb_offset, y, thumb_length, width};
+    }
+    DrawRectangleRec(track, track_colour);
+    DrawRectangleRec(thumb, thumb_colour);
 }
 
 // Draw a compact scrollbar over a scrollable view after its clipped content.
@@ -47,9 +64,9 @@ static void DrawViewScrollbar(const View *view, const UIPalette *palette)
     UIBox box = view->container->screen_box;
     // Bar geometry is authored in UI pixels and drawn at the UI pixel scale (screen pixels).
     const float px = (float)GetViewportUIPixelScale();
-    const float scrollbar_width = 6.0f * px;
-    const float inset = 4.0f * px;
-    const float min_thumb = 20.0f * px;
+    const float scrollbar_width = UI_SCROLLBAR_WIDTH_PX * px;
+    const float inset = UI_SCROLLBAR_INSET_PX * px;
+    const float min_thumb = UI_SCROLLBAR_MIN_THUMB_PX * px;
     // Visible fraction of the content, compared in the SAME unit (UI pixels) on both sides.
     const float visible_w = view->container->local_box.dimensions.x;
     const float visible_h = view->container->local_box.dimensions.y;
@@ -65,8 +82,8 @@ static void DrawViewScrollbar(const View *view, const UIPalette *palette)
     if (show_y)
     {
         float reserve = show_x ? (scrollbar_width + inset) : 0.0f;
-        DrawScrollbarY(box, visible_h, view->content_height, view->scroll_y, view->max_scroll_y,
-                       scrollbar_width, inset, reserve, min_thumb, track_colour, thumb_colour);
+        DrawScrollbarAxis(box, true, visible_h, view->content_height, view->scroll_y, view->max_scroll_y,
+                          scrollbar_width, inset, reserve, min_thumb, track_colour, thumb_colour);
     }
 
     // Horizontal scrollbar (bottom edge). Mirrors the vertical logic across axes, and
@@ -74,19 +91,13 @@ static void DrawViewScrollbar(const View *view, const UIPalette *palette)
     if (show_x)
     {
         float reserve = show_y ? (scrollbar_width + inset) : 0.0f;
-        float track_width = fmaxf(0.0f, box.dimensions.x - (2.0f * inset) - reserve);
-        float thumb_width = fmaxf(min_thumb, track_width * (visible_w / view->content_width));
-        thumb_width = fminf(track_width, thumb_width);
-        float travel = fmaxf(0.0f, track_width - thumb_width);
-        float thumb_offset = travel * (view->scroll_x / view->max_scroll_x);
-        float y = box.coords.y + box.dimensions.y - scrollbar_width - inset;
-        DrawRectangleRec((Rectangle){box.coords.x + inset, y, track_width, scrollbar_width}, track_colour);
-        DrawRectangleRec((Rectangle){box.coords.x + inset + thumb_offset, y, thumb_width, scrollbar_width}, thumb_colour);
+        DrawScrollbarAxis(box, false, visible_w, view->content_width, view->scroll_x, view->max_scroll_x,
+                          scrollbar_width, inset, reserve, min_thumb, track_colour, thumb_colour);
     }
 }
 
 // Draw a vertical scrollbar for every enabled, y-scrolling non-View element whose content overflows,
-// recursing through the tree. Bars are 4 UI pixels wide and flush with the element's right edge
+// recursing through the tree. Bars are UI_LIST_SCROLLBAR_WIDTH_PX wide and flush with the element's right edge
 // (authored lists reserve that gutter with right padding).
 static void DrawContainerScrollbars(const UIElement *e, const UIPalette *palette)
 {
@@ -104,8 +115,9 @@ static void DrawContainerScrollbars(const UIElement *e, const UIPalette *palette
         UIRoleColours scroll_role = UIPalette_GetRoleColours(palette ? palette : UIPalette_GetActive(), UI_ROLE_INACTIVE);
         Color track_colour = ToRaylibColor(scroll_role.fill);
         Color thumb_colour = ToRaylibColor(scroll_role.text);
-        DrawScrollbarY(e->screen_box, visible_h, content_h, e->scroll_offset.y, content_h - visible_h,
-                       4.0f * px, 0.0f, 0.0f, 12.0f * px, track_colour, thumb_colour);
+        DrawScrollbarAxis(e->screen_box, true, visible_h, content_h, e->scroll_offset.y, content_h - visible_h,
+                          UI_LIST_SCROLLBAR_WIDTH_PX * px, 0.0f, 0.0f, UI_LIST_SCROLLBAR_MIN_THUMB_PX * px,
+                          track_colour, thumb_colour);
     }
 
     for (const UIElement *child = e->first_child; child; child = child->next_sibling)
@@ -742,44 +754,4 @@ void ViewHostSystem_ResetSpaceBasis(ViewHostSystem *panel)
     panel->basis_override_enabled = false;
     panel->basis_override_u = ZERO_VECTOR_2D;
     panel->basis_override_v = ZERO_VECTOR_2D;
-}
-
-/**
- * Apply the standard sheet styling to a view container, matching the markup path
- * (`surface="container" border="none" padding="6"`): the SHEET role fill, no border and the
- * 6 px section padding so rows do not touch the edge. It also enables dragging.
- */
-void ViewHostSystem_StyleViewSheet(UIElement *container, const UIPalette *palette)
-{
-    if (!container || !palette)
-    {
-        return;
-    }
-
-    container->colour_fill = UIPalette_GetRoleColours(palette, UI_ROLE_SHEET).fill;
-    container->colour_border = COLOURLESS_RGBA;
-    container->border_weight = 0;
-    container->padding = ui_section_padding;
-    container->is_draggable = true;
-}
-
-/**
- * Selects the first view if available and updates UI space.
- */
-void ViewHostSystem_FinaliseInit(ViewHostSystem *panel, ViewSelector **selector_out)
-{
-    if (!panel)
-    {
-        return;
-    }
-
-    // Select the initial view after all panel views have been registered.
-    if (selector_out && panel->selectors.count > 0)
-    {
-        *selector_out = *((ViewSelector **)LArray_Get(&panel->selectors, 0));
-        ViewHostSystem_SelectView(*selector_out, 0);
-    }
-
-    // Perform final layout update.
-    UpdateUISpace(panel->root, panel->seed_box);
 }

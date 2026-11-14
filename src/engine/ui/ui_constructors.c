@@ -61,7 +61,7 @@ UIElement *CreateUILabelTitleDefault(UIElement *parent, const char *text,
     }
 
     UIElement *title = CreateUILabel(parent, upper_text, size, padding,
-                                     FONT_LARGE_WITH_COLOUR(palette->title_text),
+                                     FONT_LARGE_WITH_COLOUR(palette->text),
                                      COLOURLESS_RGBA, COLOURLESS_RGBA);
     if (title)
     {
@@ -184,15 +184,14 @@ UIElement *CreateUILabeledFieldDefault(UIElement *parent, const char *label_text
     }
 
     // The row and its label cell are TRANSPARENT: borders are drawn whenever their alpha is
-    // non-zero, and only the input box should show one (the FIELD_ROW border would outline
-    // every row). Markup can still opt a row into surface="field_row".
+    // non-zero, and only the input box should show one.
     const UISurfaceStyle row_style = UIPalette_GetSurfaceStyle(palette, UI_PALETTE_SURFACE_TRANSPARENT);
     const UISurfaceStyle input_style = UIPalette_GetSurfaceStyle(palette, UI_PALETTE_SURFACE_INPUT);
 
     UIElement *input = CreateUILabeledField(parent, label_text, input_type, row_size,
                                 ui_standard_textfield_input_size, row_padding, row_style.border, row_style.fill,
                                 ZERO_VECTOR_2D, input_style.border, input_style.fill,
-                                FONT_MEDIUM_WITH_COLOUR(palette->label_text),
+                                FONT_MEDIUM_WITH_COLOUR(palette->text),
                                 FONT_MEDIUM_WITH_COLOUR(palette->text));
     if (input)
     {
@@ -308,45 +307,4 @@ UIElement *CreateUIContainer(UIElement *parent, Size size, Offset offset,
     cont->is_enabled = is_enabled;
 
     return cont;
-}
-
-void InitUIFields(UIElement *parent, const UIFieldSpec *specs, size_t count,
-                  Vector2d row_padding, const UIPalette *palette)
-{
-    if (!parent || !specs)
-    {
-        return;
-    }
-
-    for (size_t i = 0; i < count; i++)
-    {
-        UIElement *input_child = CreateUILabeledFieldDefault(parent, specs[i].label,
-                                                             specs[i].type, specs[i].size,
-                                                             row_padding, palette);
-        if (!input_child)
-        {
-            continue;
-        }
-
-        input_child->type = specs[i].type;
-        if (specs[i].data_type >= FLOAT && specs[i].data_type <= STRING256)
-        {
-            input_child->data.textbox.data_type = specs[i].data_type;
-        }
-
-        if (specs[i].data_bind)
-        {
-            BindTextboxData(input_child, specs[i].data_type, specs[i].data_bind);
-        }
-
-        if (specs[i].target)
-        {
-            *specs[i].target = input_child;
-        }
-
-        if (specs[i].text_target)
-        {
-            *specs[i].text_target = &input_child->data.textbox.text;
-        }
-    }
 }

@@ -180,8 +180,9 @@ Each element's effective size resolves through three layers, highest priority fi
    `ui_standard_button_size`, text fields to `ui_standard_control_size`, containers
    to `ui_standard_container_size`, and `<View>`/`<ViewHost>` to `ui_fill_container_size`
    (fill/fill). Buttons and text-field rows are **fill width x fixed 0.5 height**, so they
-   span their container's inner width. All default constants live in
-   `src/engine/system/ui_system.c`.
+   span their container's inner width. The `Size`/`Layout`/padding default constants live in
+   `src/engine/system/ui_system.c`; every UI pixel constant (`UI_*_PX`) and the named `size=` keyword
+   values live in `include/ui/ui_metrics.h`.
 
 **Text-field label column.** A `UI_ELEMENT_TEXTFIELD` row (built by
 `CreateLabeledFieldElement`) holds a fixed-width label column and a fill-width input placed
@@ -190,9 +191,9 @@ start of each element's measure: it sizes one column for all text-field rows tha
 parent, from the longest label's bitmap-font run + 2 px (capped at 60 % of the parent's
 content width), so labels such as "Restitution" are never truncated. Text runs are measured in
 UI pixels directly, so the column is exact from the first layout; `ui_standard_textfield_label_width`
-(118 px) is only the constructor's initial value. Rows in the stacked field layout
-(`field-layout="stacked"`, `TextBoxData.stacked_field`) are skipped by the pass and keep exactly that
-118 px column. A stacked `vector2` row is two control rows + the 3 px stack gap tall; its single
+(118 px) is only the constructor's initial value. The stacked field layout is the default
+(`TextBoxData.stacked_field`): those rows are skipped by the pass and keep exactly that 118 px column,
+so the pass now only serves rows that opt out with `field-layout="inline"` (the State Manager Relation row). A stacked `vector2` row is two control rows + the 3 px stack gap tall; its single
 textbox (`stacked_vector`) is drawn by `DrawStackedVectorClipped` in `ui_renderer.c` as two x / y
 component boxes, so the buffer, binding and editing path are unchanged (see `UI_MARKUP_SYNTAX.md`).
 
@@ -200,7 +201,8 @@ component boxes, so the buffer, binding and editing path are unchanged (see `UI_
 
 The full standard (colour roles, typography, spacing, component patterns, do/don't) is written down in [UI_STYLE_GUIDE.md](UI_STYLE_GUIDE.md); that guide is the single reference. This section describes the shared code that implements it.
 
-The editor style is set once in the shared layer (`ui_system.c` palette and constants,
+The editor style is set once in the shared layer (`ui_palette.c/.h` palettes, roles and surface styles,
+`ui_system.c` size and layout constants, `ui_metrics.h` pixel constants,
 `ui_constructors.c`, `ui_loader.c`, `view_host_system.c`, `ui_renderer.c`):
 
 - **Surfaces.** `ViewHost`/`View` use `UI_PALETTE_SURFACE_PANEL` (dark `panel_background`,
@@ -210,36 +212,42 @@ The editor style is set once in the shared layer (`ui_system.c` palette and cons
   transparent; inputs use the `input` surface; buttons the `button` surface; destructive
   buttons the `danger` surface (`button_danger_fill`, set in every palette). Grouped field
   sections (PHYS, SHAPE, TREE, World Manager, COMP) are cards: the `card` surface, the CARD colour role (see
-  "Colour roles"). `subsection` is a deprecated alias of `card`.
+  "Colour roles"). Markup writes the repeated bundles as presets: `<View style="sheet">`,
+  `<Container style="card">`, `style="section"` and `style="chip-grid"` (see UI_MARKUP_SYNTAX.md).
+- **World colours.** The palette also owns the game world's colours (`world_background`, `world_cell_fill`,
+  `world_cell_line`, `world_grid_line`, `world_axis_x/y`), read through `UIPalette_GetWorldColours`.
+  `UniverseRenderer_Draw` fills the game viewport rectangle with `world_background` (the band below it
+  stays `panel_background`, cleared in `DrawGameplayScreen`); `CreateNewWorld` seeds each world's default
+  cell fill and line from the palette; `CellFillColour` in `world_renderer.c` is the one place a
+  per-cell colour or tile will later override the default.
 - **Colour roles.** Every control or surface picks a ROLE that pairs a fill with its text colour, and
   views never choose their own fills or text colours. `UIPalette_GetRoleColours(palette, role)` returns a
   `UIRoleColours { fill, text, border }`. Harbor values: SHEET (`container_fill` sage #78AA9E, ink #0A1418),
   HEADER (`header_fill` #9CC4B9, black), INPUT (cream #EFDDB8, `input_border` #1C3A43, ink), READONLY_INPUT
-  (`readonly_fill` #CFC5A8, `readonly_border` #6E8F86, ink), INACTIVE (`subsection_fill` dark teal #3A665E,
-  cream `text_on_dark`), CARD (`card_fill` dark teal #3A665E, cream `text_on_dark`; a separate role from INACTIVE so they can diverge), ACTIVE (`button_fill` amber #DC9E46, ink) and DANGER (`button_danger_fill` coral
+  (`readonly_fill` #CFC5A8, `readonly_border` #6E8F86, ink), INACTIVE (`inactive_fill` dark teal #3A665E,
+  cream `text_on_dark`), CARD (also `inactive_fill`, cream `text_on_dark`; a distinct role so it can diverge later by adding a palette field back), ACTIVE (`button_fill` amber #DC9E46, ink) and DANGER (`button_danger_fill` coral
   #DA7560, ink). Markup surfaces map onto roles: `button` = ACTIVE, `danger` = DANGER, `card` = CARD,
-  `inactive` = INACTIVE, `input` = INPUT, `container` = SHEET (`subsection` is a deprecated alias of `card`).
+  `inactive` = INACTIVE, `input` = INPUT, `container` = SHEET, `panel` = the dark panel background.
   The loader gives a `button`, `danger`, `inactive` or `card` surface its paired text colour
-  (`UIPalette_GetSurfaceText`) and passes a card's text colour to every caption, title, `<TextField>` label and
-  transparent note inside it, so markup needs no `ink=`. Context rule: an INACTIVE control inside a card
-  resolves to the sheet fill with ink text (`UIPalette_GetRoleColoursInContext`, applied by
-  `UIElement_ApplyRoleColours` via the `is_card` ancestor flag), so OFF chips stay visible on the teal. `muted_text` (brown, #7C5721 in Harbor) is
+  (`UIPalette_GetSurfaceStyle`) and passes a card's text colour to every caption, title, `<TextField>` label and
+  transparent note inside it; markup never sets a text colour itself. Context rule: an INACTIVE control inside a card
+  resolves to the sheet fill with ink text (applied by `UIElement_ApplyRoleColours` from the `in_card` flag stamped at load), so OFF chips stay visible on the teal. `muted_text` (brown, #7C5721 in Harbor) is
   not a control role: it is only the x/y prefix and `unit` suffix colour on cream inputs. The old
   `toggle_on_fill` / `toggle_off_fill` entries were removed (ACTIVE / INACTIVE replace them).
 - **COMP view.** The same continuous sage sheet as PHYS: Attached and Available are transparent sections
   under standard titles, two equal-height halves that each scroll on their own (kept so a long Attached list
   cannot push Available off screen). Cards are CARD, REMOVE is DANGER, ADD is ACTIVE.
 - **Section titles.** `Label style="title"` is one standard element: a 4x16 px amber (`button_fill`) accent
-  bar at the left edge plus the title in `title_text`, text starting 10 px from the bar's left edge
-  (`UI_TITLE_*` in `ui.h`; `LabelData.accent_bar`). The PHYS view is one continuous sheet (the View carries
+  bar at the left edge plus the title in `text`, text starting 10 px from the bar's left edge
+  (`UI_TITLE_*` in `ui_metrics.h`; `LabelData.accent_bar`). The PHYS view is one continuous sheet (the View carries
   `container_fill`; its section containers are transparent).
 - **Panel headers.** `PanelShared_HeaderBind` styles the Entity / World Manager header: `header_fill`,
   no border, a 2 px coral rule along the bottom (`on_draw` hook), amber `button_fill` in multi-select.
 - **Read-only fields.** The renderer draws every visible read-only text field (`UI_ELEMENT_TEXTBOX_O`
   with a fill and border) with `readonly_fill` / `readonly_border`, whether authored or locked at run time.
-- **Text colours.** `title_text` colours section titles and `header_text` the Entity / World Manager
-  header lines; `label_text` colours `<TextField>`
-  labels and is a dark ink tuned for AA contrast on `container_fill`.
+- **Text colours.** One dark ink, `text`, colours body text, section titles and `<TextField>` labels (tuned for
+  AA contrast on `container_fill`); `header_text` (black) colours the Entity / World Manager header lines.
+  The four built-in palettes are `static const` designated initialisers in `ui_palette.c`.
 - **Scrolling containers.** `scroll="x|y|both"` on a `<Container>` clips and scrolls its content;
   `UI_ClampScrollOffsets` re-clamps the offset each frame and a y scrollbar is drawn on overflow.
 - **Two-state colours.** Tabs, kind chips and bound text toggles all set

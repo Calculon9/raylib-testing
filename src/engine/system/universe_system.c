@@ -627,7 +627,9 @@ void DrawUniverse(void)
 // world. A failed creation (-1) leaves the selection untouched.
 int CreateNewWorld(bool select)
 {
-    int index = Universe_CreateWorld(&G_Universe, COLOUR_GAME_PARCHMENT_RGBA, COLOUR_GAME_OLIVE_RGBA,
+    // The new world's default cell fill and line colours come from the palette's world colours.
+    const UIWorldColours world_colours = UIPalette_GetWorldColours(NULL);
+    int index = Universe_CreateWorld(&G_Universe, world_colours.cell_fill, world_colours.cell_line,
                                      camera_marker_colour, G_Universe.next_spawn);
     if (index >= 0 && select)
     {

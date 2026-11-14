@@ -71,7 +71,7 @@ static int debug_grid_enabled = 0;
 // Viewport Regions
 // ============================================================================
 ViewportRegion game_viewport = {0};
-ViewportRegion lpanel_viewport = {0};
+ViewportRegion state_manager_viewport = {0};
 ViewportRegion rpanel_viewport = {0};
 ViewportRegion entity_panel_viewport = {0};
 ViewportRegion utility_panel_viewport = {0};
@@ -86,7 +86,7 @@ ViewportRegion toolbar_viewport = {0};
 static struct {
     Vector2d u, v;
 } viewport_basis_data[VIEWPORT_SPACE_COUNT] = {
-    [VIEWPORT_SPACE_LPANEL] = {{1, 0}, {0, 1}},
+    [VIEWPORT_SPACE_STATE_MANAGER] = {{1, 0}, {0, 1}},
     [VIEWPORT_SPACE_RPANEL] = {{1, 0}, {0, 1}},
     [VIEWPORT_SPACE_ENTITY_PANEL] = {{1, 0}, {0, 1}},
 };
@@ -99,7 +99,7 @@ typedef struct ViewportBasisPair
 
 // Pointers to basis vector pairs indexed by viewport space
 static const ViewportBasisPair viewport_basis_pairs[VIEWPORT_SPACE_COUNT] = {
-    [VIEWPORT_SPACE_LPANEL] = {&viewport_basis_data[VIEWPORT_SPACE_LPANEL].u, &viewport_basis_data[VIEWPORT_SPACE_LPANEL].v},
+    [VIEWPORT_SPACE_STATE_MANAGER] = {&viewport_basis_data[VIEWPORT_SPACE_STATE_MANAGER].u, &viewport_basis_data[VIEWPORT_SPACE_STATE_MANAGER].v},
     [VIEWPORT_SPACE_RPANEL] = {&viewport_basis_data[VIEWPORT_SPACE_RPANEL].u, &viewport_basis_data[VIEWPORT_SPACE_RPANEL].v},
     [VIEWPORT_SPACE_ENTITY_PANEL] = {&viewport_basis_data[VIEWPORT_SPACE_ENTITY_PANEL].u, &viewport_basis_data[VIEWPORT_SPACE_ENTITY_PANEL].v},
 };
@@ -206,7 +206,7 @@ typedef enum DockContainer
 // and mirrors the former source order in InitViewportLayout.
 typedef enum DockRegionId
 {
-    DOCK_REGION_LPANEL = 0,
+    DOCK_REGION_STATE_MANAGER = 0,
     DOCK_REGION_RPANEL,
     DOCK_REGION_TOOLBAR,
     DOCK_REGION_INFO_STRIP,
@@ -251,12 +251,12 @@ typedef struct DockRegionDesc
 // private file-local data that no external input can corrupt, so this is enforced by inspection
 // and by the byte-identical verification dump, not by a runtime assert (the engine uses none).
 static const DockRegionDesc g_dock_region_desc[DOCK_REGION_COUNT] = {
-    [DOCK_REGION_LPANEL]        = {&lpanel_viewport,        VIEWPORT_SPACE_LPANEL,       false, false, false},
+    [DOCK_REGION_STATE_MANAGER]        = {&state_manager_viewport,        VIEWPORT_SPACE_STATE_MANAGER,       false, false, false},
     [DOCK_REGION_RPANEL]        = {&rpanel_viewport,        VIEWPORT_SPACE_RPANEL,       false, false, false},
-    [DOCK_REGION_TOOLBAR]       = {&toolbar_viewport,       VIEWPORT_SPACE_LPANEL,       false, false, false},
-    [DOCK_REGION_INFO_STRIP]    = {&info_strip_viewport,    VIEWPORT_SPACE_LPANEL,       false, false, false},
-    [DOCK_REGION_GAME]          = {&game_viewport,          VIEWPORT_SPACE_LPANEL,       true,  true,  true },
-    [DOCK_REGION_DETAIL_STRIP]  = {&detail_strip_viewport,  VIEWPORT_SPACE_LPANEL,       false, false, false},
+    [DOCK_REGION_TOOLBAR]       = {&toolbar_viewport,       VIEWPORT_SPACE_STATE_MANAGER,       false, false, false},
+    [DOCK_REGION_INFO_STRIP]    = {&info_strip_viewport,    VIEWPORT_SPACE_STATE_MANAGER,       false, false, false},
+    [DOCK_REGION_GAME]          = {&game_viewport,          VIEWPORT_SPACE_STATE_MANAGER,       true,  true,  true },
+    [DOCK_REGION_DETAIL_STRIP]  = {&detail_strip_viewport,  VIEWPORT_SPACE_STATE_MANAGER,       false, false, false},
     [DOCK_REGION_ENTITY_PANEL]  = {&entity_panel_viewport,  VIEWPORT_SPACE_ENTITY_PANEL, false, false, false},
     [DOCK_REGION_UTILITY_PANEL] = {&utility_panel_viewport, VIEWPORT_SPACE_ENTITY_PANEL, false, false, false},
 };
@@ -368,7 +368,7 @@ bool SetViewportSpaceBasis(ViewportSpaceId space_id, Vector2d basis_u, Vector2d 
         return true;
     }
 
-    if (space_id < VIEWPORT_SPACE_LPANEL || space_id >= VIEWPORT_SPACE_COUNT)
+    if (space_id < VIEWPORT_SPACE_STATE_MANAGER || space_id >= VIEWPORT_SPACE_COUNT)
     {
         return false;
     }
@@ -405,7 +405,7 @@ void DrawViewportDebugGrid(void)
         return;
     }
 
-    DrawViewportRegionGrid(lpanel_viewport.pixel_origin, lpanel_viewport.pixel_u, lpanel_viewport.pixel_v, lpanel_viewport.resolution,
+    DrawViewportRegionGrid(state_manager_viewport.pixel_origin, state_manager_viewport.pixel_u, state_manager_viewport.pixel_v, state_manager_viewport.resolution,
                            (Color){110, 170, 255, 28}, (Color){110, 170, 255, 90});
 
     DrawViewportRegionGrid(game_viewport.pixel_origin, game_viewport.pixel_u, game_viewport.pixel_v, game_viewport.resolution,
@@ -471,16 +471,16 @@ static void SolveDockLayout(const DockRow *rows, int row_count,
                 d->region->local_resolution = d->region->resolution;                            \
         } while (0)
 
-    // Step 1 - LPANEL (SCREEN / LEFT / RATIO): far left, width by the live left-panel ratio,
-    // full height. Reproduces the former lpanel block.
-    DOCK_WRITE_REGION(DOCK_REGION_LPANEL,
+    // Step 1 - STATE_MANAGER (SCREEN / LEFT / RATIO): far left, width by the live left-panel ratio,
+    // full height. Hosts the Entity Mgmt (State Manager) panel.
+    DOCK_WRITE_REGION(DOCK_REGION_STATE_MANAGER,
                       ZERO_VECTOR_2D,
                       ((Vector2d){floorf(left_panel_ratio * logical_screen.x), logical_screen.y}));
 
     // Step 2 - RPANEL (SCREEN / RIGHT): mirror of the left panel at the right edge. Its width is
     // the SOLVED left-panel resolution (not right_panel_ratio * width), exactly as before.
     DOCK_WRITE_REGION(DOCK_REGION_RPANEL,
-                      ((Vector2d){logical_screen.x - lpanel_viewport.resolution.x, 0.0f}),
+                      ((Vector2d){logical_screen.x - state_manager_viewport.resolution.x, 0.0f}),
                       logical_screen);
 
     // Step 3 - pre-compute the shared band datums before any CENTRAL region is written, matching
@@ -488,7 +488,7 @@ static void SolveDockLayout(const DockRow *rows, int row_count,
     // here so the game viewport below can account for it.
     float strip_height = fminf(cfg->info_strip_logical_height, fmaxf(0.0f, logical_screen.y - cfg->band_edge_gap_logical));
     float entity_panel_height = fmaxf(cfg->min_band_logical, floorf(logical_screen.y * cfg->entity_panel_height_factor));
-    float central_left = lpanel_viewport.local_end.x;   // Left edge of the CENTRAL container.
+    float central_left = state_manager_viewport.local_end.x;   // Left edge of the CENTRAL container.
 
     // Step 4 - TOOLBAR (CENTRAL / LEFT): a thin vertical band flush against the left panel's right
     // edge, spanning from the top (y=0) down to the bottom entity band (y = H - entity_height), so
@@ -541,7 +541,7 @@ static void SolveDockLayout(const DockRow *rows, int row_count,
     // `utility_width` is the solver datum that splits the full-width bottom band horizontally; both
     // rows pin their top edge to `entity_band_top` (their ORIGINAL top, H - entity_height) rather
     // than the game viewport's now-smaller bottom, so they are byte-identical to before.
-    float utility_width = fminf(lpanel_viewport.resolution.x, logical_screen.x);
+    float utility_width = fminf(state_manager_viewport.resolution.x, logical_screen.x);
     DOCK_WRITE_REGION(DOCK_REGION_ENTITY_PANEL,
                       ((Vector2d){0.0f, entity_band_top}),
                       ((Vector2d){logical_screen.x - utility_width, logical_screen.y}));
@@ -603,8 +603,8 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
     // single source of truth with ViewportLayoutConfig. See the Dock Model section above for the
     // row schema and the per-region descriptor table.
     DockRow dock_rows[DOCK_REGION_COUNT] = {
-        // LPANEL: left edge of the screen, width = left_panel_ratio * logical width.
-        {DOCK_REGION_LPANEL, DOCK_EDGE_LEFT, DOCK_SIZE_RATIO, DOCK_REF_SCREEN_WIDTH, left_panel_ratio, DOCK_WITHIN_SCREEN},
+        // STATE_MANAGER: left edge of the screen, width = left_panel_ratio * logical width.
+        {DOCK_REGION_STATE_MANAGER, DOCK_EDGE_LEFT, DOCK_SIZE_RATIO, DOCK_REF_SCREEN_WIDTH, left_panel_ratio, DOCK_WITHIN_SCREEN},
         // RPANEL: right edge of the screen; width MIRRORS the solved left-panel width.
         {DOCK_REGION_RPANEL, DOCK_EDGE_RIGHT, DOCK_SIZE_LOGICAL, DOCK_REF_SCREEN_WIDTH, 0.0f, DOCK_WITHIN_SCREEN},
         // TOOLBAR: left edge of the central column.
@@ -630,13 +630,13 @@ void InitViewportLayout(int screen_width, int screen_height, int game_pixels_per
                     &screen_frame);
 
     // Debug output
-    printf("LOGICAL REGIONS --> SCREEN(SIZE:%0.1f,%0.1f); LPANEL(SIZE:%0.1f,%0.1f); GAME(SIZE:%0.1f,%0.1f); RPANEL(SIZE:%0.1f,%0.1f)\n",
+    printf("LOGICAL REGIONS --> SCREEN(SIZE:%0.1f,%0.1f); STATE_MGR(SIZE:%0.1f,%0.1f); GAME(SIZE:%0.1f,%0.1f); RPANEL(SIZE:%0.1f,%0.1f)\n",
            logical_screen.x, logical_screen.y,
-           lpanel_viewport.resolution.x, lpanel_viewport.resolution.y,
+           state_manager_viewport.resolution.x, state_manager_viewport.resolution.y,
            game_viewport.resolution.x, game_viewport.resolution.y,
            rpanel_viewport.resolution.x, rpanel_viewport.resolution.y);
-    printf("PIXEL ORIGINS --> LPANEL(%0.1f,%0.1f); GAME(%0.1f,%0.1f); RPANEL(%0.1f,%0.1f)\n",
-           lpanel_viewport.pixel_origin.x, lpanel_viewport.pixel_origin.y,
+    printf("PIXEL ORIGINS --> STATE_MGR(%0.1f,%0.1f); GAME(%0.1f,%0.1f); RPANEL(%0.1f,%0.1f)\n",
+           state_manager_viewport.pixel_origin.x, state_manager_viewport.pixel_origin.y,
            game_viewport.pixel_origin.x, game_viewport.pixel_origin.y,
            rpanel_viewport.pixel_origin.x, rpanel_viewport.pixel_origin.y);
     printf("VIEWPORT SCALE --> GAME_PX_PER_UNIT:%d UI_PIXEL_SCALE:%d TARGET_GAME_H:%.1f\n",
