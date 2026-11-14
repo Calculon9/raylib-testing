@@ -225,7 +225,8 @@ static Vector2d MeasureWrapContent(UIElement *element, float content_width, floa
         float child_cross = stacked ? child_size.x : child_size.y;
 
         // Close the current line when this child would overflow a non-empty line.
-        if (line_main > 0.0f && line_main + main_gap + child_main > main_limit)
+        // (0.01 px tolerance: equal grid columns sum to the limit up to float rounding.)
+        if (line_main > 0.0f && line_main + main_gap + child_main > main_limit + 0.01f)
         {
             measured_main = fmaxf(measured_main, line_main);
             measured_cross += line_cross + (closed_lines > 0 ? cross_gap : 0.0f);
@@ -303,6 +304,13 @@ static Vector2d MeasureLeafLabelContent(const UIElement *element)
     // by the UI pixel scale when drawing), so the run width is already in layout units.
     float measured_x = text_pixels + (element->padding.x * 2.0f);
 
+    // An accent-bar title draws its text UI_TITLE_TEXT_INDENT_PX right of the bar's left edge, so
+    // the hugged width grows by the same indent and the text is never clipped.
+    if (element->data.label.accent_bar)
+    {
+        measured_x += UI_TITLE_TEXT_INDENT_PX;
+    }
+
     // Height stays the padding-only contribution; the title's authored-fixed height is
     // resolved unchanged by the generic box-resolution path.
     return (Vector2d){measured_x, element->padding.y * 2.0f};
@@ -317,7 +325,9 @@ static Vector2d MeasureLeafLabelContent(const UIElement *element)
 // are considered, including disabled ones, so the column does not jump when a hidden row
 // appears. The column is the widest run + 2 px, converted to UI units with the owning root's
 // ratio and clamped to 60 % of `content_width` so the input always keeps at least 40 %.
-// Rows built with the legacy percent split (label width PERCENT) are left untouched.
+// Rows built with the legacy percent split (label width PERCENT) are left untouched, as are rows in
+// the stacked field layout (input textbox stacked_field): those keep the constructor's fixed
+// ui_standard_textfield_label_width so every such field shares one exact column.
 // Recoverable no-ops: no rows, no root / unresolved pixel box (frame 0: the constructor's
 // fallback width applies), or a malformed row missing a child.
 static void AlignTextFieldLabelColumns(UIElement *parent, float content_width)
@@ -333,9 +343,10 @@ static void AlignTextFieldLabelColumns(UIElement *parent, float content_width)
         }
         UIElement *label = row->first_child;
         if (!label || !label->next_sibling || label->type != UI_ELEMENT_LABEL ||
-            label->size.width_mode != AXIS_FIXED)
+            label->size.width_mode != AXIS_FIXED ||
+            (IsTextbox(label->next_sibling) && label->next_sibling->data.textbox.stacked_field))
         {
-            continue; // malformed or legacy percent-split row
+            continue; // malformed, legacy percent-split or stacked-layout row
         }
         has_rows = true;
         widest_px = fmaxf(widest_px, MeasureTextRunPixels(label->data.label.text.string,
@@ -364,13 +375,46 @@ static void AlignTextFieldLabelColumns(UIElement *parent, float content_width)
         UIElement *label = row->first_child;
         UIElement *input = label ? label->next_sibling : NULL;
         if (!label || !input || label->type != UI_ELEMENT_LABEL ||
-            label->size.width_mode != AXIS_FIXED)
+            label->size.width_mode != AXIS_FIXED || (IsTextbox(input) && input->data.textbox.stacked_field))
         {
             continue;
         }
         label->size.dimensions.x = label_units;
         input->authored_offset.offset.x = label_units;
         input->resolved_offset.offset.x = label_units;
+    }
+}
+
+// Size the Button children of a grid container (columns= in markup) into equal columns.
+// Each enabled Button gets a FIXED width: one cell, where cell = (content width - gaps between
+// columns) / columns, or the whole row when its text run is wider than a cell minus
+// UI_GRID_CHIP_TEXT_MARGIN_PX. The existing inline_wrap flow then does the placement (left to
+// right, wrapping when a row is full), so a spanning chip simply takes a row of its own. Runs at
+// the start of the measure pass, so measuring and distributing both see the same widths and the
+// widths follow the panel width every frame. No-op for non-grid containers.
+static void ApplyGridColumnWidths(UIElement *parent, float content_width)
+{
+    if (parent->grid_columns <= 0 || parent->child_spacing.flow != FLOW_INLINE_WRAP ||
+        content_width <= 0.0f)
+    {
+        return;
+    }
+
+    float column_gap = parent->child_spacing.gap.x;
+    float cell_width = (content_width - column_gap * (float)(parent->grid_columns - 1)) /
+                       (float)parent->grid_columns;
+
+    ForEachEnabledChild(parent, child)
+    {
+        if (!IsBtn(child))
+        {
+            continue;
+        }
+        float text_pixels = MeasureTextRunPixels(child->data.button.text.string,
+                                                 &child->data.button.font);
+        child->size.width_mode = AXIS_FIXED;
+        child->size.dimensions.x =
+            (text_pixels > cell_width - UI_GRID_CHIP_TEXT_MARGIN_PX) ? content_width : cell_width;
     }
 }
 
@@ -393,6 +437,19 @@ static Vector2d MeasureElementContent(UIElement *element, float parent_content_w
         return MeasureLeafLabelContent(element);
     }
 
+    // Leaf buttons (tabs and tab-like options) hug their text the same way: measured width is the
+    // text run plus the element's horizontal padding on both sides (rule R-1 in the style guide).
+    // Only non-empty, childless buttons take this path; an empty icon button keeps the generic
+    // padding-only result.
+    if (IsBtn(element) && element->first_child == NULL && element->data.button.text.string[0] != '\0')
+    {
+        float text_pixels = MeasureTextRunPixels(element->data.button.text.string, &element->data.button.font);
+        if (text_pixels > 0.0f)
+        {
+            return (Vector2d){text_pixels + (element->padding.x * 2.0f), element->padding.y * 2.0f};
+        }
+    }
+
     float element_width = ResolveMeasurementWidth(element, parent_content_width);
     float element_height = ResolveMeasurementHeight(element, parent_content_height);
     float content_width = fmaxf(0.0f, element_width - (2.0f * element->padding.x));
@@ -401,6 +458,7 @@ static Vector2d MeasureElementContent(UIElement *element, float parent_content_w
     // Size this element's text-field label column before its children are measured, so the
     // rows measure and lay out with the final column this frame.
     AlignTextFieldLabelColumns(element, content_width);
+    ApplyGridColumnWidths(element, content_width);
 
     Vector2d measured = ZERO_VECTOR_2D;
     float gap_x = element->child_spacing.gap.x;
@@ -882,7 +940,8 @@ static void DistributeChildrenWrap(UIElement *parent, Vector2d content_area_loca
         float child_cross = stacked ? child_size.x : child_size.y;
 
         // Wrap to a new line when this child would overflow a non-empty line.
-        if (main_cursor > 0.0f && main_cursor + main_gap + child_main > main_limit)
+        // (0.01 px tolerance: equal grid columns sum to the limit up to float rounding.)
+        if (main_cursor > 0.0f && main_cursor + main_gap + child_main > main_limit + 0.01f)
         {
             main_cursor = 0.0f;
             cross_cursor += line_cross + cross_gap;
@@ -985,6 +1044,7 @@ UIElement *CreateUIElement(UIElementType type, Size size, Offset parent_offset, 
     e->measured_content_size = ZERO_VECTOR_2D;
     e->cached_stacked_fill_height = 0.0f;
     e->cached_inline_fill_width = 0.0f;
+    e->grid_columns = 0;
     e->resolved_offset = parent_offset;
     e->authored_offset = parent_offset;
     e->type = type;
@@ -1536,7 +1596,7 @@ void DisposeUIElement(UIElement *e)
 // every element every frame.
 // `palette` is the owning view host's palette (NULL falls back to the active palette); it supplies
 // the toggle fills and inks. Text toggles and icon toggles (an on_draw glyph, the toolbar buttons)
-// share the ON colours; an OFF icon toggle returns to its flat input tile with the text ink.
+// share the same roles: ON = ACTIVE, OFF = INACTIVE (teal tile, cream glyph).
 void UIElement_RefreshBinding(UIElement *e, const UIPalette *palette)
 {
     if (!e)
@@ -1573,21 +1633,13 @@ void UIElement_RefreshBinding(UIElement *e, const UIPalette *palette)
                      "%s: %d/%d", e->data.button.text.string,
                      BIND_TOGGLE_ON(value.as.i), BIND_TOGGLE_TOTAL(value.as.i));
             // MIXED uses the inactive pair (OFF fill + light ink).
-            UIPalette_GetToggleColours(palette, false,
-                                       &e->colour_fill, &e->data.button.font.colour);
+            UIElement_ApplyRoleColours(e, palette, UI_ROLE_INACTIVE);
             return;
         }
-        if (e->on_draw != NULL && !on)
-        {
-            // OFF icon toggle: the flat input tile with the dark text ink. The fill is written on
-            // the live element every frame, so it must be restored here after an ON frame.
-            UIPalette_GetSurfaceColours(palette, UI_PALETTE_SURFACE_INPUT, NULL, &e->colour_fill);
-            e->data.button.font.colour = palette->text;
-            return;
-        }
-        // Text toggles and ON icon toggles share the two-state pair (ON amber + dark ink, OFF
-        // dimmed fill + light ink) so the caption or glyph always contrasts with its fill.
-        UIPalette_GetToggleColours(palette, on, &e->colour_fill, &e->data.button.font.colour);
+        // Text toggles and icon toggles share the two-state roles (ON = ACTIVE amber + ink, OFF =
+        // INACTIVE teal + cream) so the caption or glyph always contrasts with its fill. Icon
+        // glyphs draw in this font colour, and the fill is rewritten every frame.
+        UIElement_ApplyRoleColours(e, palette, on ? UI_ROLE_ACTIVE : UI_ROLE_INACTIVE);
         return;
     }
 

@@ -183,6 +183,8 @@ typedef struct UILoaderContext {
     UIActionResolver resolve_action;      // Callback to resolve action strings to a sink descriptor (opt-in; can be NULL)
     UIViewTypeResolver resolve_view_type; // Callback to resolve view-type strings (can be NULL)
     void *user_data;                // Optional user data for callbacks
+    bool has_inherited_text;        // True while parsing inside a surface that owns a text role (e.g. a card)
+    ColourRgba inherited_text;      // That role's text colour, applied to descendant captions and field labels
 } UILoaderContext;
 
 // ============================================================================

@@ -7,8 +7,8 @@ glyph plus nine toggle glyphs, each attached to a button's UIElement.on_draw hoo
 InitToolbar. Every glyph is centred in e->screen_box, sized off the box HEIGHT (the toolbar tiles
 are wide and short, so height is the limiting axis), monochrome, and composed from the same raylib
 primitives the Nudge glyph has always used. Every glyph is a bound toggle like any other: the
-shared binding refresh gives the button the toggle_on tile (ON) or the flat input tile (OFF) and
-sets the button's font colour to the matching dark `text` ink, so a glyph just draws in that ink
+shared binding refresh gives the button the ACTIVE role (ON, amber) or the INACTIVE role (OFF, teal)
+and sets the button's font colour to that role's text (ink or cream), so a glyph just draws in that
 (UIIcon_Ink) and never decides its own colour from state.
 *
 **********************************************************************************************/
@@ -68,8 +68,8 @@ static bool UIIcon_Fit(const UIElement *e, UIIconFit *out)
 }
 
 // Resolve the ink a glyph draws in: the button's own font colour. The per-frame binding refresh
-// (UIElement_RefreshBinding) sets it from the owning host's palette, so it is the dark `text` ink
-// on both the ON (toggle_on) tile and the OFF (input) tile, and the glyph never reads state itself.
+// (UIElement_RefreshBinding) sets it from the owning host's palette, so it is the role text
+// on both the ON (ACTIVE) tile and the OFF (INACTIVE) tile, and the glyph never reads state itself.
 static Color UIIcon_Ink(const UIElement *e)
 {
     return ToRaylibColor(e->data.button.font.colour);
@@ -83,7 +83,7 @@ static Color UIIcon_Ink(const UIElement *e)
 // of motion dots trailing behind it. Monochrome, composed from raylib primitives and centred in
 // e->screen_box with padding. Attached via UIElement.on_draw so the renderer calls it on top of
 // the (flat) button box; no label is drawn because the button's text is empty. The ink follows
-// the button's font colour (dark text ink on both the ON and OFF tiles; see UIIcon_Ink).
+// the button's font colour (role text on both the ON and OFF tiles; see UIIcon_Ink).
 void UIIcon_DrawNudge(UIElement *e)
 {
     if (!e)

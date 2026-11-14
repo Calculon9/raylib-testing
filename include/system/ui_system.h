@@ -30,7 +30,8 @@ typedef enum
 	UI_PALETTE_SURFACE_BUTTON,
 	UI_PALETTE_SURFACE_PANEL,  // Dark panel background (ViewHost / View), no border.
 	UI_PALETTE_SURFACE_DANGER,  // Destructive button: button border with the coral danger fill.
-	UI_PALETTE_SURFACE_SUBSECTION // Card inside a container: input border with the darker subsection fill.
+	UI_PALETTE_SURFACE_INACTIVE,  // INACTIVE control role (OFF tiles, inactive tabs): dark teal fill, input border.
+	UI_PALETTE_SURFACE_CARD       // CARD role: grouped-field card on the sheet (dark teal fill, input border, cream text).
 } UIPaletteSurface;
 
 typedef struct UIPalette
@@ -49,13 +50,17 @@ typedef struct UIPalette
 	uint8_t field_row_border_weight;
 	uint8_t input_border_weight;
 	uint8_t button_border_weight;
-	ColourRgba toggle_on_fill;  // Fill for a source-bearing toggle button in its ON state.
-	ColourRgba toggle_off_fill; // Fill for a source-bearing toggle button in its OFF state (same hue, dimmed).
 	ColourRgba button_danger_fill; // Fill for destructive buttons such as DELETE (dark ink on top).
 	ColourRgba text;
 	ColourRgba label_text;       // Field labels on container_fill (dark, AA contrast).
-	ColourRgba title_text;       // Section titles and header title lines.
-	ColourRgba subsection_fill;  // Fill for cards inside a container (light ink on top).
+	ColourRgba title_text;       // Section title ink (drawn on container_fill beside the accent bar).
+	ColourRgba header_text;      // Dark ink for panel header title lines (entity/world headers on header_fill or amber).
+	ColourRgba header_fill;      // Panel header box fill (lighter than container_fill; amber button_fill in multi-select).
+	ColourRgba readonly_fill;    // Fill of every read-only text field (dimmed input_fill).
+	ColourRgba readonly_border;  // 1 px border of every read-only text field.
+	ColourRgba subsection_fill;  // INACTIVE control role fill (dark teal): OFF toggles, inactive tabs (text_on_dark on top).
+	ColourRgba card_fill;        // CARD role fill (dark teal): grouped-field cards (text_on_dark on top). Kept apart from subsection_fill so the roles can diverge.
+	ColourRgba muted_text;       // Muted brown for x/y prefixes and unit suffixes on input fills (not a control role).
 	ColourRgba text_on_dark;
 	ColourRgba error;
 	ColourRgba warning;
@@ -102,15 +107,21 @@ extern const Vector2d ui_standard_field_padding;
 extern const Vector2d ui_section_padding;
 // ViewHost / View padding added on top of the root padding (root 5 + 1 = 6 px panel inset).
 extern const Vector2d ui_host_padding;
+// Root padding for the read-only info / detail strips (5 px horizontal inset, no vertical).
+extern const Vector2d ui_strip_host_padding;
 // Fallback text-field label column width, used until the per-section column pass has run.
 extern const float ui_standard_textfield_label_width;
 extern const Size ui_standard_button_size;
+// Icon-only tool/toggle button size (34 x 25 UI px), used by the toolbar.
+extern const Size ui_standard_icon_button_size;
 // Container title label size: width hugs the measured text, height stays fixed at 0.5.
 extern const Size ui_title_size;
 extern const Size ui_wide_button_size;
 extern const Size ui_small_horizontal_button_size;
 extern const Size ui_fill_button_size;
 extern const Vector2d ui_standard_button_padding;
+// Padding of tabs and tab-like options (they hug their text plus this on both sides).
+extern const Vector2d ui_standard_tab_padding;
 extern const Size ui_standard_selector_container_size;
 extern const Size ui_standard_selector_button_size;
 extern const Layout ui_standard_stack_spacing;
@@ -144,14 +155,49 @@ const UIPalette *UIPalette_GetActive(void);
 // ResetUI), never from inside a UI event handler or during the UI draw traversal.
 void UIPalette_SetActive(const UIPalette *src);
 
+// Universal colour roles: each pairs a fill with the text colour drawn on it, plus a border.
+// Views and elements pick a role and never choose their own fill or text colours.
+typedef enum
+{
+	UI_ROLE_SHEET,          // Sage sheet (container_fill) with ink text.
+	UI_ROLE_HEADER,         // Panel header fill with black header text.
+	UI_ROLE_INPUT,          // Editable field: cream fill, input border, ink text.
+	UI_ROLE_READONLY_INPUT, // Read-only field: dimmed cream, muted border, ink text.
+	UI_ROLE_INACTIVE,       // Control off-state: dark teal fill with cream text.
+	UI_ROLE_CARD,           // Grouped-field card on the sheet: dark teal fill with cream text.
+	UI_ROLE_ACTIVE,         // Control on-state / default button: amber fill with ink text.
+	UI_ROLE_DANGER          // Destructive control: coral fill with ink text.
+} UIColourRole;
+
+typedef struct UIRoleColours
+{
+	ColourRgba fill;   // Surface fill.
+	ColourRgba text;   // Text colour drawn on that fill.
+	ColourRgba border; // Border colour (COLOURLESS_RGBA when the role has none).
+} UIRoleColours;
+
+// Resolves a role to its fill/text/border. A NULL palette uses the default.
+UIRoleColours UIPalette_GetRoleColours(const UIPalette *palette, UIColourRole role);
+// Paired text colour for surfaces that are control roles (button, danger, inactive, card); false for
+// surfaces with no text role. Lets the loader give a surface its text colour automatically.
+bool UIPalette_GetSurfaceText(const UIPalette *palette, UIPaletteSurface surface, ColourRgba *out_text);
+// Resolves a role for a control drawn in a given context. A control that would be INACTIVE inside a
+// CARD resolves to the SHEET fill with ink text (keeping the INACTIVE border), so OFF chips stay
+// visible against the teal card. Every other role and context resolves as UIPalette_GetRoleColours.
+UIRoleColours UIPalette_GetRoleColoursInContext(const UIPalette *palette, UIColourRole role, bool inside_card);
 // Border thickness (screen pixels) for a surface role from the palette; 0 for borderless roles.
 uint8_t UIPalette_GetSurfaceBorderWeight(const UIPalette *palette, UIPaletteSurface surface);
 void UIPalette_GetSurfaceColours(const UIPalette *palette, UIPaletteSurface surface,
 								 ColourRgba *out_border, ColourRgba *out_fill);
-// Two-state colours shared by tabs, kind chips and flag toggles: active = ON fill + dark ink,
-// inactive = OFF fill + light ink. A NULL palette uses the default; NULL outputs are skipped.
+// Two-state colours shared by tabs, kind chips and flag toggles: the ACTIVE or INACTIVE role's
+// fill and text. A NULL palette uses the default; NULL outputs are skipped.
 void UIPalette_GetToggleColours(const UIPalette *palette, bool active,
 								ColourRgba *out_fill, ColourRgba *out_ink);
+// Sets an element's fill (and border, where the role has one) and, for buttons and labels, its
+// font colour from a colour role, so a region never pairs colours by hand. NULL element or
+// palette is a no-op. An INACTIVE role on an element inside a card uses the sheet colours
+// (see UIPalette_GetRoleColoursInContext).
+void UIElement_ApplyRoleColours(UIElement *element, const UIPalette *palette, UIColourRole role);
 InputRouteResult UpdateUISystem(const InputFrame *input);
 
 // Centralised selection setters reduce cross-module direct writes to UI state.

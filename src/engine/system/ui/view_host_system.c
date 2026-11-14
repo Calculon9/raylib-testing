@@ -54,10 +54,11 @@ static void DrawViewScrollbar(const View *view, const UIPalette *palette)
     const float visible_w = view->container->local_box.dimensions.x;
     const float visible_h = view->container->local_box.dimensions.y;
 
-    // Dark subsection track with a light thumb: the thumb reads against the track on every palette.
-    const UIPalette *colours = palette ? palette : UIPalette_GetActive();
-    Color track_colour = ToRaylibColor(colours->subsection_fill);
-    Color thumb_colour = ToRaylibColor(colours->text_on_dark);
+    // INACTIVE role: its fill is the track and its text (cream) the thumb, so the thumb reads
+    // against the track on every palette.
+    UIRoleColours scroll_role = UIPalette_GetRoleColours(palette ? palette : UIPalette_GetActive(), UI_ROLE_INACTIVE);
+    Color track_colour = ToRaylibColor(scroll_role.fill);
+    Color thumb_colour = ToRaylibColor(scroll_role.text);
 
     // Vertical scrollbar (right edge). Leave room at the bottom for the horizontal bar
     // when both are shown so the two tracks do not overlap in the corner.
@@ -99,9 +100,10 @@ static void DrawContainerScrollbars(const UIElement *e, const UIPalette *palette
     if (e->type != UI_ELEMENT_VIEW && e->is_scrollable_y && content_h > visible_h)
     {
         const float px = (float)GetViewportUIPixelScale();
-        const UIPalette *colours = palette ? palette : UIPalette_GetActive();
-        Color track_colour = ToRaylibColor(colours->subsection_fill);
-        Color thumb_colour = ToRaylibColor(colours->text_on_dark);
+        // Same INACTIVE-role pairing as the view scrollbar (track = fill, thumb = cream text).
+        UIRoleColours scroll_role = UIPalette_GetRoleColours(palette ? palette : UIPalette_GetActive(), UI_ROLE_INACTIVE);
+        Color track_colour = ToRaylibColor(scroll_role.fill);
+        Color thumb_colour = ToRaylibColor(scroll_role.text);
         DrawScrollbarY(e->screen_box, visible_h, content_h, e->scroll_offset.y, content_h - visible_h,
                        4.0f * px, 0.0f, 0.0f, 12.0f * px, track_colour, thumb_colour);
     }
@@ -562,7 +564,7 @@ View *ViewHostSystem_GetActiveView(ViewHostSystem *panel)
 }
 
 // Recolour a selector's option elements to reflect the active selection, using the shared
-// two-state toggle colours (active = ON amber + dark ink, inactive = OFF fill + light ink) so
+// two-state roles (active = ACTIVE amber + ink, inactive = INACTIVE teal + cream) so
 // tabs match the kind chips and flag toggles. Hover highlight is handler-driven
 // (decision 1b); this routine still owns the persistent ACTIVE-selection colour.
 static void UpdatePanelViewSelectorButtons(ViewSelector *selector)
@@ -571,21 +573,10 @@ static void UpdatePanelViewSelectorButtons(ViewSelector *selector)
     {
         bool is_active = i == selector->active_index;
         UIElement *option = selector->buttons[i];
-        ColourRgba fill;
-        ColourRgba text;
-        UIPalette_GetToggleColours(selector->panel->palette, is_active, &fill, &text);
-        option->colour_fill = fill;
-
-        // Former hover items are LABELs; enumerate selectors are buttons. Pick the
-        // matching text buffer's font so the drawn colour updates correctly.
-        if (IsBtn(option))
-        {
-            option->data.button.font.colour = text;
-        }
-        else   // UI_ELEMENT_LABEL (hover selector option)
-        {
-            option->data.label.font.colour = text;
-        }
+        // The role helper recolours both option kinds: enumerate selectors are buttons and the
+        // former hover items are LABELs, each getting the role text on its own font.
+        UIElement_ApplyRoleColours(option, selector->panel->palette,
+                                   is_active ? UI_ROLE_ACTIVE : UI_ROLE_INACTIVE);
     }
 }
 
@@ -619,7 +610,7 @@ static void HandlePanelViewSelectorHover(UIElement *item)
         return;
     }
 
-    item->colour_fill = selector->panel->palette->button_fill;   // handler-driven hover tint
+    item->colour_fill = UIPalette_GetRoleColours(selector->panel->palette, UI_ROLE_ACTIVE).fill; // handler-driven hover tint
     ViewHostSystem_SelectView(selector, (size_t)*((int *)item->interaction_user_data));
 }
 
@@ -930,20 +921,20 @@ ViewSelector *ViewHostSystem_CreateStandardViewSelector(ViewHostSystem *panel,
 }
 
 /**
- * Apply standard styling to a view container.
- * Gives it the boxed section look (container surface colours and border weight, 6 px section
- * padding so rows do not touch the border) and enables dragging.
+ * Apply the standard sheet styling to a view container, matching the markup path
+ * (`surface="container" border="none" padding="6"`): the SHEET role fill, no border and the
+ * 6 px section padding so rows do not touch the edge. It also enables dragging.
  */
-void ViewHostSystem_StyleViewContainer(UIElement *container, const UIPalette *palette)
+void ViewHostSystem_StyleViewSheet(UIElement *container, const UIPalette *palette)
 {
     if (!container || !palette)
     {
         return;
     }
 
-    UIPalette_GetSurfaceColours(palette, UI_PALETTE_SURFACE_CONTAINER,
-                                &container->colour_border, &container->colour_fill);
-    container->border_weight = UIPalette_GetSurfaceBorderWeight(palette, UI_PALETTE_SURFACE_CONTAINER);
+    container->colour_fill = UIPalette_GetRoleColours(palette, UI_ROLE_SHEET).fill;
+    container->colour_border = COLOURLESS_RGBA;
+    container->border_weight = 0;
     container->padding = ui_section_padding;
     container->is_draggable = true;
 }

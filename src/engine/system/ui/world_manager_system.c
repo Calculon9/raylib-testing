@@ -788,9 +788,9 @@ static void WorldManager_ApplyLayout(const WMTargets *targets, int deletable)
                  i == 0 ? targets->world_count : targets->cell_count);
         PanelShared_SetButtonText(chip, label);
 
-        // Chips share the tab / toggle two-state colours: active = amber + dark ink, inactive = dimmed.
-        UIPalette_GetToggleColours(s_wm_panel->palette, s_wm_chip_kinds[i] == targets->kind,
-                                   &chip->colour_fill, &chip->data.button.font.colour);
+        // Chips share the tab / toggle two-state roles: ACTIVE (amber + ink) or INACTIVE (teal + cream).
+        UIElement_ApplyRoleColours(chip, s_wm_panel->palette,
+                                   s_wm_chip_kinds[i] == targets->kind ? UI_ROLE_ACTIVE : UI_ROLE_INACTIVE);
     }
 
     // Tab row: world kinds only; FLAGS is hidden for the root world (it has no editable flags).

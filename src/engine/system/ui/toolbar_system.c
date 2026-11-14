@@ -444,7 +444,7 @@ void InitToolbar(void)
     }
 
     // Toggle glyphs: look each up by id and attach its on_draw. Each button's binding= makes the
-    // per-frame refresh set its fill (toggle_on_fill or the flat input fill) and glyph ink.
+    // per-frame refresh set its fill (ACTIVE role fill or the flat input fill) and glyph ink.
     UIElement *b;
     if ((b = UILoader_FindById(root, "toggle_dashboard")))            b->on_draw = UIIcon_DrawDashboard;
     if ((b = UILoader_FindById(root, "toggle_viewport_grid")))        b->on_draw = UIIcon_DrawViewportGrid;

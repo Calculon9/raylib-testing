@@ -300,7 +300,7 @@ void InitDetailStrip(void)
     //    the central column by InitViewportLayout), build its real root, and re-parent the XML
     //    container under it. Mounting against detail_strip_viewport keeps the strip in its own
     //    reserved screen region so it never overlaps the world render area.
-    detail_strip = ViewHostSystem_Create(&detail_strip_viewport, 1.0f, ZERO_VECTOR_2D,
+    detail_strip = ViewHostSystem_Create(&detail_strip_viewport, 1.0f, ui_strip_host_padding,
                                          UIPalette_GetActive(), ui_standard_stack_spacing);
     if (!detail_strip)
     {

@@ -3,6 +3,7 @@
 #include "system/systems.h"
 #include "system/utility_system.h"
 #include "system/ui_system.h"
+#include <ctype.h>
 
 UIElement *CreateUILabel(UIElement *parent, const char *text, Size size,
                          Vector2d padding, Bitmap_Font font,
@@ -46,9 +47,28 @@ UIElement *CreateUILabelTitleDefault(UIElement *parent, const char *text,
         palette = UIPalette_GetActive();
     }
 
-    return CreateUILabel(parent, text, size, padding,
-                         FONT_LARGE_WITH_COLOUR(palette->title_text),
-                         COLOURLESS_RGBA, COLOURLESS_RGBA);
+    // Section titles are UPPER CASE by the style guide. Folding here, once, in the standard title
+    // constructor means every title (markup style="title" or C-built) follows automatically, and the
+    // hug width is measured on the folded text. ASCII fold via toupper on unsigned char (the ctype
+    // contract); the copy is bounded by MAX_LABEL_CHARS, the label buffer size.
+    char upper_text[MAX_LABEL_CHARS] = {0};
+    if (text)
+    {
+        for (size_t i = 0; i + 1 < sizeof(upper_text) && text[i] != '\0'; i++)
+        {
+            upper_text[i] = (char)toupper((unsigned char)text[i]);
+        }
+    }
+
+    UIElement *title = CreateUILabel(parent, upper_text, size, padding,
+                                     FONT_LARGE_WITH_COLOUR(palette->title_text),
+                                     COLOURLESS_RGBA, COLOURLESS_RGBA);
+    if (title)
+    {
+        // The renderer draws the amber accent bar and indents the text (UI_TITLE_* in ui.h).
+        title->data.label.accent_bar = true;
+    }
+    return title;
 }
 
 // Build the UIElement-based labelled field used by the shared field constructor.

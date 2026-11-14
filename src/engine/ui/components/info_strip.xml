@@ -1,20 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
     <!-- Info strip: read-only hover + selection report. Runtime construction is in -->
-    <!-- info_strip_system.c. The two leaf fields are read-only <Textbox> controls carrying -->
-    <!-- binding= (a value SOURCE) only, so the binding core refreshes each with the verbatim -->
-    <!-- BIND_STRING query result via Binding_RefreshText (no ON/OFF toggle composition - -->
-    <!-- that path is exclusive to bound <Button> toggles). Leaves do NOT auto-size to text, -->
-    <!-- so each field carries an explicit fixed size. -->
-<Container id="info_strip" layout="inline" width="fill" height="fill">    
+    <!-- info_strip_system.c. The five leaf fields are read-only <Textbox> controls (the -->
+    <!-- READONLY_INPUT role) carrying binding= (a value SOURCE) only, so the binding core -->
+    <!-- refreshes each with the verbatim BIND_STRING query result via Binding_RefreshText (no -->
+    <!-- ON/OFF toggle composition - that path is exclusive to bound <Button> toggles). The row is -->
+    <!-- inline and every field is width="fill": the inline flow shares the row equally, so there -->
+    <!-- are no per-field pixel widths. Height is the standard 25 px control height. -->
+<Container id="info_strip" layout="inline" width="fill" height="fill">
     <!-- Cursor-coordinate fields. Root: pointer in the root world's frame (always shown). -->
     <!-- Child: pointer in a hovered nested world's local frame, or a dash over root/empty space. -->
-    <!-- Height 25 matches the two fields above; width 500 fits the short coord labels and keeps -->
-    <!-- all four fields on one row in the wide central-column strip (see info-strip-coords-design.md). -->
-    <Textbox id="info_strip_rootcoords" io="readonly" binding="infostrip.rootcoords" size="200,25" />
-    <Textbox id="info_strip_childcoords" io="readonly" binding="infostrip.childcoords" size="200,25"/>
-    <Textbox id="info_strip_hover" io="readonly" binding="infostrip.hover" size="250,25" />
-    <Textbox id="info_strip_selection" io="readonly" binding="infostrip.selection" size="250,25" />
+    <Textbox id="info_strip_rootcoords" io="readonly" binding="infostrip.rootcoords" width="fill" height="fixed" />
+    <Textbox id="info_strip_childcoords" io="readonly" binding="infostrip.childcoords" width="hug" height="fixed" />
+    <Textbox id="info_strip_hover" io="readonly" binding="infostrip.hover" width="fill" height="fixed" />
+    <Textbox id="info_strip_selection" io="readonly" binding="infostrip.selection" width="fill" height="fixed" />
     <!-- Active paint tile type (read-only, "Tile: <n>"), surfaced via the same BIND_STRING query -->
-    <!-- shim pattern as the fields above. Narrow (150) so the five fields still sit on one row. -->
-    <Textbox id="info_strip_tile" io="readonly" binding="infostrip.tile" size="100,25" />
+    <!-- shim pattern as the fields above. -->
+    <Textbox id="info_strip_tile" io="readonly" binding="infostrip.tile" width="hug" height="fixed" />
 </Container>

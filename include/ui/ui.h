@@ -157,12 +157,32 @@ typedef struct
     Binding *binding;  // single bidirectional carrier (source=read, sink=write); coexists with legacy data_bind/binder
     Bitmap_Font font;
     int cursor_position;
+    bool stacked_field;   // Stacked field layout (label column fixed at ui_standard_textfield_label_width; see BuildTextField).
+    bool stacked_vector;  // Draw a vector value as two stacked x / y component boxes (unfocused). Needs stacked_field.
+    char unit[8];         // Optional unit suffix drawn inside the box, right-aligned and muted (empty = none).
 } TextBoxData;
+
+// Section-title (accent bar) geometry in UI pixels: a 4x16 bar at the label's left edge, with the
+// title text starting 10 px right of the bar's left edge. Shared by measuring and drawing so every
+// title inherits the same spacing.
+#define UI_TITLE_BAR_WIDTH_PX 4.0f
+#define UI_TITLE_BAR_HEIGHT_PX 16.0f
+#define UI_TITLE_TEXT_INDENT_PX 10.0f
+
+// Grid chips (Container columns=): a Button whose text run is wider than its cell minus this
+// margin (UI pixels, the text's side breathing room) spans the whole row instead.
+#define UI_GRID_CHIP_TEXT_MARGIN_PX 6.0f
+
+// Placeholder shown in a field that has no value to display (for example nothing is selected). A
+// single ASCII hyphen-minus, never "0" (zero is real data). A stacked vector field shows it in both
+// component boxes.
+#define UI_NO_VALUE_TEXT "-"
 
 typedef struct
 {
     String64 text;
     Bitmap_Font font;
+    bool accent_bar;             // Section-title style: amber accent bar at the left edge, text indented (see UI_TITLE_* above).
 } LabelData;
 
 typedef struct
@@ -224,10 +244,14 @@ typedef struct UIElement
     bool is_focused, is_dirty, is_draggable, is_enabled; // For interactive elements like TextBoxes and Buttons
     bool is_scrollable_x; // Bypasses horizontal size clamping when scrolling
     bool is_scrollable_y; // Bypasses vertical size clamping when scrolling
+    bool is_card;         // Set by the loader on a surface="card" container; descendants resolve INACTIVE as the sheet colours.
     bool allow_overflow;  // When true, this element may extend beyond its parent's content box:
                           // its box dimensions are NOT clamped to the parent's remaining space
                           // (both axes). Used for fan-out submenus, tooltips, dropdowns. Scroll
                           // clipping (is_scrollable_*) still applies. Defaults to false.
+    int grid_columns;     // Container only (columns= in markup): when non-zero and the flow is
+                          // inline_wrap, direct Button children are sized into this many equal
+                          // columns (a child whose text does not fit a cell spans the row). 0 = off.
 
     // Interaction handlers live on the BASE element so ANY element can be clickable
     // or hoverable; dispatch is by handler-presence, not element type (see ui_input.c).

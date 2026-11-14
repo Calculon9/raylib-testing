@@ -1,45 +1,43 @@
 <?xml version="1.0" encoding="UTF-8"?>
-    <!-- Far-left toolbar band hosting three radio tool buttons plus labelled on/off toggles. -->
+    <!-- Far-left toolbar band hosting three radio tool buttons plus on/off toggles. -->
     <!-- Runtime construction is in toolbar_system.c. Every button carries binding= (a live query -->
     <!-- source: tool.* reports whether that tool is active, tool.geometry-edit the geometry editor -->
     <!-- flag, and debug.*/view.*/gizmo.* the debug overlays over IsDebugEnabled) and action= (the -->
     <!-- command run on click, resolved by the shared command system). The per-frame binding refresh -->
-    <!-- gives each button the shared toggle look: ON = amber toggle_on tile, OFF = flat surface= -->
-    <!-- input tile, with the dark text ink for the glyph on both. text is empty, so the refresh -->
-    <!-- writes no caption. A thin separator splits the tools from the debug toggles. Elements are -->
-    <!-- stacked vertically. -->
-<Container id="toolbar" layout="stacked" width="hug" height="fill">
-    <!-- Icon-only tool buttons (nudge, cell paint, spawn); action= sets the active tool -->
-    <!-- radio-exclusively. surface="input" is the OFF tile; the bound refresh swaps it for the -->
-    <!-- toggle_on tile while the tool is active. -->
-    <Button id="tool_nudge" type="simple" surface="input" binding="tool.nudge" action="tool-nudge" hint="Nudge tool: click an entity to push it" size="34,23" />
-    <!-- CLICK toggles the tool; MOUSE WHEEL while hovering cycles the active tile type (on_scroll = -->
-    <!-- Toolbar_ScrollCycleTileType, wired by id in InitToolbar). The glyph shows the active tile -->
-    <!-- colour as its inner swatch. -->
-    <Button id="tool_cell_paint" type="simple" surface="input" binding="tool.cell-paint" action="tool-cell-paint" hint="Cell paint tool | Wheel: cycle tile" size="34,23" />
-    <!-- CLICK toggles the tool; MOUSE WHEEL while hovering cycles the active spawn prefab (on_scroll -->
-    <!-- = Toolbar_ScrollCyclePrefab, wired by id in InitToolbar). The prefab identity is read out in -->
-    <!-- the always-present detail/info strips (the spawn glyph stays generic). -->
-    <Button id="tool_spawn" type="simple" surface="input" binding="tool.spawn" action="tool-spawn" hint="Spawn tool | Wheel: cycle prefab" size="34,23" />
-    <!-- Thin empty separator so the tool and the toggle group read as two distinct bands. -->
-    <Label id="toolbar_separator" size="50,13" width="fixed" height="fixed" />
-
-    <!-- The nine independent visual toggles (rehomed from lpanel.xml's state_view). -->
-    <Button id="toggle_dashboard" type="simple" surface="input" binding="debug.dashboard" action="toggle-debug-dashboard" hint="Debug dashboard" size="34,23" />
-    <Button id="toggle_viewport_grid" type="simple" surface="input" binding="view.viewport-grid" action="toggle-viewport-grid" hint="Viewport grid" size="34,23" />
-    <Button id="toggle_world_grid" type="simple" surface="input" binding="view.world-grid" action="toggle-world-grid" hint="World grid | Click: cycle" size="34,23" />
-    <Button id="toggle_world_grid_labels" type="simple" surface="input" binding="view.world-grid-labels" action="toggle-world-grid-labels" hint="World grid labels" size="34,23" />
-    <Button id="toggle_universe_grid_labels" type="simple" surface="input" binding="view.universe-grid-labels" action="toggle-universe-grid-labels" hint="Universe grid labels" size="34,23" />
-    <Button id="toggle_ui_borders" type="simple" surface="input" binding="view.ui-borders" action="toggle-ui-borders" hint="UI borders" size="34,23" />
-    <Button id="toggle_object_axes" type="simple" surface="input" binding="gizmo.object-axes" action="toggle-object-axes" hint="Object axes gizmo" size="34,23" />
-    <Button id="toggle_object_hull" type="simple" surface="input" binding="gizmo.object-hull" action="toggle-object-hull" hint="Object hull gizmo" size="34,23" />
-    <Button id="toggle_object_aabb" type="simple" surface="input" binding="gizmo.object-aabb" action="toggle-object-aabb" hint="Object AABB gizmo" size="34,23" />
-    <!-- Collision-marker toggle: gates CREATION of the short-lived effect entity spawned at each -->
-    <!-- contact point (default ON). Same binding=/action= shape as the toggles above; the glyph -->
-    <!-- (UIIcon_DrawCollisions) takes the shared toggle look. -->
-    <Button id="toggle_collisions" type="simple" surface="input" binding="gizmo.collisions" action="toggle-collisions" hint="Collision markers" size="34,23" />
-
-    <!-- Independent geometry-edit toggle, bound to its flag (not part of the radio tool set). -->
-    <!-- action="toggle-geometry-edit" -> CMD_TOGGLE_GEOMETRY_EDIT flips the flag independently. -->
-    <Button id="toggle_geometry_edit" type="simple" surface="input" binding="tool.geometry-edit" action="toggle-geometry-edit" hint="Geometry edit: drag vertex handles" size="34,23" />
+    <!-- gives each button the standard two-state roles: ON = ACTIVE (amber tile, ink glyph), -->
+    <!-- OFF = INACTIVE (teal tile, cream glyph). text is empty, so the refresh writes no caption. -->
+    <!-- Every tile is size="icon" (the shared ui_standard_icon_button_size, 34 x 25). The tools and -->
+    <!-- the toggles are two groups; the root's "view_stack" layout (the 6 px ui_view_stack_spacing) -->
+    <!-- separates the groups, so there is no divider element and no pixel literal. -->
+<Container id="toolbar" layout="view_stack" width="hug" height="fill">
+    <!-- Tool group: three radio buttons; action= sets the active tool radio-exclusively. -->
+    <Container id="toolbar_tools" layout="stacked" width="hug" height="hug" padding="0">
+        <Button id="tool_nudge" type="simple" surface="inactive" binding="tool.nudge" action="tool-nudge" hint="Nudge tool: click an entity to push it" size="icon" />
+        <!-- CLICK toggles the tool; MOUSE WHEEL while hovering cycles the active tile type (on_scroll = -->
+        <!-- Toolbar_ScrollCycleTileType, wired by id in InitToolbar). The glyph shows the active tile -->
+        <!-- colour as its inner swatch. -->
+        <Button id="tool_cell_paint" type="simple" surface="inactive" binding="tool.cell-paint" action="tool-cell-paint" hint="Cell paint tool | Wheel: cycle tile" size="icon" />
+        <!-- CLICK toggles the tool; MOUSE WHEEL while hovering cycles the active spawn prefab (on_scroll -->
+        <!-- = Toolbar_ScrollCyclePrefab, wired by id in InitToolbar). The prefab identity is read out in -->
+        <!-- the always-present detail/info strips (the spawn glyph stays generic). -->
+        <Button id="tool_spawn" type="simple" surface="inactive" binding="tool.spawn" action="tool-spawn" hint="Spawn tool | Wheel: cycle prefab" size="icon" />
+    </Container>
+    <!-- Toggle group: independent visual toggles (rehomed from lpanel.xml's state_view). -->
+    <Container id="toolbar_toggles" layout="stacked" width="hug" height="hug" padding="0">
+        <Button id="toggle_dashboard" type="simple" surface="inactive" binding="debug.dashboard" action="toggle-debug-dashboard" hint="Debug dashboard" size="icon" />
+        <Button id="toggle_viewport_grid" type="simple" surface="inactive" binding="view.viewport-grid" action="toggle-viewport-grid" hint="Viewport grid" size="icon" />
+        <Button id="toggle_world_grid" type="simple" surface="inactive" binding="view.world-grid" action="toggle-world-grid" hint="World grid | Click: cycle" size="icon" />
+        <Button id="toggle_world_grid_labels" type="simple" surface="inactive" binding="view.world-grid-labels" action="toggle-world-grid-labels" hint="World grid labels" size="icon" />
+        <Button id="toggle_universe_grid_labels" type="simple" surface="inactive" binding="view.universe-grid-labels" action="toggle-universe-grid-labels" hint="Universe grid labels" size="icon" />
+        <Button id="toggle_ui_borders" type="simple" surface="inactive" binding="view.ui-borders" action="toggle-ui-borders" hint="UI borders" size="icon" />
+        <Button id="toggle_object_axes" type="simple" surface="inactive" binding="gizmo.object-axes" action="toggle-object-axes" hint="Object axes gizmo" size="icon" />
+        <Button id="toggle_object_hull" type="simple" surface="inactive" binding="gizmo.object-hull" action="toggle-object-hull" hint="Object hull gizmo" size="icon" />
+        <Button id="toggle_object_aabb" type="simple" surface="inactive" binding="gizmo.object-aabb" action="toggle-object-aabb" hint="Object AABB gizmo" size="icon" />
+        <!-- Collision-marker toggle: gates CREATION of the short-lived effect entity spawned at each -->
+        <!-- contact point (default ON). Same binding=/action= shape as the toggles above. -->
+        <Button id="toggle_collisions" type="simple" surface="inactive" binding="gizmo.collisions" action="toggle-collisions" hint="Collision markers" size="icon" />
+        <!-- Independent geometry-edit toggle, bound to its flag (not part of the radio tool set). -->
+        <!-- action="toggle-geometry-edit" -> CMD_TOGGLE_GEOMETRY_EDIT flips the flag independently. -->
+        <Button id="toggle_geometry_edit" type="simple" surface="inactive" binding="tool.geometry-edit" action="toggle-geometry-edit" hint="Geometry edit: drag vertex handles" size="icon" />
+    </Container>
 </Container>

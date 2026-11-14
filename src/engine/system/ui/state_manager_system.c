@@ -34,7 +34,6 @@ static bool state_manager_refresh_dirty = true;
 
 // Selection-driven layout state (see "Selection-driven layout" below).
 #define SM_SHOWN_UNKNOWN (-2)                // No layout applied yet.
-#define SM_SHOWN_NONE (-1)                   // Layout applied with every view hidden (no entity selected).
 static ViewSelector *s_sm_selector = NULL;   // The entity tab selector (NULL if allocation failed).
 static int s_sm_entity_tab = 0;              // Entity tab remembered across empty selections.
 static int s_sm_shown_view = SM_SHOWN_UNKNOWN; // View currently shown.
@@ -86,7 +85,10 @@ typedef struct StateManagerComponentSection
 // MAX_SHAPE_VERTICES vertex budget so no in-range vertex is dropped.
 #define STATE_MANAGER_GEOMETRY_ROW_COUNT MAX_SHAPE_VERTICES
 
+// Fixed number of pre-declared ancestry line slots (see the Ancestry View State section below).
+#define STATE_MANAGER_ANCESTRY_LINE_COUNT 6
 // UIElement and String64 references owned by the State Manager panel.
+
 typedef struct StateManagerUI
 {
     // COMP view: one entry per attachable type in fixed order (PORTAL, ROTOR, GEAR, HEALTH), plus
@@ -97,9 +99,7 @@ typedef struct StateManagerUI
 
     // Header (selection-driven title / sub-line and multi-select tint) and view-switching state.
     PanelHeader header;             // entity_header container + title + sub-line
-    UIElement *values_note;         // "values: primary only" note, shown in multi-select
     UIElement *delete_button;       // sm_delete (label reflects the selection)
-    UIElement *tab_container;       // the ViewSelector's container (hidden with no entity)
     // Physics readouts
     UIElement *mass_tbox;
     UIElement *restitution_tbox;
@@ -139,6 +139,8 @@ typedef struct StateManagerUI
     // GEOMETRY view (v1): vertex-count readout + fixed readonly vertex-row pool.
     UIElement *geo_vertex_count_tbox;
     UIElement *geo_vertex_tbox[STATE_MANAGER_GEOMETRY_ROW_COUNT];
+    // ANCESTRY view: fixed line slots, disabled beyond the chain length so they take no space.
+    UIElement *ancestry_line_tbox[STATE_MANAGER_ANCESTRY_LINE_COUNT];
 } StateManagerUI;
 
 static StateManagerUI s_sm_ui = {0};
@@ -193,7 +195,6 @@ static StateManagerFlags s_sm_flags = {
 // selected entity -> parent entities -> owning world -> universe root world for the current
 // depth model; any line beyond the actual chain length renders blank. Ported from the lpanel
 // ancestry machinery so the Entity Mgmt panel owns its own copy (the lpanel is retired later).
-#define STATE_MANAGER_ANCESTRY_LINE_COUNT 6
 
 // Panel-owned backing buffers for the ancestry view's read-only BIND_STRING labels. The binding
 // core copies value.as.s into each textbox's own text buffer during the per-frame refresh, but
@@ -283,7 +284,7 @@ static BindingValue StateManager_QueryAncestrySelected(int key)
     {
         // Neutral empty state.
         snprintf(state_manager_ancestry_selected_text, sizeof(state_manager_ancestry_selected_text),
-                 "No selection");
+                 "Selected: %s", UI_NO_VALUE_TEXT);
         return (BindingValue){ .type = BIND_STRING, .as.s = state_manager_ancestry_selected_text };
     }
 
@@ -313,7 +314,7 @@ static BindingValue StateManager_QueryAncestryRelation(int key)
     {
         // Neutral empty state (nothing selected).
         snprintf(state_manager_ancestry_relation_text, sizeof(state_manager_ancestry_relation_text),
-                 "Relation: -");
+                 "Relation: %s", UI_NO_VALUE_TEXT);
         return (BindingValue){ .type = BIND_STRING, .as.s = state_manager_ancestry_relation_text };
     }
 
@@ -653,19 +654,23 @@ static BindingValue StateManager_QueryHeader(int key)
     int entity_count = PanelShared_CountKind(TARGET_KIND_ENTITY);
     TargetRef ref = { .kind = TARGET_KIND_NONE };
 
-    if (entity_count <= 0 || !PanelShared_PrimaryOfKind(TARGET_KIND_ENTITY, &ref))
+    // A lone stale ref (entity deleted or destroyed) counts as no selection, like the field refresh.
+    if (entity_count <= 0 || !PanelShared_PrimaryOfKind(TARGET_KIND_ENTITY, &ref) ||
+        (entity_count == 1 && !StateManager_SelectedObject()))
     {
         snprintf(out, out_bytes, "%s", want_sub ? "click an entity" : "NO ENTITY SELECTED");
     }
     else if (entity_count > 1)
     {
+        // The sub-line also carries the "values come from the primary" note (the PHYS note it replaces),
+        // by naming the primary entity whose values the read-only fields show.
         if (want_sub)
         {
-            snprintf(out, out_bytes, "applies to all shown");
+            snprintf(out, out_bytes, "%d SELECTED  PRIMARY #%d", entity_count, (int)ref.as.entity);
         }
         else
         {
-            snprintf(out, out_bytes, "EDITING %d SELECTED", entity_count);
+            snprintf(out, out_bytes, "MULTIPLE");
         }
     }
     else if (!want_sub)
@@ -679,7 +684,7 @@ static BindingValue StateManager_QueryHeader(int key)
         Newtonoid2d *o = Universe_GetEntityByID(&G_Universe, ref.as.entity, &world_index);
         if (o)
         {
-            snprintf(out, out_bytes, "slot %u  gen %u  world %d",
+            snprintf(out, out_bytes, "SLOT %u GEN %u WORLD %d",
                      (unsigned)EntityId_GetSlotIndex(ref.as.entity),
                      (unsigned)EntityId_GetGeneration(ref.as.entity), world_index);
         }
@@ -967,11 +972,8 @@ static void StateManager_RegisterComponentSections(UIElement *root)
 // fails to resolve is logged and left NULL; the Refresh* helpers null-guard every pointer.
 static void StateManager_RegisterElements(UIElement *root)
 {
-    // --- Header (title / sub-line / tint box), tab row and the multi-select note ---
+    // --- Header (title / sub-line / tint box) and tab row ---
     PanelShared_HeaderBind(&s_sm_ui.header, root, state_manager_panel->palette, "entity_header", "sm_header_title", "sm_header_sub");
-    s_sm_ui.values_note = StateManager_Find(root, "sm_values_note");
-    StateManager_SetNoteText(s_sm_ui.values_note);
-    s_sm_ui.tab_container = StateManager_Find(root, "state_manager_views");
     // --- Physics / geometry / gameplay textboxes (ALL re-acquired in Stage 1) ---
     s_sm_ui.mass_tbox                 = StateManager_Find(root, "sm_mass");
     s_sm_ui.restitution_tbox          = StateManager_Find(root, "sm_restitution");
@@ -1076,6 +1078,13 @@ static void StateManager_RegisterElements(UIElement *root)
         snprintf(id, sizeof(id), "geo_vertex%d", i);
         s_sm_ui.geo_vertex_tbox[i] = StateManager_Find(root, id);
     }
+    // --- ANCESTRY view: the dense "ancestry_lineN" slot pool, enabled per chain length. ---
+    for (int i = 0; i < STATE_MANAGER_ANCESTRY_LINE_COUNT; i++)
+    {
+        char id[24];
+        snprintf(id, sizeof(id), "ancestry_line%d", i);
+        s_sm_ui.ancestry_line_tbox[i] = StateManager_Find(root, id);
+    }
 }
 
 // ============================================================================
@@ -1097,6 +1106,10 @@ static void RefreshComponentsSection(const Newtonoid2d *object)
         ClearString64(s_sm_ui.comp_relation_type_str);
         ClearString64(s_sm_ui.comp_relation_target_str);
         ClearString64(s_sm_ui.comp_relation_active_str);
+        // The TREE "Relation: -" line covers the empty state, so hide the three relation rows.
+        SetParentEnabledState(s_sm_ui.comp_relation_type_tbox, false);
+        SetParentEnabledState(s_sm_ui.comp_relation_target_tbox, false);
+        SetParentEnabledState(s_sm_ui.comp_relation_active_tbox, false);
         return; // No components to populate.
     }
 
@@ -1161,37 +1174,48 @@ static void RefreshPhysView(Newtonoid2d *object)
 
     // Refresh physics and gameplay numerical fields.
     TextboxField state_fields[] = {
-        {s_sm_ui.mass_tbox, FLOAT, object ? (void *)&object->mass : NULL, 2, NULL},
-        {s_sm_ui.restitution_tbox, FLOAT, object ? (void *)&object->restitution : NULL, 2, NULL},
-        {s_sm_ui.friction_tbox, FLOAT, object ? (void *)&object->friction : NULL, 2, NULL},
-        {s_sm_ui.pos_tl_tbox, VECTOR2D, object ? (void *)&object->bounds_origin : NULL, 0, NULL},
-        {s_sm_ui.pos_c_tbox, VECTOR2D, object ? (void *)&object->anchor_position : NULL, 0, NULL},
-        {s_sm_ui.vel_tbox, VECTOR2D, object ? (void *)&object->velocity : NULL, 0, NULL},
-        {s_sm_ui.accel_tbox, VECTOR2D, object ? (void *)&object->acceleration : NULL, 0, NULL},
-        {s_sm_ui.moment_tbox, VECTOR2D, object ? (void *)&object->momentum : NULL, 0, NULL},
-        {s_sm_ui.angular_velocity_tbox, FLOAT, object ? (void *)&object->angular_velocity : NULL, 2, NULL},
-        {s_sm_ui.angular_acceleration_tbox, FLOAT, object ? (void *)&object->angular_acceleration : NULL, 2, NULL},
+        {s_sm_ui.mass_tbox, FLOAT, object ? (void *)&object->mass : NULL, 2, UI_NO_VALUE_TEXT},
+        {s_sm_ui.restitution_tbox, FLOAT, object ? (void *)&object->restitution : NULL, 2, UI_NO_VALUE_TEXT},
+        {s_sm_ui.friction_tbox, FLOAT, object ? (void *)&object->friction : NULL, 2, UI_NO_VALUE_TEXT},
+        {s_sm_ui.pos_tl_tbox, VECTOR2D, object ? (void *)&object->bounds_origin : NULL, 0, UI_NO_VALUE_TEXT},
+        {s_sm_ui.pos_c_tbox, VECTOR2D, object ? (void *)&object->anchor_position : NULL, 0, UI_NO_VALUE_TEXT},
+        {s_sm_ui.vel_tbox, VECTOR2D, object ? (void *)&object->velocity : NULL, 0, UI_NO_VALUE_TEXT},
+        {s_sm_ui.accel_tbox, VECTOR2D, object ? (void *)&object->acceleration : NULL, 0, UI_NO_VALUE_TEXT},
+        {s_sm_ui.moment_tbox, VECTOR2D, object ? (void *)&object->momentum : NULL, 0, UI_NO_VALUE_TEXT},
+        {s_sm_ui.angular_velocity_tbox, FLOAT, object ? (void *)&object->angular_velocity : NULL, 2, UI_NO_VALUE_TEXT},
+        {s_sm_ui.angular_acceleration_tbox, FLOAT, object ? (void *)&object->angular_acceleration : NULL, 2, UI_NO_VALUE_TEXT},
 
-        {s_sm_ui.health_tbox, FLOAT, health ? (void *)&health->current_health : NULL, 2, NULL},
-        {s_sm_ui.max_health_tbox, FLOAT, health ? (void *)&health->max_health : NULL, 2, NULL},
-        // {s_sm_ui.damage_tbox, FLOAT, object ? (void *)&object->damage : NULL, 2, NULL}, // MIGRATED to BindTextboxDynamic
+        {s_sm_ui.health_tbox, FLOAT, health ? (void *)&health->current_health : NULL, 2, UI_NO_VALUE_TEXT},
+        {s_sm_ui.max_health_tbox, FLOAT, health ? (void *)&health->max_health : NULL, 2, UI_NO_VALUE_TEXT},
+        // {s_sm_ui.damage_tbox, FLOAT, object ? (void *)&object->damage : NULL, 2, UI_NO_VALUE_TEXT}, // MIGRATED to BindTextboxDynamic
     };
     RefreshTextboxFields(state_fields, ARRAY_COUNT(state_fields));
 
     // Refresh geometry fields, synchronising object rotation when valid. With no object every
-    // field gets a NULL source and shows "N/A". The rotation field keeps precision 0 in that case,
+    // field gets a NULL source and shows the "-" placeholder. The rotation field keeps precision 0 in that case,
     // as before.
     if (object)
     {
         SyncNewtonoidRotation(object);
     }
     TextboxField geometry_fields[] = {
-        {s_sm_ui.rotation_tbox, FLOAT, object ? (void *)&object->rotation : NULL, object ? 3 : 0, "N/A"},
-        {s_sm_ui.basis_u_tbox, VECTOR2D, object ? (void *)&object->local_axis_x : NULL, 0, "N/A"},
-        {s_sm_ui.basis_v_tbox, VECTOR2D, object ? (void *)&object->local_axis_y : NULL, 0, "N/A"},
-        {s_sm_ui.geometry_center_tbox, VECTOR2D, object ? (void *)&object->local_geometry_center : NULL, 0, "N/A"},
+        {s_sm_ui.rotation_tbox, FLOAT, object ? (void *)&object->rotation : NULL, object ? 3 : 0, UI_NO_VALUE_TEXT},
+        {s_sm_ui.basis_u_tbox, VECTOR2D, object ? (void *)&object->local_axis_x : NULL, 0, UI_NO_VALUE_TEXT},
+        {s_sm_ui.basis_v_tbox, VECTOR2D, object ? (void *)&object->local_axis_y : NULL, 0, UI_NO_VALUE_TEXT},
+        {s_sm_ui.geometry_center_tbox, VECTOR2D, object ? (void *)&object->local_geometry_center : NULL, 0, UI_NO_VALUE_TEXT},
     };
     RefreshTextboxFields(geometry_fields, ARRAY_COUNT(geometry_fields));
+
+    // The dynamically bound fields (damage, portal cooldown / destination) keep their last value
+    // when the binding query returns nothing, so write the placeholder by hand while nothing is
+    // selected. They are locked then, so no edit can be in progress; the binding pull restores the
+    // real value as soon as an entity (with that component) is selected.
+    if (!object)
+    {
+        WriteTextboxText(s_sm_ui.damage_tbox, UI_NO_VALUE_TEXT);
+        WriteTextboxText(s_sm_ui.comp_portal_cooldown_tbox, UI_NO_VALUE_TEXT);
+        WriteTextboxText(s_sm_ui.comp_portal_target_tbox, UI_NO_VALUE_TEXT);
+    }
 
     // Refresh the component value fields (portal, relation).
     RefreshComponentsSection(object);
@@ -1213,9 +1237,9 @@ static void StateManager_SetActionState(StateManagerActionPair *pair, bool remov
     pair->state = wanted;
 
     PanelShared_SetButtonText(pair->button, remove ? "REMOVE" : "ADD");
-    UIPalette_GetSurfaceColours(state_manager_panel->palette,
-                                remove ? UI_PALETTE_SURFACE_DANGER : UI_PALETTE_SURFACE_BUTTON,
-                                &pair->button->colour_border, &pair->button->colour_fill);
+    // The button takes the whole DANGER (REMOVE) or ACTIVE (ADD) role: fill, border and paired text.
+    UIElement_ApplyRoleColours(pair->button, state_manager_panel->palette,
+                               remove ? UI_ROLE_DANGER : UI_ROLE_ACTIVE);
 
     float action_width = remove ? SM_COMP_ACTION_REMOVE_W : SM_COMP_ACTION_ADD_W;
     pair->button->size.dimensions.x = action_width;
@@ -1241,7 +1265,7 @@ static void StateManager_ShowSectionBody(StateManagerComponentSection *section, 
 //    type), so ADD / REMOVE moves the card between halves at once, in the same fixed slot.
 //  * The attached card's caption, count, arrow, action button and body visibility come from the same
 //    tally, so the button always tells the truth about the next click.
-// With no entity selected every card and both empty-state lines are hidden.
+// With no entity selected every card is hidden and both empty-state lines are shown.
 static void RefreshComponentsView(const Newtonoid2d *object)
 {
     if (!object || object->id == INVALID_ENTITY_ID)
@@ -1256,8 +1280,9 @@ static void RefreshComponentsView(const Newtonoid2d *object)
                 StateManager_ShowSectionBody(section, false, false);
             }
         }
-        SetEnabledState(s_sm_ui.comp_attached_empty, false);
-        SetEnabledState(s_sm_ui.comp_avail_empty, false);
+        // Both halves show their empty-state lines; no card means no ADD / REMOVE button either.
+        SetEnabledState(s_sm_ui.comp_attached_empty, true);
+        SetEnabledState(s_sm_ui.comp_avail_empty, true);
         return;
     }
 
@@ -1323,10 +1348,10 @@ static void RefreshGeometryView(const Newtonoid2d *object)
 {
     bool is_valid = (object != NULL && object->id != INVALID_ENTITY_ID);
 
-    // Vertex-count readout: a NULL value pointer makes the field render its "N/A" placeholder.
+    // Vertex-count readout: a NULL value pointer makes the field render the "-" placeholder.
     int count = is_valid ? (int)object->surface.surface_vectors.count : 0;
     TextboxField count_field[] = {
-        {s_sm_ui.geo_vertex_count_tbox, INT, is_valid ? (void *)&count : NULL, 0, "N/A"},
+        {s_sm_ui.geo_vertex_count_tbox, INT, is_valid ? (void *)&count : NULL, 0, UI_NO_VALUE_TEXT},
     };
     RefreshTextboxFields(count_field, ARRAY_COUNT(count_field));
 
@@ -1401,8 +1426,10 @@ static void StateManager_OnViewSelected(View *view)
     }
 }
 
-// Apply everything the entity selection decides: header tint, tab row and shown view, the
-// multi-select field lock and note, and the DELETE label. Called at the top of every refresh.
+// Apply everything the entity selection decides: header tint, tab row and shown view, the field
+// lock (multi-select or nothing selected) and DELETE's visibility and label. With nothing selected
+// the panel keeps its full structure (tabs, views) with "-" placeholders and locked read-only
+// fields. Called at the top of every refresh.
 static void StateManager_ApplyLayout(void)
 {
     if (!state_manager_panel || !s_sm_selector || s_sm_selector->count <= SM_VIEW_TREE)
@@ -1411,48 +1438,34 @@ static void StateManager_ApplyLayout(void)
     }
 
     int entity_count = PanelShared_CountKind(TARGET_KIND_ENTITY);
-    bool has_entity = entity_count > 0;
     bool multi = entity_count > 1;
+    // A live primary entity exists: a stale ref (deleted or destroyed entity) counts as none.
+    bool has_target = StateManager_SelectedObject() != NULL;
 
     // Header tint: amber while several entities are being edited together.
     PanelShared_HeaderSetTint(&s_sm_ui.header, multi);
 
-    // Tab row: hidden when no entity is selected. In multi-select the SHAPE and TREE tabs are hidden
-    // (single-entity views).
-    if (s_sm_ui.tab_container)
-    {
-        SetEnabledState(s_sm_ui.tab_container, has_entity);
-    }
+    // Tab row: always shown. In multi-select the SHAPE and TREE tabs are hidden (single-entity views).
     SetEnabledState(s_sm_selector->buttons[SM_VIEW_SHAPE], !multi);
     SetEnabledState(s_sm_selector->buttons[SM_VIEW_TREE], !multi);
 
-    // Shown view: the remembered tab, clamped to the bulk-capable tabs in multi-select, or none at all.
-    int desired = SM_SHOWN_NONE;
-    if (has_entity)
+    // Shown view: the remembered tab, clamped to the bulk-capable tabs in multi-select.
+    int desired = s_sm_entity_tab;
+    if (multi && desired > SM_VIEW_COMP)
     {
-        desired = s_sm_entity_tab;
-        if (multi && desired > SM_VIEW_COMP)
-        {
-            desired = SM_VIEW_PHYS;
-        }
+        desired = SM_VIEW_PHYS;
     }
     if (desired != s_sm_shown_view)
     {
-        if (desired == SM_SHOWN_NONE)
-        {
-            PanelShared_ShowOnlyView(state_manager_panel, -1);
-        }
-        else
-        {
-            // SelectView fires the callback, which would overwrite the remembered tab; keep it.
-            int remembered_tab = s_sm_entity_tab;
-            ViewHostSystem_SelectView(s_sm_selector, (size_t)desired);
-            s_sm_entity_tab = remembered_tab;
-        }
+        // SelectView fires the callback, which would overwrite the remembered tab; keep it.
+        int remembered_tab = s_sm_entity_tab;
+        ViewHostSystem_SelectView(s_sm_selector, (size_t)desired);
+        s_sm_entity_tab = remembered_tab;
         s_sm_shown_view = desired;
     }
 
-    // Value fields are read-only in multi-select; the PHYS note says so.
+    // Value fields are read-only in multi-select (the header sub-line names the primary they show)
+    // and while nothing is selected (they show the "-" placeholder and have no target to write to).
     UIElement *fields[] = {
         s_sm_ui.mass_tbox, s_sm_ui.restitution_tbox, s_sm_ui.friction_tbox, s_sm_ui.pos_c_tbox,
         s_sm_ui.vel_tbox, s_sm_ui.accel_tbox, s_sm_ui.moment_tbox, s_sm_ui.angular_velocity_tbox,
@@ -1460,12 +1473,10 @@ static void StateManager_ApplyLayout(void)
         s_sm_ui.health_tbox, s_sm_ui.max_health_tbox, s_sm_ui.damage_tbox,
         s_sm_ui.comp_portal_cooldown_tbox, s_sm_ui.comp_portal_target_tbox,
     };
-    PanelShared_SetFieldsLocked(fields, ARRAY_COUNT(fields), &s_sm_fields_locked, multi);
-    if (s_sm_ui.values_note)
-    {
-        SetEnabledState(s_sm_ui.values_note, multi);
-    }
+    PanelShared_SetFieldsLocked(fields, ARRAY_COUNT(fields), &s_sm_fields_locked, multi || !has_target);
 
+    // DELETE has nothing to act on without a target, so it is hidden (a disabled element takes no space).
+    SetEnabledState(s_sm_ui.delete_button, has_target);
     // DELETE acts on the primary entity only, so the multi-select label says so.
     if (s_sm_ui.delete_button)
     {
@@ -1483,6 +1494,27 @@ static void StateManager_ApplyLayout(void)
     }
 }
 
+/**
+ * Enable only the ancestry line slots the selected node's chain actually fills. Disabled rows take
+ * no layout space, so unused slots no longer show as blank read-only fields (the same approach the
+ * SHAPE view uses for unused vertex rows). The text itself still comes from the binding shim.
+ */
+static void RefreshAncestryView(void)
+{
+    int count = 0;
+    EntityId root = StateManager_AncestryRootId();
+    if (root != INVALID_ENTITY_ID)
+    {
+        // Same walk as StateManager_QueryAncestryLine so the visible rows match its text.
+        EntityId chain[STATE_MANAGER_ANCESTRY_LINE_COUNT];
+        count = Ancestry_WalkUp(root, STATE_MANAGER_ANCESTRY_LINE_COUNT - 1, chain,
+                                STATE_MANAGER_ANCESTRY_LINE_COUNT);
+    }
+    for (int i = 0; i < STATE_MANAGER_ANCESTRY_LINE_COUNT; i++)
+    {
+        SetEnabledState(s_sm_ui.ancestry_line_tbox[i], i < count);
+    }
+}
 // Push the primary selected entity and its capability state into the UI views.
 void UpdateStateManagerSelectedObject(void)
 {
@@ -1493,6 +1525,7 @@ void UpdateStateManagerSelectedObject(void)
     RefreshPhysView(object);
     RefreshComponentsView(object);
     RefreshGeometryView(object);
+    RefreshAncestryView();
 }
 // ============================================================================
 // Module Lifecycle

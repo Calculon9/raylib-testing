@@ -2,18 +2,24 @@
 <!-- Describes the popup creation menu; runtime wiring is in popup_menu.c.           -->
 <!-- Views: CREATE, RECENT (mutually-exclusive, click/enumerate selector).            -->
 <!--                                                                                  -->
-<!-- Stage 1 of the XML migration: InitPopupMenu loads this markup through the        -->
-<!-- generic UI loader (mirroring InitStateManagerSystem), then an id-registration    -->
-<!-- pass (Popup_RegisterElements) re-acquires every element by id and wires the      -->
-<!-- C-owned behaviour.                                                               -->
+<!-- The popup follows the UI style guide (docs/UI_STYLE_GUIDE.md): a dark panel frame, -->
+<!-- a tab row whose tabs hug their text, and one continuous sage sheet per view        -->
+<!-- (surface="container" border="none" padding="6"). Rows are width="fill" at the      -->
+<!-- standard 25 px height, so the only authored width is the popup ViewHost itself.    -->
+<!-- ENTITY / WORLD category rows take the INACTIVE role (ACTIVE while their submenu is  -->
+<!-- open, set from C); the leaf action buttons keep the default ACTIVE button role.     -->
+<!--                                                                                  -->
+<!-- InitPopupMenu loads this markup through the generic UI loader (mirroring            -->
+<!-- InitStateManagerSystem), then an id-registration pass (Popup_RegisterElements)      -->
+<!-- re-acquires every element by id and wires the C-owned behaviour.                   -->
 <!--                                                                                  -->
 <!--  * ENTITY/WORLD are plain <Label>s; their base on_hover (+ interaction_user_data)-->
-<!--    is set in C to open/close the entity/world submenus (HandlePopupHover). The    -->
-<!--    former CreateUIHoverItemDefault presentation (button-surface colours,          -->
-<!--    LEFT/CENTRE alignment, is_draggable=false) is restored in C in the id-pass.     -->
+<!--    is set in C to open/close the entity/world submenus (HandlePopupHover) and the  -->
+<!--    row roles follow the open state.                                               -->
 <!--  * The entity/world submenus are <Container enabled="false"> nested as CHILDREN of  -->
-<!--    their ENTITY/WORLD <Label> item (NOT siblings in create_view), fanned out by a    -->
-<!--    fixed +x offset so each anchors beside its own row; C toggles their enabled state.-->
+<!--    their ENTITY/WORLD <Label> item (NOT siblings in create_view), placed flush      -->
+<!--    right of the row with a percent offset (1,0 = one row-width across), so no pixel -->
+<!--    offset is authored; C toggles their enabled state.                             -->
 <!--  * The six create buttons and six world buttons carry NO action=/binding= so the  -->
 <!--    loader attaches no handler; C wires on_click + typed interaction_user_data.     -->
 <!--  * Click-point positioning, show/hide and visibility stay entirely in C.           -->
@@ -23,71 +29,60 @@
 <!--    never this host container, so a disabled ViewHost would make the whole popup    -->
 <!--    render and hit-test as nothing. Visibility is owned solely by popup_menu->root  -->
 <!--    (InitPopupMenu disables it; Show/Hide toggle it).                               -->
+<!--                                                                                  -->
+<!-- The ENTITY/WORLD <Label>s deliberately carry NO layout= attribute, so their        -->
+<!-- child_spacing stays SPACING_NONE (the loader default for a Label). A SPACING_NONE   -->
+<!-- parent runs no stacked distribution, so the submenu keeps its authored offset with  -->
+<!-- no stack cursor added. The labels stay one 25 px row, so create_view's stack        -->
+<!-- advances by exactly one row per item whether or not a submenu is open. The submenus -->
+<!-- keep overflow="true" so their hug box is not clamped to the item's small content box.-->
 <ViewHost id="popup_menu" layout="stacked" initial-view="create_view"
-          size="188,288" width="fixed" height="fixed">
-
-    <ViewSelector id="popup_views" type="enumerate" size="188,25" width="fixed" height="fixed">
-        <Option text="CREATE" view="create_view" size="94,25" />
-        <Option text="RECENT" view="recent_view" size="94,25" />
+          size="188,0" width="fixed" height="hug">
+    <ViewSelector id="popup_views" type="enumerate" layout="inline_wrap" gap="0,0" width="fill" height="hug">
+        <Option text="CREATE" view="create_view" width="hug" />
+        <Option text="RECENT" view="recent_view" width="hug" />
     </ViewSelector>
-
-    <!-- CREATE view: persistent ENTITY/WORLD column, each item HOSTING its own          -->
-    <!-- hover-toggled submenu as a CHILD (not a sibling). Anchoring the submenu to its   -->
-    <!-- item's row is what fixes the detached low-right placement: because create_view    -->
-    <!-- uses layout="stack", a submenu authored as a SIBLING of the items was displaced   -->
-    <!-- downward by the accumulated stack cursor of the preceding ENTITY/WORLD rows the    -->
-    <!-- moment it was enabled on hover. Re-parenting each submenu INTO its <Label> makes   -->
-    <!-- the submenu's layout origin the item's own row, so its offset="175,0" fans it     -->
-    <!-- out to the right of that exact row with ~0 vertical displacement.                  -->
-    <!--                                                                                    -->
-    <!-- The ENTITY/WORLD <Label>s deliberately carry NO layout= attribute, so their        -->
-    <!-- child_spacing stays SPACING_NONE (the loader default for a Label). A SPACING_NONE   -->
-    <!-- parent runs no stacked distribution, so the submenu keeps its authored offset       -->
-    <!-- (175,0) with no stack cursor added - adding layout="stack" here would instead      -->
-    <!-- push the submenu down by the label's row height and re-introduce the displacement.  -->
-    <!-- The labels remain height="fixed" 25, so create_view's stack advances by exactly    -->
-    <!-- one row per item regardless of whether a submenu is open: the two items still stack  -->
-    <!-- as a tight 25-high column with no new vertical gap. The submenus keep overflow=      -->
-    <!-- "true" so their hug box is not clamped to the item's small content box.               -->
+    <!-- CREATE view: the sage sheet holding the persistent ENTITY/WORLD column, each item   -->
+    <!-- HOSTING its own hover-toggled submenu as a CHILD (anchoring the submenu to its      -->
+    <!-- item's row keeps it beside that row instead of being displaced by the stack cursor). -->
     <View id="create_view" type="POPUP_MENU_CREATE_VIEW"
-          size="188,250" width="fixed" height="fixed" offset="0,25" layout="stack">
+          width="fill" height="hug" layout="stack" surface="container" border="none" padding="6">
         <!-- ENTITY item HOSTS the entity submenu; keep the label leaf-styled (no layout=). -->
-        <Label id="popup_item_entity" text="ENTITY" size="188,25" width="fixed" height="fixed">
-            <!-- Entity submenu: child of its item, fixed +x fan-out, starts disabled. -->
-            <Container id="popup_entity_submenu" surface="container" enabled="false" overflow="true"
-                       offset="175,0" offset-mode="fixed" width="hug" height="hug" layout="stack">
-                <Label  text="Shapes" style="title" size="188,25" width="fixed" height="fixed" />
-                <Button type="simple" id="popup_btn_triangle" text="triangle" size="188,25" width="fixed" height="fixed" />
-                <Button type="simple" id="popup_btn_square"   text="square"   size="188,25" width="fixed" height="fixed" />
-                <Button type="simple" id="popup_btn_circle"   text="circle"   size="188,25" width="fixed" height="fixed" />
-                <Label  text="Functional" style="title" size="188,25" width="fixed" height="fixed" />
-                <Button type="simple" id="popup_btn_rotor"  text="rotor"  size="188,25" width="fixed" height="fixed" />
-                <Button type="simple" id="popup_btn_gear"   text="gear"   size="188,25" width="fixed" height="fixed" />
-                <Button type="simple" id="popup_btn_portal" text="portal" size="188,25" width="fixed" height="fixed" />
+        <Label id="popup_item_entity" text="ENTITY" width="fill" height="fixed">
+            <!-- Entity submenu: child of its item, flush right of the row, starts disabled. It is a -->
+            <!-- floating sheet; C gives it the 1 px panel-colour outline so it has an edge over the world. -->
+            <Container id="popup_entity_submenu" surface="container" border="none" padding="6" enabled="false" overflow="true"
+                       offset="1,0" offset-mode="percent" size="1,0" width="percent" height="hug" layout="stack">
+                <Label  text="Shapes" style="title" />
+                <Button type="simple" id="popup_btn_triangle" text="triangle" />
+                <Button type="simple" id="popup_btn_square"   text="square" />
+                <Button type="simple" id="popup_btn_circle"   text="circle" />
+                <Label  text="Functional" style="title" />
+                <Button type="simple" id="popup_btn_rotor"  text="rotor" />
+                <Button type="simple" id="popup_btn_gear"   text="gear" />
+                <Button type="simple" id="popup_btn_portal" text="portal" />
             </Container>
         </Label>
-
         <!-- WORLD item HOSTS the world submenu; keep the label leaf-styled (no layout=). -->
-        <Label id="popup_item_world"  text="WORLD"  size="188,25" width="fixed" height="fixed">
-            <!-- World submenu: child of its item, fixed +x fan-out, starts disabled. -->
-            <Container id="popup_world_submenu" surface="container" enabled="false" overflow="true"
-                       offset="175,0" offset-mode="fixed" width="hug" height="hug" layout="stack">
-                <Label  text="Small" style="title" size="188,25" width="fixed" height="fixed" />
-                <Button type="simple" id="popup_btn_regular"     text="regular"      size="188,25" width="fixed" height="fixed" />
-                <Button type="simple" id="popup_btn_sheared_y"   text="sheared-y"    size="188,25" width="fixed" height="fixed" />
-                <Button type="simple" id="popup_btn_sheared_x"   text="sheared-x"    size="188,25" width="fixed" height="fixed" />
-                <Button type="simple" id="popup_btn_isometric"   text="isometric"    size="188,25" width="fixed" height="fixed" />
-                <Button type="simple" id="popup_btn_perspective" text="perspective"  size="188,25" width="fixed" height="fixed" />
-                <Button type="simple" id="popup_btn_radial"      text="radial/polar" size="188,25" width="fixed" height="fixed" />
+        <Label id="popup_item_world"  text="WORLD" width="fill" height="fixed">
+            <!-- World submenu: child of its item, flush right of the row, starts disabled. -->
+            <Container id="popup_world_submenu" surface="container" border="none" padding="6" enabled="false" overflow="true"
+                       offset="1,0" offset-mode="percent" size="1,0" width="percent" height="hug" layout="stack">
+                <Label  text="Small" style="title" />
+                <Button type="simple" id="popup_btn_regular"     text="regular" />
+                <Button type="simple" id="popup_btn_sheared_y"   text="sheared-y" />
+                <Button type="simple" id="popup_btn_sheared_x"   text="sheared-x" />
+                <Button type="simple" id="popup_btn_isometric"   text="isometric" />
+                <Button type="simple" id="popup_btn_perspective" text="perspective" />
+                <Button type="simple" id="popup_btn_radial"      text="radial/polar" />
             </Container>
         </Label>
     </View>
-
     <!-- RECENT view: starts disabled; static placeholder (no C refresh today). -->
     <View id="recent_view" type="POPUP_MENU_RECENT_VIEW" enabled="false"
-          size="188,250" width="fixed" height="fixed" offset="0,25" layout="stack">
-        <Container id="recent_list" surface="container" width="fill" height="fill" layout="stack">
-            <Label text="No recent actions" size="188,25" width="fixed" height="fixed" />
+          width="fill" height="hug" layout="stack" surface="container" border="none" padding="6">
+        <Container id="recent_list" surface="transparent" padding="0" width="fill" height="hug" layout="stack">
+            <Label text="No recent actions" width="fill" height="fixed" />
         </Container>
     </View>
 </ViewHost>

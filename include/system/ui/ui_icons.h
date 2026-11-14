@@ -7,7 +7,7 @@ A small home for the toolbar's procedural icon glyphs. Each function is an on_dr
 flat box. Every glyph reads e->screen_box for geometry, is composed from the same raylib
 primitives the Nudge glyph uses (DrawLineEx / DrawRectangleLinesEx / DrawCircleV / line loops),
 and tints itself by ON/OFF state. The toggle glyphs read e->colour_fill (which the per-frame
-binding refresh sets to toggle_on_fill/off), so they stay in lock-step with the button fill
+binding refresh sets to ACTIVE/INACTIVE role fill), so they stay in lock-step with the button fill
 without duplicating the name->DebugOverlayId mapping; the Nudge glyph keeps its own tool-state
 tint because the Nudge button carries no binding=.
 *

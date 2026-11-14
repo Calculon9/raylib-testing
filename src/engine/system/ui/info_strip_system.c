@@ -369,7 +369,7 @@ void InitInfoStrip(void)
     //    container under it (NEVER info_strip->root = root - that is the dangling-root bug).
     //    Mounting against info_strip_viewport (not game_viewport) keeps the strip in its own
     //    reserved screen region so it never overlaps the world render area.
-    info_strip = ViewHostSystem_Create(&info_strip_viewport, 1.0f, ZERO_VECTOR_2D,
+    info_strip = ViewHostSystem_Create(&info_strip_viewport, 1.0f, ui_strip_host_padding,
                                        UIPalette_GetActive(), ui_standard_stack_spacing);
     if (!info_strip)
     {

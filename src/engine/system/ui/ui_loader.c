@@ -656,9 +656,17 @@ static void UILoader_ApplyFieldValue(mxml_node_t *node, UIElement *textbox,
  *             value (optional - initial value seeded into the binding + shown in the field),
  *             size (optional "w,h"), width/height (optional per-axis mode
  *             "fixed|percent|fill|hug"), offset (optional "x,y"),
- *             offset-mode (optional "fixed"/"percent"), enabled (optional).
+ *             offset-mode (optional "fixed"/"percent"), enabled (optional),
+ *             field-layout (optional: "inline" (default) / "stacked"), unit (optional suffix text).
  * size/width/height and offset/offset-mode default to ui_standard_control_size and a zero
  * fixed offset when absent, so attribute-less markup is unchanged.
+ *
+ * field-layout="stacked" is the stacked field layout: the label column is fixed at
+ * ui_standard_textfield_label_width (the per-section longest-label pass skips the row) and a
+ * type="vector2" field becomes two rows tall (control row + stack gap + control row): the label stays
+ * on the first row and the control draws its x and y component boxes one above the other. The
+ * control remains ONE textbox (one buffer, binding and hit area), so bindings and editing are
+ * unchanged. unit= draws a muted suffix (for example "rad") inside the box, right-aligned.
  *
  * Resolves binding= through ctx->resolve_binding and ATTACHES the result to the created
  * textbox (0.1): an address source becomes a read-only live label (BIND_SRC_ADDRESS, no
@@ -708,6 +716,36 @@ static UIBuildResult BuildTextField(mxml_node_t *node, UIElement *parent, const 
     // Attach the assembled Binding + data_type to the CONTROL (textbox), not the row: the row is
     // a container and has no meaningful data.textbox.
     UILoader_AttachTextboxBinding(textbox, &b, data_type, have_source, have_sink);
+
+    // field-layout= (stacked field layout) and unit= (inside-field suffix); see the header comment.
+    const char *field_layout = mxmlElementGetAttr(node, "field-layout");
+    if (field_layout && !strcmp(field_layout, "stacked"))
+    {
+        textbox->data.textbox.stacked_field = true;
+        if (data_type == VECTOR2D)
+        {
+            // Two control rows plus the standard stack gap; the label keeps a single control row so
+            // it sits level with the x box. Only a fixed-height row can be stacked.
+            UIElement *label_cell = row->first_child;
+            if (row->size.height_mode == AXIS_FIXED && label_cell)
+            {
+                float control_height = row->size.dimensions.y;
+                row->size.dimensions.y = (2.0f * control_height) + ui_standard_stack_spacing.gap.y;
+                label_cell->size.height_mode = AXIS_FIXED;
+                label_cell->size.dimensions.y = control_height;
+                textbox->data.textbox.stacked_vector = true;
+            }
+        }
+    }
+    else if (field_layout && strcmp(field_layout, "inline") != 0)
+    {
+        LOADER_WARNING(ctx, "Unrecognised field-layout value; using inline");
+    }
+    const char *unit_attr = mxmlElementGetAttr(node, "unit");
+    if (unit_attr)
+    {
+        safe_strncpy(textbox->data.textbox.unit, unit_attr, sizeof(textbox->data.textbox.unit));
+    }
 
     // Seed the field from an authored value= (writes the bound data + the display text).
     UILoader_ApplyFieldValue(node, textbox, &b, data_type);
@@ -825,7 +863,8 @@ static UIElement *UILoader_CreateContainerFromCommon(UIElement *parent, const UI
  * Attributes: size (optional "w,h"), width/height (optional per-axis mode
  *             "fixed|percent|fill|hug"), offset (optional "x,y"),
  *             offset-mode (optional "fixed"/"percent"), layout (optional),
- *             padding / surface / border (optional, generic - see the common attributes).
+ *             padding / surface / border (optional, generic - see the common attributes),
+ *             columns (optional 1..8: with layout="inline_wrap", an equal-column button grid).
  * Children are added to the container. A container is transparent and borderless by default;
  * a boxed "section" is authored explicitly with surface="container" (and a heading is just a
  * <Label style="title"> child). (This tag supersedes the former <Section>.)
@@ -849,6 +888,19 @@ static UIBuildResult BuildContainer(mxml_node_t *node, UIElement *parent,
     {
         UILoader_ParseScroll(ctx, mxmlElementGetAttr(node, "scroll"),
                              &container->is_scrollable_x, &container->is_scrollable_y);
+
+        // columns="N" (with layout="inline_wrap"): lay the Button children out as an N-column
+        // grid (see ApplyGridColumnWidths in ui.c). Absent or invalid leaves it off.
+        const char *columns_attr = mxmlElementGetAttr(node, "columns");
+        if (columns_attr)
+        {
+            char *endptr = NULL;
+            long columns = strtol(columns_attr, &endptr, 10);
+            if (*endptr == '\0' && columns >= 1 && columns <= 8)
+                container->grid_columns = (int)columns;
+            else
+                LOADER_WARNING(ctx, "columns must be an integer from 1 to 8; grid disabled");
+        }
     }
 
     // Single-element builder: control == outer (offset consumed at construct time).
@@ -1016,7 +1068,7 @@ static UIBuildResult BuildOption(mxml_node_t *node, UIElement *parent,
     // likewise applied POST by the skeleton.
     UIElement *button = CreateUIButtonDefault(parent, UI_ELEMENT_BUTTON_ENUMERATE, text,
                                              common->size,
-                                             ui_standard_button_padding, palette,
+                                             ui_standard_tab_padding, palette,
                                              NULL, NULL, NULL);
 
     if (button)
@@ -1168,6 +1220,10 @@ static const Layout *UILoader_ParseLayout(const char *layout_str)
         return &ui_standard_inline_spacing;
     else if (!strcmp(layout_str, "inline_wrap"))
         return &ui_standard_inline_wrap_spacing;
+    else if (!strcmp(layout_str, "view_stack"))
+        // Stacked column with the 6 px gap between a panel's top-level blocks (ui_view_stack_spacing),
+        // for non-panel parents (e.g. the toolbar's groups) that need the same block spacing.
+        return &ui_view_stack_spacing;
     
     return &ui_standard_stack_spacing;  // Default
 }
@@ -1271,7 +1327,7 @@ static OffsetMode UILoader_ParseOffsetMode(const char *mode_str)
 }
 
 // Silent lookup of a surface role name (transparent, container, field_row, input, button, panel,
-// danger, subsection).
+// danger, inactive, card, and the deprecated alias subsection = card).
 // Returns true and writes *out when recognised. Shared by surface= and border=.
 static bool UILoader_LookupSurface(const char *name, UIPaletteSurface *out)
 {
@@ -1279,7 +1335,10 @@ static bool UILoader_LookupSurface(const char *name, UIPaletteSurface *out)
         {"transparent", UI_PALETTE_SURFACE_TRANSPARENT}, {"container", UI_PALETTE_SURFACE_CONTAINER},
         {"field_row", UI_PALETTE_SURFACE_FIELD_ROW},     {"input", UI_PALETTE_SURFACE_INPUT},
         {"button", UI_PALETTE_SURFACE_BUTTON},           {"panel", UI_PALETTE_SURFACE_PANEL},
-        {"danger", UI_PALETTE_SURFACE_DANGER},           {"subsection", UI_PALETTE_SURFACE_SUBSECTION},
+        {"danger", UI_PALETTE_SURFACE_DANGER},           {"inactive", UI_PALETTE_SURFACE_INACTIVE},
+        {"card", UI_PALETTE_SURFACE_CARD},
+        // Deprecated alias of "card" (it used to mean the dark teal group); kept so old markup loads.
+        {"subsection", UI_PALETTE_SURFACE_CARD},
     };
     for (size_t i = 0; i < sizeof(roles) / sizeof(roles[0]); i++)
     {
@@ -1454,7 +1513,10 @@ void UILoader_ExtractCommonAttrs(mxml_node_t *node, UILoaderContext *ctx, char *
         const char *height_attr = mxmlElementGetAttr(node, "height");
 
         // A provided size= supplies BOTH axes (ParseSizeValues mirrors a lone value to both).
-        Vector2d dims = size_attr ? UILoader_ParseSizeValues(size_attr) : (Vector2d){0.0f, 0.0f};
+        // size="icon" is the named keyword for the shared icon button size (34 x 25), so markup
+        // never repeats the pixel literals (ui_standard_icon_button_size).
+        Vector2d dims = (size_attr && strcmp(size_attr, "icon") == 0) ? ui_standard_icon_button_size.dimensions
+                        : size_attr ? UILoader_ParseSizeValues(size_attr) : (Vector2d){0.0f, 0.0f};
         bool has_size = (size_attr != NULL);
 
         bool wset = false, hset = false;
@@ -1591,7 +1653,9 @@ void UILoader_ExtractCommonAttrs(mxml_node_t *node, UILoaderContext *ctx, char *
 // Tree Parsing
 // ============================================================================
 
-// Helper: apply the ink= attribute ("light" = palette text_on_dark, "dark" = palette text) to the
+static void UILoader_ApplyTextColour(UIElement *outer, ColourRgba ink);
+
+// Helper: apply the ink= attribute ("light" = the INACTIVE role text, "dark" = the ACTIVE role ink) to the
 // font colour of a Label, Button or Textbox. For a <TextField> row only the label child is
 // recoloured (the input keeps dark ink on its cream cell). Elements without a font ignore it;
 // an unrecognised value warns and leaves the colours unchanged.
@@ -1603,15 +1667,23 @@ static void UILoader_ApplyInk(UILoaderContext *ctx, UIElement *outer, const UIPa
 
     ColourRgba ink;
     if (!strcmp(ink_str, "light"))
-        ink = palette->text_on_dark;
+        ink = UIPalette_GetRoleColours(palette, UI_ROLE_INACTIVE).text; // text of the inactive role
     else if (!strcmp(ink_str, "dark"))
-        ink = palette->text;
+        ink = UIPalette_GetRoleColours(palette, UI_ROLE_ACTIVE).text;   // ink of the active role
     else
     {
         LOADER_WARNING(ctx, "Unrecognised ink value; leaving text colour unchanged");
         return;
     }
 
+    UILoader_ApplyTextColour(outer, ink);
+}
+
+// Helper: write `ink` to the font colour of a Label, Button or Textbox. For a <TextField> row only
+// the label child is recoloured (the input keeps its role text on its input fill). Containers and
+// Views have no font and are ignored. Shared by ink=, surface text roles and inherited card text.
+static void UILoader_ApplyTextColour(UIElement *outer, ColourRgba ink)
+{
     // A TextField row recolours its label child only.
     UIElement *target = (outer->type == UI_ELEMENT_TEXTFIELD) ? outer->first_child : outer;
     if (!target)
@@ -1719,12 +1791,47 @@ static UIElement *UILoader_ParseElementNode(mxml_node_t *node, UIElement *parent
     // point (after the builder ran) so ANY element can opt in. An absent or unrecognised value
     // leaves the element's constructor-chosen colours untouched; a recognised value resolves the
     // role from the active palette and overrides colour_fill/colour_border.
+    // Text roles: captions and field labels inside a role surface (a card) inherit that role's text
+    // colour first; the element's own surface text and ink= then override it. The inherited state is
+    // restored after the children are parsed so it never leaks to siblings.
+    const bool saved_has_inherited_text = ctx->has_inherited_text;
+    const ColourRgba saved_inherited_text = ctx->inherited_text;
+    // A filled Textbox (a read-only or editable field) keeps its own ink on its own fill, so only a
+    // transparent Textbox (a note drawn straight on the card) takes the card text.
+    const char *own_surface = mxmlElementGetAttr(node, "surface");
+    const bool is_textbox = outer->type == UI_ELEMENT_TEXTBOX_O || outer->type == UI_ELEMENT_TEXTBOX_IO ||
+                            outer->type == UI_ELEMENT_TEXTBOX_SAFE_IO;
+    const bool is_filled_textbox = is_textbox && !(own_surface && !strcmp(own_surface, "transparent"));
+    if (ctx->has_inherited_text && !is_filled_textbox)
+    {
+        UILoader_ApplyTextColour(outer, ctx->inherited_text);
+    }
     UIPaletteSurface surface_role;
     if (UILoader_ParseSurface(ctx, mxmlElementGetAttr(node, "surface"), &surface_role))
     {
         UIPalette_GetSurfaceColours(ctx->palette, surface_role,
                                     &outer->colour_border, &outer->colour_fill);
         outer->border_weight = UIPalette_GetSurfaceBorderWeight(ctx->palette, surface_role);
+        // A surface that is a control role also brings its paired text colour (button = ink on
+        // amber, danger = ink on coral, card = cream on teal), so views need no ink=.
+        ColourRgba surface_text;
+        if (UIPalette_GetSurfaceText(ctx->palette, surface_role, &surface_text))
+        {
+            UILoader_ApplyTextColour(outer, surface_text);
+            if (surface_role == UI_PALETTE_SURFACE_CARD)
+            {
+                // A card's descendants share its text colour, and are marked as inside a card
+                // (is_card) so their INACTIVE roles resolve to the sheet colours.
+                outer->is_card = true;
+                ctx->has_inherited_text = true;
+                ctx->inherited_text = surface_text;
+            }
+            else if (surface_role == UI_PALETTE_SURFACE_INACTIVE && saved_has_inherited_text)
+            {
+                // Inactive-in-card rule for statically authored inactive controls.
+                UIElement_ApplyRoleColours(outer, ctx->palette, UI_ROLE_INACTIVE);
+            }
+        }
     }
     // ink: optional text colour role for the element's caption (light/dark), applied here so any
     // element can opt in without per-panel colour code.
@@ -1775,7 +1882,11 @@ static UIElement *UILoader_ParseElementNode(mxml_node_t *node, UIElement *parent
             (void)child_elem;
         }
     }
-    
+
+    // Leave the card's inherited text scope.
+    ctx->has_inherited_text = saved_has_inherited_text;
+    ctx->inherited_text = saved_inherited_text;
+
     return outer;
 }
 

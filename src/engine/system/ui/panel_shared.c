@@ -1,5 +1,7 @@
 #include "system/ui/panel_shared.h"
 #include <stdio.h>
+#include "raylib.h"                      // DrawRectangleRec (header rule)
+#include "system/draw_primitives.h"      // ToRaylibColor
 #include "ui/ui_input.h"                 // ResetUIInputState (drop focus when fields lock)
 #include "ui/cfont.h"                    // FONT_LARGE_WITH_COLOUR / FONT_MEDIUM_WITH_COLOUR
 #include "system/ui/ui_loader.h"
@@ -281,9 +283,25 @@ void PanelShared_WireFlags(UIElement *root, FlagButton *buttons, const char **id
 // Header block
 // ============================================================================
 
-// Bind a header block to its markup ids. The title switches to FONT_LARGE and the box fill is
-// captured so an untinted header can be restored. The owning host's palette is stored for the tint
-// pass. Missing ids are logged and left NULL.
+// Header on_draw hook: a 2 px coral rule along the bottom edge of the header box (the palette
+// container border colour). The pixel scale is recovered from the box (screen height / UI height),
+// so the rule stays 2 UI pixels at every UI scale.
+static void PanelShared_DrawHeaderRule(UIElement *box)
+{
+    float scale = (box->local_box.dimensions.y > 0.0f)
+                      ? box->screen_box.dimensions.y / box->local_box.dimensions.y
+                      : 1.0f;
+    float thickness = PANEL_HEADER_RULE_PX * scale;
+    DrawRectangleRec((Rectangle){box->screen_box.coords.x,
+                                 box->screen_box.coords.y + box->screen_box.dimensions.y - thickness,
+                                 box->screen_box.dimensions.x, thickness},
+                     ToRaylibColor(UIPalette_GetActive()->container_border));
+}
+
+// Bind a header block to its markup ids. The title switches to FONT_LARGE. The box is restyled as
+// the shared header look: the palette header_fill, no border, and a coral rule along its bottom
+// edge (on_draw hook); that fill is captured so an untinted header can be restored. The owning
+// host's palette is stored for the tint pass. Missing ids are logged and left NULL.
 void PanelShared_HeaderBind(PanelHeader *header, UIElement *root, const UIPalette *palette,
                             const char *box_id, const char *title_id, const char *sub_id)
 {
@@ -298,19 +316,22 @@ void PanelShared_HeaderBind(PanelHeader *header, UIElement *root, const UIPalett
     }
     if (header->box)
     {
+        header->box->colour_fill = UIPalette_GetRoleColours(header->palette, UI_ROLE_HEADER).fill;
+        header->box->colour_border = COLOURLESS_RGBA;
+        header->box->on_draw = PanelShared_DrawHeaderRule;
         header->default_fill = header->box->colour_fill;
     }
     if (header->title)
     {
         // Titles use FONT_LARGE; the tint pass re-applies it with the right ink colour.
-        header->title->data.textbox.font = FONT_LARGE_WITH_COLOUR(header->palette->title_text);
+        header->title->data.textbox.font = FONT_LARGE_WITH_COLOUR(header->palette->header_text);
     }
 }
 
 // Tint (or restore) the header box with existing palette colours: amber button_fill when several
-// targets are selected, otherwise the default section fill. Only the fill swaps; the ink is the
-// title_text colour in both states (dark reads on both amber and the section fill) and the coral
-// section border is kept.
+// targets are selected, otherwise the default header fill. Only the fill swaps; the ink is the
+// header_text colour in both states (dark reads on both amber and the lighter sage) and the coral
+// bottom rule is kept.
 void PanelShared_HeaderSetTint(PanelHeader *header, bool tinted)
 {
     if (!header->box)
@@ -318,8 +339,8 @@ void PanelShared_HeaderSetTint(PanelHeader *header, bool tinted)
         return;
     }
 
-    ColourRgba ink = header->palette->title_text;
-    header->box->colour_fill = tinted ? header->palette->button_fill : header->default_fill;
+    ColourRgba ink = header->palette->header_text;
+    header->box->colour_fill = tinted ? UIPalette_GetRoleColours(header->palette, UI_ROLE_ACTIVE).fill : header->default_fill;
     if (header->title)
     {
         header->title->data.textbox.font = FONT_LARGE_WITH_COLOUR(ink);

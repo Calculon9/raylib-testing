@@ -400,8 +400,13 @@ void InitGameplayScreen(void)
     InitUI();
 }
 
+// Draw the gameplay screen. The frame is first cleared to the active palette's panel background
+// role, so any area not covered by the world viewport or a panel (for example the band below the
+// viewport, reserved for future UI) matches the dark panel frame instead of the default clear colour.
 void DrawGameplayScreen(void)
 {
+    const ColourRgba panel_background = UIPalette_GetActive()->panel_background;
+    ClearBackground((Color){panel_background.r, panel_background.g, panel_background.b, panel_background.a});
     DrawUniverse();
     DrawUI();
     DrawGlobalDebugOverlays();

@@ -16,16 +16,14 @@ static UIElement *popup_menu_create_cont = NULL;
 static UIElement *popup_menu_recent_cont = NULL;
 static UIElement *popup_create_entity_submenu_cont = NULL;
 static UIElement *popup_create_world_submenu_cont = NULL;
+// The ENTITY / WORLD category rows; their role follows whether their submenu is open.
+static UIElement *popup_item_entity = NULL;
+static UIElement *popup_item_world = NULL;
 static bool popup_menu_visible = false;
 static Vector2d popup_spawn_position = {0.0f, 0.0f};
-// Layout constants still read by live code after the XML migration: the root spacing
-// is passed to ViewHostSystem_Create in InitPopupMenu, and the padding/child-spacing
-// are re-applied to the view/submenu containers by Popup_RegisterElements (they are not
-// expressible on those markup tags today).
-static const Vector2d popup_menu_padding = {8.0f, 8.0f};
+// Root spacing passed to ViewHostSystem_Create in InitPopupMenu. Padding, row spacing and sizes come from
+// popup.xml (the standard sheet), so no layout literals live here.
 static const Layout popup_menu_root_spacing = UI_SPACING_NONE;
-// NOTE: popup_menu_child_spacing's middle field is NumberForm (NONE), NOT an AxisSizeMode.
-static const Layout popup_menu_child_spacing = {{0.0f, 1.0f}, NONE, FLOW_STACKED};
 
 // Forward declarations for the loader-hybrid wiring pass (defined below InitPopupMenu
 // mirrors state_manager; the id-pass and its helpers are declared here so InitPopupMenu
@@ -61,6 +59,21 @@ typedef struct
 static PopupHoverAction popup_create_entity_action = {0, true};
 static PopupHoverAction popup_create_world_action = {0, true};
 
+// Give the ENTITY / WORLD category rows their role from the open state of their submenu:
+// ACTIVE (amber) while the submenu is open, INACTIVE (teal) otherwise. Called after every change
+// to a submenu's enabled state (hover, show, hide). Null-guarded for a partly loaded popup.
+static void Popup_SyncRowRoles(void)
+{
+    if (!popup_menu)
+    {
+        return;
+    }
+    UIElement_ApplyRoleColours(popup_item_entity, popup_menu->palette,
+        (popup_create_entity_submenu_cont && popup_create_entity_submenu_cont->is_enabled) ? UI_ROLE_ACTIVE : UI_ROLE_INACTIVE);
+    UIElement_ApplyRoleColours(popup_item_world, popup_menu->palette,
+        (popup_create_world_submenu_cont && popup_create_world_submenu_cont->is_enabled) ? UI_ROLE_ACTIVE : UI_ROLE_INACTIVE);
+}
+
 static void HandlePopupHover(UIElement *item)
 {
     if (!item)
@@ -83,12 +96,24 @@ static void HandlePopupHover(UIElement *item)
         }
         if (action->enable_submenu)
         {
+            // Place the submenu's left edge at the popup sheet's OUTER edge: one row width across (the
+            // authored 100 % percent offset) plus the sheet's side padding, so it clears the padding
+            // strip instead of overlapping it. The offset is a fraction of the row width, so it is
+            // rebuilt from the row's laid-out width (layout units, as is the shared padding constant).
+            float row_width = item->local_box.dimensions.x;
+            if (row_width > 0.0f)
+            {
+                const float outer_edge_offset = (row_width + ui_section_padding.x) / row_width;
+                action->submenu->authored_offset.offset.x = outer_edge_offset;
+                action->submenu->resolved_offset.offset.x = outer_edge_offset; // The SPACING_NONE row runs no flow pass, so keep the resolved copy in step.
+            }
             EnableElement(action->submenu);
         }
         else
         {
             DisableElement(action->submenu);
         }
+        Popup_SyncRowRoles();
         UpdateUISpace(popup_menu->root, popup_menu->seed_box);
     }
 }
@@ -288,66 +313,57 @@ static void Popup_RegisterElements(UIElement *root)
     popup_create_entity_action.submenu = popup_create_entity_submenu_cont;
     popup_create_world_action.submenu  = popup_create_world_submenu_cont;
 
-    // --- Re-apply container customisation the markup does not cover ---
-    // Old InitCreateView/InitRecentView set padding + child_spacing + is_draggable on the
-    // view container; markup cannot express child_spacing on these tags, so re-apply here
-    // to preserve layout exactly. (colour_fill/colour_border already match the loader's
-    // UI_PALETTE_SURFACE_CONTAINER output, so no colour writes are needed - see design S4.)
+    // --- Re-apply the only container flag the markup cannot express ---
+    // The sheet fill, padding and row spacing all come from popup.xml (standard sheet), so only
+    // is_draggable (a C-side flag) is set here. recent_view is authored enabled="false"; the host
+    // selector owns live enable/disable.
     if (popup_menu_create_cont)
     {
-        popup_menu_create_cont->padding       = popup_menu_padding;
-        popup_menu_create_cont->child_spacing = popup_menu_child_spacing;
-        popup_menu_create_cont->is_draggable  = true;
+        popup_menu_create_cont->is_draggable = true;
     }
     if (popup_menu_recent_cont)
     {
-        popup_menu_recent_cont->padding       = popup_menu_padding;
-        popup_menu_recent_cont->child_spacing = popup_menu_child_spacing;
-        popup_menu_recent_cont->is_draggable  = true;
-        // recent_view authored enabled="false"; the host selector owns live
-        // enable/disable, so no extra is_enabled write is needed here.
+        popup_menu_recent_cont->is_draggable = true;
     }
-    // Submenus: old InitCreate*Submenu set padding + child_spacing on CreateUIContainer.
-    // width/height=hug + offset are authored; re-apply padding + child_spacing here.
-    if (popup_create_entity_submenu_cont)
+    // Floating-sheet edge: the submenus open over the bright world, and the standard sheet has no
+    // border, so each gets a 1 px outline in the panel background colour (the PANEL surface fill).
+    // This is the only place a popup surface takes a border.
+    ColourRgba floating_edge = COLOURLESS_RGBA;
+    UIPalette_GetSurfaceColours(popup_menu->palette, UI_PALETTE_SURFACE_PANEL, NULL, &floating_edge);
+    UIElement *floating_sheets[2] = {popup_create_entity_submenu_cont, popup_create_world_submenu_cont};
+    for (int i = 0; i < 2; i++)
     {
-        popup_create_entity_submenu_cont->padding       = popup_menu_padding;
-        popup_create_entity_submenu_cont->child_spacing = popup_menu_child_spacing;
-    }
-    if (popup_create_world_submenu_cont)
-    {
-        popup_create_world_submenu_cont->padding       = popup_menu_padding;
-        popup_create_world_submenu_cont->child_spacing = popup_menu_child_spacing;
+        if (floating_sheets[i])
+        {
+            floating_sheets[i]->colour_border = floating_edge;
+            floating_sheets[i]->border_weight = 1;
+        }
     }
 
     // --- Wire the ENTITY/WORLD labels: base on_hover + typed hover action, and restore
-    //     the former CreateUIHoverItemDefault presentation (button-surface colours,
-    //     LEFT/CENTRE text alignment, is_draggable=false) that authoring as <Label> loses. ---
-    UIElement *entity_item = Popup_Find(root, "popup_item_entity");
-    if (entity_item)
+    //     the former CreateUIHoverItemDefault presentation (LEFT/CENTRE text alignment,
+    //     is_draggable=false) that authoring as <Label> loses. The row colours come from the
+    //     INACTIVE / ACTIVE roles (Popup_SyncRowRoles), not a hand-picked surface. ---
+    popup_item_entity = Popup_Find(root, "popup_item_entity");
+    popup_item_world = Popup_Find(root, "popup_item_world");
+    UIElement *category_items[2] = {popup_item_entity, popup_item_world};
+    PopupHoverAction *category_actions[2] = {&popup_create_entity_action, &popup_create_world_action};
+    for (int i = 0; i < 2; i++)
     {
-        entity_item->on_hover = HandlePopupHover;
-        entity_item->interaction_user_data = &popup_create_entity_action;
-        UIPalette_GetSurfaceColours(popup_menu->palette, UI_PALETTE_SURFACE_BUTTON,
-                                    &entity_item->colour_border, &entity_item->colour_fill);
-        entity_item->border_weight = UIPalette_GetSurfaceBorderWeight(popup_menu->palette, UI_PALETTE_SURFACE_BUTTON);
-        SetUIElementTextHorizontalAlignment(entity_item, UI_TEXT_ALIGN_LEFT);
-        SetUIElementTextVerticalAlignment(entity_item, UI_TEXT_VERTICAL_ALIGN_CENTRE);
-        entity_item->is_draggable = false;
+        UIElement *item = category_items[i];
+        if (!item)
+        {
+            continue;
+        }
+        item->on_hover = HandlePopupHover;
+        item->interaction_user_data = category_actions[i];
+        // Border weight of the INACTIVE / ACTIVE control surfaces (they share the input border).
+        item->border_weight = UIPalette_GetSurfaceBorderWeight(popup_menu->palette, UI_PALETTE_SURFACE_INACTIVE);
+        SetUIElementTextHorizontalAlignment(item, UI_TEXT_ALIGN_LEFT);
+        SetUIElementTextVerticalAlignment(item, UI_TEXT_VERTICAL_ALIGN_CENTRE);
+        item->is_draggable = false;
     }
-    UIElement *world_item = Popup_Find(root, "popup_item_world");
-    if (world_item)
-    {
-        world_item->on_hover = HandlePopupHover;
-        world_item->interaction_user_data = &popup_create_world_action;
-        UIPalette_GetSurfaceColours(popup_menu->palette, UI_PALETTE_SURFACE_BUTTON,
-                                    &world_item->colour_border, &world_item->colour_fill);
-        world_item->border_weight = UIPalette_GetSurfaceBorderWeight(popup_menu->palette, UI_PALETTE_SURFACE_BUTTON);
-        SetUIElementTextHorizontalAlignment(world_item, UI_TEXT_ALIGN_LEFT);
-        SetUIElementTextVerticalAlignment(world_item, UI_TEXT_VERTICAL_ALIGN_CENTRE);
-        world_item->is_draggable = false;
-    }
-
+    Popup_SyncRowRoles();
     // --- Wire the six CREATE buttons: on_click + typed PopupCreateAction* ---
     Popup_WireClick(root, "popup_btn_triangle", HandlePopupCreateClick, &popup_triangle_action);
     Popup_WireClick(root, "popup_btn_square",   HandlePopupCreateClick, &popup_square_action);
@@ -485,6 +501,7 @@ void ShowPopupMenu(Vector2d position)
     popup_menu->root->is_enabled = true;
     DisableElement(popup_create_entity_submenu_cont);
     DisableElement(popup_create_world_submenu_cont);
+    Popup_SyncRowRoles(); // Both submenus closed: both rows INACTIVE.
 }
 
 void HidePopupMenu(void)
@@ -502,6 +519,7 @@ void HidePopupMenu(void)
     {
         DisableElement(popup_create_world_submenu_cont);
     }
+    Popup_SyncRowRoles(); // Both submenus closed: both rows INACTIVE.
 }
 
 bool IsPopupMenuVisible(void)
@@ -540,6 +558,8 @@ void DestroyPopupMenu(void)
     popup_menu_recent_cont = NULL;
     popup_create_entity_submenu_cont = NULL;
     popup_create_world_submenu_cont = NULL;
+    popup_item_entity = NULL;
+    popup_item_world = NULL;
     popup_create_entity_action.submenu = NULL;
     popup_create_world_action.submenu = NULL;
     popup_menu_visible = false;

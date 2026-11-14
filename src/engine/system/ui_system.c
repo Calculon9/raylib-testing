@@ -79,7 +79,14 @@ const Vector2d ui_standard_field_padding = {0.0f, 0.0f};
 const Vector2d ui_section_padding = {6.0f, 6.0f};
 // ViewHost / View padding on top of the 5 px root padding: 5 + 1 = 6 px panel inset.
 const Vector2d ui_host_padding = {1.0f, 1.0f};
+// Root padding of the single-row read-only strips (info, detail): the 5 px panel root inset on the
+// x axis only, so the fields clear the band's left and right edges without eating into the band's
+// 25 px row height.
+const Vector2d ui_strip_host_padding = {5.0f, 0.0f};
 const Vector2d ui_standard_button_padding = {1.0f, 1.0f};
+// Horizontal padding each side of a tab or tab-like option. Tabs hug their text, so width = text +
+// 2 * this (rule R-1). Wider than the 1 px button padding, which would leave tab text touching its edges.
+const Vector2d ui_standard_tab_padding = {3.0f, 1.0f};
 // Text-field rows (and Textbox/Label defaults) fill their parent's width; height stays 25 px.
 const Size ui_standard_control_size = {{233.0f, 25.0f}, AXIS_FILL, AXIS_FIXED};
 //const Size ui_standard_textbox_size = {{4.55f, 0.50f}, AXIS_FIXED, AXIS_FIXED};
@@ -89,6 +96,8 @@ const Size ui_standard_textfield_input_size = {{1.0f, 1.0f}, AXIS_FILL, AXIS_PER
 const float ui_standard_textfield_label_width = 118.0f;
 // Buttons span the full inner width of their container; height is 25 px.
 const Size ui_standard_button_size = {{161.0f, 25.0f}, AXIS_FILL, AXIS_FIXED};
+// Icon-only tool and toggle buttons (toolbar): 34 px wide, one standard 25 px control high.
+const Size ui_standard_icon_button_size = {{34.0f, 25.0f}, AXIS_FIXED, AXIS_FIXED};
 // Shared size for container title labels: width HUGS the title's measured text (uncapped,
 // dimensions.x == 0) so the title can never be clipped; the height is one 16 px FONT_LARGE row
 // so, with 6 px padding and a 3 px gap, the first control lands 25 px below the box top.
@@ -157,16 +166,21 @@ static void InitUIPalettes(void)
     ui_classic_palette.input_border_weight = UI_DEFAULT_BORDER_WEIGHT;
     ui_classic_palette.button_border_weight = UI_DEFAULT_BORDER_WEIGHT;
     ui_classic_palette.button_fill = MakeColour(230, 194, 119, 255);
-    // Toggle fills: ON reuses the amber button fill; OFF is the same hue dimmed towards the panel.
-    ui_classic_palette.toggle_on_fill = MakeColour(230, 194, 119, 255);
-    ui_classic_palette.toggle_off_fill = MakeColour(122, 100, 55, 255);
+    // Muted text (x/y prefixes, unit suffix): brown on the cream input, independent of the control roles.
+    ui_classic_palette.muted_text = MakeColour(122, 100, 55, 255);
     // Danger fill: the palette's terracotta container border.
     ui_classic_palette.button_danger_fill = MakeColour(194, 105, 83, 255);
     ui_classic_palette.text = MakeColour(10, 16, 12, 255);
     // Field labels: near-black tuned for container_fill (WCAG AA); card ink uses text_on_dark.
     ui_classic_palette.label_text = MakeColour(6, 12, 8, 255);
     ui_classic_palette.title_text = MakeColour(0, 0, 0, 255);
+    // Headers keep dark ink on a lighter container-hued fill; read-only fields use a dimmed input fill.
+    ui_classic_palette.header_text = MakeColour(0, 0, 0, 255);
+    ui_classic_palette.header_fill = MakeColour(214, 236, 224, 255);
+    ui_classic_palette.readonly_fill = MakeColour(213, 207, 188, 255);
+    ui_classic_palette.readonly_border = MakeColour(110, 128, 118, 255);
     ui_classic_palette.subsection_fill = MakeColour(78, 100, 86, 255);
+    ui_classic_palette.card_fill = MakeColour(78, 100, 86, 255);
     ui_classic_palette.text_on_dark = MakeColour(245, 241, 230, 255);
     ui_classic_palette.error = MakeColour(230, 41, 55, 255);
     ui_classic_palette.warning = MakeColour(255, 255, 176, 255);
@@ -188,16 +202,21 @@ static void InitUIPalettes(void)
     ui_earth_palette.input_border_weight = UI_DEFAULT_BORDER_WEIGHT;
     ui_earth_palette.button_border_weight = UI_DEFAULT_BORDER_WEIGHT;
     ui_earth_palette.button_fill = MakeColour(166, 109, 60, 255);
-    // Toggle fills: ON reuses the terracotta button fill; OFF is the same hue dimmed towards the panel.
-    ui_earth_palette.toggle_on_fill = MakeColour(166, 109, 60, 255);
-    ui_earth_palette.toggle_off_fill = MakeColour(112, 74, 41, 255);
+    // Muted text (x/y prefixes, unit suffix): brown on the cream input, independent of the control roles.
+    ui_earth_palette.muted_text = MakeColour(112, 74, 41, 255);
     // Danger fill: the palette's rust container border.
     ui_earth_palette.button_danger_fill = MakeColour(214, 96, 52, 255);
     ui_earth_palette.text = MakeColour(0, 0, 0, 255);
     // Black is the only ink that passes on the olive container.
     ui_earth_palette.label_text = MakeColour(0, 0, 0, 255);
     ui_earth_palette.title_text = MakeColour(0, 0, 0, 255);
+    // Headers keep dark ink on a lighter container-hued fill; read-only fields use a dimmed input fill.
+    ui_earth_palette.header_text = MakeColour(0, 0, 0, 255);
+    ui_earth_palette.header_fill = MakeColour(196, 190, 120, 255);
+    ui_earth_palette.readonly_fill = MakeColour(205, 183, 150, 255);
+    ui_earth_palette.readonly_border = MakeColour(110, 112, 60, 255);
     ui_earth_palette.subsection_fill = MakeColour(90, 89, 36, 255);
+    ui_earth_palette.card_fill = MakeColour(90, 89, 36, 255);
     ui_earth_palette.text_on_dark = MakeColour(242, 211, 172, 255);
     ui_earth_palette.error = MakeColour(230, 41, 55, 255);
     ui_earth_palette.warning = MakeColour(255, 255, 176, 255);
@@ -208,7 +227,8 @@ static void InitUIPalettes(void)
 
     ui_harbor_palette.panel_background = MakeColour(28, 58, 67, 255);
     ui_harbor_palette.container_border = MakeColour(218, 117, 96, 255);
-    ui_harbor_palette.container_fill = MakeColour(86, 139, 127, 255);
+    // Lighter sage section fill (#78AA9E); the dark body ink below reaches 7.1:1 on it.
+    ui_harbor_palette.container_fill = MakeColour(120, 170, 158, 255);
     ui_harbor_palette.field_row_border = MakeColour(220, 158, 70, 255);
     ui_harbor_palette.field_row_fill = MakeColour(0, 0, 0, 0);
     ui_harbor_palette.input_border = MakeColour(28, 58, 67, 255);
@@ -219,17 +239,26 @@ static void InitUIPalettes(void)
     ui_harbor_palette.input_border_weight = UI_DEFAULT_BORDER_WEIGHT;
     ui_harbor_palette.button_border_weight = UI_DEFAULT_BORDER_WEIGHT;
     ui_harbor_palette.button_fill = MakeColour(220, 158, 70, 255);
-    // Toggle fills: ON reuses the amber button fill; OFF is the same amber hue dimmed towards the panel.
-    ui_harbor_palette.toggle_on_fill = MakeColour(220, 158, 70, 255);
-    ui_harbor_palette.toggle_off_fill = MakeColour(124, 87, 33, 255);
+    // Muted text (x/y prefixes, unit suffix): brown on the cream input, independent of the control roles.
+    ui_harbor_palette.muted_text = MakeColour(124, 87, 33, 255);
     // Danger fill: the mock's coral (equal to the container border).
     ui_harbor_palette.button_danger_fill = MakeColour(218, 117, 96, 255);
-    // Contrast bump: near-black dark-teal ink (hue preserved) reads crisply on the sage container fill.
+    // One dark ink (#0A1418, near-black dark teal) for body text and field labels: 7.1:1 on the
+    // #78AA9E container fill and 13.9:1 on the cream input fill.
     ui_harbor_palette.text = MakeColour(10, 20, 24, 255);
-    ui_harbor_palette.label_text = MakeColour(28, 14, 2, 255);
-    ui_harbor_palette.title_text = MakeColour(0, 0, 0, 255);
-    // Darker than container_fill, light ink (text_on_dark) reaches 4.84:1 on it.
+    ui_harbor_palette.label_text = MakeColour(10, 20, 24, 255);
+    // Section titles: the same dark ink on the sage sheet (next to an amber accent bar).
+    ui_harbor_palette.title_text = MakeColour(10, 20, 24, 255);
+    // Panel headers: black ink on a lighter sage (#9CC4B9) fill (amber in multi-select).
+    ui_harbor_palette.header_text = MakeColour(0, 0, 0, 255);
+    ui_harbor_palette.header_fill = MakeColour(156, 196, 185, 255);
+    // Read-only fields: dimmed cream (#CFC5A8) with a muted sage border (#6E8F86); ink stays #0A1418.
+    ui_harbor_palette.readonly_fill = MakeColour(207, 197, 168, 255);
+    ui_harbor_palette.readonly_border = MakeColour(110, 143, 134, 255);
+    // Darker than container_fill; light ink (text_on_dark) reaches 4.84:1 on it.
     ui_harbor_palette.subsection_fill = MakeColour(58, 102, 94, 255);
+    // CARD role: same dark teal as INACTIVE today (#3A665E), a separate field so they can diverge.
+    ui_harbor_palette.card_fill = MakeColour(58, 102, 94, 255);
     ui_harbor_palette.text_on_dark = MakeColour(239, 221, 184, 255);
     ui_harbor_palette.error = MakeColour(230, 41, 55, 255);
     ui_harbor_palette.warning = MakeColour(255, 255, 176, 255);
@@ -251,15 +280,20 @@ static void InitUIPalettes(void)
     ui_meadow_palette.input_border_weight = UI_DEFAULT_BORDER_WEIGHT;
     ui_meadow_palette.button_border_weight = UI_DEFAULT_BORDER_WEIGHT;
     ui_meadow_palette.button_fill = MakeColour(230, 194, 119, 255);
-    // Toggle fills: ON reuses the amber button fill; OFF is the same hue dimmed towards the panel.
-    ui_meadow_palette.toggle_on_fill = MakeColour(230, 194, 119, 255);
-    ui_meadow_palette.toggle_off_fill = MakeColour(122, 100, 55, 255);
+    // Muted text (x/y prefixes, unit suffix): brown on the cream input, independent of the control roles.
+    ui_meadow_palette.muted_text = MakeColour(122, 100, 55, 255);
     // Danger fill: a dedicated terracotta, because meadow's container border is the button amber.
     ui_meadow_palette.button_danger_fill = MakeColour(196, 92, 70, 255);
     ui_meadow_palette.text = MakeColour(10, 16, 12, 255);
     ui_meadow_palette.label_text = MakeColour(0, 18, 26, 255);
     ui_meadow_palette.title_text = MakeColour(0, 0, 0, 255);
+    // Headers keep dark ink on a lighter container-hued fill; read-only fields use a dimmed input fill.
+    ui_meadow_palette.header_text = MakeColour(0, 0, 0, 255);
+    ui_meadow_palette.header_fill = MakeColour(190, 214, 196, 255);
+    ui_meadow_palette.readonly_fill = MakeColour(213, 207, 188, 255);
+    ui_meadow_palette.readonly_border = MakeColour(96, 140, 130, 255);
     ui_meadow_palette.subsection_fill = MakeColour(78, 100, 86, 255);
+    ui_meadow_palette.card_fill = MakeColour(78, 100, 86, 255);
     ui_meadow_palette.text_on_dark = MakeColour(245, 241, 230, 255);
     ui_meadow_palette.error = MakeColour(230, 41, 55, 255);
     ui_meadow_palette.warning = MakeColour(255, 255, 176, 255);
@@ -284,7 +318,8 @@ uint8_t UIPalette_GetSurfaceBorderWeight(const UIPalette *palette, UIPaletteSurf
         case UI_PALETTE_SURFACE_CONTAINER: return palette->container_border_weight;
         case UI_PALETTE_SURFACE_FIELD_ROW: return palette->field_row_border_weight;
         case UI_PALETTE_SURFACE_INPUT:
-        case UI_PALETTE_SURFACE_SUBSECTION: return palette->input_border_weight; // cards share the input border
+        case UI_PALETTE_SURFACE_INACTIVE:
+        case UI_PALETTE_SURFACE_CARD:      return palette->input_border_weight; // cards and inactive tiles share the input border
         case UI_PALETTE_SURFACE_BUTTON:
         case UI_PALETTE_SURFACE_DANGER:    return palette->button_border_weight; // danger shares the button border
         case UI_PALETTE_SURFACE_PANEL:
@@ -292,6 +327,63 @@ uint8_t UIPalette_GetSurfaceBorderWeight(const UIPalette *palette, UIPaletteSurf
         default:                           return 0; // borderless roles
     }
 }
+// Resolve a universal colour role to its fill / text / border triple. This is the single place
+// that pairs every fill with the text colour drawn on it, so views and controls never pick their
+// own colours. A NULL palette falls back to the default.
+UIRoleColours UIPalette_GetRoleColours(const UIPalette *palette, UIColourRole role)
+{
+    if (!palette)
+    {
+        palette = &ui_default_palette;
+    }
+
+    UIRoleColours colours = { COLOURLESS_RGBA, palette->text, COLOURLESS_RGBA };
+    switch (role)
+    {
+        case UI_ROLE_SHEET:
+            colours.fill = palette->container_fill;
+            colours.border = palette->container_border;
+            break;
+        case UI_ROLE_HEADER:
+            colours.fill = palette->header_fill;
+            colours.text = palette->header_text;
+            break;
+        case UI_ROLE_INPUT:
+            colours.fill = palette->input_fill;
+            colours.border = palette->input_border;
+            break;
+        case UI_ROLE_READONLY_INPUT:
+            colours.fill = palette->readonly_fill;
+            colours.border = palette->readonly_border;
+            break;
+        case UI_ROLE_INACTIVE:
+            // Dark teal with light text: tabs and OFF toggles / chips.
+            colours.fill = palette->subsection_fill;
+            colours.text = palette->text_on_dark;
+            colours.border = palette->input_border;
+            break;
+        case UI_ROLE_CARD:
+            // Grouped-field card: dark teal with cream text. Its own palette field, so it can
+            // diverge from INACTIVE later.
+            colours.fill = palette->card_fill;
+            colours.text = palette->text_on_dark;
+            colours.border = palette->input_border;
+            break;
+        case UI_ROLE_ACTIVE:
+            colours.fill = palette->button_fill;
+            colours.border = palette->button_border;
+            break;
+        case UI_ROLE_DANGER:
+            colours.fill = palette->button_danger_fill;
+            colours.border = palette->button_border;
+            break;
+    }
+    return colours;
+}
+
+// Resolve a surface= name to border and fill. Surfaces that are control roles (button = active,
+// danger, inactive, card) and the sheet / input surfaces route through
+// UIPalette_GetRoleColours so the pairings live in one place.
 void UIPalette_GetSurfaceColours(const UIPalette *palette, UIPaletteSurface surface,
                                  ColourRgba *out_border, ColourRgba *out_fill)
 {
@@ -303,37 +395,46 @@ void UIPalette_GetSurfaceColours(const UIPalette *palette, UIPaletteSurface surf
         palette = &ui_default_palette;
     }
 
+    UIRoleColours role_colours;
     switch (surface)
     {
         case UI_PALETTE_SURFACE_CONTAINER:
-            border = palette->container_border;
-            fill = palette->container_fill;
+            role_colours = UIPalette_GetRoleColours(palette, UI_ROLE_SHEET);
+            border = role_colours.border;
+            fill = role_colours.fill;
             break;
         case UI_PALETTE_SURFACE_FIELD_ROW:
             border = palette->field_row_border;
             fill = palette->field_row_fill;
             break;
         case UI_PALETTE_SURFACE_INPUT:
-            border = palette->input_border;
-            fill = palette->input_fill;
+            role_colours = UIPalette_GetRoleColours(palette, UI_ROLE_INPUT);
+            border = role_colours.border;
+            fill = role_colours.fill;
             break;
-        case UI_PALETTE_SURFACE_SUBSECTION:
-            // Card inside a container: dark input border with the darker subsection fill.
-            border = palette->input_border;
-            fill = palette->subsection_fill;
+        case UI_PALETTE_SURFACE_INACTIVE:
+            role_colours = UIPalette_GetRoleColours(palette, UI_ROLE_INACTIVE);
+            border = role_colours.border;
+            fill = role_colours.fill;
+            break;
+        case UI_PALETTE_SURFACE_CARD:
+            role_colours = UIPalette_GetRoleColours(palette, UI_ROLE_CARD);
+            border = role_colours.border;
+            fill = role_colours.fill;
             break;
         case UI_PALETTE_SURFACE_BUTTON:
-            border = palette->button_border;
-            fill = palette->button_fill;
+            role_colours = UIPalette_GetRoleColours(palette, UI_ROLE_ACTIVE);
+            border = role_colours.border;
+            fill = role_colours.fill;
             break;
         case UI_PALETTE_SURFACE_PANEL:
             // Panel background: dark fill, no border (the panel edge is the window/dock edge).
             fill = palette->panel_background;
             break;
         case UI_PALETTE_SURFACE_DANGER:
-            // Destructive button: same 1 px dark border as buttons, coral danger fill.
-            border = palette->button_border;
-            fill = palette->button_danger_fill;
+            role_colours = UIPalette_GetRoleColours(palette, UI_ROLE_DANGER);
+            border = role_colours.border;
+            fill = role_colours.fill;
             break;
         case UI_PALETTE_SURFACE_TRANSPARENT:
         default:
@@ -350,27 +451,93 @@ void UIPalette_GetSurfaceColours(const UIPalette *palette, UIPaletteSurface surf
     }
 }
 
-// Resolve the shared two-state colours for tabs, kind chips and flag toggles.
-// Active = ON fill with the dark ink; inactive = OFF fill with the light ink, so the caption
-// always contrasts with its fill. NULL palette falls back to the default; NULL outputs are skipped.
+// Text colour for a surface= name, or false when the surface carries no text role (transparent,
+// panel, field row, container-less cases), so the element keeps its constructor text colour.
+// Used by the loader so a card, button or danger surface brings its paired text colour with it.
+bool UIPalette_GetSurfaceText(const UIPalette *palette, UIPaletteSurface surface, ColourRgba *out_text)
+{
+    UIColourRole role;
+    switch (surface)
+    {
+        case UI_PALETTE_SURFACE_INACTIVE:   role = UI_ROLE_INACTIVE; break;
+        case UI_PALETTE_SURFACE_CARD:       role = UI_ROLE_CARD;     break;
+        case UI_PALETTE_SURFACE_BUTTON:     role = UI_ROLE_ACTIVE;   break;
+        case UI_PALETTE_SURFACE_DANGER:     role = UI_ROLE_DANGER;   break;
+        default: return false;
+    }
+    if (out_text)
+    {
+        *out_text = UIPalette_GetRoleColours(palette, role).text;
+    }
+    return true;
+}
+
+// Resolve the shared two-state colours for tabs, kind chips and flag toggles: active uses the
+// ACTIVE role (amber + ink), inactive the INACTIVE role (dark teal + cream). NULL palette falls
+// back to the default; NULL outputs are skipped.
 void UIPalette_GetToggleColours(const UIPalette *palette, bool active,
                                 ColourRgba *out_fill, ColourRgba *out_ink)
 {
-    if (!palette)
-    {
-        palette = &ui_default_palette;
-    }
-
+    UIRoleColours colours = UIPalette_GetRoleColours(palette, active ? UI_ROLE_ACTIVE : UI_ROLE_INACTIVE);
     if (out_fill)
     {
-        *out_fill = active ? palette->toggle_on_fill : palette->toggle_off_fill;
+        *out_fill = colours.fill;
     }
     if (out_ink)
     {
-        *out_ink = active ? palette->text : palette->text_on_dark;
+        *out_ink = colours.text;
     }
 }
+// Context-aware role resolution. The one context rule: an INACTIVE control inside a CARD would be
+// dark teal on dark teal, so it resolves to the SHEET fill with ink text and keeps the INACTIVE
+// border. ACTIVE, DANGER and every other role are unchanged by context.
+UIRoleColours UIPalette_GetRoleColoursInContext(const UIPalette *palette, UIColourRole role, bool inside_card)
+{
+    UIRoleColours colours = UIPalette_GetRoleColours(palette, role);
+    if (inside_card && role == UI_ROLE_INACTIVE)
+    {
+        UIRoleColours sheet = UIPalette_GetRoleColours(palette, UI_ROLE_SHEET);
+        colours.fill = sheet.fill;
+        colours.text = sheet.text;
+    }
+    return colours;
+}
 
+// True when any ancestor of the element is a card (is_card set by the loader).
+static bool UIElement_IsInsideCard(const UIElement *element)
+{
+    for (const UIElement *ancestor = element->parent; ancestor; ancestor = ancestor->parent)
+    {
+        if (ancestor->is_card)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Apply a colour role to an element: fill and border always, and the role's text colour on the
+// element's own font (buttons and labels). The single entry point for panels that must recolour
+// a live element (popup rows, chips, tabs), so none of them pair fill and text by hand.
+// A NULL element or palette is a no-op.
+void UIElement_ApplyRoleColours(UIElement *element, const UIPalette *palette, UIColourRole role)
+{
+    if (!element || !palette)
+    {
+        return;
+    }
+    UIRoleColours colours = UIPalette_GetRoleColoursInContext(palette, role, UIElement_IsInsideCard(element));
+    element->colour_fill = colours.fill;
+    element->colour_border = colours.border;
+    if (IsBtn(element))
+    {
+        element->data.button.font.colour = colours.text;
+    }
+    else if (element->type == UI_ELEMENT_LABEL)
+    {
+        element->data.label.font.colour = colours.text;
+    }
+}
 // Returns the live palette storage. InitUIPalettes is idempotent, so a call made before InitUI
 // still yields the harbour default rather than a zeroed palette.
 const UIPalette *UIPalette_GetActive(void)

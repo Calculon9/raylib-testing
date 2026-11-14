@@ -87,6 +87,7 @@ Look in:
 - `src/` for implementations
 - `docs/` for reference docs:
   - `docs/REPOSITORY_GUIDE.md` — subsystem overview incl. the per-axis UI sizing model
+  - `docs/UI_STYLE_GUIDE.md` — the UI standard (colour roles, typography, spacing, component patterns); follow it for any UI work
   - `docs/UI_MARKUP_SYNTAX.md` — XML UI markup reference (tags, attributes, sizing, offset, layout, bindings)
 
 ---
