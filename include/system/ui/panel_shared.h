@@ -12,6 +12,8 @@
 #include "ui/binding.h"
 #include "world/target_resolver.h"
 #include "physics/newtonoid.h"
+#include "system/viewport_system.h"
+#include "system/ui/ui_loader.h"
 
 // Which bitmask on a selection member a flag button targets (entity fields, world or cell).
 typedef enum FlagFamily
@@ -25,11 +27,11 @@ typedef enum FlagFamily
     FLAG_FAMILY_CELL,
 } FlagFamily;
 
-// Flag button binding: associates a button control with its display label and underlying bitflag.
-// `family` is assigned when the button is wired (PanelShared_WireFlags).
+// Flag button binding: pairs a markup button id with its underlying bitflag, so one table per family
+// holds both. `family` is assigned when the button is wired (PanelShared_WireFlags).
 typedef struct FlagButton
 {
-    const char *label;
+    const char *id;
     uint32_t flag;
     UIElement *button;
     FlagFamily family;
@@ -80,9 +82,12 @@ FlagTally PanelShared_WalkFlag(FlagFamily family, uint32_t bit, bool apply, bool
 // Is-set query shared by every flag family (key from PANEL_FLAG_KEY): 0 off, 1 on, else mixed pack.
 BindingValue PanelShared_QueryFlag(int key);
 
-// Acquire each id's button from the loaded tree and wire the click handler plus the "<label>: ON/OFF" query.
-void PanelShared_WireFlags(UIElement *root, FlagButton *buttons, const char **ids, size_t count,
-                           FlagFamily family);
+// Acquire each entry's button (by its id) from the loaded tree and wire the click handler plus the
+// "<label>: ON/OFF" query.
+void PanelShared_WireFlags(UIElement *root, FlagButton *buttons, size_t count, FlagFamily family);
+
+// Forget the button element references of a flag table (called when the panel is destroyed).
+void PanelShared_ResetFlagButtons(FlagButton *buttons, size_t count);
 
 // Click handler for every flag button: clears the flag when on for every applicable target, else sets it.
 void PanelShared_HandleFlagClick(UIElement *button);
@@ -109,5 +114,36 @@ bool PanelShared_PrimaryOfKind(TargetKind kind, TargetRef *out);
 
 // Number of SelectionSet members of `kind`.
 int PanelShared_CountKind(TargetKind kind);
+
+// Everything a markup-driven panel needs to go from a markup file to a mounted view host.
+typedef struct PanelMarkupDesc
+{
+    const char *file;                        // UI_COMPONENTS_DIR "/x.xml"
+    ViewportRegion *viewport;                // Dock region the host is built against
+    Vector2d host_padding;                   // Root padding of the host
+    UIBindingResolver resolve_binding;
+    UICommandResolver resolve_command;
+    UIViewTypeResolver resolve_view_type;
+    ViewSelectionCallback on_view_selected;  // Called by the selector when a tab is chosen
+} PanelMarkupDesc;
+
+// Load the panel markup, build its host (root, views, tab selector) and show the initial view.
+// `*out_selector` is assigned BEFORE the initial view is selected, so the selection callback can
+// already read it; it is NULL when the markup declares no tabs. `*out_root` receives the loaded
+// markup root for the caller's id-registration pass. Returns NULL (nothing leaked) on failure.
+ViewHostSystem *PanelShared_BuildFromMarkup(const PanelMarkupDesc *desc, ViewSelector **out_selector,
+                                            UIElement **out_root);
+
+// Look up an element by id in a loaded tree. A miss is logged once as "<panel_name>: id '<id>' not
+// found in markup" and returns NULL, so every caller can null-guard and degrade to an inert element.
+UIElement *PanelShared_Find(UIElement *root, const char *panel_name, const char *id);
+
+// Select `desired` on a selector without losing the remembered tab: ViewHostSystem_SelectView fires
+// the panel's selection callback, which would overwrite `*remembered_tab` with the forced view.
+void PanelShared_SelectViewKeepingTab(ViewSelector *selector, size_t desired, int *remembered_tab);
+
+// Write the static "values: primary only" caption into a read-only note Textbox (a Textbox value=
+// attribute would be parsed as a number). NULL-safe.
+void PanelShared_SetNoteText(UIElement *note);
 
 #endif

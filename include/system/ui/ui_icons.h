@@ -17,17 +17,17 @@ tint because the Nudge button carries no binding=.
 
 #include "ui/ui.h" // UIElement (the on_draw hook target)
 
-// Relocated Nudge tool glyph: an arrow pushing a small box with a couple of trailing motion dots.
+// Nudge tool glyph: an arrow pushing a small box with a couple of trailing motion dots.
 void UIIcon_DrawNudge(UIElement *e);
 
 // Cell Paint tool glyph: a 2x2 grid of cells with one cell filled ("paint a cell"). The frame
 // ink follows the active-tool state while the inner swatch shows the ACTIVE TILE TYPE's palette
-// colour (merged in from the retired tile-type cycle glyph), so the one consolidated button shows
+// colour (the tile-type cycle shares this button), so the one consolidated button shows
 // both the tool-active state and the colour the mouse wheel selects.
 void UIIcon_DrawCellPaint(UIElement *e);
 
 // Spawn TOOL glyph: a generic place/crosshair pictogram (a small shape outline with a crosshair),
-// drawn in the active-tool ink (bright button_fill when TOOL_SPAWN is active, normal text ink
+// drawn in the active-tool ink (the role text of the button, ACTIVE or INACTIVE, normal text ink
 // otherwise), exactly like the other tool glyphs.
 void UIIcon_DrawToolSpawn(UIElement *e);
 
@@ -59,12 +59,12 @@ void UIIcon_DrawObjectHull(UIElement *e);
 void UIIcon_DrawObjectAABB(UIElement *e);
 
 // Collision-marker toggle (gizmo.collisions): a filled contact dot with short radial ticks around
-// it (an "impact burst"). Uses UIIcon_StateInk, so ON/OFF follows the button's own binding.
+// it (an "impact burst"). Uses UIIcon_Ink, so ON/OFF follows the button's own binding.
 void UIIcon_DrawCollisions(UIElement *e);
 
 // Geometry-edit tool glyph: a small polygon outline with dots at its vertices (a "vertex handles"
 // pictogram). Like the tool glyphs it owns its ink path keyed on the UIState geometry-edit flag
-// (bright button_fill when active, normal text ink otherwise); it does NOT use UIIcon_StateInk
+// (the ACTIVE role ink when active, normal text ink otherwise); it does NOT use UIIcon_Ink
 // because the button carries no binding=.
 void UIIcon_DrawGeometryEdit(UIElement *e);
 

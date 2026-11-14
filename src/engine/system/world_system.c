@@ -436,10 +436,9 @@ void InitWorldSystem(void)
     if (G_UIState.entity_create_params)
     {
         // Seed sane physics defaults so any consumer (the popup create menu, a
-        // programmatic spawn) produces a valid entity even before the lpanel DRAW form
+        // programmatic spawn) produces a valid entity even before any create form
         // has been touched. The struct is otherwise zero-initialised, which would make
-        // width/height 0 and fail Entity_ValidateDimensions. The DRAW form's value=
-        // attributes overwrite these once that panel loads.
+        // width/height 0 and fail Entity_ValidateDimensions. These are the defaults the popup create menu uses.
         Newtonoid2dParams *physics = &G_UIState.entity_create_params->physics;
         physics->width = 1.0f;
         physics->height = 1.0f;

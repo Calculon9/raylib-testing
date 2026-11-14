@@ -44,7 +44,7 @@ Panel background: `panel_background` #1C3A43, behind `ViewHost` and `View` (`sur
 `muted_text` (#7C5721) is not a role. Use it only for the x/y prefixes and `unit=` suffixes drawn on cream.
 
 Two-state controls (tabs, chips, toggles, tool buttons) take ACTIVE when on and INACTIVE when off, via
-`UIPalette_GetToggleColours`. Never pair a role's fill with a different role's text.
+`UIElement_ApplyRoleColours(element, palette, on ? UI_ROLE_ACTIVE : UI_ROLE_INACTIVE)`. Never pair a role's fill with a different role's text.
 
 ## 3. Typography
 
@@ -176,7 +176,7 @@ role.
 
 **C**
 - Role colours: `UIPalette_GetRoleColours(palette, UI_ROLE_xxx)` returns fill, text and border together.
-- Two-state controls: `UIPalette_GetToggleColours(palette, active, &fill, &text)`.
+- Two-state controls: `UIElement_ApplyRoleColours(element, palette, active ? UI_ROLE_ACTIVE : UI_ROLE_INACTIVE)`.
 - Surface text: `UIPalette_GetSurfaceText(palette, surface, &text)`.
 - Setting a whole element to a role: `UIElement_ApplyRoleColours(element, palette, role)` (fill, border and role text; the only way a panel recolours a live element).
 - Headers: `PanelShared_HeaderBind`.

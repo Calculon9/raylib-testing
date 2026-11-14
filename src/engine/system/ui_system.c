@@ -12,7 +12,6 @@
 #include "ui/ui_renderer.h"
 #include "ui/ui_input.h"
 #include "system/ui_system.h"
-#include "system/ui/lpanel_system.h"
 #include "system/ui/world_manager_system.h"
 #include "system/ui/state_manager_system.h"
 #include "system/view_host_system.h"
@@ -69,7 +68,6 @@ static bool g_geometry_edit_active = false;
 // Logical->pixel-space conversion properties
 
 // Default UI Properties
-//Vector2d tfield_default_padding = {0.0, 0.0};
 // All UI layout values below are in UI pixels (drawn at the integer UI pixel scale).
 const Vector2d ui_standard_container_padding = {3.0f, 3.0f};
 // Field rows and titles start exactly at the content edge of their section.
@@ -89,7 +87,6 @@ const Vector2d ui_standard_button_padding = {1.0f, 1.0f};
 const Vector2d ui_standard_tab_padding = {3.0f, 1.0f};
 // Text-field rows (and Textbox/Label defaults) fill their parent's width; height stays 25 px.
 const Size ui_standard_control_size = {{233.0f, 25.0f}, AXIS_FILL, AXIS_FIXED};
-//const Size ui_standard_textbox_size = {{4.55f, 0.50f}, AXIS_FIXED, AXIS_FIXED};
 // The input FILLS the row after the label column (the label is a fixed-width column).
 const Size ui_standard_textfield_input_size = {{1.0f, 1.0f}, AXIS_FILL, AXIS_PERCENT};
 // First-frame / fallback label column width: 118 px ("Restitution" run + 2 px).
@@ -102,9 +99,6 @@ const Size ui_standard_icon_button_size = {{34.0f, 25.0f}, AXIS_FIXED, AXIS_FIXE
 // dimensions.x == 0) so the title can never be clipped; the height is one 16 px FONT_LARGE row
 // so, with 6 px padding and a 3 px gap, the first control lands 25 px below the box top.
 const Size ui_title_size = {{0.0f, 16.0f}, AXIS_HUG, AXIS_FIXED};
-const Size ui_wide_button_size = {{233.0f, 25.0f}, AXIS_FIXED, AXIS_FIXED};
-const Size ui_small_horizontal_button_size = {{96.0f, 25.0f}, AXIS_FIXED, AXIS_FIXED};
-const Size ui_fill_button_size = {{1.0f, 1.0f}, AXIS_FILL, AXIS_FILL};
 const Size ui_standard_container_size = {{1, 0.5}, AXIS_PERCENT, AXIS_PERCENT};
 const Size ui_fill_container_size = {{1.0f, 1.0f}, AXIS_FILL, AXIS_FILL};
 const Size ui_standard_selector_container_size = UI_SIZE_HUG;
@@ -113,13 +107,8 @@ const Size ui_standard_selector_button_size = {{88.0f, 25.0f}, AXIS_FIXED, AXIS_
 const Layout ui_standard_stack_spacing = {{0.0f, 3.0f}, NONE, FLOW_STACKED};
 // 6 px between a panel's top-level blocks (header, tab row, sections).
 const Layout ui_view_stack_spacing = {{0.0f, 6.0f}, NONE, FLOW_STACKED};
-const Layout ui_compact_stack_spacing = {{0.0f, 1.0f}, NONE, FLOW_STACKED};
 const Layout ui_standard_stack_wrap_spacing = {{3.0f, 3.0f}, NONE, FLOW_STACKED_WRAP};
-const Layout ui_standard_stack_smart_wrap_spacing = {{3.0f, 3.0f}, NONE, FLOW_STACKED_SMART_WRAP};
-const Layout ui_compact_stack_wrap_spacing = {{1.0f, 1.0f}, NONE, FLOW_STACKED_WRAP};
-const Layout ui_zero_x_stack_wrap_spacing = {{0.0f, 3.0f}, NONE, FLOW_STACKED_WRAP};
 const Layout ui_standard_inline_wrap_spacing = {{3.0f, 3.0f}, NONE, FLOW_INLINE_WRAP};
-const Layout ui_zero_x_inline_wrap_spacing = {{0.0f, 3.0f}, NONE, FLOW_INLINE_WRAP};
 const Layout ui_standard_inline_spacing = {{3.0f, 0.0f}, NONE, FLOW_INLINE};
 const Layout ui_zero_inline_spacing = {{0.0f, 0.0f}, NONE, FLOW_INLINE};
 
@@ -306,27 +295,6 @@ static void InitUIPalettes(void)
     ui_palettes_initialized = true;
 }
 
-uint8_t UIPalette_GetSurfaceBorderWeight(const UIPalette *palette, UIPaletteSurface surface)
-{
-    if (!palette)
-    {
-        palette = &ui_default_palette;
-    }
-
-    switch (surface)
-    {
-        case UI_PALETTE_SURFACE_CONTAINER: return palette->container_border_weight;
-        case UI_PALETTE_SURFACE_FIELD_ROW: return palette->field_row_border_weight;
-        case UI_PALETTE_SURFACE_INPUT:
-        case UI_PALETTE_SURFACE_INACTIVE:
-        case UI_PALETTE_SURFACE_CARD:      return palette->input_border_weight; // cards and inactive tiles share the input border
-        case UI_PALETTE_SURFACE_BUTTON:
-        case UI_PALETTE_SURFACE_DANGER:    return palette->button_border_weight; // danger shares the button border
-        case UI_PALETTE_SURFACE_PANEL:
-        case UI_PALETTE_SURFACE_TRANSPARENT:
-        default:                           return 0; // borderless roles
-    }
-}
 // Resolve a universal colour role to its fill / text / border triple. This is the single place
 // that pairs every fill with the text colour drawn on it, so views and controls never pick their
 // own colours. A NULL palette falls back to the default.
@@ -381,152 +349,111 @@ UIRoleColours UIPalette_GetRoleColours(const UIPalette *palette, UIColourRole ro
     return colours;
 }
 
-// Resolve a surface= name to border and fill. Surfaces that are control roles (button = active,
-// danger, inactive, card) and the sheet / input surfaces route through
-// UIPalette_GetRoleColours so the pairings live in one place.
-void UIPalette_GetSurfaceColours(const UIPalette *palette, UIPaletteSurface surface,
-                                 ColourRgba *out_border, ColourRgba *out_fill)
+// Which palette border weight a surface uses.
+typedef enum SurfaceWeightSource
 {
-    ColourRgba border = COLOURLESS_RGBA;
-    ColourRgba fill = COLOURLESS_RGBA;
+    SURFACE_WEIGHT_NONE,       // Borderless surface.
+    SURFACE_WEIGHT_CONTAINER,
+    SURFACE_WEIGHT_FIELD_ROW,
+    SURFACE_WEIGHT_INPUT,
+    SURFACE_WEIGHT_BUTTON
+} SurfaceWeightSource;
+
+// One row per UIPaletteSurface: the colour role that supplies fill and border (or none, for the
+// surfaces that read palette fields directly), which palette weight gives the border thickness, and
+// whether the surface brings the role's text colour with it (control roles only). Indexed by the
+// surface enum, so a new surface cannot be added without a row here.
+typedef struct SurfaceMapRow
+{
+    bool has_role;
+    UIColourRole role;
+    SurfaceWeightSource weight;
+    bool has_text;
+} SurfaceMapRow;
+
+static const SurfaceMapRow s_surface_map[] = {
+    [UI_PALETTE_SURFACE_TRANSPARENT] = {false, UI_ROLE_SHEET,    SURFACE_WEIGHT_NONE,      false},
+    [UI_PALETTE_SURFACE_CONTAINER]   = {true,  UI_ROLE_SHEET,    SURFACE_WEIGHT_CONTAINER, false},
+    [UI_PALETTE_SURFACE_FIELD_ROW]   = {false, UI_ROLE_SHEET,    SURFACE_WEIGHT_FIELD_ROW, false},
+    [UI_PALETTE_SURFACE_INPUT]       = {true,  UI_ROLE_INPUT,    SURFACE_WEIGHT_INPUT,     false},
+    [UI_PALETTE_SURFACE_BUTTON]      = {true,  UI_ROLE_ACTIVE,   SURFACE_WEIGHT_BUTTON,    true},
+    [UI_PALETTE_SURFACE_PANEL]       = {false, UI_ROLE_SHEET,    SURFACE_WEIGHT_NONE,      false},
+    [UI_PALETTE_SURFACE_DANGER]      = {true,  UI_ROLE_DANGER,   SURFACE_WEIGHT_BUTTON,    true},  // danger shares the button border
+    [UI_PALETTE_SURFACE_INACTIVE]    = {true,  UI_ROLE_INACTIVE, SURFACE_WEIGHT_INPUT,     true},  // inactive tiles share the input border
+    [UI_PALETTE_SURFACE_CARD]        = {true,  UI_ROLE_CARD,     SURFACE_WEIGHT_INPUT,     true},  // cards share the input border
+};
+
+// Resolve a surface= name to its fill, border, border weight and paired text colour from the
+// s_surface_map table. Role-backed surfaces take fill and border (and text, where the row says so)
+// from UIPalette_GetRoleColours so the pairings live in one place. The two surfaces with no role
+// read palette fields directly: field_row (its own border and fill) and panel (dark background, no
+// border). Unknown surfaces resolve to the transparent style. A NULL palette uses the default.
+UISurfaceStyle UIPalette_GetSurfaceStyle(const UIPalette *palette, UIPaletteSurface surface)
+{
+    UISurfaceStyle style = {COLOURLESS_RGBA, COLOURLESS_RGBA, 0, false, COLOURLESS_RGBA};
 
     if (!palette)
     {
         palette = &ui_default_palette;
     }
-
-    UIRoleColours role_colours;
-    switch (surface)
+    if ((size_t)surface >= ARRAY_COUNT(s_surface_map))
     {
-        case UI_PALETTE_SURFACE_CONTAINER:
-            role_colours = UIPalette_GetRoleColours(palette, UI_ROLE_SHEET);
-            border = role_colours.border;
-            fill = role_colours.fill;
-            break;
-        case UI_PALETTE_SURFACE_FIELD_ROW:
-            border = palette->field_row_border;
-            fill = palette->field_row_fill;
-            break;
-        case UI_PALETTE_SURFACE_INPUT:
-            role_colours = UIPalette_GetRoleColours(palette, UI_ROLE_INPUT);
-            border = role_colours.border;
-            fill = role_colours.fill;
-            break;
-        case UI_PALETTE_SURFACE_INACTIVE:
-            role_colours = UIPalette_GetRoleColours(palette, UI_ROLE_INACTIVE);
-            border = role_colours.border;
-            fill = role_colours.fill;
-            break;
-        case UI_PALETTE_SURFACE_CARD:
-            role_colours = UIPalette_GetRoleColours(palette, UI_ROLE_CARD);
-            border = role_colours.border;
-            fill = role_colours.fill;
-            break;
-        case UI_PALETTE_SURFACE_BUTTON:
-            role_colours = UIPalette_GetRoleColours(palette, UI_ROLE_ACTIVE);
-            border = role_colours.border;
-            fill = role_colours.fill;
-            break;
-        case UI_PALETTE_SURFACE_PANEL:
-            // Panel background: dark fill, no border (the panel edge is the window/dock edge).
-            fill = palette->panel_background;
-            break;
-        case UI_PALETTE_SURFACE_DANGER:
-            role_colours = UIPalette_GetRoleColours(palette, UI_ROLE_DANGER);
-            border = role_colours.border;
-            fill = role_colours.fill;
-            break;
-        case UI_PALETTE_SURFACE_TRANSPARENT:
-        default:
-            break;
+        return style;
     }
 
-    if (out_border)
+    const SurfaceMapRow *row = &s_surface_map[surface];
+    if (row->has_role)
     {
-        *out_border = border;
-    }
-    if (out_fill)
-    {
-        *out_fill = fill;
-    }
-}
-
-// Text colour for a surface= name, or false when the surface carries no text role (transparent,
-// panel, field row, container-less cases), so the element keeps its constructor text colour.
-// Used by the loader so a card, button or danger surface brings its paired text colour with it.
-bool UIPalette_GetSurfaceText(const UIPalette *palette, UIPaletteSurface surface, ColourRgba *out_text)
-{
-    UIColourRole role;
-    switch (surface)
-    {
-        case UI_PALETTE_SURFACE_INACTIVE:   role = UI_ROLE_INACTIVE; break;
-        case UI_PALETTE_SURFACE_CARD:       role = UI_ROLE_CARD;     break;
-        case UI_PALETTE_SURFACE_BUTTON:     role = UI_ROLE_ACTIVE;   break;
-        case UI_PALETTE_SURFACE_DANGER:     role = UI_ROLE_DANGER;   break;
-        default: return false;
-    }
-    if (out_text)
-    {
-        *out_text = UIPalette_GetRoleColours(palette, role).text;
-    }
-    return true;
-}
-
-// Resolve the shared two-state colours for tabs, kind chips and flag toggles: active uses the
-// ACTIVE role (amber + ink), inactive the INACTIVE role (dark teal + cream). NULL palette falls
-// back to the default; NULL outputs are skipped.
-void UIPalette_GetToggleColours(const UIPalette *palette, bool active,
-                                ColourRgba *out_fill, ColourRgba *out_ink)
-{
-    UIRoleColours colours = UIPalette_GetRoleColours(palette, active ? UI_ROLE_ACTIVE : UI_ROLE_INACTIVE);
-    if (out_fill)
-    {
-        *out_fill = colours.fill;
-    }
-    if (out_ink)
-    {
-        *out_ink = colours.text;
-    }
-}
-// Context-aware role resolution. The one context rule: an INACTIVE control inside a CARD would be
-// dark teal on dark teal, so it resolves to the SHEET fill with ink text and keeps the INACTIVE
-// border. ACTIVE, DANGER and every other role are unchanged by context.
-UIRoleColours UIPalette_GetRoleColoursInContext(const UIPalette *palette, UIColourRole role, bool inside_card)
-{
-    UIRoleColours colours = UIPalette_GetRoleColours(palette, role);
-    if (inside_card && role == UI_ROLE_INACTIVE)
-    {
-        UIRoleColours sheet = UIPalette_GetRoleColours(palette, UI_ROLE_SHEET);
-        colours.fill = sheet.fill;
-        colours.text = sheet.text;
-    }
-    return colours;
-}
-
-// True when any ancestor of the element is a card (is_card set by the loader).
-static bool UIElement_IsInsideCard(const UIElement *element)
-{
-    for (const UIElement *ancestor = element->parent; ancestor; ancestor = ancestor->parent)
-    {
-        if (ancestor->is_card)
+        UIRoleColours colours = UIPalette_GetRoleColours(palette, row->role);
+        style.fill = colours.fill;
+        style.border = colours.border;
+        if (row->has_text)
         {
-            return true;
+            style.has_text = true;
+            style.text = colours.text;
         }
     }
-    return false;
+    else if (surface == UI_PALETTE_SURFACE_FIELD_ROW)
+    {
+        style.border = palette->field_row_border;
+        style.fill = palette->field_row_fill;
+    }
+    else if (surface == UI_PALETTE_SURFACE_PANEL)
+    {
+        style.fill = palette->panel_background;
+    }
+
+    switch (row->weight)
+    {
+        case SURFACE_WEIGHT_CONTAINER: style.border_weight = palette->container_border_weight; break;
+        case SURFACE_WEIGHT_FIELD_ROW: style.border_weight = palette->field_row_border_weight; break;
+        case SURFACE_WEIGHT_INPUT:     style.border_weight = palette->input_border_weight; break;
+        case SURFACE_WEIGHT_BUTTON:    style.border_weight = palette->button_border_weight; break;
+        case SURFACE_WEIGHT_NONE:
+        default:                       break;
+    }
+    return style;
 }
 
 // Apply a colour role to an element: fill and border always, and the role's text colour on the
 // element's own font (buttons and labels). The single entry point for panels that must recolour
 // a live element (popup rows, chips, tabs), so none of them pair fill and text by hand.
-// A NULL element or palette is a no-op.
+// The one context rule: an INACTIVE control flagged in_card would be dark teal on dark teal, so it
+// resolves to the SHEET fill with ink text and keeps the INACTIVE border. ACTIVE, DANGER and every
+// other role are unchanged by context. A NULL element or palette is a no-op.
 void UIElement_ApplyRoleColours(UIElement *element, const UIPalette *palette, UIColourRole role)
 {
     if (!element || !palette)
     {
         return;
     }
-    UIRoleColours colours = UIPalette_GetRoleColoursInContext(palette, role, UIElement_IsInsideCard(element));
+    UIRoleColours colours = UIPalette_GetRoleColours(palette, role);
+    if (element->in_card && role == UI_ROLE_INACTIVE)
+    {
+        UIRoleColours sheet = UIPalette_GetRoleColours(palette, UI_ROLE_SHEET);
+        colours.fill = sheet.fill;
+        colours.text = sheet.text;
+    }
     element->colour_fill = colours.fill;
     element->colour_border = colours.border;
     if (IsBtn(element))
@@ -536,6 +463,21 @@ void UIElement_ApplyRoleColours(UIElement *element, const UIPalette *palette, UI
     else if (element->type == UI_ELEMENT_LABEL)
     {
         element->data.label.font.colour = colours.text;
+    }
+}
+
+// Flag every descendant of `root` as inside a card (recursive over the child links). Run once when
+// a card subtree is built, so UIElement_ApplyRoleColours reads a flag instead of walking parents.
+void UIElement_MarkDescendantsInCard(UIElement *root)
+{
+    if (!root)
+    {
+        return;
+    }
+    ForEachChild(root, child)
+    {
+        child->in_card = true;
+        UIElement_MarkDescendantsInCard(child);
     }
 }
 // Returns the live palette storage. InitUIPalettes is idempotent, so a call made before InitUI
@@ -1187,9 +1129,6 @@ void InitUI(void)
     // Init Global UI State
     UIState_SetSelection(NULL, NULL, -1);
     G_UIState.focused_element = NULL;
-    // The lpanel is retired: it is no longer mounted in the UI lifecycle. Its files (and the
-    // space-basis getters) are kept only so diagnostics.c still links against the lpanel-space
-    // debug-basis target; the lpanel's viewport slot now hosts the Entity Mgmt panel.
     InitUtilityPanel();
     InitWorldManagerSystem();
     InitStateManagerSystem();
@@ -1197,7 +1136,6 @@ void InitUI(void)
     InitInfoStrip();
     InitDetailStrip();
     InitToolbar();
-    G_UIState.active_view = LPANEL_STATE_VIEW;
 }
 
 // Tears down every UI tree, panel, transient input state and drag capture.
@@ -1213,8 +1151,7 @@ void DestroyUI(void)
     // Clear popup visibility and submenu state while its elements are still valid.
     HidePopupMenu();
 
-    // Each panel owns and disposes its root, views, selectors, and cached pointers. The lpanel is
-    // retired (never initialised), so it is not destroyed here.
+    // Each panel owns and disposes its root, views, selectors, and cached pointers.
     DestroyWorldManagerSystem();
     DestroyUtilityPanel();
     DestroyPopupMenu();
@@ -1329,7 +1266,6 @@ InputRouteResult UpdateUISystem(const InputFrame *input)
 
 void DrawUI()
 {
-    // The lpanel is retired (never initialised), so it is not drawn here.
     DrawWorldManagerSystem();
     DrawStateManagerSystem();
     DrawUtilityPanel();
@@ -1377,25 +1313,6 @@ static void UpdateTelemetryStats(float fps, float frame_time_ms, float kib_alloc
     }
 }
 
-// Sync entity-creation editor textboxes when the draw view is active, otherwise clear them.
-static void RefreshEntityEditorFields(bool editor_active, EntityCreateParams *params)
-{
-    TextboxField edit_fields[] = {
-        {G_UIState.edit_vertice_count_tbox, INT, (editor_active && params) ? (void *)&params->physics.vertice_count : NULL, 0, NULL},
-        {G_UIState.edit_width_tbox, FLOAT, (editor_active && params) ? (void *)&params->physics.width : NULL, 2, NULL},
-        {G_UIState.edit_height_tbox, FLOAT, (editor_active && params) ? (void *)&params->physics.height : NULL, 2, NULL},
-        {G_UIState.edit_mass_tbox, FLOAT, (editor_active && params) ? (void *)&params->physics.mass : NULL, 2, NULL},
-        {G_UIState.edit_restitution_tbox, FLOAT, (editor_active && params) ? (void *)&params->physics.restitution : NULL, 2, NULL},
-        {G_UIState.edit_friction_tbox, FLOAT, (editor_active && params) ? (void *)&params->physics.friction : NULL, 2, NULL},
-        {G_UIState.edit_pos_c_tbox, VECTOR2D, (editor_active && params) ? (void *)&params->physics.anchor_position : NULL, 0, NULL},
-        {G_UIState.edit_vel_tbox, VECTOR2D, (editor_active && params) ? (void *)&params->physics.velocity : NULL, 0, NULL},
-        {G_UIState.edit_accel_tbox, VECTOR2D, (editor_active && params) ? (void *)&params->physics.acceleration : NULL, 0, NULL},
-        {G_UIState.edit_moment_tbox, VECTOR2D, (editor_active && params) ? (void *)&params->physics.momentum : NULL, 0, NULL},
-    };
-
-    RefreshTextboxFields(edit_fields, ARRAY_COUNT(edit_fields));
-}
-
 void UpdateGlobalUIState()
 {
     // UPDATE STATISTICS
@@ -1418,13 +1335,6 @@ void UpdateGlobalUIState()
                  fps_text, ftime_text, mem_text, poly_text);
     }
     // ----DEBUG //
-
-    // COLLECT & UPDATE EDITING ENTITY PROPERTIES
-    // The lpanel DRAW edit view has been retired, so the editor fields are never the active view
-    // now; refresh with the edit view inactive so the fields stay cleared/idle.
-    EntityCreateParams *params = G_UIState.entity_create_params;
-    bool edit_view_active = false;
-    RefreshEntityEditorFields(edit_view_active, params);
 }
 
 

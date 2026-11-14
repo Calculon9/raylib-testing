@@ -123,18 +123,6 @@ void View_UpdateScrollBounds(View *view);
 // Retrieve the currently active view in a panel system (the first enabled view container).
 View *ViewHostSystem_GetActiveView(ViewHostSystem *panel);
 
-// Create buttons that select views in the panel's view array.
-ViewSelector *ViewHostSystem_CreateViewSelector(ViewHostSystem *panel, UIElement *parent,
-                                                  Size button_size, const char *labels[],
-                                                  size_t count,
-                                                  ViewSelectionCallback on_view_selected);
-
-// Create hover items that select views when the cursor enters them.
-ViewSelector *ViewHostSystem_CreateHoverViewSelector(ViewHostSystem *panel, UIElement *parent,
-                                                       Size item_size, const char *labels[],
-                                                       size_t count,
-                                                       ViewSelectionCallback on_view_selected);
-
 // Select a view and update the selector's active button styling.
 bool ViewHostSystem_SelectView(ViewSelector *selector, size_t view_index);
 
@@ -150,23 +138,11 @@ bool ViewHostSystem_SetSpaceBasis(ViewHostSystem *panel, Vector2d u, Vector2d v)
 // Reset basis to default
 void ViewHostSystem_ResetSpaceBasis(ViewHostSystem *panel);
 
-// Standard panel initialisation: create, init views array, init root, and
-// optionally create + select a view-selector with the supplied labels.
-ViewHostSystem *ViewHostSystem_CreateStandard(ViewportRegion *viewport, size_t view_count,
-                                        const char *selector_labels[], size_t selector_label_count,
-                                        ViewSelectionCallback selector_callback,
-                                        const UIPalette *palette, Layout root_child_spacing);
-
-// Create a toggle bar container at the top of the panel and a view selector.
-ViewSelector *ViewHostSystem_CreateStandardViewSelector(ViewHostSystem *panel,
-                                                     const char *labels[], size_t count,
-                                                     ViewSelectionCallback callback);
-
 // View selector button click handler; wires button clicks to view selection.
 void HandleViewHostSelectorClick(UIElement *button);
 
 // Finalise panel initialisation: select first view and update UI space.
-// Common routine that reduces boilerplate across lpanel, rpanel, utility panel systems.
+// Common routine that reduces boilerplate across the markup-driven panels.
 void ViewHostSystem_FinaliseInit(ViewHostSystem *panel, ViewSelector **selector_out);
 // Apply the standard sheet styling to a view container (SHEET fill, no border, 6 px padding, draggable).
 void ViewHostSystem_StyleViewSheet(UIElement *container, const UIPalette *palette);

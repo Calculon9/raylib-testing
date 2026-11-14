@@ -213,8 +213,6 @@ static void UILoader_LogWarning(UILoaderContext *ctx, const char *msg, const cha
         return;
     
     const char *source = ctx && ctx->source_file ? ctx->source_file : "<unknown>";
-    // TODO: Replace with actual logging system (DEBUG_LOG, printf, etc.)
-    
     LOG_WARN("UI Loader Warning: %s (source: %s, function: %s)", msg, source, func);
 
     (void)source;
@@ -231,8 +229,6 @@ static void UILoader_LogError(UILoaderContext *ctx, const char *msg, const char 
         return;
     
     const char *source = ctx && ctx->source_file ? ctx->source_file : "<unknown>";
-    // TODO: Replace with actual logging system (DEBUG_LOG, fprintf(stderr, ...), etc.)
-
     LOG_ERROR("UI Loader Error: %s (source: %s, function: %s)", msg, source, func);
     
     (void)source;
@@ -794,9 +790,7 @@ static UIBuildResult BuildTextbox(mxml_node_t *node, UIElement *parent, const UI
 
     // Derive the input-cell palette colours, mirroring how CreateUILabeledFieldDefault styles
     // the row's textbox child, so a standalone <Textbox> looks like a field input cell.
-    ColourRgba input_border;
-    ColourRgba input_fill;
-    UIPalette_GetSurfaceColours(palette, UI_PALETTE_SURFACE_INPUT, &input_border, &input_fill);
+    const UISurfaceStyle input_style = UIPalette_GetSurfaceStyle(palette, UI_PALETTE_SURFACE_INPUT);
 
     // Construct a bare textbox under `parent`, mirroring how CreateLabeledFieldElement makes
     // its textbox child (same UI_ELEMENT_TEXTBOX_* type) but with NO row and NO percent split.
@@ -805,11 +799,11 @@ static UIBuildResult BuildTextbox(mxml_node_t *node, UIElement *parent, const UI
     UIElement *textbox = CreateUIElementInTree(field_type, common->size, parent,
                                                (Offset){ZERO_VECTOR_2D, OFFSET_FIXED},
                                                ui_standard_field_padding,
-                                               input_border, input_fill);
+                                               input_style.border, input_style.fill);
     if (!textbox)
         return (UIBuildResult){ NULL };
 
-    textbox->border_weight = UIPalette_GetSurfaceBorderWeight(palette, UI_PALETTE_SURFACE_INPUT);
+    textbox->border_weight = input_style.border_weight;
 
     // Match the row child's cosmetics: medium font in the palette's text colour and
     // vertically-centred text.
@@ -996,7 +990,7 @@ static UIBuildResult BuildViewSelector(mxml_node_t *node, UIElement *parent,
                                        UICommonAttrs *common)
 {
     // Build the toggle-bar container, mirroring the styling of
-    // ViewHostSystem_CreateStandardViewSelector (transparent surface, container
+    // the tab bar convention (transparent surface, container
     // border colour, zero inline spacing). The Option children become enumerate
     // buttons; the actual ViewSelector struct is allocated later by
     // UILoader_BuildSelectorFromMarkup once all Views are known.
@@ -1089,9 +1083,9 @@ static UIBuildResult BuildOption(mxml_node_t *node, UIElement *parent,
  *             default to a fill/fill surface and a zero fixed offset when absent.
  *
  * Produces a plain fill-size container (NOT a UI_ELEMENT_ROOT) that becomes the
- * content host re-parented under the real ViewHostSystem root in InitLPanel. The
+ * content host re-parented under the real ViewHostSystem root by the owning panel. The
  * viewport and scale are deliberately NOT expressed in markup: they are
- * application-specific and supplied by the application (InitLPanel), keeping the
+ * application-specific and supplied by the application, keeping the
  * generic loader free of viewport knowledge. The initial-view id is recorded for
  * the application to resolve to a view index.
  */
@@ -1104,7 +1098,7 @@ static UIBuildResult BuildViewHost(mxml_node_t *node, UIElement *parent,
     // the application-built root. The offset is consumed at construct time.
     const char *host_id = common->id;
 
-    // Record the initial-view attribute so InitLPanel can resolve it to an index.
+    // Record the initial-view attribute so the owning panel can resolve it to an index.
     const char *initial_view = mxmlElementGetAttr(node, "initial-view");
     safe_strncpy(g_markup_table.initial_view_id, initial_view ? initial_view : "",
                  MAX_UI_ELEMENT_ID);
@@ -1113,7 +1107,7 @@ static UIBuildResult BuildViewHost(mxml_node_t *node, UIElement *parent,
                host_id, initial_view ? initial_view : "<none>");
 
     // A plain fill-size container; the real UI_ELEMENT_ROOT is built by
-    // ViewHostSystem_InitRoot in InitLPanel and this container is re-parented under
+    // ViewHostSystem_InitRoot and this container is re-parented under
     // it. parent is NULL at the document root.
     // Padding: authored padding= when present, else the host inset (root 0.10 + 0.02 = 6 px).
     // Dark panel surface (style v2); layout= honoured, with the 6 px stacked default gap.
@@ -1199,7 +1193,7 @@ static const UIElementBuilderRegistry *UILoader_FindBuilder(const char *tag_name
 // ============================================================================
 
 // Helper: Parse layout attribute and return corresponding Layout constant
-// Supported values: "stack", "stack_wrap", "inline_wrap"
+// Supported values: "stack" / "stacked" (alias), "stack_wrap", "inline", "inline_wrap", "view_stack"; anything else is "stack".
 static const Layout *UILoader_ParseLayout(const char *layout_str)
 {
     if (!layout_str)
@@ -1391,7 +1385,7 @@ static bool UILoader_ParseBorder(UILoaderContext *ctx, const UIPalette *palette,
         return false;
     }
 
-    UIPalette_GetSurfaceColours(palette, role, out, NULL);
+    *out = UIPalette_GetSurfaceStyle(palette, role).border;
     return true;
 }
 // Helper: Parse a border-weight= attribute: a whole number of screen pixels in 0..UI_MAX_BORDER_WEIGHT.
@@ -1796,6 +1790,14 @@ static UIElement *UILoader_ParseElementNode(mxml_node_t *node, UIElement *parent
     // restored after the children are parsed so it never leaks to siblings.
     const bool saved_has_inherited_text = ctx->has_inherited_text;
     const ColourRgba saved_inherited_text = ctx->inherited_text;
+    // Inside-a-card flag, stamped once here (the parser already tracks it as has_inherited_text) so
+    // UIElement_ApplyRoleColours reads a flag instead of walking the parents every frame. Elements
+    // the builder already created under this one (a composite's label and input) are inside too.
+    outer->in_card = saved_has_inherited_text;
+    if (saved_has_inherited_text)
+    {
+        UIElement_MarkDescendantsInCard(outer);
+    }
     // A filled Textbox (a read-only or editable field) keeps its own ink on its own fill, so only a
     // transparent Textbox (a note drawn straight on the card) takes the card text.
     const char *own_surface = mxmlElementGetAttr(node, "surface");
@@ -1809,20 +1811,21 @@ static UIElement *UILoader_ParseElementNode(mxml_node_t *node, UIElement *parent
     UIPaletteSurface surface_role;
     if (UILoader_ParseSurface(ctx, mxmlElementGetAttr(node, "surface"), &surface_role))
     {
-        UIPalette_GetSurfaceColours(ctx->palette, surface_role,
-                                    &outer->colour_border, &outer->colour_fill);
-        outer->border_weight = UIPalette_GetSurfaceBorderWeight(ctx->palette, surface_role);
+        const UISurfaceStyle surface_style = UIPalette_GetSurfaceStyle(ctx->palette, surface_role);
+        outer->colour_border = surface_style.border;
+        outer->colour_fill = surface_style.fill;
+        outer->border_weight = surface_style.border_weight;
         // A surface that is a control role also brings its paired text colour (button = ink on
         // amber, danger = ink on coral, card = cream on teal), so views need no ink=.
-        ColourRgba surface_text;
-        if (UIPalette_GetSurfaceText(ctx->palette, surface_role, &surface_text))
+        if (surface_style.has_text)
         {
+            const ColourRgba surface_text = surface_style.text;
             UILoader_ApplyTextColour(outer, surface_text);
             if (surface_role == UI_PALETTE_SURFACE_CARD)
             {
                 // A card's descendants share its text colour, and are marked as inside a card
-                // (is_card) so their INACTIVE roles resolve to the sheet colours.
-                outer->is_card = true;
+                // (in_card) so their INACTIVE roles resolve to the sheet colours.
+                UIElement_MarkDescendantsInCard(outer);
                 ctx->has_inherited_text = true;
                 ctx->inherited_text = surface_text;
             }
@@ -1850,7 +1853,8 @@ static UIElement *UILoader_ParseElementNode(mxml_node_t *node, UIElement *parent
     if (UILoader_ParseBorderWeight(ctx, mxmlElementGetAttr(node, "border-weight"), &border_weight))
     {
         outer->border_weight = (uint8_t)border_weight;
-    }    // hint: optional static hover text for the detail strip. Applied at this single generic
+    }
+    // hint: optional static hover text for the detail strip. Applied at this single generic
     // choke point so ANY element can carry one; live values are added in C through on_hint.
     const char *hint_attr = mxmlElementGetAttr(node, "hint");
     if (hint_attr && hint_attr[0] != '\0')
@@ -1891,124 +1895,25 @@ static UIElement *UILoader_ParseElementNode(mxml_node_t *node, UIElement *parent
 }
 
 // ============================================================================
-// Loader Entry Points
+// Loader Entry Point
 // ============================================================================
 
-UIElement *UILoader_LoadFromFile(const char *filepath, const UIPalette *palette)
-{
-    LOADER_LOG(NULL, "Loading UI from file: %s", filepath);
-
-    if (!filepath)
-    {
-        LOADER_ERROR(NULL, "File path is NULL");
-        return NULL;
-    }
-
-    // Clear per-load markup metadata before parsing a fresh tree.
-    UILoader_ResetMarkupTable();
-
-    mxml_node_t *tree = mxmlLoadFilename(NULL, NULL, filepath);
-    if (!tree)
-    {
-        // mxmlLoadFilename returns NULL for file-not-found or parse errors
-        LOADER_ERROR(NULL, "Failed to load or parse XML file");
-        return NULL;
-    }
-    
-    // Find document root element (skip XML declaration and text nodes)
-    mxml_node_t *root_elem = mxmlGetFirstChild(tree);
-    while (root_elem && mxmlGetType(root_elem) != MXML_TYPE_ELEMENT)
-    {
-        root_elem = mxmlGetNextSibling(root_elem);
-    }
-    
-    if (!root_elem)
-    {
-        // XML file is empty or contains only non-element nodes
-        LOADER_ERROR(NULL, "No root element found in XML file");
-        mxmlDelete(tree);
-        return NULL;
-    }
-    
-    UILoaderContext ctx = {
-        .root = root_elem,
-        .palette = palette ? palette : UIPalette_GetActive(),
-        .source_file = filepath,
-        .resolve_binding = NULL,  // Application to provide resolver
-        .resolve_command = NULL,   // Application to provide resolver
-        .user_data = NULL,
-    };
-    
-    UIElement *root = UILoader_ParseElementNode(root_elem, NULL, &ctx);
-    mxmlDelete(tree);
-    
-    return root;
-}
-
-UIElement *UILoader_LoadFromString(const char *xml_string, const UIPalette *palette)
-{
-    if (!xml_string)
-    {
-        LOADER_ERROR(NULL, "XML string is NULL");
-        return NULL;
-    }
-
-    // Clear per-load markup metadata before parsing a fresh tree.
-    UILoader_ResetMarkupTable();
-
-    mxml_node_t *tree = mxmlLoadString(NULL, NULL, xml_string);
-    if (!tree)
-    {
-        // XML parse error or empty string
-        LOADER_ERROR(NULL, "Failed to parse XML string");
-        return NULL;
-    }
-    
-    // Find document root element (skip XML declaration and text nodes)
-    mxml_node_t *root_elem = mxmlGetFirstChild(tree);
-    while (root_elem && mxmlGetType(root_elem) != MXML_TYPE_ELEMENT)
-    {
-        root_elem = mxmlGetNextSibling(root_elem);
-    }
-    
-    if (!root_elem)
-    {
-        // XML string is empty or contains only non-element nodes
-        LOADER_ERROR(NULL, "No root element found in XML string");
-        mxmlDelete(tree);
-        return NULL;
-    }
-    
-    UILoaderContext ctx = {
-        .root = root_elem,
-        .palette = palette ? palette : UIPalette_GetActive(),
-        .source_file = "<string>",
-        .resolve_binding = NULL,  // Application to provide resolver
-        .resolve_command = NULL,   // Application to provide resolver
-        .user_data = NULL,
-    };
-    
-    UIElement *root = UILoader_ParseElementNode(root_elem, NULL, &ctx);
-    mxmlDelete(tree);
-    
-    return root;
-}
-
-// ============================================================================
-// Loader Entry Points with Custom Resolvers
-// ============================================================================
-
+/**
+ * Load a UI tree from an XML file. The single public entry point: the application supplies its
+ * binding, command and view-type resolvers (any may be NULL) and an opaque `user_data` handed to
+ * them. A NULL palette uses the active palette. Returns the root element, or NULL when the file
+ * cannot be read or has no root element.
+ */
 UIElement *UILoader_LoadFromFileWithResolvers(const char *filepath, const UIPalette *palette, UIBindingResolver resolve_binding,
                                                UICommandResolver resolve_command, UIViewTypeResolver resolve_view_type,
                                                void *user_data)
 {
-    LOADER_LOG(NULL, "Loading UI from file: %s", filepath);
-    
     if (!filepath)
     {
         LOADER_ERROR(NULL, "File path is NULL");
         return NULL;
     }
+    LOADER_LOG(NULL, "Loading UI from file: %s", filepath);
 
     // Clear per-load markup metadata before parsing a fresh tree.
     UILoader_ResetMarkupTable();
@@ -2016,24 +1921,25 @@ UIElement *UILoader_LoadFromFileWithResolvers(const char *filepath, const UIPale
     mxml_node_t *tree = mxmlLoadFilename(NULL, NULL, filepath);
     if (!tree)
     {
+        // mxmlLoadFilename returns NULL for file-not-found or parse errors.
         LOADER_ERROR(NULL, "Failed to load or parse XML file");
         return NULL;
     }
-    
-    // Find document root element
+
+    // Find the document root element (skip the XML declaration and text nodes).
     mxml_node_t *root_elem = mxmlGetFirstChild(tree);
     while (root_elem && mxmlGetType(root_elem) != MXML_TYPE_ELEMENT)
     {
         root_elem = mxmlGetNextSibling(root_elem);
     }
-    
+
     if (!root_elem)
     {
         LOADER_ERROR(NULL, "No root element found in XML file");
         mxmlDelete(tree);
         return NULL;
     }
-    
+
     UILoaderContext ctx = {
         .root = root_elem,
         .palette = palette ? palette : UIPalette_GetActive(),
@@ -2043,65 +1949,12 @@ UIElement *UILoader_LoadFromFileWithResolvers(const char *filepath, const UIPale
         .resolve_view_type = resolve_view_type,
         .user_data = user_data,
     };
-    
+
     UIElement *root = UILoader_ParseElementNode(root_elem, NULL, &ctx);
     mxmlDelete(tree);
-    
+
     return root;
 }
-
-UIElement *UILoader_LoadFromStringWithResolvers(const char *xml_string, const UIPalette *palette,
-                                                 UIBindingResolver resolve_binding,
-                                                 UICommandResolver resolve_command,
-                                                 UIViewTypeResolver resolve_view_type,
-                                                 void *user_data)
-{
-    if (!xml_string)
-    {
-        LOADER_ERROR(NULL, "XML string is NULL");
-        return NULL;
-    }
-
-    // Clear per-load markup metadata before parsing a fresh tree.
-    UILoader_ResetMarkupTable();
-
-    mxml_node_t *tree = mxmlLoadString(NULL, NULL, xml_string);
-    if (!tree)
-    {
-        LOADER_ERROR(NULL, "Failed to parse XML string");
-        return NULL;
-    }
-    
-    // Find document root element
-    mxml_node_t *root_elem = mxmlGetFirstChild(tree);
-    while (root_elem && mxmlGetType(root_elem) != MXML_TYPE_ELEMENT)
-    {
-        root_elem = mxmlGetNextSibling(root_elem);
-    }
-    
-    if (!root_elem)
-    {
-        LOADER_ERROR(NULL, "No root element found in XML string");
-        mxmlDelete(tree);
-        return NULL;
-    }
-    
-    UILoaderContext ctx = {
-        .root = root_elem,
-        .palette = palette ? palette : UIPalette_GetActive(),
-        .source_file = "<string>",
-        .resolve_binding = resolve_binding,
-        .resolve_command = resolve_command,
-        .resolve_view_type = resolve_view_type,
-        .user_data = user_data,
-    };
-    
-    UIElement *root = UILoader_ParseElementNode(root_elem, NULL, &ctx);
-    mxmlDelete(tree);
-    
-    return root;
-}
-
 // ============================================================================
 // Post-Load Processing: View Extraction
 // ============================================================================
@@ -2272,7 +2125,7 @@ UIElement *UILoader_FindById(UIElement *root, const char *id)
  * host->views; unmatched targets default to index 0 with a warning. The selector's
  * buttons[]/view_indices[] arrays are allocated with the exact element sizes used
  * by the C-built path so DestroyPanelViewSelector's frees stay correct, and each
- * enumerate button is wired exactly like ViewHostSystem_CreateViewSelector so
+ * enumerate button is wired to HandleViewHostSelectorClick so
  * clicks drive ViewHostSystem_SelectView. Styling / initial selection is left to
  * the single ViewHostSystem_SelectView call the application makes afterwards.
  */
@@ -2287,7 +2140,7 @@ ViewSelector *UILoader_BuildSelectorFromMarkup(ViewHostSystem *host,
     size_t count = g_markup_table.option_count;
 
     // Allocate the selector and its backing arrays. Element sizes match
-    // AllocatePanelViewSelector so DestroyPanelViewSelector frees them correctly.
+    // what DestroyPanelViewSelector frees.
     ViewSelector *selector = AllocateBytes(sizeof(ViewSelector));
     if (!selector)
     {
@@ -2298,7 +2151,7 @@ ViewSelector *UILoader_BuildSelectorFromMarkup(ViewHostSystem *host,
     selector->view_indices = AllocateBytes(sizeof(int) * count);
     if (!selector->buttons || !selector->view_indices)
     {
-        // Mirror AllocatePanelViewSelector's cleanup on partial allocation failure.
+        // Release whatever was allocated on partial allocation failure.
         Deallocate((void **)&selector->buttons, sizeof(UIElement *) * count);
         Deallocate((void **)&selector->view_indices, sizeof(int) * count);
         Deallocate((void **)&selector, sizeof(ViewSelector));
@@ -2326,7 +2179,7 @@ ViewSelector *UILoader_BuildSelectorFromMarkup(ViewHostSystem *host,
         selector->buttons[i] = option->button;
         selector->view_indices[i] = index;  // Resolved index (NOT a trivial 0..count-1).
 
-        // Wire the enumerate button exactly like ViewHostSystem_CreateViewSelector.
+        // Wire the enumerate button: click -> HandleViewHostSelectorClick -> ViewHostSystem_SelectView.
         if (option->button)
         {
             option->button->on_click = HandleViewHostSelectorClick;            // base handler

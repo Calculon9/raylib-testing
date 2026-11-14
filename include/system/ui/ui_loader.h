@@ -67,7 +67,7 @@ typedef enum {
  * CRITICAL LAYOUT CONSTRAINT (design section 1.3): `address` and `data_type` MUST
  * remain the FIRST TWO members, in that order. The new members (`kind`, `query`,
  * `query_key`, `value_type`, `write`, `write_key`) are APPENDED after `data_type`
- * and must never be moved before it. LPanel_ResolveBinding initialises its result
+ * and must never be moved before it. Resolvers may initialise their result
  * with the POSITIONAL initialiser `UIBinding binding = {NULL, FLOAT};` (NULL ->
  * slot 0 `address`, FLOAT -> slot 1 `data_type`); ALL appended members
  * value-initialise to zero so `kind == UI_BIND_SRC_NONE`, `query == NULL`,
@@ -158,11 +158,11 @@ typedef UIAction (*UIActionResolver)(const char *action_string, UILoaderContext 
 
 /**
  * View-type resolver callback.
- * Resolves a view-type string (e.g. "LPANEL_DRAW_VIEW") to a ViewType code.
+ * Resolves a view-type string (e.g. "STATE_MANAGER_PHYSICS_VIEW") to a ViewType code.
  * Kept as an application-supplied callback so the generic loader never names
  * application-specific ViewType enum values.
  *
- * @param type_string XML type attribute value (e.g. "LPANEL_STATE_VIEW")
+ * @param type_string XML type attribute value (e.g. "STATE_MANAGER_PHYSICS_VIEW")
  * @param resolved Output: set true when the string was recognised, false otherwise
  * @param ctx Shared loader context
  * @return Resolved ViewType; a defaulted/zero ViewType when unrecognised
@@ -305,51 +305,6 @@ UIElement *UILoader_LoadFromFileWithResolvers(const char *filepath, const UIPale
                                                void *user_data);
 
 /**
- * Load and parse a UI tree from an XML string with custom resolvers.
- * 
- * Parses the XML string, creates a tree of UIElements by dispatching to registered builders,
- * and returns the root element. Uses provided resolvers for bindings and commands.
- * 
- * @param xml_string XML markup as string
- * @param palette UI palette for element styling (NULL = use default)
- * @param resolve_binding Optional callback to resolve binding strings (can be NULL)
- * @param resolve_command Optional callback to resolve command strings (can be NULL)
- * @param resolve_view_type Optional callback to resolve view-type strings (can be NULL)
- * @param user_data Optional user data passed to callbacks
- * @return Root UIElement, or NULL on error
- */
-UIElement *UILoader_LoadFromStringWithResolvers(const char *xml_string, const UIPalette *palette,
-                                                 UIBindingResolver resolve_binding,
-                                                 UICommandResolver resolve_command,
-                                                 UIViewTypeResolver resolve_view_type,
-                                                 void *user_data);
-
-/**
- * Load and parse a UI tree from an XML file.
- * 
- * Reads the XML file, creates a tree of UIElements by dispatching to registered builders,
- * and returns the root element. Caller owns the returned tree and must dispose it.
- * No bindings or actions will be resolved (resolvers are NULL).
- * 
- * @param filepath Path to XML file (absolute or relative to cwd)
- * @param palette UI palette for element styling (NULL = use default)
- * @return Root UIElement, or NULL on error
- */
-UIElement *UILoader_LoadFromFile(const char *filepath, const UIPalette *palette);
-
-/**
- * Load and parse a UI tree from an XML string.
- * 
- * Parses the XML string, creates a tree of UIElements by dispatching to registered builders,
- * and returns the root element. No bindings or actions will be resolved (resolvers are NULL).
- * 
- * @param xml_string XML markup as string
- * @param palette UI palette for element styling (NULL = use default)
- * @return Root UIElement, or NULL on error
- */
-UIElement *UILoader_LoadFromString(const char *xml_string, const UIPalette *palette);
-
-/**
  * Register a new element type builder.
  * 
  * Must be called before loading any XML that uses the element type.
@@ -415,7 +370,7 @@ void UILoader_RegisterDefaultBuilders(void);
  * The caller must free the returned array but NOT the View structs (they are owned by caller).
  * The View structs reference the containers from the tree.
  * 
- * @param root Root UIElement from UILoader_LoadFromFile*
+ * @param root Root UIElement from UILoader_LoadFromFileWithResolvers
  * @param out_count Output: number of Views found
  * @return Allocated array of View pointers, or NULL if no Views found or error
  */
@@ -428,7 +383,7 @@ View **UILoader_ExtractViews(UIElement *root, size_t *out_count);
  * Resolves each Option's target view id to the index of the matching View in
  * host->views (two-pass, since Options precede Views in document order),
  * allocates the ViewSelector plus its buttons[]/view_indices[] arrays, and wires
- * each enumerate button exactly like ViewHostSystem_CreateViewSelector:
+ * each enumerate button as follows:
  *   button->on_click              = HandleViewHostSelectorClick
  *   button->interaction_user_data = &selector->view_indices[i]
  *   button->data.button.data_bind = selector

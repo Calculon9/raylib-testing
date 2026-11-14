@@ -244,7 +244,7 @@ typedef struct UIElement
     bool is_focused, is_dirty, is_draggable, is_enabled; // For interactive elements like TextBoxes and Buttons
     bool is_scrollable_x; // Bypasses horizontal size clamping when scrolling
     bool is_scrollable_y; // Bypasses vertical size clamping when scrolling
-    bool is_card;         // Set by the loader on a surface="card" container; descendants resolve INACTIVE as the sheet colours.
+    bool in_card;         // Stamped at build time on every descendant of a card: its INACTIVE role resolves as the sheet colours.
     bool allow_overflow;  // When true, this element may extend beyond its parent's content box:
                           // its box dimensions are NOT clamped to the parent's remaining space
                           // (both axes). Used for fan-out submenus, tooltips, dropdowns. Scroll

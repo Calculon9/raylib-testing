@@ -9,7 +9,6 @@
 #include "camera/camera.h"
 #include "ui/ui_input.h"
 #include "system/ui_system.h"
-#include "system/ui/lpanel_system.h"
 #include "system/ui/utility_panel_system.h"
 #include "system/ui/state_manager_system.h"
 #include "system/viewport_system.h"
@@ -717,8 +716,7 @@ void InitTextBuffers(UIElement *e, Text_64_IOState *t_bufs)
 
 UIElement *ResolveUIRootTarget(Vector2d mouse_coords)
 {
-    // The lpanel is retired (never mounted), so GetLPanelRoot() is not hit-tested here; the state
-    // manager (Entity Mgmt) root now covers that region.
+    // Topmost first: the popup, then the panels (the Entity Mgmt root covers the left dock region).
     UIElement *roots[] = {
         GetPopupMenuRoot(),
         GetUtilityPanelRoot(),

@@ -242,8 +242,8 @@ The editor style is set once in the shared layer (`ui_system.c` palette and cons
   labels and is a dark ink tuned for AA contrast on `container_fill`.
 - **Scrolling containers.** `scroll="x|y|both"` on a `<Container>` clips and scrolls its content;
   `UI_ClampScrollOffsets` re-clamps the offset each frame and a y scrollbar is drawn on overflow.
-- **Two-state colours.** Tabs, kind chips and bound text toggles all use
-  `UIPalette_GetToggleColours`: active = the ACTIVE role (amber + ink), inactive = the INACTIVE role
+- **Two-state colours.** Tabs, kind chips and bound text toggles all set
+  `UIElement_ApplyRoleColours` with `UI_ROLE_ACTIVE` / `UI_ROLE_INACTIVE`: active = the ACTIVE role (amber + ink), inactive = the INACTIVE role
   (dark teal + cream).
 - **Borders.** The renderer draws a border (inside the box, `border_weight` UI px, default 1) whenever
   `colour_border.a > 0`; constructors decide which elements carry one. The UI-borders debug

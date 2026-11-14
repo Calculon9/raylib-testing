@@ -22,7 +22,7 @@
         <!-- the always-present detail/info strips (the spawn glyph stays generic). -->
         <Button id="tool_spawn" type="simple" surface="inactive" binding="tool.spawn" action="tool-spawn" hint="Spawn tool | Wheel: cycle prefab" size="icon" />
     </Container>
-    <!-- Toggle group: independent visual toggles (rehomed from lpanel.xml's state_view). -->
+    <!-- Toggle group: independent visual toggles . -->
     <Container id="toolbar_toggles" layout="stacked" width="hug" height="hug" padding="0">
         <Button id="toggle_dashboard" type="simple" surface="inactive" binding="debug.dashboard" action="toggle-debug-dashboard" hint="Debug dashboard" size="icon" />
         <Button id="toggle_viewport_grid" type="simple" surface="inactive" binding="view.viewport-grid" action="toggle-viewport-grid" hint="Viewport grid" size="icon" />

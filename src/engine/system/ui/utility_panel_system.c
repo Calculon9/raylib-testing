@@ -36,12 +36,14 @@ static void InitUtilityStatsView(void)
     {
         return;
     }
-    // Descendants inside a card resolve INACTIVE roles as the sheet colours (see is_card).
-    card->is_card = true;
     // Section title, matching the other panels' titles (upper-cased by the title constructor), with
     // the card's cream text colour like a markup title inside a card.
     ColourRgba card_text = palette->title_text;
-    UIPalette_GetSurfaceText(palette, UI_PALETTE_SURFACE_CARD, &card_text);
+    const UISurfaceStyle card_style = UIPalette_GetSurfaceStyle(palette, UI_PALETTE_SURFACE_CARD);
+    if (card_style.has_text)
+    {
+        card_text = card_style.text;
+    }
     UIElement *title = CreateUILabelTitleDefault(card, "Performance", ui_title_size,
                                                  ui_standard_field_padding, palette);
     if (title)
@@ -73,6 +75,8 @@ static void InitUtilityStatsView(void)
             label->data.label.font.colour = card_text;
         }
     }
+    // Descendants inside a card resolve INACTIVE roles as the sheet colours (the loader stamps this for markup cards).
+    UIElement_MarkDescendantsInCard(card);
 }
 void InitUtilityPanel(void)
 {
@@ -83,7 +87,7 @@ void InitUtilityPanel(void)
         return;
     }
 
-    // Utility now contains telemetry only; debug controls live in lpanel STATE.
+    // Utility now contains telemetry only; debug controls live in the toolbar and debug overlay hotkeys.
     ViewHostSystem_InitViews(utility_panel, 1);
     ViewHostSystem_InitRoot(utility_panel);
     InitUtilityStatsView();

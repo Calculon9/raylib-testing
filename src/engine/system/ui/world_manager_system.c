@@ -89,29 +89,22 @@ typedef struct WorldManagerUI
 
 static WorldManagerUI s_wm_ui = {0};
 
-// Flag definitions and their bound controls (wired in WorldManager_RegisterElements).
+// Flag definitions (markup id + bit) and their bound controls (wired in WorldManager_RegisterElements).
 static FlagButton s_wm_world_flags[7] = {
-    {"ACTIVE", WORLD_FLAG_ACTIVE, NULL},
-    {"VISIBLE", WORLD_FLAG_VISIBLE, NULL},
-    {"SELECTABLE", WORLD_FLAG_SELECTABLE, NULL},
-    {"PHYSICS", WORLD_FLAG_PHYSICS_ENABLED, NULL},
-    {"SPAWNS", WORLD_FLAG_SPAWNS_ENABLED, NULL},
-    {"LOCKED", WORLD_FLAG_LOCKED, NULL},
-    {"DRAG", WORLD_FLAG_DRAGGABLE, NULL},
+    {"wm_world_active", WORLD_FLAG_ACTIVE, NULL},
+    {"wm_world_visible", WORLD_FLAG_VISIBLE, NULL},
+    {"wm_world_selectable", WORLD_FLAG_SELECTABLE, NULL},
+    {"wm_world_physics", WORLD_FLAG_PHYSICS_ENABLED, NULL},
+    {"wm_world_spawns", WORLD_FLAG_SPAWNS_ENABLED, NULL},
+    {"wm_world_locked", WORLD_FLAG_LOCKED, NULL},
+    {"wm_world_drag", WORLD_FLAG_DRAGGABLE, NULL},
 };
 static FlagButton s_wm_cell_flags[4] = {
-    {"SOLID", CELL_FLAG_SOLID, NULL},
-    {"WALKABLE", CELL_FLAG_WALKABLE, NULL},
-    {"HAZARD", CELL_FLAG_HAZARDOUS, NULL},
-    {"SPAWN", CELL_FLAG_SPAWNABLE, NULL},
+    {"wm_cell_solid", CELL_FLAG_SOLID, NULL},
+    {"wm_cell_walkable", CELL_FLAG_WALKABLE, NULL},
+    {"wm_cell_hazard", CELL_FLAG_HAZARDOUS, NULL},
+    {"wm_cell_spawn", CELL_FLAG_SPAWNABLE, NULL},
 };
-
-// Per-family id tables; order MUST match the flag arrays above.
-static const char *wm_world_ids[7] = {"wm_world_active", "wm_world_visible", "wm_world_selectable",
-                                      "wm_world_physics", "wm_world_spawns", "wm_world_locked",
-                                      "wm_world_drag"};
-static const char *wm_cell_ids[4]  = {"wm_cell_solid", "wm_cell_walkable", "wm_cell_hazard",
-                                      "wm_cell_spawn"};
 
 // ============================================================================
 // Target resolution
@@ -634,12 +627,7 @@ static void HandleDeleteWorldsClick(UIElement *button)
 // null-guarded, so a missing id degrades to an inert field, not a crash.
 static UIElement *WorldManager_Find(UIElement *root, const char *id)
 {
-    UIElement *element = UILoader_FindById(root, id);
-    if (!element)
-    {
-        LOG_ERROR("WorldManager: id '%s' not found in markup", id);
-    }
-    return element;
+    return PanelShared_Find(root, "WorldManager", id);
 }
 
 // Set the display precision of a bound textbox (the loader attaches bindings with the default
@@ -688,11 +676,7 @@ static void WorldManager_RegisterElements(UIElement *root)
     for (int i = 0; i < 3; i++)
     {
         s_wm_ui.note[i] = WorldManager_Find(root, note_ids[i]);
-        if (s_wm_ui.note[i])
-        {
-            snprintf(s_wm_ui.note[i]->data.textbox.text.string,
-                     sizeof(s_wm_ui.note[i]->data.textbox.text.string), "values: primary only");
-        }
+        PanelShared_SetNoteText(s_wm_ui.note[i]);
     }
 
     // --- Lockable editable fields. Their bindings (query + write) come from the markup; floats
@@ -713,8 +697,8 @@ static void WorldManager_RegisterElements(UIElement *root)
     WorldManager_SetPrecision(WorldManager_Find(root, "wm_cell_fill"), 1);
 
     // --- Flag buttons: acquire + wire handler + user_data + query SOURCE per family ---
-    PanelShared_WireFlags(root, s_wm_world_flags, wm_world_ids, ARRAY_COUNT(s_wm_world_flags), FLAG_FAMILY_WORLD);
-    PanelShared_WireFlags(root, s_wm_cell_flags, wm_cell_ids, ARRAY_COUNT(s_wm_cell_flags), FLAG_FAMILY_CELL);
+    PanelShared_WireFlags(root, s_wm_world_flags, ARRAY_COUNT(s_wm_world_flags), FLAG_FAMILY_WORLD);
+    PanelShared_WireFlags(root, s_wm_cell_flags, ARRAY_COUNT(s_wm_cell_flags), FLAG_FAMILY_CELL);
 
     // --- DELETE WORLD and NEW WORLD ---
     s_wm_ui.delete_button = WorldManager_Find(root, "wm_delete_world");
@@ -818,10 +802,7 @@ static void WorldManager_ApplyLayout(const WMTargets *targets, int deletable)
         }
         else
         {
-            // SelectView fires the callback, which would overwrite the remembered tab; keep it.
-            int remembered_tab = s_wm_tab;
-            ViewHostSystem_SelectView(s_wm_selector, (size_t)desired);
-            s_wm_tab = remembered_tab;
+            PanelShared_SelectViewKeepingTab(s_wm_selector, (size_t)desired, &s_wm_tab);
         }
         s_wm_shown_view = desired;
     }
@@ -860,97 +841,35 @@ static void WorldManager_ApplyLayout(const WMTargets *targets, int deletable)
 // Module Lifecycle
 // ============================================================================
 
+// Build the World Manager: load world_manager.xml, build its host on the right-panel viewport through
+// the shared panel builder, re-acquire every element by id and wire the C-owned behaviour, then lay
+// the panel out over the valid viewport space.
 void InitWorldManagerSystem(void)
 {
-    // 1) Load the authoritative markup with the world-manager resolvers (mirrors InitStateManagerSystem).
-    UIElement *root = UILoader_LoadFromFileWithResolvers(
-        UI_COMPONENTS_DIR "/world_manager.xml",
-        UIPalette_GetActive(),
-        WorldManager_ResolveBinding,
-        WorldManager_ResolveCommand,
-        WorldManager_ResolveViewType,
-        NULL);
-    if (!root)
-    {
-        // XML is the single authoritative source; a load failure is an asset/build error.
-        LOG_ERROR("InitWorldManagerSystem: failed to load world_manager.xml; panel will not render");
-        return;
-    }
-
-    // 2) Extract the Views (each carries its ViewType from type= via WorldManager_ResolveViewType).
-    size_t view_count = 0;
-    View **xml_views = UILoader_ExtractViews(root, &view_count);
-
-    // 3) Build the host against the right-panel viewport, then build the real root and re-parent the
-    //    XML container under it. UpdateUISpace (step 7) lays the panel out over the valid viewport.
-    s_wm_panel = ViewHostSystem_Create(&rpanel_viewport, 1.0f, (Vector2d){5.0f, 5.0f},
-                                       UIPalette_GetActive(), ui_standard_stack_spacing);
-    if (!s_wm_panel)
-    {
-        DisposeUIElement(root);
-        if (xml_views)
-        {
-            Deallocate((void **)&xml_views, sizeof(View *) * view_count);
-        }
-        return;
-    }
-
-    ViewHostSystem_InitRoot(s_wm_panel);      // Real UI_ELEMENT_ROOT + space + seed_box.
-    AddElementToTree(root, s_wm_panel->root); // Re-parent; NEVER panel->root = root.
-
-    // 4) Register the XML Views with the host.
-    ViewHostSystem_InitViews(s_wm_panel, view_count);
-    for (size_t i = 0; i < view_count; i++)
-    {
-        LArray_Push(&s_wm_panel->views, &xml_views[i]);
-    }
-    if (xml_views)
-    {
-        // Free the array (not the Views, which the host now owns).
-        Deallocate((void **)&xml_views, sizeof(View *) * view_count);
-    }
-
-    // 5) Build the selector from the XML <Option> metadata.
-    s_wm_selector = UILoader_BuildSelectorFromMarkup(s_wm_panel, WorldManager_OnViewSelected);
+    // Tab state is reset first: the selection callback fires while the builder shows the initial view.
     s_wm_tab = WM_VIEW_PROPS;
     s_wm_shown_view = WM_SHOWN_UNKNOWN;
 
-    // 6) Honour initial-view="props_view" (fall back to the first view).
-    if (s_wm_selector)
+    const PanelMarkupDesc desc = {
+        .file = UI_COMPONENTS_DIR "/world_manager.xml",
+        .viewport = &rpanel_viewport,
+        .host_padding = {5.0f, 5.0f},
+        .resolve_binding = WorldManager_ResolveBinding,
+        .resolve_command = WorldManager_ResolveCommand,
+        .resolve_view_type = WorldManager_ResolveViewType,
+        .on_view_selected = WorldManager_OnViewSelected,   // records the chosen tab
+    };
+    UIElement *root = NULL;
+    s_wm_panel = PanelShared_BuildFromMarkup(&desc, &s_wm_selector, &root);
+    if (!s_wm_panel)
     {
-        int initial = UILoader_ResolveViewIndexById(s_wm_panel, UILoader_GetInitialViewId());
-        if (initial < 0)
-        {
-            initial = 0;
-        }
-        ViewHostSystem_SelectView(s_wm_selector, (size_t)initial);
-    }
-    else
-    {
-        // Selector allocation failed: establish single-view visibility manually.
-        for (int i = 0; i < s_wm_panel->views.count; i++)
-        {
-            View *view = *((View **)LArray_Get(&s_wm_panel->views, i));
-            if (!view || !view->container)
-            {
-                continue;
-            }
-            if (i == 0)
-            {
-                EnableElement(view->container);
-            }
-            else
-            {
-                DisableElement(view->container);
-            }
-        }
+        return;
     }
 
-    // 7) ID-REGISTRATION + WIRING PASS, then the first layout over the valid viewport space.
+    // ID-REGISTRATION + WIRING PASS, then the first layout over the valid viewport space.
     WorldManager_RegisterElements(root);
     UpdateUISpace(s_wm_panel->root, s_wm_panel->seed_box);
 }
-
 void DrawWorldManagerSystem(void)
 {
     if (!s_wm_panel || !s_wm_panel->root)
@@ -1006,15 +925,6 @@ struct ViewHostSystem *GetWorldManagerViewHost(void)
     return s_wm_panel;
 }
 
-// Reset all button element references across a flag array.
-static void ResetFlagButtons(FlagButton *buttons, size_t count)
-{
-    for (size_t i = 0; i < count; i++)
-    {
-        buttons[i].button = NULL;
-    }
-}
-
 // Destroy the World Manager and clear its cached UI references and panel-local state.
 void DestroyWorldManagerSystem(void)
 {
@@ -1022,8 +932,8 @@ void DestroyWorldManagerSystem(void)
     s_wm_panel = NULL;
     ViewHostSystem_Destroy(panel);
 
-    ResetFlagButtons(s_wm_world_flags, ARRAY_COUNT(s_wm_world_flags));
-    ResetFlagButtons(s_wm_cell_flags, ARRAY_COUNT(s_wm_cell_flags));
+    PanelShared_ResetFlagButtons(s_wm_world_flags, ARRAY_COUNT(s_wm_world_flags));
+    PanelShared_ResetFlagButtons(s_wm_cell_flags, ARRAY_COUNT(s_wm_cell_flags));
     memset(&s_wm_ui, 0, sizeof(s_wm_ui));
     memset(&s_wm_targets, 0, sizeof(s_wm_targets));
     s_wm_selector = NULL; // Freed by ViewHostSystem_Destroy with the panel.

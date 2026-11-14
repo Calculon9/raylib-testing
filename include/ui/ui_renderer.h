@@ -11,27 +11,10 @@ UI SYSTEM MODULE
 #include "camera/camera.h"
 
 //----------------------------------------------------------------------------------
-// Macros and Defines
-//----------------------------------------------------------------------------------
-
-
-//----------------------------------------------------------------------------------
-// Types and Structures Definition
-//----------------------------------------------------------------------------------
-
-
-//----------------------------------------------------------------------------------
-// Global Variables Declaration (shared by several modules)
-//----------------------------------------------------------------------------------
-
-//----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
-void DrawElementBox(UIElement *e);
-void DrawElementBoxClipped(UIElement *e, UIClipRect clip);
-void DrawTextArea(UIElement *e);
-void DrawTextAreaClipped(UIElement *e, UIClipRect clip);
+// Draw a whole UI tree: `seed_box` is the root's box in UI space and `M_ui_to_pixel` maps it to
+// the screen. Every other draw helper is private to ui_renderer.c.
 void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Matrix3x3 M_ui_to_pixel);
-//void UpdateUISystem(int mouse_x, int mouse_y);
 
 #endif

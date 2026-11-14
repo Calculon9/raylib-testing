@@ -54,7 +54,7 @@ static char     info_strip_childcoords_text[64]; // Backing buffer for the Child
 static char     info_strip_tile_text[32];        // Backing buffer for the active paint-tile label.
 
 // ============================================================================
-// Binding query shims (return BIND_STRING, mirroring LPanel's INT query shims)
+// Binding query shims (return BIND_STRING)
 // ============================================================================
 
 // Compose the hover label from the stored hover ref. Returns a BIND_STRING value pointing at

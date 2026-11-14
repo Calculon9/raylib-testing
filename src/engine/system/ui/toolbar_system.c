@@ -4,8 +4,7 @@ TOOLBAR SYSTEM MODULE (implementation)
 *
 Loads toolbar.xml, mounts it as a single-view ViewHostSystem against the far-left toolbar
 viewport band, and wires each tool button as a radio-exclusive toggle. A button's binding= is a
-live query source reporting whether that tool is the active one (BIND_INT 0/1, mirroring the
-lpanel debug-toggle buttons), and its action= resolves through the command system to a tool
+live query source reporting whether that tool is the active one (BIND_INT 0/1), and its action= resolves through the command system to a tool
 command that sets the active tool radio-exclusively.
 
 The Nudge tool action itself (Toolbar_ApplyNudgeToEntity) is applied additively at the world
@@ -20,6 +19,7 @@ input.
 
 #include "system/ui/ui_icons.h"          // UIIcon_Draw* glyphs (relocated Nudge + nine toggles)
 #include "system/ui/ui_loader.h"
+#include "system/ui/panel_shared.h"      // PanelShared_Find (logs a missing markup id)
 #include "system/view_host_system.h"
 #include "system/viewport_system.h"
 #include "system/ui_system.h"
@@ -90,7 +90,7 @@ void Toolbar_ApplyNudgeToEntity(EntityId id)
 }
 
 // ============================================================================
-// Binding query shim (returns BIND_INT 0/1, mirroring LPanel's debug-toggle query)
+// Binding query shim (returns BIND_INT 0/1)
 // ============================================================================
 
 // Report whether the keyed tool is the active one, as a canonical 0/1 BIND_INT so the toggle
@@ -110,7 +110,7 @@ static BindingValue Toolbar_QueryGeometryEdit(int unused_key)
 }
 
 // ============================================================================
-// Debug-toggle display machinery (rehomed from the retired lpanel STATE view)
+// Debug-toggle display machinery (debug overlay toggles)
 // ============================================================================
 
 // Map a toggle binding suffix to its DebugOverlayId. The three authored namespaces name each
@@ -294,7 +294,7 @@ static const struct { const char *name; ActiveTool tool; } toolbar_tool_bindings
 // Resolve a toolbar button's binding= name to a live query source. The tool.* names map to the
 // tool's active-state query (radio-exclusive) and "tool.geometry-edit" to the independent geometry
 // editor flag, so every toolbar button takes the shared toggle fill. The gizmo.* / view.* / debug.* toggle
-// namespaces (rehomed from the lpanel STATE view) strip their prefix, resolve the suffix to a
+// namespaces strip their prefix, resolve the suffix to a
 // DebugOverlayId and return a query over Toolbar_QueryDebugEnabled; an unknown overlay name is
 // unresolved. Anything else is unresolved.
 static UIBinding Toolbar_ResolveBinding(const char *binding_string, UILoaderContext *ctx)
@@ -359,7 +359,7 @@ static UIBinding Toolbar_ResolveBinding(const char *binding_string, UILoaderCont
 
 // Resolve a toolbar button's action= string to a command code (shared command resolver). The
 // toolbar's "tool-nudge" action maps to CMD_TOOL_NUDGE, which ExecuteCommand dispatches to the
-// radio-exclusive active-tool toggle. Mirrors LPanel_ResolveCommand's use of the shared resolver.
+// radio-exclusive active-tool toggle.
 static int Toolbar_ResolveCommand(const char *cmd_string, UILoaderContext *ctx)
 {
     (void)ctx;
@@ -414,7 +414,7 @@ void InitToolbar(void)
     //     Each button's label text is empty in the markup, so the renderer draws the on_draw glyph
     //     on top of the flat box. Every binding=/action= wiring is untouched; only the on_draw hook
     //     is added, one guarded line per button exactly as the Nudge button is wired.
-    UIElement *nudge_btn = UILoader_FindById(root, "tool_nudge");
+    UIElement *nudge_btn = PanelShared_Find(root, "Toolbar", "tool_nudge");
     if (nudge_btn)
     {
         nudge_btn->on_draw = UIIcon_DrawNudge;
@@ -425,7 +425,7 @@ void InitToolbar(void)
     // hook consolidates the retired tile-type cycle button onto this one: CLICK toggles the tool
     // (unchanged action="tool-cell-paint" -> CMD_TOOL_CELL_PAINT), WHEEL cycles the active tile
     // type. Click and wheel are independent base fields, so neither disturbs the other.
-    UIElement *cell_paint_btn = UILoader_FindById(root, "tool_cell_paint");
+    UIElement *cell_paint_btn = PanelShared_Find(root, "Toolbar", "tool_cell_paint");
     if (cell_paint_btn)
     {
         cell_paint_btn->on_draw = UIIcon_DrawCellPaint;
@@ -436,7 +436,7 @@ void InitToolbar(void)
     // with. action="tool-spawn" resolves to CMD_TOOL_SPAWN on click. The
     // on_scroll hook consolidates the retired prefab cycle button onto this one: WHEEL cycles the
     // active spawn prefab (independent of the click toggle).
-    UIElement *spawn_btn = UILoader_FindById(root, "tool_spawn");
+    UIElement *spawn_btn = PanelShared_Find(root, "Toolbar", "tool_spawn");
     if (spawn_btn)
     {
         spawn_btn->on_draw = UIIcon_DrawToolSpawn;
@@ -446,20 +446,20 @@ void InitToolbar(void)
     // Toggle glyphs: look each up by id and attach its on_draw. Each button's binding= makes the
     // per-frame refresh set its fill (ACTIVE role fill or the flat input fill) and glyph ink.
     UIElement *b;
-    if ((b = UILoader_FindById(root, "toggle_dashboard")))            b->on_draw = UIIcon_DrawDashboard;
-    if ((b = UILoader_FindById(root, "toggle_viewport_grid")))        b->on_draw = UIIcon_DrawViewportGrid;
-    if ((b = UILoader_FindById(root, "toggle_world_grid")))           b->on_draw = UIIcon_DrawWorldGrid;
-    if ((b = UILoader_FindById(root, "toggle_world_grid_labels")))    b->on_draw = UIIcon_DrawWorldGridLabels;
-    if ((b = UILoader_FindById(root, "toggle_universe_grid_labels"))) b->on_draw = UIIcon_DrawUniverseGridLabels;
-    if ((b = UILoader_FindById(root, "toggle_ui_borders")))           b->on_draw = UIIcon_DrawUIBorders;
-    if ((b = UILoader_FindById(root, "toggle_object_axes")))          b->on_draw = UIIcon_DrawObjectAxes;
-    if ((b = UILoader_FindById(root, "toggle_object_hull")))          b->on_draw = UIIcon_DrawObjectHull;
-    if ((b = UILoader_FindById(root, "toggle_object_aabb")))          b->on_draw = UIIcon_DrawObjectAABB;
-    if ((b = UILoader_FindById(root, "toggle_collisions")))           b->on_draw = UIIcon_DrawCollisions;
+    if ((b = PanelShared_Find(root, "Toolbar", "toggle_dashboard")))            b->on_draw = UIIcon_DrawDashboard;
+    if ((b = PanelShared_Find(root, "Toolbar", "toggle_viewport_grid")))        b->on_draw = UIIcon_DrawViewportGrid;
+    if ((b = PanelShared_Find(root, "Toolbar", "toggle_world_grid")))           b->on_draw = UIIcon_DrawWorldGrid;
+    if ((b = PanelShared_Find(root, "Toolbar", "toggle_world_grid_labels")))    b->on_draw = UIIcon_DrawWorldGridLabels;
+    if ((b = PanelShared_Find(root, "Toolbar", "toggle_universe_grid_labels"))) b->on_draw = UIIcon_DrawUniverseGridLabels;
+    if ((b = PanelShared_Find(root, "Toolbar", "toggle_ui_borders")))           b->on_draw = UIIcon_DrawUIBorders;
+    if ((b = PanelShared_Find(root, "Toolbar", "toggle_object_axes")))          b->on_draw = UIIcon_DrawObjectAxes;
+    if ((b = PanelShared_Find(root, "Toolbar", "toggle_object_hull")))          b->on_draw = UIIcon_DrawObjectHull;
+    if ((b = PanelShared_Find(root, "Toolbar", "toggle_object_aabb")))          b->on_draw = UIIcon_DrawObjectAABB;
+    if ((b = PanelShared_Find(root, "Toolbar", "toggle_collisions")))           b->on_draw = UIIcon_DrawCollisions;
 
     // Independent geometry-edit toggle: bound to the geometry-edit flag like the others.
     // action="toggle-geometry-edit" resolves to CMD_TOGGLE_GEOMETRY_EDIT on click.
-    if ((b = UILoader_FindById(root, "toggle_geometry_edit")))        b->on_draw = UIIcon_DrawGeometryEdit;
+    if ((b = PanelShared_Find(root, "Toolbar", "toggle_geometry_edit")))        b->on_draw = UIIcon_DrawGeometryEdit;
 
     // 2c) Hover-hint callbacks for the detail strip. The static wording is the hint= attribute in
     //     toolbar.xml; these hooks append only the live state/selection values.
@@ -468,14 +468,14 @@ void InitToolbar(void)
     if (spawn_btn)      spawn_btn->on_hint = Toolbar_HintSpawn;
     for (size_t i = 0; i < sizeof(toolbar_toggle_hints) / sizeof(toolbar_toggle_hints[0]); i++)
     {
-        UIElement *toggle = UILoader_FindById(root, toolbar_toggle_hints[i].element_id);
+        UIElement *toggle = PanelShared_Find(root, "Toolbar", toolbar_toggle_hints[i].element_id);
         if (toggle)
         {
             toggle->on_hint = Toolbar_HintOverlayToggle;
         }
     }
-    if ((b = UILoader_FindById(root, "toggle_world_grid")))    b->on_hint = Toolbar_HintWorldGrid;
-    if ((b = UILoader_FindById(root, "toggle_geometry_edit"))) b->on_hint = Toolbar_HintGeometryEdit;
+    if ((b = PanelShared_Find(root, "Toolbar", "toggle_world_grid")))    b->on_hint = Toolbar_HintWorldGrid;
+    if ((b = PanelShared_Find(root, "Toolbar", "toggle_geometry_edit"))) b->on_hint = Toolbar_HintGeometryEdit;
 
     // 3) Final layout update over the host's valid coordinate space.
     UpdateUISpace(toolbar->root, toolbar->seed_box);

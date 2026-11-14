@@ -573,14 +573,11 @@ static void UpdatePanelViewSelectorButtons(ViewSelector *selector)
     {
         bool is_active = i == selector->active_index;
         UIElement *option = selector->buttons[i];
-        // The role helper recolours both option kinds: enumerate selectors are buttons and the
-        // former hover items are LABELs, each getting the role text on its own font.
+        // The role helper recolours the option button: fill, border and the role text on its font.
         UIElement_ApplyRoleColours(option, selector->panel->palette,
                                    is_active ? UI_ROLE_ACTIVE : UI_ROLE_INACTIVE);
     }
 }
-
-static void HandlePanelViewSelectorHover(UIElement *item);
 
 // Click handler for a view-selector enumerate button. Reads the selector pointer
 // from ButtonData.data_bind (buttons only) and the view index from the base
@@ -594,57 +591,6 @@ void HandleViewHostSelectorClick(UIElement *button)
     }
 
     ViewHostSystem_SelectView(selector, (size_t)*((int *)button->interaction_user_data));
-}
-
-// Hover handler for a hover-view-selector option (a LABEL). Switches to the option's
-// view and reproduces the former hover tint by setting the option's fill directly
-// (no built-in tint, decision 1b). ViewHostSystem_SelectView ->
-// UpdatePanelViewSelectorButtons re-asserts the persistent active/inactive colours
-// immediately afterwards, so the hover tint shows on the element under the cursor
-// and the active option keeps its selected colour.
-static void HandlePanelViewSelectorHover(UIElement *item)
-{
-    ViewSelector *selector = (ViewSelector *)item->interaction_data_bind;
-    if (!selector || !item->interaction_user_data)
-    {
-        return;
-    }
-
-    item->colour_fill = UIPalette_GetRoleColours(selector->panel->palette, UI_ROLE_ACTIVE).fill; // handler-driven hover tint
-    ViewHostSystem_SelectView(selector, (size_t)*((int *)item->interaction_user_data));
-}
-
-static ViewSelector *AllocatePanelViewSelector(ViewHostSystem *panel, const char *labels[], size_t count,
-                                                ViewSelectionCallback on_view_selected)
-{
-    ViewSelector *selector = AllocateBytes(sizeof(ViewSelector));
-    if (!selector)
-    {
-        return NULL;
-    }
-
-    selector->panel = panel;
-    selector->buttons = AllocateBytes(sizeof(UIElement *) * count);
-    selector->view_indices = AllocateBytes(sizeof(int) * count);
-    if (!selector->buttons || !selector->view_indices)
-    {
-        Deallocate((void **)&selector->buttons,
-                   sizeof(UIElement *) * count);
-        Deallocate((void **)&selector->view_indices,
-                   sizeof(int) * count);
-        Deallocate((void **)&selector, sizeof(ViewSelector));
-        return NULL;
-    }
-
-    selector->count = count;
-    selector->active_index = count;
-    selector->on_view_selected = on_view_selected;
-    for (size_t i = 0; i < count; i++)
-    {
-        selector->view_indices[i] = (int)i;
-    }
-
-    return selector;
 }
 
 static bool SetPanelActiveView(ViewHostSystem *panel, size_t view_index)
@@ -671,82 +617,6 @@ static bool SetPanelActiveView(ViewHostSystem *panel, size_t view_index)
     }
 
     return true;
-}
-
-ViewSelector *ViewHostSystem_CreateViewSelector(ViewHostSystem *panel, UIElement *parent, Size button_size, const char *labels[],
-                                             size_t count, ViewSelectionCallback on_view_selected)
-{
-    if (!panel || !parent || !labels || count == 0)
-    {
-        return NULL;
-    }
-
-    ViewSelector *selector = AllocatePanelViewSelector(panel, labels, count, on_view_selected);
-    if (!selector)
-    {
-        return NULL;
-    }
-
-    if (!LArray_Push(&panel->selectors, &selector))
-    {
-        DestroyPanelViewSelector(selector);
-        return NULL;
-    }
-
-    for (size_t i = 0; i < count; i++)
-    {
-        selector->buttons[i] = CreateUIButtonDefault(
-            parent, UI_ELEMENT_BUTTON_ENUMERATE, labels[i], button_size,
-            ui_standard_button_padding, panel->palette, HandleViewHostSelectorClick,
-            &selector->view_indices[i], selector);
-        if (!selector->buttons[i])
-        {
-            return NULL;
-        }
-    }
-
-    UpdatePanelViewSelectorButtons(selector);
-    return selector;
-}
-
-ViewSelector *ViewHostSystem_CreateHoverViewSelector(ViewHostSystem *panel, UIElement *parent,
-                                                  Size item_size, const char *labels[],
-                                                  size_t count,
-                                                  ViewSelectionCallback on_view_selected)
-{
-    if (!panel || !parent || !labels || count == 0)
-    {
-        return NULL;
-    }
-
-    ViewSelector *selector = AllocatePanelViewSelector(panel, labels, count, on_view_selected);
-    if (!selector)
-    {
-        return NULL;
-    }
-
-    if (!LArray_Push(&panel->selectors, &selector))
-    {
-        DestroyPanelViewSelector(selector);
-        return NULL;
-    }
-
-    for (size_t i = 0; i < count; i++)
-    {
-        selector->buttons[i] = CreateUIHoverItemDefault(
-            parent, labels[i], item_size, ui_standard_button_padding,
-            panel->palette, HandlePanelViewSelectorHover,
-            &selector->view_indices[i]);
-        if (!selector->buttons[i])
-        {
-            return NULL;
-        }
-
-        selector->buttons[i]->interaction_data_bind = selector;
-    }
-
-    UpdatePanelViewSelectorButtons(selector);
-    return selector;
 }
 
 bool ViewHostSystem_SelectView(ViewSelector *selector, size_t view_index)
@@ -872,52 +742,6 @@ void ViewHostSystem_ResetSpaceBasis(ViewHostSystem *panel)
     panel->basis_override_enabled = false;
     panel->basis_override_u = ZERO_VECTOR_2D;
     panel->basis_override_v = ZERO_VECTOR_2D;
-}
-
-ViewHostSystem *ViewHostSystem_CreateStandard(ViewportRegion *viewport, size_t view_count,
-                                        const char *selector_labels[], size_t selector_label_count,
-                                        ViewSelectionCallback selector_callback,
-                                        const UIPalette *palette, Layout root_child_spacing)
-{
-    ViewHostSystem *panel = ViewHostSystem_Create(viewport, 1.0f, (Vector2d){5.0f, 5.0f},
-                                            palette, root_child_spacing);
-    if (!panel)
-    {
-        return NULL;
-    }
-
-    ViewHostSystem_InitViews(panel, view_count);
-    ViewHostSystem_InitRoot(panel);
-
-    if (selector_labels && selector_label_count > 0)
-    {
-        ViewHostSystem_CreateStandardViewSelector(
-            panel, selector_labels, selector_label_count, selector_callback);
-    }
-
-    return panel;
-}
-
-ViewSelector *ViewHostSystem_CreateStandardViewSelector(ViewHostSystem *panel,
-                                                     const char *labels[], size_t count,
-                                                     ViewSelectionCallback callback)
-{
-    if (!panel || !labels || count == 0)
-    {
-        return NULL;
-    }
-
-    UIElement *toggle_cont = CreateUIContainer(
-        panel->root, ui_standard_selector_container_size,
-        (Offset){{0.0f, 0.0f}, OFFSET_FIXED}, ZERO_VECTOR_2D,
-        panel->palette, UI_PALETTE_SURFACE_TRANSPARENT,
-        ui_zero_inline_spacing, false, true);
-    // No border override: borders are drawn whenever their alpha is non-zero, and the tab bar
-    // itself must stay unboxed (only the tabs carry a border).
-
-    return ViewHostSystem_CreateViewSelector(
-        panel, toggle_cont, ui_standard_selector_button_size,
-        labels, count, callback);
 }
 
 /**

@@ -96,9 +96,7 @@ typedef void (*UIStateSelectionChangedCallback)(EntityId selected_object_id,
 //----------------------------------------------------------------------------------
 // Default UI Properties
 extern const Size ui_standard_control_size;
-extern const Size ui_standard_textbox_size;
 extern const Size ui_standard_textfield_input_size;
-extern Vector2d tfield_default_padding;// = {0.04, 0.04};
 extern const Size ui_standard_container_size;
 extern const Size ui_fill_container_size;
 extern const Vector2d ui_standard_container_padding;
@@ -116,9 +114,6 @@ extern const Size ui_standard_button_size;
 extern const Size ui_standard_icon_button_size;
 // Container title label size: width hugs the measured text, height stays fixed at 0.5.
 extern const Size ui_title_size;
-extern const Size ui_wide_button_size;
-extern const Size ui_small_horizontal_button_size;
-extern const Size ui_fill_button_size;
 extern const Vector2d ui_standard_button_padding;
 // Padding of tabs and tab-like options (they hug their text plus this on both sides).
 extern const Vector2d ui_standard_tab_padding;
@@ -127,13 +122,8 @@ extern const Size ui_standard_selector_button_size;
 extern const Layout ui_standard_stack_spacing;
 // Stacked spacing between a panel's top-level blocks (header, tabs, sections): 6 px.
 extern const Layout ui_view_stack_spacing;
-extern const Layout ui_compact_stack_spacing;
 extern const Layout ui_standard_stack_wrap_spacing;
-extern const Layout ui_standard_stack_smart_wrap_spacing;
-extern const Layout ui_compact_stack_wrap_spacing;
-extern const Layout ui_zero_x_stack_wrap_spacing;
 extern const Layout ui_standard_inline_wrap_spacing;
-extern const Layout ui_zero_x_inline_wrap_spacing;
 extern const Layout ui_standard_inline_spacing;
 extern const Layout ui_zero_inline_spacing;
 
@@ -178,26 +168,28 @@ typedef struct UIRoleColours
 
 // Resolves a role to its fill/text/border. A NULL palette uses the default.
 UIRoleColours UIPalette_GetRoleColours(const UIPalette *palette, UIColourRole role);
-// Paired text colour for surfaces that are control roles (button, danger, inactive, card); false for
-// surfaces with no text role. Lets the loader give a surface its text colour automatically.
-bool UIPalette_GetSurfaceText(const UIPalette *palette, UIPaletteSurface surface, ColourRgba *out_text);
-// Resolves a role for a control drawn in a given context. A control that would be INACTIVE inside a
-// CARD resolves to the SHEET fill with ink text (keeping the INACTIVE border), so OFF chips stay
-// visible against the teal card. Every other role and context resolves as UIPalette_GetRoleColours.
-UIRoleColours UIPalette_GetRoleColoursInContext(const UIPalette *palette, UIColourRole role, bool inside_card);
-// Border thickness (screen pixels) for a surface role from the palette; 0 for borderless roles.
-uint8_t UIPalette_GetSurfaceBorderWeight(const UIPalette *palette, UIPaletteSurface surface);
-void UIPalette_GetSurfaceColours(const UIPalette *palette, UIPaletteSurface surface,
-								 ColourRgba *out_border, ColourRgba *out_fill);
-// Two-state colours shared by tabs, kind chips and flag toggles: the ACTIVE or INACTIVE role's
-// fill and text. A NULL palette uses the default; NULL outputs are skipped.
-void UIPalette_GetToggleColours(const UIPalette *palette, bool active,
-								ColourRgba *out_fill, ColourRgba *out_ink);
+// Everything a surface= name resolves to: fill, border colour, border thickness and, for surfaces
+// that are control roles (button, danger, inactive, card), the paired text colour.
+typedef struct UISurfaceStyle
+{
+ColourRgba fill;         // Surface fill (COLOURLESS_RGBA for transparent).
+ColourRgba border;       // Border colour (COLOURLESS_RGBA when the surface has none).
+uint8_t border_weight;   // Border thickness in UI pixels; 0 for borderless surfaces.
+bool has_text;           // True when the surface carries a paired text colour.
+ColourRgba text;         // Paired text colour (valid only when has_text).
+} UISurfaceStyle;
+
+// Resolves a surface to its style from one table, so constructors, the loader and panels never pair
+// a fill with a border weight or text colour by hand. A NULL palette uses the default.
+UISurfaceStyle UIPalette_GetSurfaceStyle(const UIPalette *palette, UIPaletteSurface surface);
 // Sets an element's fill (and border, where the role has one) and, for buttons and labels, its
 // font colour from a colour role, so a region never pairs colours by hand. NULL element or
-// palette is a no-op. An INACTIVE role on an element inside a card uses the sheet colours
-// (see UIPalette_GetRoleColoursInContext).
+// palette is a no-op. An INACTIVE role on an element flagged in_card resolves to the sheet fill with
+// ink text (keeping the INACTIVE border), so OFF chips stay visible against the teal card.
 void UIElement_ApplyRoleColours(UIElement *element, const UIPalette *palette, UIColourRole role);
+// Flags every descendant of `root` (not `root` itself) as inside a card, so their INACTIVE role
+// resolves as the sheet colours. Called once when a card subtree is built; costs nothing per frame.
+void UIElement_MarkDescendantsInCard(UIElement *root);
 InputRouteResult UpdateUISystem(const InputFrame *input);
 
 // Centralised selection setters reduce cross-module direct writes to UI state.

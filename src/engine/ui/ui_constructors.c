@@ -186,23 +186,17 @@ UIElement *CreateUILabeledFieldDefault(UIElement *parent, const char *label_text
     // The row and its label cell are TRANSPARENT: borders are drawn whenever their alpha is
     // non-zero, and only the input box should show one (the FIELD_ROW border would outline
     // every row). Markup can still opt a row into surface="field_row".
-    ColourRgba row_border;
-    ColourRgba row_fill;
-    UIPalette_GetSurfaceColours(palette, UI_PALETTE_SURFACE_TRANSPARENT, &row_border, &row_fill);
-
-    ColourRgba input_border;
-    ColourRgba input_fill;
-    UIPalette_GetSurfaceColours(palette, UI_PALETTE_SURFACE_INPUT,
-                                &input_border, &input_fill);
+    const UISurfaceStyle row_style = UIPalette_GetSurfaceStyle(palette, UI_PALETTE_SURFACE_TRANSPARENT);
+    const UISurfaceStyle input_style = UIPalette_GetSurfaceStyle(palette, UI_PALETTE_SURFACE_INPUT);
 
     UIElement *input = CreateUILabeledField(parent, label_text, input_type, row_size,
-                                ui_standard_textfield_input_size, row_padding, row_border, row_fill,
-                                ZERO_VECTOR_2D, input_border, input_fill,
+                                ui_standard_textfield_input_size, row_padding, row_style.border, row_style.fill,
+                                ZERO_VECTOR_2D, input_style.border, input_style.fill,
                                 FONT_MEDIUM_WITH_COLOUR(palette->label_text),
                                 FONT_MEDIUM_WITH_COLOUR(palette->text));
     if (input)
     {
-        input->border_weight = UIPalette_GetSurfaceBorderWeight(palette, UI_PALETTE_SURFACE_INPUT);
+        input->border_weight = input_style.border_weight;
     }
     return input;
 }
@@ -243,17 +237,14 @@ UIElement *CreateUIButtonDefault(UIElement *parent, UIElementType type, const ch
         palette = UIPalette_GetActive();
     }
 
-    ColourRgba border;
-    ColourRgba fill;
-    UIPalette_GetSurfaceColours(palette, UI_PALETTE_SURFACE_BUTTON,
-                                &border, &fill);
+    const UISurfaceStyle style = UIPalette_GetSurfaceStyle(palette, UI_PALETTE_SURFACE_BUTTON);
 
     UIElement *btn = CreateUIButton(parent, type, text, size, padding,
-                          border, fill, FONT_MEDIUM_WITH_COLOUR(palette->text),
+                          style.border, style.fill, FONT_MEDIUM_WITH_COLOUR(palette->text),
                           on_click, user_data, data_bind);
     if (btn)
     {
-        btn->border_weight = UIPalette_GetSurfaceBorderWeight(palette, UI_PALETTE_SURFACE_BUTTON);
+        btn->border_weight = style.border_weight;
     }
     return btn;
 }
@@ -270,13 +261,11 @@ UIElement *CreateUIHoverItemDefault(UIElement *parent, const char *text, Size si
         palette = UIPalette_GetActive();
     }
 
-    ColourRgba border;
-    ColourRgba fill;
-    UIPalette_GetSurfaceColours(palette, UI_PALETTE_SURFACE_BUTTON, &border, &fill);
+    const UISurfaceStyle style = UIPalette_GetSurfaceStyle(palette, UI_PALETTE_SURFACE_BUTTON);
 
     UIElement *item = CreateUIElementInTree(
         UI_ELEMENT_LABEL, size, parent,
-        (Offset){ZERO_VECTOR_2D, OFFSET_FIXED}, padding, border, fill);
+        (Offset){ZERO_VECTOR_2D, OFFSET_FIXED}, padding, style.border, style.fill);
     if (!item)
     {
         return NULL;
@@ -285,7 +274,7 @@ UIElement *CreateUIHoverItemDefault(UIElement *parent, const char *text, Size si
     // Former hover-item text + font map onto the LABEL's label buffer and font.
     safe_strncpy(item->data.label.text.string, text, MAX_LABEL_CHARS);
     item->data.label.font = FONT_MEDIUM_WITH_COLOUR(palette->text);
-    item->border_weight = UIPalette_GetSurfaceBorderWeight(palette, UI_PALETTE_SURFACE_BUTTON);
+    item->border_weight = style.border_weight;
     item->on_hover = on_hover;                 // base handler (presence-based dispatch)
     item->interaction_user_data = user_data;   // base opaque per-element state
     item->is_draggable = false;
@@ -304,18 +293,16 @@ UIElement *CreateUIContainer(UIElement *parent, Size size, Offset offset,
         palette = UIPalette_GetActive();
     }
 
-    ColourRgba border;
-    ColourRgba fill;
-    UIPalette_GetSurfaceColours(palette, surface, &border, &fill);
+    const UISurfaceStyle style = UIPalette_GetSurfaceStyle(palette, surface);
 
     UIElement *cont = CreateUIElementInTree(UI_ELEMENT_CONTAINER, size, parent, offset,
-                                            padding, border, fill);
+                                            padding, style.border, style.fill);
     if (!cont)
     {
         return NULL;
     }
 
-    cont->border_weight = UIPalette_GetSurfaceBorderWeight(palette, surface);
+    cont->border_weight = style.border_weight;
     cont->child_spacing = child_spacing;
     cont->is_draggable = is_draggable;
     cont->is_enabled = is_enabled;

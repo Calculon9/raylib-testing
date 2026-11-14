@@ -15,7 +15,7 @@
 #include "world/universe.h"
 #include "entities/entity_registry.h"
 #include "system/viewport_system.h"
-#include "system/ui/lpanel_system.h"
+#include "system/ui/state_manager_system.h"
 #include "system/ui/world_manager_system.h"
 #include "ui/cfont.h"
 #include "ui/text_region.h"
@@ -29,7 +29,7 @@ typedef enum DebugBasisTargetId
     DEBUG_BASIS_TARGET_GAME_VIEWPORT,
     DEBUG_BASIS_TARGET_RPANEL_VIEWPORT,
     DEBUG_BASIS_TARGET_UNIVERSE_SPACE,
-    DEBUG_BASIS_TARGET_LPANEL_SPACE,
+    DEBUG_BASIS_TARGET_STATE_MANAGER_SPACE,
     DEBUG_BASIS_TARGET_RPANEL_SPACE,
     DEBUG_BASIS_TARGET_COUNT
 } DebugBasisTargetId;
@@ -57,7 +57,7 @@ static bool ApplyUniverseSpaceBasis(Basis2d basis)
 {
     return SetUniverseCameraBasis(basis);
 }
-static bool ApplyLPanelSpaceBasis(Basis2d basis) { return SetLPanelSpaceBasis(basis.u, basis.v); }
+static bool ApplyStateManagerSpaceBasis(Basis2d basis) { return SetStateManagerSpaceBasis(basis.u, basis.v); }
 static bool ApplyRPanelSpaceBasis(Basis2d basis) { return SetWorldManagerSpaceBasis(basis.u, basis.v); }
 
 // Reset callbacks: restore the target's basis to its identity/default.
@@ -92,11 +92,11 @@ static const DebugBasisTargetOps debug_basis_target_ops[DEBUG_BASIS_TARGET_COUNT
         .reset_fn = ResetUniverseSpaceBasis,
         .name = "UNIVERSE_SPACE",
     },
-    [DEBUG_BASIS_TARGET_LPANEL_SPACE] = {
-        .get_frame_fn = GetLPanelSpaceFrame,
-        .apply_basis_fn = ApplyLPanelSpaceBasis,
-        .reset_fn = ResetLPanelSpaceBasis,
-        .name = "LPANEL_SPACE",
+    [DEBUG_BASIS_TARGET_STATE_MANAGER_SPACE] = {
+        .get_frame_fn = GetStateManagerSpaceFrame,
+        .apply_basis_fn = ApplyStateManagerSpaceBasis,
+        .reset_fn = ResetStateManagerSpaceBasis,
+        .name = "STATE_MGR_SPACE",
     },
     [DEBUG_BASIS_TARGET_RPANEL_SPACE] = {
         .get_frame_fn = GetWorldManagerSpaceFrame,
@@ -244,8 +244,8 @@ typedef struct DashboardBasisData
     Vector2d game_viewport_basis_v;
     Vector2d rpanel_viewport_basis_u;
     Vector2d rpanel_viewport_basis_v;
-    Vector2d lpanel_space_basis_u;
-    Vector2d lpanel_space_basis_v;
+    Vector2d state_manager_space_basis_u;
+    Vector2d state_manager_space_basis_v;
     Vector2d rpanel_space_basis_u;
     Vector2d rpanel_space_basis_v;
 } DashboardBasisData;
@@ -258,7 +258,7 @@ static DashboardBasisData ResolveDashboardBasisData(void)
     Frame2d *lpanel_viewport_frame = GetDebugBasisTargetFrame(DEBUG_BASIS_TARGET_LPANEL_VIEWPORT);
     Frame2d *game_viewport_frame = GetDebugBasisTargetFrame(DEBUG_BASIS_TARGET_GAME_VIEWPORT);
     Frame2d *rpanel_viewport_frame = GetDebugBasisTargetFrame(DEBUG_BASIS_TARGET_RPANEL_VIEWPORT);
-    Frame2d *lpanel_space_frame = GetDebugBasisTargetFrame(DEBUG_BASIS_TARGET_LPANEL_SPACE);
+    Frame2d *state_manager_space_frame = GetDebugBasisTargetFrame(DEBUG_BASIS_TARGET_STATE_MANAGER_SPACE);
     Frame2d *rpanel_space_frame = GetDebugBasisTargetFrame(DEBUG_BASIS_TARGET_RPANEL_SPACE);
 
     data.lpanel_viewport_basis_u = lpanel_viewport_frame ? lpanel_viewport_frame->basis.u : ZERO_VECTOR_2D;
@@ -267,8 +267,8 @@ static DashboardBasisData ResolveDashboardBasisData(void)
     data.game_viewport_basis_v = game_viewport_frame ? game_viewport_frame->basis.v : ZERO_VECTOR_2D;
     data.rpanel_viewport_basis_u = rpanel_viewport_frame ? rpanel_viewport_frame->basis.u : ZERO_VECTOR_2D;
     data.rpanel_viewport_basis_v = rpanel_viewport_frame ? rpanel_viewport_frame->basis.v : ZERO_VECTOR_2D;
-    data.lpanel_space_basis_u = lpanel_space_frame ? lpanel_space_frame->basis.u : ZERO_VECTOR_2D;
-    data.lpanel_space_basis_v = lpanel_space_frame ? lpanel_space_frame->basis.v : ZERO_VECTOR_2D;
+    data.state_manager_space_basis_u = state_manager_space_frame ? state_manager_space_frame->basis.u : ZERO_VECTOR_2D;
+    data.state_manager_space_basis_v = state_manager_space_frame ? state_manager_space_frame->basis.v : ZERO_VECTOR_2D;
     data.rpanel_space_basis_u = rpanel_space_frame ? rpanel_space_frame->basis.u : ZERO_VECTOR_2D;
     data.rpanel_space_basis_v = rpanel_space_frame ? rpanel_space_frame->basis.v : ZERO_VECTOR_2D;
 
@@ -439,9 +439,9 @@ static void DrawDashboardViewportBasisSection(int col_x, int *row_y, int row_ste
     DrawDashboardLine("Panel Local Spaces", col_x, *row_y, accent_color);
     *row_y += row_step;
     DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
-                      "LPANEL_SPACE U(%.2f, %.2f) V(%.2f, %.2f)",
-                      basis->lpanel_space_basis_u.x, basis->lpanel_space_basis_u.y,
-                      basis->lpanel_space_basis_v.x, basis->lpanel_space_basis_v.y);
+                      "STATE_MGR_SPACE U(%.2f, %.2f) V(%.2f, %.2f)",
+                      basis->state_manager_space_basis_u.x, basis->state_manager_space_basis_u.y,
+                      basis->state_manager_space_basis_v.x, basis->state_manager_space_basis_v.y);
     DrawDashboardRowf(col_x, row_y, row_step, body_color, line, line_size,
                       "RPANEL_SPACE U(%.2f, %.2f) V(%.2f, %.2f)",
                       basis->rpanel_space_basis_u.x, basis->rpanel_space_basis_u.y,

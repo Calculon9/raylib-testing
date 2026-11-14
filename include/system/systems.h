@@ -78,10 +78,8 @@ void *GetEntityByID(World2d *world, EntityId entity_id);
 // UI Functions Declaration
 //----------------------------------------------------------------------------------
 void InitUI(void);
-void InitLPanel(void);
 void InitUtilityPanel(void);
 void InitWorldManagerSystem(void);
-void DrawLPanel(void);
 void DrawWorldManagerSystem(void);
 void DrawUtilityPanel(void);
 UIElement *GetUtilityPanelRoot(void);

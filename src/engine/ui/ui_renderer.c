@@ -23,17 +23,20 @@
 // Module Variables Definition (local)
 //----------------------------------------------------------------------------------
 //
-void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel, UIClipRect current_clip);
-void DrawTextArea(UIElement *e);
-void DrawTextAreaClipped(UIElement *e, UIClipRect clip);
+static void DrawUIElement(UIElement *e, Matrix3x3 M_ui_to_pixel, UIClipRect current_clip);
 
 // Screen pixels per UI pixel for the tree currently being drawn. UI content is laid out in UI
 // pixels; DrawRootUIElement derives this integer factor from the root's UI-to-pixel transform so
 // text glyphs, border lines and text insets are drawn at the same crisp integer scale as the boxes.
 static int s_ui_pixel_scale = 1;
 
-// Consume one wrapped text row and optionally copy its characters into a draw buffer.
-static int ConsumeTextRow(const char **text_cursor, float available_width,
+// The live palette for the tree currently being drawn. Fetched once per draw pass by
+// DrawRootUIElement (the palette never changes during a draw traversal) instead of once per helper call.
+static const UIPalette *s_ui_palette = NULL;
+
+// Consume one wrapped text row from [*text_cursor, text_end) and optionally copy its characters
+// into a draw buffer (which is always NUL-terminated when given).
+static int ConsumeTextRow(const char **text_cursor, const char *text_end, float available_width,
                           int glyph_advance, int glyph_cell_width,
                           char *row_buffer, size_t row_buffer_capacity,
                           float *out_row_width)
@@ -53,7 +56,7 @@ static int ConsumeTextRow(const char **text_cursor, float available_width,
     }
 
     float row_width = 0.0f;
-    while (*cursor != '\0' && row_char_count < max_row_chars)
+    while (cursor < text_end && row_char_count < max_row_chars)
     {
         int char_width = row_char_count == 0 ? glyph_cell_width : glyph_advance;
         if (row_width + (float)char_width > available_width)
@@ -83,14 +86,16 @@ static int ConsumeTextRow(const char **text_cursor, float available_width,
     return row_char_count;
 }
 
-static int CountTextRows(const char *text, float available_width, int glyph_advance, int glyph_cell_width, int max_rows)
+// Count how many wrapped rows [text, text_end) needs at `available_width`, up to `max_rows`.
+static int CountTextRows(const char *text, const char *text_end, float available_width,
+                         int glyph_advance, int glyph_cell_width, int max_rows)
 {
     const char *text_cursor = text;
     int row_count = 0;
 
-    while (text_cursor && *text_cursor != '\0' && row_count < max_rows)
+    while (text_cursor && text_cursor < text_end && row_count < max_rows)
     {
-        if (ConsumeTextRow(&text_cursor, available_width, glyph_advance,
+        if (ConsumeTextRow(&text_cursor, text_end, available_width, glyph_advance,
                            glyph_cell_width, NULL, 0, NULL) == 0)
         {
             break;
@@ -102,15 +107,28 @@ static int CountTextRows(const char *text, float available_width, int glyph_adva
     return row_count;
 }
 
-// Faint outline drawn by the UI-borders debug overlay (F3) around elements that carry no
-// visible border of their own, so the overlay still shows every element's bounds. Its colour is
-// the active palette's debug_outline role.
 // Horizontal text inset inside a bordered textbox: the border weight + a 4 px gap (5 px for the
 // default 1 px border). The glyph's own 2 px blank column then places the first ink 7 px from the
 // box edge, as in the mock.
 #define UI_TEXTBOX_TEXT_GAP_PX 4.0f
 // Glyphs in the "..." appended to read-only text that does not fit its box.
 #define UI_ELLIPSIS_CHAR_COUNT 3
+
+// Text inset (screen pixels) from a bordered textbox's edge: the border weight plus the text gap,
+// at the current UI pixel scale. Shared by the text run, the unit suffix and the vector prefix.
+static float TextInsetPx(const UIElement *e)
+{
+    return ((float)e->border_weight + UI_TEXTBOX_TEXT_GAP_PX) * (float)s_ui_pixel_scale;
+}
+
+// How many glyphs fit in `width` pixels: the first glyph needs a full cell and every further one an
+// advance. Zero when not even one cell fits. Shared by the fit-to-field and ellipsis rules.
+static int MaxGlyphsInWidth(float width, int glyph_advance, int glyph_cell_width)
+{
+    return (width >= (float)glyph_cell_width)
+               ? (int)((width - (float)glyph_cell_width) / (float)glyph_advance) + 1
+               : 0;
+}
 
 // Is this element a visible read-only text field? Read-only textboxes (UI_ELEMENT_TEXTBOX_O) that
 // carry a visible box (fill and border both non-transparent) are drawn in the palette read-only
@@ -122,31 +140,31 @@ static bool IsReadOnlyFieldBox(const UIElement *e)
     return e->type == UI_ELEMENT_TEXTBOX_O && e->colour_border.a > 0 && e->colour_fill.a > 0;
 }
 
-// Resolve the fill to draw for an element: the palette read-only fill for a read-only text field,
-// otherwise the element's own fill.
-static ColourRgba ResolveDrawnFill(const UIElement *e)
+// The fill and border colour an element's box is drawn with.
+typedef struct DrawnBoxColours
 {
-    return IsReadOnlyFieldBox(e) ? UIPalette_GetRoleColours(UIPalette_GetActive(), UI_ROLE_READONLY_INPUT).fill : e->colour_fill;
-}
+    ColourRgba fill;
+    ColourRgba border;
+} DrawnBoxColours;
 
-// Resolve the border colour to draw for an element (style v2 border model). A border is
-// drawn whenever its alpha is non-zero, independent of the debug overlay; constructors decide
-// which elements carry one. With the UI-borders overlay on, borderless elements get the faint
-// debug outline instead, so the overlay still shows element bounds. Read-only text fields use the
-// palette read-only border.
-static ColourRgba ResolveDrawnBorderColour(const UIElement *e)
+// Resolve the fill and border to draw for an element, once per element per draw (style v2 border
+// model). A read-only text field uses the palette read-only fill and border (same 1 px geometry as
+// editable ones). Otherwise the element's own colours are used: a border is drawn whenever its
+// alpha is non-zero, independent of the debug overlay, and with the UI-borders overlay on a
+// borderless element gets the faint debug outline so the overlay still shows its bounds.
+static DrawnBoxColours ResolveDrawnBoxColours(const UIElement *e)
 {
-    // Read-only text fields use the palette read-only border (same 1 px geometry as editable ones).
     if (IsReadOnlyFieldBox(e))
     {
-        return UIPalette_GetRoleColours(UIPalette_GetActive(), UI_ROLE_READONLY_INPUT).border;
+        UIRoleColours readonly = UIPalette_GetRoleColours(s_ui_palette, UI_ROLE_READONLY_INPUT);
+        return (DrawnBoxColours){readonly.fill, readonly.border};
     }
-    ColourRgba colour_border = e->colour_border;
-    if (colour_border.a == 0 && IsDebugEnabled(DEBUG_UI_BORDERS))
+    DrawnBoxColours colours = {e->colour_fill, e->colour_border};
+    if (colours.border.a == 0 && IsDebugEnabled(DEBUG_UI_BORDERS))
     {
-        colour_border = UIPalette_GetActive()->debug_outline;
+        colours.border = s_ui_palette->debug_outline;
     }
-    return colour_border;
+    return colours;
 }
 
 // Resolve the border thickness to draw, in pixels. The element's weight is clamped to half the
@@ -160,62 +178,58 @@ static float ResolveDrawnBorderWeight(const UIElement *e, const UIBox *box)
     return fminf(weight, half_short_side);
 }
 
-// Draw an element's background fill and its border (drawn inside the box, so a bordered
-// element keeps its layout size). A zero border weight draws no line.
-void DrawElementBox(UIElement *e)
+// Draw a box's background fill and its border (drawn inside the box, so a bordered element keeps
+// its layout size). A zero border weight draws no line. `box` is passed in so a stacked vector can
+// draw each component row without moving the element's own screen box.
+static void DrawElementBox(const UIElement *e, UIBox box, DrawnBoxColours colours)
 {
-    UIBox box = e->screen_box;
-    ColourRgba colour_fill = ResolveDrawnFill(e);
-    ColourRgba colour_border = ResolveDrawnBorderColour(e);
     float weight = ResolveDrawnBorderWeight(e, &box);
     DrawRectangleRec((Rectangle){box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y},
-                     ToRaylibColor(colour_fill));
+                     ToRaylibColor(colours.fill));
     if (weight > 0.0f)
     {
         DrawRectangleLinesEx((Rectangle){box.coords.x, box.coords.y, box.dimensions.x, box.dimensions.y},
-                             weight, ToRaylibColor(colour_border));
+                             weight, ToRaylibColor(colours.border));
     }
 }
-// Draw an element's background and border clipped against an active clip rectangle.
-void DrawElementBoxClipped(UIElement *e, UIClipRect clip)
+
+// Draw a box's background and border clipped against an active clip rectangle.
+static void DrawElementBoxClipped(const UIElement *e, UIBox box, UIClipRect clip, DrawnBoxColours colours)
 {
-    if (!e || !UIClipRect_IntersectsBox(clip, e->screen_box))
+    if (!UIClipRect_IntersectsBox(clip, box))
     {
         return;
     }
 
-    if (UIClipRect_ContainsBox(clip, e->screen_box))
+    if (UIClipRect_ContainsBox(clip, box))
     {
-        DrawElementBox(e);
+        DrawElementBox(e, box, colours);
         return;
     }
 
-    UIBox clipped_box = UIBox_Clip(e->screen_box, clip);
+    UIBox clipped_box = UIBox_Clip(box, clip);
     if (clipped_box.dimensions.x <= 0.0f || clipped_box.dimensions.y <= 0.0f)
     {
         return;
     }
 
-    ColourRgba colour_fill = ResolveDrawnFill(e);
-    ColourRgba colour_border = ResolveDrawnBorderColour(e);
-
     // Draw the clipped background fill.
-    if (colour_fill.a > 0)
+    if (colours.fill.a > 0)
     {
         DrawRectangleRec((Rectangle){clipped_box.coords.x, clipped_box.coords.y,
                                      clipped_box.dimensions.x, clipped_box.dimensions.y},
-                         ToRaylibColor(colour_fill));
+                         ToRaylibColor(colours.fill));
     }
 
     // Only draw borders along the original element edges if they fall within the clip rect.
-    float weight = ResolveDrawnBorderWeight(e, &e->screen_box);
-    if (colour_border.a > 0 && weight > 0.0f)
+    float weight = ResolveDrawnBorderWeight(e, &box);
+    if (colours.border.a > 0 && weight > 0.0f)
     {
-        Color border_color = ToRaylibColor(colour_border);
+        Color border_color = ToRaylibColor(colours.border);
         const float epsilon = 0.5f;
 
         // Draw top border if not clipped away.
-        if (fabsf(clipped_box.coords.y - e->screen_box.coords.y) <= epsilon)
+        if (fabsf(clipped_box.coords.y - box.coords.y) <= epsilon)
         {
             DrawRectangleRec((Rectangle){clipped_box.coords.x, clipped_box.coords.y,
                                          clipped_box.dimensions.x, fminf(weight, clipped_box.dimensions.y)},
@@ -224,7 +238,7 @@ void DrawElementBoxClipped(UIElement *e, UIClipRect clip)
 
         // Draw bottom border if not clipped away.
         if (fabsf((clipped_box.coords.y + clipped_box.dimensions.y) -
-                  (e->screen_box.coords.y + e->screen_box.dimensions.y)) <= epsilon)
+                  (box.coords.y + box.dimensions.y)) <= epsilon)
         {
             DrawRectangleRec((Rectangle){clipped_box.coords.x,
                                          clipped_box.coords.y + clipped_box.dimensions.y - fminf(weight, clipped_box.dimensions.y),
@@ -233,7 +247,7 @@ void DrawElementBoxClipped(UIElement *e, UIClipRect clip)
         }
 
         // Draw left border if not clipped away.
-        if (fabsf(clipped_box.coords.x - e->screen_box.coords.x) <= epsilon)
+        if (fabsf(clipped_box.coords.x - box.coords.x) <= epsilon)
         {
             DrawRectangleRec((Rectangle){clipped_box.coords.x, clipped_box.coords.y,
                                          fminf(weight, clipped_box.dimensions.x), clipped_box.dimensions.y},
@@ -242,7 +256,7 @@ void DrawElementBoxClipped(UIElement *e, UIClipRect clip)
 
         // Draw right border if not clipped away.
         if (fabsf((clipped_box.coords.x + clipped_box.dimensions.x) -
-                  (e->screen_box.coords.x + e->screen_box.dimensions.x)) <= epsilon)
+                  (box.coords.x + box.dimensions.x)) <= epsilon)
         {
             DrawRectangleRec((Rectangle){clipped_box.coords.x + clipped_box.dimensions.x - fminf(weight, clipped_box.dimensions.x),
                                          clipped_box.coords.y,
@@ -282,29 +296,38 @@ static void CompactExponent(char *text, size_t text_bytes)
     }
 }
 
-// Fit an unfocused numeric value into `max_chars` glyphs. Only text that parses fully as a number
-// and is too long is rewritten (non-numeric text such as "N/A" is left alone): first with fewer
-// decimal places, then, when even the integer part is too wide, in compact scientific notation
-// (for example 1.23e5, dropping mantissa digits as needed). Returns true and fills `out` when the
-// text was rewritten. The stored text is never changed, so a focused field still shows the full value.
-static bool FitNumericText(const char *text, int max_chars, char *out, size_t out_bytes)
+// Fit an unfocused numeric value [text, text + length) into `max_chars` glyphs. Only text that
+// parses fully as a number and is too long is rewritten (non-numeric text such as "N/A" is left
+// alone): first with fewer decimal places, then, when even the integer part is too wide, in compact
+// scientific notation (for example 1.23e5, dropping mantissa digits as needed). Returns true and
+// fills `out` (NUL-terminated) when the text was rewritten. The stored text is never changed, so a
+// focused field still shows the full value. The length check is O(1); the NUL-terminated copy the
+// number parse needs is only made for text that is actually too wide.
+static bool FitNumericText(const char *text, size_t length, int max_chars, char *out, size_t out_bytes)
 {
-    size_t length = strlen(text);
     if (max_chars <= 0 || (int)length <= max_chars)
     {
         return false;
     }
 
+    char number[sizeof(String64)];
+    if (length >= sizeof(number))
+    {
+        return false;
+    }
+    memcpy(number, text, length);
+    number[length] = '\0';
+
     char *end = NULL;
-    double value = strtod(text, &end);
-    if (end == text || *end != '\0')
+    double value = strtod(number, &end);
+    if (end == number || *end != '\0')
     {
         return false;
     }
 
     // Step 1: shed decimal places, one at a time, until the text fits.
-    const char *point = strchr(text, '.');
-    int decimals = point ? (int)(length - (size_t)(point - text) - 1) : 0;
+    const char *point = strchr(number, '.');
+    int decimals = point ? (int)(length - (size_t)(point - number) - 1) : 0;
     for (int places = decimals - 1; places >= 0; places--)
     {
         snprintf(out, out_bytes, "%.*f", places, value);
@@ -328,38 +351,40 @@ static bool FitNumericText(const char *text, int max_chars, char *out, size_t ou
     return true;
 }
 
-// Split a formatted vector "(x,y)" into its two component strings. The no-value placeholder
-// (UI_NO_VALUE_TEXT) is shown in BOTH components; any other text without a comma (for example
-// "N/A") lands whole in `x_out` with an empty `y_out`.
-static void SplitVectorText(const char *text, char *x_out, char *y_out, size_t out_bytes)
+// A run of text inside a larger string: a pointer and a length, so no copy is needed.
+typedef struct TextSpan
+{
+    const char *start;
+    size_t length;
+} TextSpan;
+
+// Split a formatted vector "(x,y)" into its two component spans, pointing into `text` (no copy).
+// The no-value placeholder (UI_NO_VALUE_TEXT) is shown in BOTH components; any other text without
+// a comma (for example "N/A") lands whole in `x_out` with an empty `y_out`.
+static void SplitVectorText(const char *text, TextSpan *x_out, TextSpan *y_out)
 {
     const char *start = (text[0] == '(') ? text + 1 : text;
     const char *comma = strchr(start, ',');
     if (!comma)
     {
-        snprintf(x_out, out_bytes, "%s", text);
-        snprintf(y_out, out_bytes, "%s", strcmp(text, UI_NO_VALUE_TEXT) == 0 ? text : "");
+        *x_out = (TextSpan){text, strlen(text)};
+        *y_out = (strcmp(text, UI_NO_VALUE_TEXT) == 0) ? *x_out : (TextSpan){text, 0};
         return;
     }
-    size_t x_length = (size_t)(comma - start);
-    if (x_length >= out_bytes)
+    *x_out = (TextSpan){start, (size_t)(comma - start)};
+    size_t y_length = strlen(comma + 1);
+    // Drop the closing bracket of "(x,y)".
+    if (y_length > 0 && comma[y_length] == ')')
     {
-        x_length = out_bytes - 1;
+        y_length--;
     }
-    memcpy(x_out, start, x_length);
-    x_out[x_length] = '\0';
-    snprintf(y_out, out_bytes, "%s", comma + 1);
-    size_t y_length = strlen(y_out);
-    if (y_length > 0 && y_out[y_length - 1] == ')')
-    {
-        y_out[y_length - 1] = '\0';
-    }
+    *y_out = (TextSpan){comma + 1, y_length};
 }
 
 // Draw `text` in the muted palette colour (muted_text, brown on cream) at a pixel position, clipped.
 static void DrawMutedTextClipped(const char *text, Vector2d origin, UIClipRect clip)
 {
-    Bitmap_Font font = FONT_MEDIUM_WITH_COLOUR(UIPalette_GetActive()->muted_text);
+    Bitmap_Font font = FONT_MEDIUM_WITH_COLOUR(s_ui_palette->muted_text);
     font.scale *= s_ui_pixel_scale;
     DrawTextCustomClipped(text, origin, font.scale, font, font.colour, clip);
 }
@@ -383,135 +408,36 @@ static void DrawFieldUnitClipped(const UIElement *e, UIClipRect clip)
         return;
     }
     float run_width = (float)(((int)strlen(unit) - 1) * advance + cell);
-    float inset = ((float)e->border_weight + UI_TEXTBOX_TEXT_GAP_PX) * (float)s_ui_pixel_scale;
+    float inset = TextInsetPx(e);
     Vector2d origin = {
         e->screen_box.coords.x + e->screen_box.dimensions.x - inset - run_width,
         e->screen_box.coords.y + fmaxf(0.0f, (e->screen_box.dimensions.y - (float)row_height) / 2.0f)};
     DrawMutedTextClipped(unit, origin, clip);
 }
 
-// Draw a stacked-vector textbox as two component boxes (x on the first row, y on the second, the
-// same width, one control row each). Each box shows a muted "x" / "y" prefix and its value, which
-// starts UI_VECTOR_PREFIX_ADVANCE_PX after the prefix. The element keeps ONE box, text buffer, binding
-// and hit area (so editing, focus and refresh are unchanged); only its drawing is split. This
-// temporarily points screen_box and the text buffer at each component and restores both before
-// returning, so nothing else observes the change.
-static void DrawStackedVectorClipped(UIElement *e, UIClipRect clip)
+// Draw a text run inside `box`, clipped against an active clip rectangle: the text-run core shared
+// by every text element and by each component of a stacked vector. `font` is already scaled to the
+// UI pixel scale and every metric below derives from it. Handles the box inset, the accent-bar
+// indent, the unit reserve, fit-to-field and ellipsis, row wrapping, alignment and the cursor. The
+// text is a pointer and length into the element's own buffer, so nothing is copied or swapped.
+static void DrawTextRunClipped(UIElement *e, UIClipRect clip, const char *text, size_t text_length,
+                               Bitmap_Font font, UIBox box)
 {
-    const UIBox full = e->screen_box;
-    float row_height = ui_standard_control_size.dimensions.y * (float)s_ui_pixel_scale;
-    if (row_height * 2.0f > full.dimensions.y)
-    {
-        row_height = full.dimensions.y * 0.5f; // box shorter than two rows: share it equally
-    }
-
-    // Take the components from the buffer before it is borrowed for drawing.
-    char components[2][sizeof(String64)];
-    SplitVectorText(e->data.textbox.text.string, components[0], components[1], sizeof(components[0]));
-    const String64 saved_text = e->data.textbox.text;
-    static const char *prefixes[2] = {"x", "y"};
-
-    for (int i = 0; i < 2; i++)
-    {
-        // Row 0 sits at the top of the box and row 1 at the bottom; the spare height is the gap.
-        e->screen_box.coords = (Vector2d){full.coords.x, full.coords.y + (float)i * (full.dimensions.y - row_height)};
-        e->screen_box.dimensions = (Vector2d){full.dimensions.x, row_height};
-        DrawElementBoxClipped(e, clip);
-
-        // Muted prefix at the normal text origin, vertically centred in the row.
-        Bitmap_Font font = e->data.textbox.font;
-        font.scale *= s_ui_pixel_scale;
-        int row_text_height = BitmapFont_GetRowHeight(&font);
-        float inset = ((float)e->border_weight + UI_TEXTBOX_TEXT_GAP_PX) * (float)s_ui_pixel_scale;
-        Vector2d prefix_origin = {
-            e->screen_box.coords.x + inset,
-            e->screen_box.coords.y + fmaxf(0.0f, (row_height - (float)row_text_height) / 2.0f)};
-        DrawMutedTextClipped(prefixes[i], prefix_origin, clip);
-
-        // The value is drawn by the normal text path in a box shifted past the prefix.
-        float shift = UI_VECTOR_PREFIX_ADVANCE_PX * (float)s_ui_pixel_scale;
-        e->screen_box.coords.x += shift;
-        e->screen_box.dimensions.x = fmaxf(0.0f, e->screen_box.dimensions.x - shift);
-        snprintf(e->data.textbox.text.string, sizeof(e->data.textbox.text.string), "%s", components[i]);
-        DrawTextAreaClipped(e, clip);
-    }
-
-    e->screen_box = full;
-    e->data.textbox.text = saved_text;
-}
-
-// Draw the amber accent bar of a section title (a label with accent_bar set): UI_TITLE_BAR_WIDTH_PX x
-// UI_TITLE_BAR_HEIGHT_PX at the label's top-left, clipped. The label is one title row tall, so the
-// bar lines up with its text. No-op for every other element.
-static void DrawTitleAccentBarClipped(const UIElement *e, UIClipRect clip)
-{
-    if (e->type != UI_ELEMENT_LABEL || !e->data.label.accent_bar)
-    {
-        return;
-    }
-    float scale = (float)s_ui_pixel_scale;
-    float left = fmaxf(e->screen_box.coords.x, clip.min.x);
-    float top = fmaxf(e->screen_box.coords.y, clip.min.y);
-    float right = fminf(e->screen_box.coords.x + UI_TITLE_BAR_WIDTH_PX * scale, clip.max.x);
-    float bottom = fminf(e->screen_box.coords.y + UI_TITLE_BAR_HEIGHT_PX * scale, clip.max.y);
-    if (right > left && bottom > top)
-    {
-        DrawRectangleRec((Rectangle){left, top, right - left, bottom - top},
-                         ToRaylibColor(UIPalette_GetActive()->button_fill));
-    }
-}
-
-void DrawTextArea(UIElement *e){
-    DrawTextAreaClipped(e, UI_UNCONSTRAINED_CLIP);
-}
-
-// Draw text within an element's screen bounds, clipped against an active clip rectangle.
-void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
-{
-    if (!e || UIClipRect_IsEmpty(clip))
+    if (UIClipRect_IsEmpty(clip) || !UIClipRect_IntersectsBox(clip, box) || text_length == 0)
     {
         return;
     }
 
-    if (!UIClipRect_IntersectsBox(clip, e->screen_box))
-    {
-        return;
-    }
-
-    // Data Setup - Abstract the difference between Label, Button, and Textbox.
-    char *text_ptr = NULL;
-    Bitmap_Font font = {0};
-    if (IsTextbox(e))
-    {
-        text_ptr = e->data.textbox.text.string;
-        font = e->data.textbox.font;
-    }
-    else if (IsBtn(e))
-    {
-        text_ptr = e->data.button.display_text.string;
-        font = e->data.button.font;
-    }
-    else if (e->type == UI_ELEMENT_LABEL)
-    {
-        text_ptr = e->data.label.text.string;
-        font = e->data.label.font;
-    }
-    if (!text_ptr || text_ptr[0] == '\0')
-    {
-        return;
-    }
-    // Fonts are authored at their UI-pixel scale; draw them at the UI pixel scale so text grows with
-    // the UI in whole-pixel steps. Every metric below derives from this scaled copy.
-    font.scale *= s_ui_pixel_scale;
-    Vector2d available_space = e->screen_box.dimensions;
+    const bool is_textbox = IsTextbox(e);
+    Vector2d available_space = box.dimensions;
 
     // Text origin: a textbox with a visible border insets its text from both sides so the
     // characters (and the cursor, which follows the drawn run) clear the border. Transparent
     // textboxes, labels and buttons keep the flush/centred origin at the box edge.
-    float text_origin_x = e->screen_box.coords.x;
-    if (IsTextbox(e) && e->colour_border.a > 0)
+    float text_origin_x = box.coords.x;
+    if (is_textbox && e->colour_border.a > 0)
     {
-        float text_inset = ((float)e->border_weight + UI_TEXTBOX_TEXT_GAP_PX) * (float)s_ui_pixel_scale;
+        float text_inset = TextInsetPx(e);
         text_origin_x += text_inset;
         available_space.x = fmaxf(0.0f, available_space.x - 2.0f * text_inset);
     }
@@ -534,25 +460,26 @@ void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
     }
 
     // Unit suffix: keep the value text clear of the right-aligned unit drawn after the text.
-    if (IsTextbox(e) && e->data.textbox.unit[0] != '\0')
+    if (is_textbox && e->data.textbox.unit[0] != '\0')
     {
         float unit_reserve = ((float)(strlen(e->data.textbox.unit) * (size_t)glyph_advance)) +
                              UI_FIELD_UNIT_GAP_PX * (float)s_ui_pixel_scale;
         available_space.x = fmaxf(0.0f, available_space.x - unit_reserve);
     }
 
+    // The glyph budget of the line, shared by the fit-to-field and ellipsis rules below.
+    const int max_glyphs = MaxGlyphsInWidth(available_space.x, glyph_advance, glyph_cell_width);
+
     // Fit-to-field: an unfocused numeric value that is too wide is shown with fewer decimals, then
     // in scientific notation. Stacked-vector components are scalars too. The stored text is untouched.
     char fitted_text[sizeof(String64)];
-    if (IsTextbox(e) && !e->is_focused &&
+    if (is_textbox && !e->is_focused &&
         (e->data.textbox.data_type == FLOAT || e->data.textbox.data_type == INT || e->data.textbox.stacked_vector))
     {
-        int max_chars = (available_space.x >= (float)glyph_cell_width)
-                            ? (int)((available_space.x - (float)glyph_cell_width) / (float)glyph_advance) + 1
-                            : 0;
-        if (FitNumericText(text_ptr, max_chars, fitted_text, sizeof(fitted_text)))
+        if (FitNumericText(text, text_length, max_glyphs, fitted_text, sizeof(fitted_text)))
         {
-            text_ptr = fitted_text;
+            text = fitted_text;
+            text_length = strlen(fitted_text);
         }
     }
     // Ellipsis: a read-only, non-numeric textbox that is one text row tall and whose text is wider
@@ -565,22 +492,20 @@ void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
         e->data.textbox.data_type != FLOAT && e->data.textbox.data_type != INT &&
         available_space.y < (float)(2 * row_height))
     {
-        int max_chars = (available_space.x >= (float)glyph_cell_width)
-                            ? (int)((available_space.x - (float)glyph_cell_width) / (float)glyph_advance) + 1
-                            : 0;
-        size_t text_length = strlen(text_ptr);
-        if (max_chars > UI_ELLIPSIS_CHAR_COUNT && text_length > (size_t)max_chars &&
-            (size_t)max_chars < sizeof(ellipsised_text))
+        if (max_glyphs > UI_ELLIPSIS_CHAR_COUNT && text_length > (size_t)max_glyphs &&
+            (size_t)max_glyphs < sizeof(ellipsised_text))
         {
             // Keep the leading glyphs that leave room for the dots, then append them.
-            size_t kept = (size_t)(max_chars - UI_ELLIPSIS_CHAR_COUNT);
-            memcpy(ellipsised_text, text_ptr, kept);
+            size_t kept = (size_t)(max_glyphs - UI_ELLIPSIS_CHAR_COUNT);
+            memcpy(ellipsised_text, text, kept);
             memcpy(ellipsised_text + kept, "...", UI_ELLIPSIS_CHAR_COUNT + 1);
-            text_ptr = ellipsised_text;
+            text = ellipsised_text;
+            text_length = (size_t)max_glyphs;
         }
     }
+    const char *text_end = text + text_length;
     int rows_that_fit = (int)(available_space.y / row_height);
-    int text_row_count = CountTextRows(text_ptr, available_space.x, glyph_advance, glyph_cell_width, rows_that_fit);
+    int text_row_count = CountTextRows(text, text_end, available_space.x, glyph_advance, glyph_cell_width, rows_that_fit);
     float vertical_offset = 0.0f;
     float text_height = (float)(text_row_count * row_height);
     if (e->text_vertical_alignment == UI_TEXT_VERTICAL_ALIGN_CENTRE)
@@ -591,19 +516,21 @@ void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
     {
         vertical_offset = fmaxf(0.0f, available_space.y - text_height);
     }
-    const char *text_cursor = text_ptr;
+    const char *text_cursor = text;
     int current_row = 0;
     float last_row_x_end = text_origin_x;
-    bool fully_contained = UIClipRect_ContainsBox(clip, e->screen_box);
+    bool fully_contained = UIClipRect_ContainsBox(clip, box);
 
     // Segmenting and Drawing
-    // We'll draw row-by-row to save memory (no need for a massive 2D array)
-    while (text_cursor && *text_cursor != '\0' && current_row < rows_that_fit)
+    // We'll draw row-by-row to save memory (no need for a massive 2D array). The row buffer is
+    // reused for every row; ConsumeTextRow writes the terminator, so only the first byte is primed.
+    char row_buffer[256];
+    row_buffer[0] = '\0';
+    while (text_cursor < text_end && current_row < rows_that_fit)
     {
-        char row_buffer[256] = {0}; // Local buffer for the current line
         float current_row_width = 0.0f;
         int row_char_count = ConsumeTextRow(
-            &text_cursor, available_space.x, glyph_advance, glyph_cell_width,
+            &text_cursor, text_end, available_space.x, glyph_advance, glyph_cell_width,
             row_buffer, sizeof(row_buffer), &current_row_width);
         if (row_char_count == 0)
         {
@@ -613,7 +540,7 @@ void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
         // Draw the row
         Vector2d draw_pos = {
             text_origin_x,
-            e->screen_box.coords.y + vertical_offset + (float)(current_row * row_height)};
+            box.coords.y + vertical_offset + (float)(current_row * row_height)};
 
         if (e->text_horizontal_alignment == UI_TEXT_ALIGN_CENTRE)
         {
@@ -657,25 +584,25 @@ void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
         current_row++;
     }
 
-    const char *remaining_text = text_cursor;
-    if (remaining_text[0] != '\0')
+    if (text_cursor < text_end)
     {
         if (frame_counter.total_frames % 1200 == 0)
         {
-            LOG_WARN("Text was truncated for %s. Rendered rows: %d, Rows that fit: %d. Remaining text: \"%s\"",
-                     GetElementTypeName(e->type), current_row, rows_that_fit, remaining_text);
+            LOG_WARN("Text was truncated for %s. Rendered rows: %d, Rows that fit: %d. Remaining text: \"%.*s\"",
+                     GetElementTypeName(e->type), current_row, rows_that_fit,
+                     (int)(text_end - text_cursor), text_cursor);
         }
     }
 
     // Cursor Rendering
-    if (e->is_focused && (frame_counter.total_frames % 60 < 30) && IsTextbox(e))
+    if (e->is_focused && (frame_counter.total_frames % 60 < 30) && is_textbox)
     {
         // Place cursor at the end of the last drawn character
         // Note: Subtract 1 from current_row because it was incremented after the last draw
         float adjusted_x = last_row_x_end;
-        float adjusted_y = text_cursor != text_ptr
-                               ? e->screen_box.coords.y + vertical_offset + (float)((current_row - 1) * row_height)
-                               : e->screen_box.coords.y + vertical_offset;
+        float adjusted_y = text_cursor != text
+                               ? box.coords.y + vertical_offset + (float)((current_row - 1) * row_height)
+                               : box.coords.y + vertical_offset;
         Vector2d cursor_pos = {adjusted_x, adjusted_y};
 
         if (fully_contained)
@@ -690,11 +617,109 @@ void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
     }
 }
 
-void DrawTextBoxText(UIElement *e)
+// Draw an element's own text (label, button or textbox caption/value) in its screen box, clipped.
+// Picks the text and font for the element type, scales the font to the UI pixel scale and runs the
+// shared text-run core. Elements with no text, or other types, draw nothing.
+static void DrawTextAreaClipped(UIElement *e, UIClipRect clip)
 {
+    const char *text = NULL;
+    Bitmap_Font font = {0};
+    if (IsTextbox(e))
+    {
+        text = e->data.textbox.text.string;
+        font = e->data.textbox.font;
+    }
+    else if (IsBtn(e))
+    {
+        text = e->data.button.display_text.string;
+        font = e->data.button.font;
+    }
+    else if (e->type == UI_ELEMENT_LABEL)
+    {
+        text = e->data.label.text.string;
+        font = e->data.label.font;
+    }
+    if (!text || text[0] == '\0')
+    {
+        return;
+    }
+    // Fonts are authored at their UI-pixel scale; draw them at the UI pixel scale so text grows with
+    // the UI in whole-pixel steps.
+    font.scale *= s_ui_pixel_scale;
+    DrawTextRunClipped(e, clip, text, strlen(text), font, e->screen_box);
 }
 
-// NEED TO CREATE BOX FOR ENTIRE SCREEN AND PASS THAT AS THE PARENT BOX FOR THE ROOT ELEMENT, SO THAT THE ROOT ELEMENT AND ALL OTHER ELEMENTS CAN CALCULATE THEIR POSITIONS AND DIMENSIONS BASED ON THAT, RATHER THAN HAVING THE ROOT ELEMENT CALCULATE ITS POSITION AND DIMENSIONS BASED ON A ZERO VECTOR, WHICH IS NOT FLEXIBLE IF WE WANT TO CHANGE THE PANEL OR ROOT ELEMENT PROPERTIES LATER
+// Draw a stacked-vector textbox as two component boxes (x on the first row, y on the second, the
+// same width, one control row each). Each box shows a muted "x" / "y" prefix and its value, which
+// starts UI_VECTOR_PREFIX_ADVANCE_PX after the prefix. The element keeps ONE box, text buffer, binding
+// and hit area (so editing, focus and refresh are unchanged); only its drawing is split. The two
+// components are spans into the element's own text, drawn through the text-run core with a
+// per-component box, so neither the element's screen box nor its text is ever modified.
+static void DrawStackedVectorClipped(UIElement *e, UIClipRect clip, DrawnBoxColours colours)
+{
+    const UIBox full = e->screen_box;
+    float row_height = ui_standard_control_size.dimensions.y * (float)s_ui_pixel_scale;
+    if (row_height * 2.0f > full.dimensions.y)
+    {
+        row_height = full.dimensions.y * 0.5f; // box shorter than two rows: share it equally
+    }
+
+    TextSpan components[2];
+    SplitVectorText(e->data.textbox.text.string, &components[0], &components[1]);
+    static const char *prefixes[2] = {"x", "y"};
+
+    // Metrics shared by both rows: the scaled value font, the prefix inset and the value shift.
+    Bitmap_Font font = e->data.textbox.font;
+    font.scale *= s_ui_pixel_scale;
+    const int row_text_height = BitmapFont_GetRowHeight(&font);
+    const float inset = TextInsetPx(e);
+    const float shift = UI_VECTOR_PREFIX_ADVANCE_PX * (float)s_ui_pixel_scale;
+
+    for (int i = 0; i < 2; i++)
+    {
+        // Row 0 sits at the top of the box and row 1 at the bottom; the spare height is the gap.
+        UIBox row = {
+            {full.coords.x, full.coords.y + (float)i * (full.dimensions.y - row_height)},
+            {full.dimensions.x, row_height}};
+        DrawElementBoxClipped(e, row, clip, colours);
+
+        // Muted prefix at the normal text origin, vertically centred in the row.
+        Vector2d prefix_origin = {
+            row.coords.x + inset,
+            row.coords.y + fmaxf(0.0f, (row_height - (float)row_text_height) / 2.0f)};
+        DrawMutedTextClipped(prefixes[i], prefix_origin, clip);
+
+        // The value is drawn by the text-run core in a box shifted past the prefix.
+        UIBox value_box = row;
+        value_box.coords.x += shift;
+        value_box.dimensions.x = fmaxf(0.0f, row.dimensions.x - shift);
+        DrawTextRunClipped(e, clip, components[i].start, components[i].length, font, value_box);
+    }
+}
+
+// Draw the amber accent bar of a section title (a label with accent_bar set): UI_TITLE_BAR_WIDTH_PX x
+// UI_TITLE_BAR_HEIGHT_PX at the label's top-left, clipped. The label is one title row tall, so the
+// bar lines up with its text. No-op for every other element.
+static void DrawTitleAccentBarClipped(const UIElement *e, UIClipRect clip)
+{
+    if (e->type != UI_ELEMENT_LABEL || !e->data.label.accent_bar)
+    {
+        return;
+    }
+    float scale = (float)s_ui_pixel_scale;
+    float left = fmaxf(e->screen_box.coords.x, clip.min.x);
+    float top = fmaxf(e->screen_box.coords.y, clip.min.y);
+    float right = fminf(e->screen_box.coords.x + UI_TITLE_BAR_WIDTH_PX * scale, clip.max.x);
+    float bottom = fminf(e->screen_box.coords.y + UI_TITLE_BAR_HEIGHT_PX * scale, clip.max.y);
+    if (right > left && bottom > top)
+    {
+        DrawRectangleRec((Rectangle){left, top, right - left, bottom - top},
+                         ToRaylibColor(s_ui_palette->button_fill));
+    }
+}
+
+// Draw a whole UI tree: derive the integer UI-pixel scale from the UI-to-pixel transform, place the
+// root at seed_box and draw it and its descendants.
 void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Matrix3x3 M_ui_to_pixel)
 {
     if (!root_element)
@@ -711,21 +736,25 @@ void DrawRootUIElement(UIElement *root_element, UIBox seed_box, Matrix3x3 M_ui_t
     int pixel_scale = (int)roundf(fabsf(basis_tfrm.x));
     s_ui_pixel_scale = pixel_scale < 1 ? 1 : pixel_scale;
 
+    // The palette is fetched once for the whole draw pass.
+    s_ui_palette = UIPalette_GetActive();
+
     // Resolve rendered position and dimensions of panel element
     root_element->screen_box.coords = TransformCoordinates(M_ui_to_pixel, seed_box.coords);
     root_element->screen_box.dimensions = (Vector2d){seed_box.dimensions.x * basis_tfrm.x, seed_box.dimensions.y * basis_tfrm.y};
 
     // Draw background & border
-    DrawElementBox(root_element);
+    DrawElementBox(root_element, root_element->screen_box, ResolveDrawnBoxColours(root_element));
 
     // Recursively draw children using an unconstrained root clip
     ForEachChild(root_element, child)
     {
-        DrawUIElement(child, root_element->screen_box, M_ui_to_pixel, UI_UNCONSTRAINED_CLIP);
+        DrawUIElement(child, M_ui_to_pixel, UI_UNCONSTRAINED_CLIP);
     }
 }
 
-void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel, UIClipRect current_clip)
+// Draw one element (box, text, custom hook) and recurse into its children under the propagated clip.
+static void DrawUIElement(UIElement *e, Matrix3x3 M_ui_to_pixel, UIClipRect current_clip)
 {
     if (!e || !e->is_enabled)
     {
@@ -737,19 +766,9 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel, UICl
         {M_ui_to_pixel.col2.x, M_ui_to_pixel.col2.y}};
     Vector2d basis_tfrm = VectorSum_2d(basis_matrix.col1, basis_matrix.col2);
 
-    // Calculate local offset scaled to pixel space
-    Vector2d scaled_local_offset = {
-        e->local_box.coords.x * basis_tfrm.x,
-        e->local_box.coords.y * basis_tfrm.y};
-
-    // Add to parent's screen coordinates
+    // Resolve the element's screen box from its local box.
     e->screen_box.coords = TransformCoordinates(M_ui_to_pixel, e->local_box.coords);
     e->screen_box.dimensions = (Vector2d){e->local_box.dimensions.x * basis_tfrm.x, e->local_box.dimensions.y * basis_tfrm.y};
-
-    if (IsBtn(e))
-    {
-        // LOG_INFO("I'm a textbox, check my dimensions.");
-    }
 
     // Prune elements completely outside the current clipping rectangle if they cannot scroll children into view.
     if (!(e->is_scrollable_x || e->is_scrollable_y) &&
@@ -762,14 +781,16 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel, UICl
     // element (and a focused vector, which shows its full "(x,y)" edit text) draws as one box.
     bool draw_stacked_vector = IsTextbox(e) && e->data.textbox.stacked_vector && !e->is_focused;
 
-    // Draw background & border with clipping against the current clip rectangle
+    // Draw background & border with clipping against the current clip rectangle. The drawn colours
+    // (including the read-only role) are resolved once here and shared by every box drawn below.
+    const DrawnBoxColours box_colours = ResolveDrawnBoxColours(e);
     if (draw_stacked_vector)
     {
-        DrawStackedVectorClipped(e, current_clip);
+        DrawStackedVectorClipped(e, current_clip, box_colours);
     }
     else
     {
-        DrawElementBoxClipped(e, current_clip);
+        DrawElementBoxClipped(e, e->screen_box, current_clip, box_colours);
     }
     DrawTitleAccentBarClipped(e, current_clip);
 
@@ -807,61 +828,7 @@ void DrawUIElement(UIElement *e, UIBox parent_box, Matrix3x3 M_ui_to_pixel, UICl
         // Recursively draw children elements within the propagated clip boundary
         ForEachChild(e, child)
         {
-            DrawUIElement(child, e->screen_box, M_ui_to_pixel, child_clip);
+            DrawUIElement(child, M_ui_to_pixel, child_clip);
         }
     }
 }
-
-// Draws Left Panel
-// void DrawPanelRegion(UIElement *element, Camera2d camera)
-// {
-//     // Need to convert world coordinates to screen coordinates
-//     Space2d panel_space = element->data.root.space;
-//     Basis2d basis = panel_space.basis;
-
-//     // The world position of the coordinate space object is the origin of the coordinate space, so (0,0).
-//     // But to make it more flexible for different coordinate space origins, we will add the world position to the start and end points of the lines to get their actual coordinates in world space, and then convert those to screen coordinates using the basis transform matrix
-//     Vector2d origin = panel_space.bounds_origin;
-//     Vector2d end = VectorSum_2d(origin, panel_space.resolution_ixj);
-//     Vector2d basis_scale = BasisTransform_2d_Scale(camera.source_basis, camera.destination_basis); // Need to scale dimensions from world units to pixel units using the camera's basis transform
-
-//     // Resolve rendered position and dimensions of panel element
-//     UIBox panel_box = ResolveElementBox(element, ZERO_VECTOR_2D, basis_scale);
-
-//     // First: Draw background & border
-//     ColourRgba colour_fill = element->colour_fill;
-//     ColourRgba colour_border = element->colour_border;
-//     DrawRectangle(panel_box.coords.x, panel_box.coords.y, panel_box.dimensions.x, panel_box.dimensions.y, (Color){colour_fill.r, colour_fill.g, colour_fill.b, colour_fill.a});
-//     DrawRectangleLines(panel_box.coords.x, panel_box.coords.y, panel_box.dimensions.x, panel_box.dimensions.y, (Color){colour_fill.r, colour_fill.g, colour_fill.b, colour_fill.a});
-
-//     // Draw the text boxes in the Properties container
-//     DrawTextFieldsContainer(lpanel_properties_tcont, camera_lpanel);
-
-//     // Draw the text boxes in the Stats container
-//     // DrawTextFieldsContainer(&lpanel_stats_tcont, camera_lpanel);
-
-//     // Memory display - Consumed memory in bytes out of the total allocated bytes
-//     // snprintf(text, sizeof(text), "Memory Consumed (bytes): %zu", GetCurrentMemoryAllocated()); // Format the FPS value into the buffer
-//     // DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + 2 * lineSpacing.y}, font.baseSize * 2.0f, 2, (Color)BEIGE);
-// }
-
-// void DrawPanelRegion_Stats(Space2d panel_space, Color fill_colour)
-// {
-//     Vector2 pos = {20, 100};
-//     Vector2 lineSpacing = {0, 40};
-
-//     // Count display
-//     char text[32];
-//     // snprintf(text, sizeof(text), "Polygonoids: %d", GetPolygonoidCount());                                                                                 // Format the FPS value into the buffer
-//     // DrawTextEx(font_default, text, pos, font_default.baseSize * 2.0f, 2, (Color){lpanel_text_colour.r, lpanel_text_colour.g, lpanel_text_colour.b, lpanel_text_colour.a}); // Buffer to hold the text
-//     //  snprintf(text, sizeof(text), "Circloids: %d", GetCircloidCount()); // Format the FPS value into the buffer
-//     //  DrawTextEx(font, text, pos, font.baseSize * 2.0f, 2, (Color)BEIGE);
-
-//     // FPS display
-//     snprintf(text, sizeof(text), "FPS: %.1f", frame_counter.fps); // Format the FPS value into the buffer
-//     DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + lineSpacing.y}, font.baseSize * 2.0f, 2, (Color){lpanel_text_colour.r, lpanel_text_colour.g, lpanel_text_colour.b, lpanel_text_colour.a});
-
-//     // Memory display - Total allocated memory in bytes
-//     snprintf(text, sizeof(text), "Memory (bytes): %zu", GetCurrentMemoryAllocated()); // Format the FPS value into the buffer
-//     DrawTextEx(font, text, (Vector2){pos.x + lineSpacing.x, pos.y + 2 * lineSpacing.y}, font.baseSize * 2.0f, 2, (Color){lpanel_text_colour.r, lpanel_text_colour.g, lpanel_text_colour.b, lpanel_text_colour.a});
-// }

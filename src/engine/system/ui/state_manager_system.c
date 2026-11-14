@@ -34,6 +34,16 @@ static bool state_manager_refresh_dirty = true;
 
 // Selection-driven layout state (see "Selection-driven layout" below).
 #define SM_SHOWN_UNKNOWN (-2)                // No layout applied yet.
+// The inputs that decide the layout (tabs, field lock, DELETE label). The layout is re-applied only
+// when this changes, as the World Manager does with its own signature.
+typedef struct StateManagerLayoutSignature
+{
+    int entity_count;      // Entities in the selection set
+    EntityId primary;      // Primary entity id (INVALID_ENTITY_ID when none): names the DELETE label
+    bool has_target;       // A live primary entity exists (a stale ref counts as none)
+} StateManagerLayoutSignature;
+static StateManagerLayoutSignature s_sm_layout_signature;
+static bool s_sm_layout_signature_valid = false; // False until the first layout has been applied.
 static ViewSelector *s_sm_selector = NULL;   // The entity tab selector (NULL if allocation failed).
 static int s_sm_entity_tab = 0;              // Entity tab remembered across empty selections.
 static int s_sm_shown_view = SM_SHOWN_UNKNOWN; // View currently shown.
@@ -84,6 +94,10 @@ typedef struct StateManagerComponentSection
 // with more than this many vertices is capped (rows beyond the pool are not shown); matches the
 // MAX_SHAPE_VERTICES vertex budget so no in-range vertex is dropped.
 #define STATE_MANAGER_GEOMETRY_ROW_COUNT MAX_SHAPE_VERTICES
+// SHAPE-view vertex rows [0, this) may be enabled; rows at or beyond it are known to be disabled, so
+// the per-frame refresh only disables rows that were shown last frame. The pool size means "unknown"
+// (a freshly built panel), which disables every unused row once.
+static int s_sm_geometry_rows_enabled = STATE_MANAGER_GEOMETRY_ROW_COUNT;
 
 // Fixed number of pre-declared ancestry line slots (see the Ancestry View State section below).
 #define STATE_MANAGER_ANCESTRY_LINE_COUNT 6
@@ -124,17 +138,12 @@ typedef struct StateManagerUI
     UIElement *damage_tbox;
 
     // Component readouts (portal fields live in the PORTAL body; the relation line is in the TREE view)
-    UIElement *comp_portal_cooldown_tbox;
-    String64 *comp_portal_cooldown_str;
+    UIElement *comp_portal_cooldown_tbox;   // Editable; binding-owned, no String64
     UIElement *comp_portal_target_tbox;   // Portal Dest. field (editable; binding-owned, no String64)
     UIElement *comp_portal_entrant_roles_tbox;
     String64 *comp_portal_entrant_roles_str;
     UIElement *comp_relation_type_tbox;
     String64 *comp_relation_type_str;
-    UIElement *comp_relation_target_tbox;
-    String64 *comp_relation_target_str;
-    UIElement *comp_relation_active_tbox;
-    String64 *comp_relation_active_str;
 
     // GEOMETRY view (v1): vertex-count readout + fixed readonly vertex-row pool.
     UIElement *geo_vertex_count_tbox;
@@ -158,43 +167,41 @@ typedef struct StateManagerFlags
 
 static StateManagerFlags s_sm_flags = {
     .entity_role = {
-        {"WALL", ENTITY_ROLE_WALL, NULL},
-        {"NEWTONOID", ENTITY_ROLE_NEWTONOID, NULL},
-        {"PROJECTILE", ENTITY_ROLE_PROJECTILE, NULL},
-        {"EFFECT", ENTITY_ROLE_EFFECT, NULL},
-        {"CAMERA", ENTITY_ROLE_CAMERA, NULL},
+        {"sm_role_wall", ENTITY_ROLE_WALL, NULL},
+        {"sm_role_newtonoid", ENTITY_ROLE_NEWTONOID, NULL},
+        {"sm_role_projectile", ENTITY_ROLE_PROJECTILE, NULL},
+        {"sm_role_effect", ENTITY_ROLE_EFFECT, NULL},
+        {"sm_role_camera", ENTITY_ROLE_CAMERA, NULL},
     },
     .entity_capability = {
-        {"DAMAGEABLE", ENTITY_CAPABILITY_DAMAGEABLE, NULL},
-        {"VELOCITY", ENTITY_CAPABILITY_VELOCITY_ALIGNED, NULL},
-        {"AFFECT OWNER", ENTITY_CAPABILITY_AFFECT_OWNER, NULL},
-        {"SENSOR", ENTITY_CAPABILITY_SENSOR, NULL},
+        {"sm_cap_damageable", ENTITY_CAPABILITY_DAMAGEABLE, NULL},
+        {"sm_cap_velocity", ENTITY_CAPABILITY_VELOCITY_ALIGNED, NULL},
+        {"sm_cap_affect_owner", ENTITY_CAPABILITY_AFFECT_OWNER, NULL},
+        {"sm_cap_sensor", ENTITY_CAPABILITY_SENSOR, NULL},
     },
     .entity_constraint = {
-        {"POSITION LOCKED", ENTITY_CONSTRAINT_POSITION_LOCKED, NULL},
-        {"NO CONTACT RESPONSE", ENTITY_CONSTRAINT_NO_CONTACT_RESPONSE, NULL},
+        {"sm_con_position_locked", ENTITY_CONSTRAINT_POSITION_LOCKED, NULL},
+        {"sm_con_no_contact_response", ENTITY_CONSTRAINT_NO_CONTACT_RESPONSE, NULL},
     },
     .entity_status = {
-        {"ALIVE", ENTITY_STATUS_FLAG_ALIVE, NULL},
-        {"SLEEPING", ENTITY_STATUS_FLAG_SLEEPING, NULL},
-        {"CLOCKED", ENTITY_STATUS_FLAG_CLOCKED, NULL},
+        {"sm_status_alive", ENTITY_STATUS_FLAG_ALIVE, NULL},
+        {"sm_status_sleeping", ENTITY_STATUS_FLAG_SLEEPING, NULL},
+        {"sm_status_clocked", ENTITY_STATUS_FLAG_CLOCKED, NULL},
     },
     .collision_role_mask = {
-        {"WALL", ENTITY_ROLE_WALL, NULL},
-        {"NEWTONOID", ENTITY_ROLE_NEWTONOID, NULL},
-        {"PROJECTILE", ENTITY_ROLE_PROJECTILE, NULL},
-        {"EFFECT", ENTITY_ROLE_EFFECT, NULL},
-        {"CAMERA", ENTITY_ROLE_CAMERA, NULL},
+        {"sm_coll_wall", ENTITY_ROLE_WALL, NULL},
+        {"sm_coll_newtonoid", ENTITY_ROLE_NEWTONOID, NULL},
+        {"sm_coll_projectile", ENTITY_ROLE_PROJECTILE, NULL},
+        {"sm_coll_effect", ENTITY_ROLE_EFFECT, NULL},
+        {"sm_coll_camera", ENTITY_ROLE_CAMERA, NULL},
     },
 };
-
 // ============================================================================
 // Ancestry View State (module-owned, read-only)
 // ============================================================================
 // Fixed number of pre-declared ancestry line slots. Six generations comfortably covers
 // selected entity -> parent entities -> owning world -> universe root world for the current
-// depth model; any line beyond the actual chain length renders blank. Ported from the lpanel
-// ancestry machinery so the Entity Mgmt panel owns its own copy (the lpanel is retired later).
+// depth model; any line beyond the actual chain length renders blank.
 
 // Panel-owned backing buffers for the ancestry view's read-only BIND_STRING labels. The binding
 // core copies value.as.s into each textbox's own text buffer during the per-frame refresh, but
@@ -339,9 +346,8 @@ static BindingValue StateManager_QueryAncestryRelation(int key)
 // UI Loader Resolvers (Application-Specific)
 // ============================================================================
 
-// Resolve a state-manager view-type string to its ViewType code. Mirrors
-// LPanel_ResolveViewType: the application owns the enum names so the loader stays
-// domain-free. An Unrecognised string reports failure and defaults to the first view.
+// Resolve a state-manager view-type string to its ViewType code. The application owns the
+// enum names so the loader stays domain-free. An Unrecognised string reports failure and defaults to the first view.
 static ViewType StateManager_ResolveViewType(const char *type_string, bool *resolved,
                                              UILoaderContext *ctx)
 {
@@ -378,8 +384,7 @@ static ViewType StateManager_ResolveViewType(const char *type_string, bool *reso
 }
 
 // Resolve action strings to command codes (adapter for CommandSystem_ResolveString).
-// Supplied to the loader for parity with lpanel and to future-proof a declarative command
-// button; no Stage-1 button uses it (DELETE is wired in C - see StateManager_RegisterElements).
+// Supplied to the loader to future-proof a declarative command button; no button uses it (DELETE is wired in C - see StateManager_RegisterElements).
 static int StateManager_ResolveCommand(const char *cmd_string, UILoaderContext *ctx)
 {
     (void)ctx; // Currently unused; provided for future application-specific context.
@@ -402,8 +407,8 @@ static UIBinding StateManager_ResolveBinding(const char *binding_string, UILoade
         return (UIBinding){ .kind = UI_BIND_SRC_NONE };
     }
 
-    // Ancestry view read-only labels: each maps to a BIND_STRING query source over the ported
-    // ancestry shims (mirroring the lpanel ancestry branch). A header, a relation summary, and
+    // Ancestry view read-only labels: each maps to a BIND_STRING query source over the ancestry
+    // shims. A header, a relation summary, and
     // six line slots keyed 0..5 by the trailing digit.
     if (!strcmp(binding_string, "ancestry.selected"))
     {
@@ -863,38 +868,11 @@ static void HandleComponentToggleClick(UIElement *button)
 // Element id-registration + wiring (post-load)
 // ============================================================================
 
-// Per-family id tables for the flag buttons. Order MUST match the s_sm_flags.<family>
-// index order so each acquired button lines up with its StateManagerFlagButton entry.
-static const char *sm_role_ids[5]  = {"sm_role_wall", "sm_role_newtonoid", "sm_role_projectile",
-                                      "sm_role_effect", "sm_role_camera"};
-static const char *sm_cap_ids[4]   = {"sm_cap_damageable", "sm_cap_velocity",
-                                      "sm_cap_affect_owner", "sm_cap_sensor"};
-static const char *sm_con_ids[2]   = {"sm_con_position_locked", "sm_con_no_contact_response"};
-static const char *sm_status_ids[3] = {"sm_status_alive", "sm_status_sleeping", "sm_status_clocked"};
-static const char *sm_coll_ids[5]  = {"sm_coll_wall", "sm_coll_newtonoid", "sm_coll_projectile",
-                                      "sm_coll_effect", "sm_coll_camera"};
 // Look up an element by id in the loaded tree, logging (and tolerating) a miss. The Refresh*
 // helpers null-guard every pointer, so a missing id degrades to an inert field, not a crash.
 static UIElement *StateManager_Find(UIElement *root, const char *id)
 {
-    UIElement *element = UILoader_FindById(root, id);
-    if (!element)
-    {
-        LOG_ERROR("StateManager: id '%s' not found in markup", id);
-    }
-    return element;
-}
-
-// Write the static "values: primary only" caption into a readonly note Textbox (a Textbox value=
-// attribute would be parsed as a number, so the text is set here). Shared by the PHYS note and the
-// COMP bodies so the string lives in one place. NULL-safe.
-static void StateManager_SetNoteText(UIElement *note)
-{
-    if (note)
-    {
-        snprintf(note->data.textbox.text.string, sizeof(note->data.textbox.text.string),
-                 "values: primary only");
-    }
+    return PanelShared_Find(root, "StateManager", id);
 }
 
 // Find an element whose id is "<prefix><key>" (for example "comp_sec_" + "portal"), logging a miss.
@@ -940,7 +918,7 @@ static void StateManager_RegisterComponentSections(UIElement *root)
         {
             section->body = StateManager_FindComponentElement(root, "comp_body_", key);
             section->note = StateManager_FindComponentElement(root, "comp_note_", key);
-            StateManager_SetNoteText(section->note);
+            PanelShared_SetNoteText(section->note);
         }
 
         // Every button carries its section so one handler per role serves all four types.
@@ -1011,15 +989,13 @@ static void StateManager_RegisterElements(UIElement *root)
     // query SOURCE + write SINK, exactly like the damage field, so commits write back to the
     // selected object's portal->cooldown_frames. The target is reached via the selection ->
     // attached portal (can go stale), so a dynamic query/write pair is used rather than an
-    // address binding. comp_portal_cooldown_str is left NULL so the per-frame refresh does NOT
-    // blit the display buffer (which would fight the binding); the binding owns the value.
+    // address binding. The binding owns the displayed value, so the per-frame refresh never blits it.
     s_sm_ui.comp_portal_cooldown_tbox = StateManager_Find(root, "sm_portal_cooldown");
     if (s_sm_ui.comp_portal_cooldown_tbox)
     {
         BindTextboxDynamic(s_sm_ui.comp_portal_cooldown_tbox, BIND_INT, 0,
                            StateManager_QueryPortalField, StateManager_WritePortalField, PORTAL_FIELD_COOLDOWN);
     }
-    s_sm_ui.comp_portal_cooldown_str = NULL;
 
     // Portal Dest. is EDITABLE (io="safe"): same dynamic query/write pattern as cooldown. The
     // query reads portal->portal_destination_id and the write commits the entered entity id to
@@ -1040,26 +1016,16 @@ static void StateManager_RegisterElements(UIElement *root)
     {
         s_sm_ui.comp_relation_type_str = &s_sm_ui.comp_relation_type_tbox->data.textbox.text;
     }
-    s_sm_ui.comp_relation_target_tbox = StateManager_Find(root, "sm_relation_target");
-    if (s_sm_ui.comp_relation_target_tbox)
-    {
-        s_sm_ui.comp_relation_target_str = &s_sm_ui.comp_relation_target_tbox->data.textbox.text;
-    }
-    s_sm_ui.comp_relation_active_tbox = StateManager_Find(root, "sm_relation_active");
-    if (s_sm_ui.comp_relation_active_tbox)
-    {
-        s_sm_ui.comp_relation_active_str = &s_sm_ui.comp_relation_active_tbox->data.textbox.text;
-    }
 
     // --- COMP view: sections, bodies and Available rows, found through the id family table ---
     StateManager_RegisterComponentSections(root);
 
     // --- Flag buttons: acquire + wire handler + user_data + query SOURCE per family ---
-    PanelShared_WireFlags(root, s_sm_flags.entity_role,         sm_role_ids,   5, FLAG_FAMILY_ROLE);
-    PanelShared_WireFlags(root, s_sm_flags.entity_capability,   sm_cap_ids,    4, FLAG_FAMILY_CAPABILITY);
-    PanelShared_WireFlags(root, s_sm_flags.entity_constraint,   sm_con_ids,    2, FLAG_FAMILY_CONSTRAINT);
-    PanelShared_WireFlags(root, s_sm_flags.entity_status,       sm_status_ids, 3, FLAG_FAMILY_STATUS);
-    PanelShared_WireFlags(root, s_sm_flags.collision_role_mask, sm_coll_ids,   5, FLAG_FAMILY_COLLISION_MASK);
+    PanelShared_WireFlags(root, s_sm_flags.entity_role, ARRAY_COUNT(s_sm_flags.entity_role), FLAG_FAMILY_ROLE);
+    PanelShared_WireFlags(root, s_sm_flags.entity_capability, ARRAY_COUNT(s_sm_flags.entity_capability), FLAG_FAMILY_CAPABILITY);
+    PanelShared_WireFlags(root, s_sm_flags.entity_constraint, ARRAY_COUNT(s_sm_flags.entity_constraint), FLAG_FAMILY_CONSTRAINT);
+    PanelShared_WireFlags(root, s_sm_flags.entity_status, ARRAY_COUNT(s_sm_flags.entity_status), FLAG_FAMILY_STATUS);
+    PanelShared_WireFlags(root, s_sm_flags.collision_role_mask, ARRAY_COUNT(s_sm_flags.collision_role_mask), FLAG_FAMILY_COLLISION_MASK);
 
     // --- DELETE: C-wired (deferred command-queue delete of the primary entity); no action= in the XML ---
     s_sm_ui.delete_button = StateManager_Find(root, "sm_delete");
@@ -1101,15 +1067,10 @@ static void RefreshComponentsSection(const Newtonoid2d *object)
 
     if (!is_valid)
     {
-        ClearString64(s_sm_ui.comp_portal_cooldown_str);
         ClearString64(s_sm_ui.comp_portal_entrant_roles_str);
         ClearString64(s_sm_ui.comp_relation_type_str);
-        ClearString64(s_sm_ui.comp_relation_target_str);
-        ClearString64(s_sm_ui.comp_relation_active_str);
-        // The TREE "Relation: -" line covers the empty state, so hide the three relation rows.
+        // The TREE "Relation: -" line covers the empty state, so hide the relation row.
         SetParentEnabledState(s_sm_ui.comp_relation_type_tbox, false);
-        SetParentEnabledState(s_sm_ui.comp_relation_target_tbox, false);
-        SetParentEnabledState(s_sm_ui.comp_relation_active_tbox, false);
         return; // No components to populate.
     }
 
@@ -1119,10 +1080,6 @@ static void RefreshComponentsSection(const Newtonoid2d *object)
     PortalComponent *portal = (PortalComponent *)desc.components[ENTITY_COMPONENT_PORTAL];
     if (portal)
     {
-        if (s_sm_ui.comp_portal_cooldown_str)
-        {
-            UpdateString64(s_sm_ui.comp_portal_cooldown_str->string, "%d", portal->cooldown_frames);
-        }
         if (s_sm_ui.comp_portal_entrant_roles_str)
         {
             UpdateString64(s_sm_ui.comp_portal_entrant_roles_str->string, "%d", portal->entrant_roles);
@@ -1130,15 +1087,12 @@ static void RefreshComponentsSection(const Newtonoid2d *object)
     }
     else
     {
-        ClearString64(s_sm_ui.comp_portal_cooldown_str);
         ClearString64(s_sm_ui.comp_portal_entrant_roles_str);
     }
 
     // Toggle Relation property field row visibility
     bool has_relation = (desc.components[ENTITY_COMPONENT_RELATION] != NULL);
     SetParentEnabledState(s_sm_ui.comp_relation_type_tbox, has_relation);
-    SetParentEnabledState(s_sm_ui.comp_relation_target_tbox, has_relation);
-    SetParentEnabledState(s_sm_ui.comp_relation_active_tbox, has_relation);
 
     // Populate relation component fields if attached.
     RelationComponent *relation = (RelationComponent *)desc.components[ENTITY_COMPONENT_RELATION];
@@ -1148,20 +1102,10 @@ static void RefreshComponentsSection(const Newtonoid2d *object)
         {
             UpdateString64(s_sm_ui.comp_relation_type_str->string, "%s", RelationType_ToString(relation->type));
         }
-        if (s_sm_ui.comp_relation_target_str)
-        {
-            UpdateString64(s_sm_ui.comp_relation_target_str->string, "%d", relation->target_entity);
-        }
-        if (s_sm_ui.comp_relation_active_str)
-        {
-            UpdateString64(s_sm_ui.comp_relation_active_str->string, "%s", relation->is_active ? "ON" : "OFF");
-        }
     }
     else
     {
         ClearString64(s_sm_ui.comp_relation_type_str);
-        ClearString64(s_sm_ui.comp_relation_target_str);
-        ClearString64(s_sm_ui.comp_relation_active_str);
     }
 }
 
@@ -1390,11 +1334,13 @@ static void RefreshGeometryView(const Newtonoid2d *object)
             RefreshTextboxFields(f, ARRAY_COUNT(f));
             SetParentEnabledState(row, true);
         }
-        else
+        else if (i < s_sm_geometry_rows_enabled)
         {
+            // Only a row that was shown last frame needs disabling now; the rest already are.
             SetParentEnabledState(row, false);
         }
     }
+    s_sm_geometry_rows_enabled = verts ? shown : 0;
 }
 
 // ============================================================================
@@ -1442,6 +1388,22 @@ static void StateManager_ApplyLayout(void)
     // A live primary entity exists: a stale ref (deleted or destroyed entity) counts as none.
     bool has_target = StateManager_SelectedObject() != NULL;
 
+    // Re-apply only when an input changed (this runs every frame while an entity is selected, and
+    // the layout does string formatting and several enable/disable calls).
+    TargetRef primary_ref;
+    StateManagerLayoutSignature signature;
+    memset(&signature, 0, sizeof(signature)); // Zero the padding too, so the memcmp below is exact.
+    signature.entity_count = entity_count;
+    signature.primary = PanelShared_PrimaryOfKind(TARGET_KIND_ENTITY, &primary_ref) ? primary_ref.as.entity
+                                                                                    : INVALID_ENTITY_ID;
+    signature.has_target = has_target;
+    if (s_sm_layout_signature_valid && memcmp(&signature, &s_sm_layout_signature, sizeof(signature)) == 0)
+    {
+        return;
+    }
+    s_sm_layout_signature = signature;
+    s_sm_layout_signature_valid = true;
+
     // Header tint: amber while several entities are being edited together.
     PanelShared_HeaderSetTint(&s_sm_ui.header, multi);
 
@@ -1457,10 +1419,7 @@ static void StateManager_ApplyLayout(void)
     }
     if (desired != s_sm_shown_view)
     {
-        // SelectView fires the callback, which would overwrite the remembered tab; keep it.
-        int remembered_tab = s_sm_entity_tab;
-        ViewHostSystem_SelectView(s_sm_selector, (size_t)desired);
-        s_sm_entity_tab = remembered_tab;
+        PanelShared_SelectViewKeepingTab(s_sm_selector, (size_t)desired, &s_sm_entity_tab);
         s_sm_shown_view = desired;
     }
 
@@ -1480,11 +1439,10 @@ static void StateManager_ApplyLayout(void)
     // DELETE acts on the primary entity only, so the multi-select label says so.
     if (s_sm_ui.delete_button)
     {
-        TargetRef primary;
-        if (multi && PanelShared_PrimaryOfKind(TARGET_KIND_ENTITY, &primary))
+        if (multi && signature.primary != INVALID_ENTITY_ID)
         {
             char label[32];
-            snprintf(label, sizeof(label), "DELETE PRIMARY #%d", (int)primary.as.entity);
+            snprintf(label, sizeof(label), "DELETE PRIMARY #%d", (int)signature.primary);
             PanelShared_SetButtonText(s_sm_ui.delete_button, label);
         }
         else
@@ -1531,113 +1489,44 @@ void UpdateStateManagerSelectedObject(void)
 // Module Lifecycle
 // ============================================================================
 
+// Build the Entity Mgmt panel: load state_manager.xml, build its host on the former left-panel
+// viewport slot (&lpanel_viewport) through the shared panel builder, re-acquire every element by id
+// and wire the C-owned behaviour, then lay the panel out over the valid viewport space.
 void InitStateManagerSystem(void)
 {
-    // 1) Load the authoritative markup with the state-manager resolvers (mirrors InitLPanel).
-    UIElement *root = UILoader_LoadFromFileWithResolvers(
-        UI_COMPONENTS_DIR "/state_manager.xml",
-        UIPalette_GetActive(),
-        StateManager_ResolveBinding,
-        StateManager_ResolveCommand,
-        StateManager_ResolveViewType,
-        NULL);
-    if (!root)
-    {
-        // XML is the single authoritative source; a load failure is an asset/build error.
-        LOG_ERROR("InitStateManagerSystem: failed to load state_manager.xml; panel will not render");
-        return;
-    }
-
-    // 2) Extract the Views (each carries its ViewType from type= via StateManager_ResolveViewType).
-    size_t view_count = 0;
-    View **xml_views = UILoader_ExtractViews(root, &view_count);
-
-    // 3) Build the host against the former left-panel viewport, then build the real root and
-    //    re-parent the XML container under it. The panel is presented to the user as 'Entity Mgmt'
-    //    and now occupies the former left-panel slot (&lpanel_viewport); its C identifiers are
-    //    unchanged. Scale 1.0f / padding {0.1,0.1} are adopted from InitLPanel; UpdateUISpace
-    //    (step 10) re-lays-out the panel over the valid viewport space afterwards.
-    state_manager_panel = ViewHostSystem_Create(&lpanel_viewport, 1.0f,
-                                                (Vector2d){5.0f, 5.0f},
-                                                UIPalette_GetActive(), ui_standard_stack_spacing);
-    if (!state_manager_panel)
-    {
-        DisposeUIElement(root);
-        if (xml_views)
-        {
-            Deallocate((void **)&xml_views, sizeof(View *) * view_count);
-        }
-        return;
-    }
-
-    ViewHostSystem_InitRoot(state_manager_panel);      // Real UI_ELEMENT_ROOT + space + seed_box.
-    AddElementToTree(root, state_manager_panel->root); // Re-parent; NEVER panel->root = root.
-
-    // 4) Register the XML Views with the host.
-    ViewHostSystem_InitViews(state_manager_panel, view_count);
-    for (size_t i = 0; i < view_count; i++)
-    {
-        LArray_Push(&state_manager_panel->views, &xml_views[i]);
-    }
-    if (xml_views)
-    {
-        // Free the array (not the Views, which the host now owns).
-        Deallocate((void **)&xml_views, sizeof(View *) * view_count);
-    }
-
-    // 5) Build the selector from the XML <Option> metadata.
-    //    StateManager_OnViewSelected records the chosen tab and forwards to the host's handler.
-    ViewSelector *view_selector =
-        UILoader_BuildSelectorFromMarkup(state_manager_panel, StateManager_OnViewSelected);
-    s_sm_selector = view_selector;
+    // Tab state is reset first: the selection callback fires while the builder shows the initial view.
     s_sm_entity_tab = 0;
     s_sm_shown_view = SM_SHOWN_UNKNOWN;
 
-    // 6) Honour initial-view="phys_view" (fall back to the first view).
-    if (view_selector)
+    const PanelMarkupDesc desc = {
+        .file = UI_COMPONENTS_DIR "/state_manager.xml",
+        .viewport = &lpanel_viewport,
+        .host_padding = {5.0f, 5.0f},
+        .resolve_binding = StateManager_ResolveBinding,
+        .resolve_command = StateManager_ResolveCommand,
+        .resolve_view_type = StateManager_ResolveViewType,
+        .on_view_selected = StateManager_OnViewSelected,   // records the chosen tab
+    };
+    UIElement *root = NULL;
+    state_manager_panel = PanelShared_BuildFromMarkup(&desc, &s_sm_selector, &root);
+    if (!state_manager_panel)
     {
-        int initial = UILoader_ResolveViewIndexById(state_manager_panel, UILoader_GetInitialViewId());
-        if (initial < 0)
-        {
-            initial = 0;
-        }
-        ViewHostSystem_SelectView(view_selector, (size_t)initial);
-    }
-    else
-    {
-        // Selector allocation failed: establish single-view visibility manually, mirroring the
-        // lpanel fallback (never ViewHostSystem_FinaliseInit, which forces index 0).
-        for (int i = 0; i < state_manager_panel->views.count; i++)
-        {
-            View *view = *((View **)LArray_Get(&state_manager_panel->views, i));
-            if (!view || !view->container)
-            {
-                continue;
-            }
-            if (i == 0)
-            {
-                EnableElement(view->container);
-            }
-            else
-            {
-                DisableElement(view->container);
-            }
-        }
+        return;
     }
 
-    // 7) ID-REGISTRATION + WIRING PASS: re-acquire every pointer the C refresh/handlers need.
-    //    (Scrolling is now authored declaratively via scroll= on each <View> in the markup;
-    //    the former imperative View_SetScrollableX force-enable has been removed.)
+    // ID-REGISTRATION + WIRING PASS: re-acquire every pointer the C refresh/handlers need.
+    // (Scrolling is authored declaratively via scroll= on each <View> in the markup.)
     StateManager_RegisterElements(root);
 
-    // 8) Subscribe once so selection transitions can proactively refresh this panel.
+    // Subscribe once so selection transitions can proactively refresh this panel.
     UIState_SetSelectionChangedCallback(HandleSelectionChanged, NULL);
 
-    // 10) First frame should always render initialised state-manager values; final layout update.
+    // First frame should always render initialised state-manager values; final layout update.
+    s_sm_layout_signature_valid = false;
+    s_sm_geometry_rows_enabled = STATE_MANAGER_GEOMETRY_ROW_COUNT;
     MarkStateManagerRefreshDirty();
     UpdateUISpace(state_manager_panel->root, state_manager_panel->seed_box);
 }
-
 void DrawStateManagerSystem(void)
 {
     if (state_manager_panel)
@@ -1668,18 +1557,25 @@ void DrawStateManagerSystem(void)
     }
 }
 
+// Debug-basis hooks: expose the panel host's coordinate space to the diagnostics basis editor.
+Frame2d *GetStateManagerSpaceFrame(void)
+{
+    return ViewHostSystem_GetSpaceFrame(state_manager_panel);
+}
+
+bool SetStateManagerSpaceBasis(Vector2d basis_u, Vector2d basis_v)
+{
+    return ViewHostSystem_SetSpaceBasis(state_manager_panel, basis_u, basis_v);
+}
+
+void ResetStateManagerSpaceBasis(void)
+{
+    ViewHostSystem_ResetSpaceBasis(state_manager_panel);
+}
+
 UIElement *GetStateManagerRoot(void)
 {
     return state_manager_panel ? state_manager_panel->root : NULL;
-}
-
-// Reset all button element references across a flag array.
-static void ResetFlagButtons(FlagButton *buttons, size_t count)
-{
-    for (size_t i = 0; i < count; i++)
-    {
-        buttons[i].button = NULL;
-    }
 }
 
 // Destroy the state-manager panel and clear its cached UI references.
@@ -1692,14 +1588,16 @@ void DestroyStateManagerSystem(void)
     ViewHostSystem_Destroy(panel);
 
     state_manager_refresh_dirty = true;
-    ResetFlagButtons(s_sm_flags.entity_role, ARRAY_COUNT(s_sm_flags.entity_role));
-    ResetFlagButtons(s_sm_flags.entity_capability, ARRAY_COUNT(s_sm_flags.entity_capability));
-    ResetFlagButtons(s_sm_flags.entity_constraint, ARRAY_COUNT(s_sm_flags.entity_constraint));
-    ResetFlagButtons(s_sm_flags.entity_status, ARRAY_COUNT(s_sm_flags.entity_status));
-    ResetFlagButtons(s_sm_flags.collision_role_mask, ARRAY_COUNT(s_sm_flags.collision_role_mask));
+    PanelShared_ResetFlagButtons(s_sm_flags.entity_role, ARRAY_COUNT(s_sm_flags.entity_role));
+    PanelShared_ResetFlagButtons(s_sm_flags.entity_capability, ARRAY_COUNT(s_sm_flags.entity_capability));
+    PanelShared_ResetFlagButtons(s_sm_flags.entity_constraint, ARRAY_COUNT(s_sm_flags.entity_constraint));
+    PanelShared_ResetFlagButtons(s_sm_flags.entity_status, ARRAY_COUNT(s_sm_flags.entity_status));
+    PanelShared_ResetFlagButtons(s_sm_flags.collision_role_mask, ARRAY_COUNT(s_sm_flags.collision_role_mask));
     memset(&s_sm_ui, 0, sizeof(s_sm_ui));
     s_sm_selector = NULL; // Freed by ViewHostSystem_Destroy with the panel.
     s_sm_entity_tab = 0;
     s_sm_shown_view = SM_SHOWN_UNKNOWN;
     s_sm_fields_locked = false;
+    s_sm_layout_signature_valid = false;
+    s_sm_geometry_rows_enabled = STATE_MANAGER_GEOMETRY_ROW_COUNT;
 }

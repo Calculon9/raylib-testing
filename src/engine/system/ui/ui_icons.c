@@ -2,7 +2,7 @@
 *
 UI ICONS MODULE (implementation)
 *
-One home and one visual language for the toolbar's procedural glyphs. The relocated Nudge tool
+One home and one visual language for the toolbar's procedural glyphs. The Nudge tool
 glyph plus nine toggle glyphs, each attached to a button's UIElement.on_draw hook by id in
 InitToolbar. Every glyph is centred in e->screen_box, sized off the box HEIGHT (the toolbar tiles
 are wide and short, so height is the limiting axis), monochrome, and composed from the same raylib
@@ -76,7 +76,7 @@ static Color UIIcon_Ink(const UIElement *e)
 }
 
 // ============================================================================
-// Relocated Nudge tool glyph
+// Nudge tool glyph
 // ============================================================================
 
 // Draw the Nudge pictogram inside the element's box: an arrow pushing a small box with a couple
@@ -159,7 +159,7 @@ void UIIcon_DrawNudge(UIElement *e)
 // "paint a cell". Monochrome, centred in e->screen_box, composed from raylib primitives with no
 // heap allocation. This one glyph now carries BOTH cues for the consolidated cell-paint button:
 // the FRAME/divider ink is the button's font colour (see UIIcon_Ink), and the inner swatch is
-// filled with the ACTIVE TILE TYPE's palette colour (merged in from the retired DrawTileCycle),
+// filled with the ACTIVE TILE TYPE's palette colour (shared with the tile-type cycle),
 // so the colour the wheel selects is always visible. Attached via UIElement.on_draw.
 void UIIcon_DrawCellPaint(UIElement *e)
 {
@@ -172,7 +172,7 @@ void UIIcon_DrawCellPaint(UIElement *e)
     // Outline/divider ink follows the bound toggle state through the button's font colour.
     Color ink = UIIcon_Ink(e);
 
-    // Inner swatch = current paint tile colour (merged in from the retired DrawTileCycle).
+    // Inner swatch = current paint tile colour (shared with the tile-type cycle).
     // tile_type 0 has no palette colour of its own, so fall back to the button ink.
     ColourRgba swatch = TilePalette_ColourForType(UIState_GetActiveTileType(), e->data.button.font.colour);
     Color swatch_ink = ToRaylibColor(swatch);

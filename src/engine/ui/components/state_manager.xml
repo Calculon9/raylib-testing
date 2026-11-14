@@ -9,9 +9,9 @@
     <!--    normal structure with "-" placeholders, locked fields and no actions (see C).        -->
     <!-- View order matters: the five entity views come first, in tab order.                   -->
     <!--                                                                                 -->
-    <!-- Stage 1 of the XML migration: InitStateManagerSystem loads this markup through  -->
-    <!-- the generic UI loader (mirroring InitLPanel), then an id-registration pass       -->
-    <!-- re-acquires every element by id and wires the C-owned behaviour.                 -->
+    <!-- InitStateManagerSystem loads this markup through the generic UI loader, then an   -->
+    <!-- id-registration pass re-acquires every element by id and wires the C-owned        -->
+    <!-- behaviour.                                                                        -->
     <!--                                                                                  -->
     <!--  * Flag buttons, component toggles and DELETE are plain <Button> elements        -->
     <!--    (type="simple" for the flag/component toggles, type="submit" for DELETE).      -->
@@ -20,9 +20,8 @@
     <!--    is wired to HandleEntityDeleteClick in C (deferred, command-queue delete).      -->
     <!--    The primary entity is the one deleted.                                          -->
     <!--                                                                                   -->
-    <!--  * binding= attributes are intentionally ABSENT in Stage 1: field VALUES stay     -->
-    <!--    driven by the per-frame C refresh (RefreshPhysView etc.). The declarative       -->
-    <!--    binding= names return in Stage 2 once StateManager_ResolveBinding honours them.  -->
+    <!--  * binding= is used on the header and the ancestry rows; the other field VALUES      -->
+    <!--    are driven by the per-frame C refresh (RefreshPhysView etc.).                    -->
     <!--                                                                                    -->
     <!--  * io= expresses read-only (io="readonly") vs editable (io="safe"); every          -->
     <!--    titled <Container> uses width="fill" so the boxed section spans the panel and    -->
@@ -148,7 +147,7 @@
     <!--    comp_body_<type> indented 14 px holding the TextFields and the comp_note_<type> Textbox.   -->
     <!--  * AVAILABLE card comp_avail_<type>: the name Label (fills) and the comp_avail_btn_<type> ADD.-->
     <!-- Colours come from roles only: surface="card" is the CARD role (dark teal + cream        -->
-    <!-- text, inherited by every caption and field label inside the card, so no ink= is authored),    -->
+    <!-- text, inherited by every caption and field label inside the card by the loader),    -->
     <!-- surface="danger" is REMOVE (coral + ink) and surface="button" is ADD (amber + ink). Body      -->
     <!-- fields use field-layout="stacked" for the standard 118 px label column, measured from the     -->
     <!-- body's indented left edge. Card titles share one text start: the toggle caption is "> NAME",   -->
@@ -226,12 +225,13 @@
             </Container>
             </Container>
         </Container>
-    </View>    <!-- ================= GEOMETRY view (v1: readonly surface vectors) ================= -->
+    </View>
+    <!-- ================= GEOMETRY view (v1: readonly surface vectors) ================= -->
     <!-- Read-only listing of the selected entity's surface vectors. The vertex COUNT is a           -->
     <!-- readonly integer; each vertex is a readonly vector2 row in LOCAL coordinates (as stored,     -->
     <!-- relative to the anchor). A fixed pool of geo_vertexN slots (0..MAX_SHAPE_VERTICES-1) is      -->
-    <!-- shown/hidden/relabelled per selection by RefreshGeometryView, exactly like the ANCESTRY      -->
-    <!-- the ANCESTRY ancestry_lineN fixed slots. No binding= on the rows: they are         -->
+    <!-- shown/hidden/relabelled per selection by RefreshGeometryView, exactly like the ancestry_lineN -->
+    <!-- fixed slots of the ANCESTRY view. No binding= on the rows: they are                -->
     <!-- refreshed imperatively via the TextboxField/RefreshTextboxFields path.                        -->
     <!-- Same continuous sage sheet as PHYS: the View carries the container fill, the sections are  -->
     <!-- transparent hug groups, and every field uses field-layout="stacked" (118 px label column;  -->

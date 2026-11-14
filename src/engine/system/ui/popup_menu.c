@@ -4,6 +4,7 @@
 #include "entities/entity_prefab.h"
 #include "system/view_host_system.h"
 #include "system/ui/ui_loader.h"
+#include "system/ui/panel_shared.h"   // PanelShared_Find
 #include "system/command_system.h"
 #include "system/universe_system.h"
 #include "system/ui_system.h"
@@ -275,12 +276,7 @@ static int Popup_ResolveCommand(const char *cmd_string, UILoaderContext *ctx)
 // Every consumer null-guards, so a missing id degrades to an inert element.
 static UIElement *Popup_Find(UIElement *root, const char *id)
 {
-    UIElement *element = UILoader_FindById(root, id);
-    if (!element)
-    {
-        LOG_ERROR("Popup: id '%s' not found in markup", id);
-    }
-    return element;
+    return PanelShared_Find(root, "Popup", id);
 }
 
 // Acquire a clickable element by id and attach its base on_click + typed user_data.
@@ -328,8 +324,7 @@ static void Popup_RegisterElements(UIElement *root)
     // Floating-sheet edge: the submenus open over the bright world, and the standard sheet has no
     // border, so each gets a 1 px outline in the panel background colour (the PANEL surface fill).
     // This is the only place a popup surface takes a border.
-    ColourRgba floating_edge = COLOURLESS_RGBA;
-    UIPalette_GetSurfaceColours(popup_menu->palette, UI_PALETTE_SURFACE_PANEL, NULL, &floating_edge);
+    const ColourRgba floating_edge = UIPalette_GetSurfaceStyle(popup_menu->palette, UI_PALETTE_SURFACE_PANEL).fill;
     UIElement *floating_sheets[2] = {popup_create_entity_submenu_cont, popup_create_world_submenu_cont};
     for (int i = 0; i < 2; i++)
     {
@@ -358,7 +353,7 @@ static void Popup_RegisterElements(UIElement *root)
         item->on_hover = HandlePopupHover;
         item->interaction_user_data = category_actions[i];
         // Border weight of the INACTIVE / ACTIVE control surfaces (they share the input border).
-        item->border_weight = UIPalette_GetSurfaceBorderWeight(popup_menu->palette, UI_PALETTE_SURFACE_INACTIVE);
+        item->border_weight = UIPalette_GetSurfaceStyle(popup_menu->palette, UI_PALETTE_SURFACE_INACTIVE).border_weight;
         SetUIElementTextHorizontalAlignment(item, UI_TEXT_ALIGN_LEFT);
         SetUIElementTextVerticalAlignment(item, UI_TEXT_VERTICAL_ALIGN_CENTRE);
         item->is_draggable = false;

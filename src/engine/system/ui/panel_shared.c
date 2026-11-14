@@ -249,20 +249,19 @@ void PanelShared_HandleFlagClick(UIElement *button)
     PanelShared_WalkFlag(spec->family, spec->flag, true, value);
 }
 
-// Wire a family of flag buttons acquired from the loaded tree: store the element into each
-// buttons[i].button, attach the click handler + user_data, and attach the query SOURCE Binding
-// (keyed on the flag bit) so the generic refresh walk composes "<label>: ON/OFF". A missing id is
-// logged and left NULL so the feature degrades to an inert button.
-void PanelShared_WireFlags(UIElement *root, FlagButton *buttons, const char **ids, size_t count,
-                           FlagFamily family)
+// Wire a family of flag buttons acquired from the loaded tree: look up each entry's id, store the
+// element into buttons[i].button, attach the click handler + user_data, and attach the query SOURCE
+// Binding (keyed on the flag bit) so the generic refresh walk composes "<label>: ON/OFF". A missing
+// id is logged and left NULL so the feature degrades to an inert button.
+void PanelShared_WireFlags(UIElement *root, FlagButton *buttons, size_t count, FlagFamily family)
 {
     for (size_t i = 0; i < count; i++)
     {
         buttons[i].family = family;
-        buttons[i].button = UILoader_FindById(root, ids[i]);
+        buttons[i].button = UILoader_FindById(root, buttons[i].id);
         if (!buttons[i].button)
         {
-            LOG_ERROR("PanelShared: flag button id '%s' not found in markup", ids[i]);
+            LOG_ERROR("PanelShared: flag button id '%s' not found in markup", buttons[i].id);
             continue;
         }
         buttons[i].button->on_click = PanelShared_HandleFlagClick;
@@ -451,4 +450,125 @@ int PanelShared_CountKind(TargetKind kind)
         }
     }
     return total;
+}
+
+// Forget the button element references of a flag table (called when the panel is destroyed).
+void PanelShared_ResetFlagButtons(FlagButton *buttons, size_t count)
+{
+    for (size_t i = 0; i < count; i++)
+    {
+        buttons[i].button = NULL;
+    }
+}
+
+// Look up an element by id in a loaded tree. A miss is logged once as "<panel_name>: id '<id>' not
+// found in markup" and returns NULL; every caller null-guards, so a missing id degrades to an
+// inert element instead of a crash.
+UIElement *PanelShared_Find(UIElement *root, const char *panel_name, const char *id)
+{
+    UIElement *element = UILoader_FindById(root, id);
+    if (!element)
+    {
+        LOG_ERROR("%s: id '%s' not found in markup", panel_name, id);
+    }
+    return element;
+}
+
+// Select `desired` on a selector without losing the remembered tab. ViewHostSystem_SelectView fires
+// the panel's selection callback, which records the forced view as the user's tab; saving and
+// restoring the remembered tab around the call keeps the user's choice.
+void PanelShared_SelectViewKeepingTab(ViewSelector *selector, size_t desired, int *remembered_tab)
+{
+    int tab = *remembered_tab;
+    ViewHostSystem_SelectView(selector, desired);
+    *remembered_tab = tab;
+}
+
+// Write the static "values: primary only" caption into a read-only note Textbox. A Textbox value=
+// attribute would be parsed as a number, so the text is set here; the string lives in one place.
+void PanelShared_SetNoteText(UIElement *note)
+{
+    if (note)
+    {
+        snprintf(note->data.textbox.text.string, sizeof(note->data.textbox.text.string),
+                 "values: primary only");
+    }
+}
+
+// Load a panel's markup and build its view host: load with the panel's resolvers, extract the
+// Views, create the host over the viewport, build and re-parent the real root, register the Views,
+// build the tab selector from the <Option> metadata and show the initial view (the markup's
+// initial-view, else the first). When the selector cannot be built, the first view is shown by
+// hand (never ViewHostSystem_FinaliseInit, which forces index 0). Failure paths dispose the loaded
+// tree and the extracted view array, so nothing leaks.
+ViewHostSystem *PanelShared_BuildFromMarkup(const PanelMarkupDesc *desc, ViewSelector **out_selector,
+                                            UIElement **out_root)
+{
+    *out_selector = NULL;
+    *out_root = NULL;
+
+    // 1) Load the markup with the panel's resolvers.
+    UIElement *root = UILoader_LoadFromFileWithResolvers(desc->file, UIPalette_GetActive(),
+                                                         desc->resolve_binding, desc->resolve_command,
+                                                         desc->resolve_view_type, NULL);
+    if (!root)
+    {
+        // XML is the single authoritative source; a load failure is an asset/build error.
+        LOG_ERROR("PanelShared: failed to load %s; panel will not render", desc->file);
+        return NULL;
+    }
+
+    // 2) Extract the Views (each carries its ViewType from type= via the view-type resolver).
+    size_t view_count = 0;
+    View **xml_views = UILoader_ExtractViews(root, &view_count);
+
+    // 3) Build the host against the viewport, then the real root, and re-parent the markup root
+    //    under it. The caller's UpdateUISpace lays the panel out over the valid viewport space.
+    ViewHostSystem *host = ViewHostSystem_Create(desc->viewport, 1.0f, desc->host_padding,
+                                                 UIPalette_GetActive(), ui_standard_stack_spacing);
+    if (!host)
+    {
+        DisposeUIElement(root);
+        if (xml_views)
+        {
+            Deallocate((void **)&xml_views, sizeof(View *) * view_count);
+        }
+        return NULL;
+    }
+    ViewHostSystem_InitRoot(host);      // Real UI_ELEMENT_ROOT + space + seed_box.
+    AddElementToTree(root, host->root); // Re-parent; NEVER host->root = root.
+
+    // 4) Register the Views with the host.
+    ViewHostSystem_InitViews(host, view_count);
+    for (size_t i = 0; i < view_count; i++)
+    {
+        LArray_Push(&host->views, &xml_views[i]);
+    }
+    if (xml_views)
+    {
+        // Free the array (not the Views, which the host now owns).
+        Deallocate((void **)&xml_views, sizeof(View *) * view_count);
+    }
+
+    // 5) Build the selector from the <Option> metadata and publish it before the first selection.
+    ViewSelector *selector = UILoader_BuildSelectorFromMarkup(host, desc->on_view_selected);
+    *out_selector = selector;
+    *out_root = root;
+
+    // 6) Show the initial view.
+    if (selector)
+    {
+        int initial = UILoader_ResolveViewIndexById(host, UILoader_GetInitialViewId());
+        if (initial < 0)
+        {
+            initial = 0;
+        }
+        ViewHostSystem_SelectView(selector, (size_t)initial);
+    }
+    else
+    {
+        // Selector allocation failed: establish single-view visibility manually.
+        PanelShared_ShowOnlyView(host, 0);
+    }
+    return host;
 }
